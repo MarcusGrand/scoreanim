@@ -1,3 +1,98 @@
+# Phase 0 & 1 spike notes
+
+## Phase 1 T0 — MEI bridge (`spikes/mei_bridge.py`, 2026-07-10)
+
+Load options: concert pitch, encoded breaks, `xmlIdSeed: 42`.
+
+- **Id agreement confirmed**: 500 note ids each in timemap / SVG /
+  `tk.getMEI()`; timemap ⊆ MEI, SVG == MEI. Same seed → identical ids on
+  reload. The MEI is a valid join bridge.
+- **staffDef n=1..7 map 1:1 to the seven MusicXML parts, in order**, with
+  labels equal to the part names.
+- **MEI layer @n preserves MusicXML voice numbers** (drums layers 5/6,
+  Tbns 1/2) — same numbers music21 reports as Voice ids, so voice
+  matching is direct (order fallback kept as safety net).
+- **Note attribute census** (500 notes): `pname`/`oct` on 483;
+  **17 drum notes are unpitched** — they carry `@loc` (staff position,
+  0 = bottom line) instead. Join needs an unpitched tier: match by
+  staff position / vertical order, not pitch. Accidentals are child
+  `<accid>` elements (`accid` or `accid.ges`), not note attributes.
+  `dur`/`dur.ppq` present only on non-chord-member notes (119).
+- **Slash measures render as MEI `<space>`** elements (2 per 4/4, 1 per
+  2/4) — nothing drawable, nothing in the timemap, as expected.
+
+## Phase 1 T0 — music21 behavior (`spikes/m21_behavior.py`, 2026-07-10)
+
+- **`<measure-style><slash/>` is dropped entirely** by music21 (no object
+  anywhere with slash in its class). Slash regions must come from a raw
+  XML scan (plan D1) — confirmed.
+- **Slash measures parse as full-measure `Rest`s** (music21 converts the
+  `<forward>` skips). These are *not* musical rests; ScoreModel must
+  exclude them via the slash-region measure set, not by inspecting rests.
+- **`toSoundingPitch()` matches Verovio's concert render**: P1 c# minor →
+  e minor, F#5→A4 etc. After neutralizing the 2 octave-only
+  `<transpose>` elements (P5 Guitar, P6 Bass), both stay at written
+  octave through `toSoundingPitch()` — pitch alignment by construction
+  holds.
+- **music21 replaces `Part.id` with the part *name*** ("Sop. Alto Ten. 1",
+  not "P1"). Canonical part key = document order; the prep scan carries
+  (order, P-id, name).
+- **Grace notes** (3): `offset` = the principal's offset (e.g. 1.0),
+  `quarterLength` 0, `duration.isGrace` True — as assumed; onset-equality
+  checks must exempt them.
+- **Voices**: most parts have no `Voice` containers (single voice);
+  Tbns has Voices '1'/'2', Drum Set '5'/'6'. Drum notes are `Unpitched`
+  with displayStep/displayOctave.
+- No `PartStaff` splitting (all 7 parts single-staff).
+
+## Phase 1 build findings (T3–T5, 2026-07-10)
+
+Discovered while implementing the adapter/join; these are library facts,
+not design decisions:
+
+- **Verovio styles its SVG via one small `<style>` block**, not element
+  attributes: every shape gets `stroke: currentColor`; tempo/reh/ending/
+  fing text is bold, dir/dynam/mNum italic. The adapter bakes these into
+  primitives so the redraw needs no CSS. Rehearsal-mark boxes use
+  `fill-opacity="0"` (mapped to `fill="none"`).
+- **music21 realizes `<harmony>` as `ChordSymbol`**, a `Chord` subclass
+  that appears in `.notes` — the m19 D7 symbols added 8 phantom
+  "noteheads" until excluded from ScoreModel.
+- **Verovio's gestural accidental (`accid.ges`) is unreliable** on
+  exactly 8 fixture notes: the 5 open-tie targets get none (sounding
+  D#4 reported as D4), and 3 Tbns m5 notes get one over-propagated
+  across octaves. MusicXML `<alter>` (music21 side) is authoritative →
+  the join keys on (step, octave) without alter.
+- **Tied-to notes appear as fresh `on` events in the timemap** (all 500
+  notes have onsets, including 58 tie-stop noteheads). Phase 3+ reveal
+  logic must gate on `ScoreNote.tie`, not the timemap, to avoid
+  re-triggering tied notes.
+- **MEI `@loc` ↔ display pitch**: loc = diatonic(step, oct) − 30
+  (0 = bottom line, treble numbering) — verified hi-hat B5→11, kick F4→1.
+- The 5 open ties produce **no drawn tie curve** (59 TIE elements from
+  64 source ties).
+- Slash-measure durations come from timemap `measureOn` qstamp deltas;
+  synthesized slashes use the per-measure drum staff-lines bbox for
+  geometry (even slots; system-start measures share the slot logic —
+  clef/key prefix slightly narrows visual centering, accepted for v1).
+- **Corrected slash regions** (supersedes the Phase 0 "mm. 3ff"/"mm. 3–19"
+  approximation): the drum part has THREE `[start, stop)` regions —
+  **mm 3–9, 11–15, 16–17**. m10 and m18 contain real drum fills; m16
+  carries both a `stop` and a `start` (region boundary, still slash).
+  Meters inside the regions are 4/4 except m5 and m14 (2/4).
+- **Text decomposition** (T-fix after Phase 1 review): Verovio puts a
+  text's anchor point + `text-anchor` either on `<text>` itself (labels,
+  tempo) or on a positioned `rend` tspan inside it (pgHead lines), and
+  styles runs via nested tspans — labels are END-anchored, the title
+  middle, the composer block end, "Project Lyricist" carries
+  `fill="#C0C0C0"`. The tempo mark is four runs in one `<text>`; the
+  metronome note is a separate 720px `font-family="Bravura"` run
+  (rendered via the @font-face Verovio embeds in the SVG), while
+  Verovio's own tofu glyph sits inside the 405px text run (upstream,
+  BACKLOG item 3). TextPrimitive therefore stores anchor + styled runs,
+  and the redraw replays them; pinned in
+  tests/test_adapter_layout.py::test_text_decomposition_preserves_anchor_and_styling.
+
 # Phase 0 spike notes
 
 Environment: Python 3.12.13 (uv venv), verovio 6.2.1-8d42439, music21 10.5.0,
@@ -75,7 +170,9 @@ measure numbers at system starts (5, 9, 13, 17).
 ### Deviations observed (for the user to judge)
 
 1. **Drum slash region renders empty.** Dorico exports mm. 3ff of the drum
-   part as `<measure-style><slash type="start" use-stems="no"/>` with **no
+   part (precise regions: mm 3–9, 11–15, 16–17 — see the Phase 1 findings
+   above, which supersede this approximation) as
+   `<measure-style><slash type="start" use-stems="no"/>` with **no
    `<note>` elements** in those measures. Verovio ignores this measure-style
    → empty drum staff from m. 3 on (PDF shows beat slashes). Note for later
    phases: those measures contain no note events, so there is nothing to

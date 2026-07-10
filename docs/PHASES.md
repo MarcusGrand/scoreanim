@@ -50,16 +50,25 @@ companion PDF is concert pitch; all fidelity comparisons and test
 expectations from here on are against concert-pitch renders (CLAUDE.md
 rule 9).
 
-## Phase 1 — Core skeleton: parse → Layout → headless tests
+## Phase 1 — Core skeleton: parse → Layout → headless tests — ✅ COMPLETE 2026-07-10
 
-- [ ] **1.1 Package layout** as in CLAUDE.md; `tests/test_no_qt_in_core.py`
+Exit criteria passed: 43 headless tests green; `python -m
+scoreanim.tools.dump_notes testdata/testscore.musicxml` prints all 500
+noteheads + 52 synthesized slashes with (part, onset_beats, page, x, y).
+Build findings (Verovio stylesheet baking, ChordSymbol exclusion,
+accid.ges unreliability → join keys on (step, octave), tied-to notes as
+fresh timemap onsets) recorded in `spikes/NOTES.md`. Decomposition
+fidelity reviewable in the bbox-overlay artifact
+(`scoreanim/tools/bbox_overlay.py`).
+
+- [x] **1.1 Package layout** as in CLAUDE.md; `tests/test_no_qt_in_core.py`
       (walks core/ AST or imports, asserts no Qt). Verify: pytest passes.
-- [ ] **1.2 Core types**: ElementId, ElementIdentity, ElementKind, Layout,
+- [x] **1.2 Core types**: ElementId, ElementIdentity, ElementKind, Layout,
       RenderedElement, EngravingParams, EngravingProvider ABC. Frozen
       dataclasses, full type hints. ElementKind includes SLASH (Phase 0
       ruling). EngravingParams fixes transposeToSoundingPitch=True (not
       user-facing in v1).
-- [ ] **1.3 Verovio adapter**: MusicXML → Layout. Decompose SVG per
+- [x] **1.3 Verovio adapter**: MusicXML → Layout. Decompose SVG per
       element; assign our ElementIds; recover part/staff/voice from SVG
       nesting + music21 cross-reference; record bbox and anchor; honor
       encoded breaks; capture page geometry from the score. Always set a
@@ -70,10 +79,10 @@ rule 9).
       concert-pitch expectations): expected page count, expected notehead
       count, a slur with correct extent, identities carrying correct part
       names.
-- [ ] **1.4 ScoreModel**: music21 parse → onset beats per note, joined to
+- [x] **1.4 ScoreModel**: music21 parse → onset beats per note, joined to
       ElementIds. Verify: for the test score, `id → onset` matches
       Verovio's timemap ordering.
-- [ ] **1.5 Slash-region synthesis**: adapter synthesizes slash elements
+- [x] **1.5 Slash-region synthesis**: adapter synthesizes slash elements
       for `<measure-style><slash/>` regions — one per beat from the time
       signature, kind = SLASH, staff-positioned, onsets on the beats so
       they animate like notes. Verify (headless test against
@@ -93,6 +102,13 @@ every notehead with (part, onset_beats, page, x, y).
       own aspect, letterboxed; page prev/next; zoom.
       Verify: open `testdata/testscore.musicxml`, flip through pages,
       one part tinted.
+- [ ] **2.3 Header as stage element** (ruling 2026-07-10, ARCHITECTURE.md
+      §3 ruling 4): engrave with Verovio's header suppressed;
+      title/composer/lyricist become stage-level text elements in
+      stage_config, styled and positioned in-app, animatable like any
+      element. Defaults seeded from the score's credit texts.
+      Verify: stage shows title/composer from stage_config, not from the
+      engraved page; moving/restyling them never re-engraves.
 
 **Exit criteria**: app opens a Dorico MusicXML and displays it paged,
 faithful to Phase-0 SVGs, with per-element control proven.

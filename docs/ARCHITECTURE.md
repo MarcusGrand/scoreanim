@@ -81,11 +81,22 @@ class EngravingProvider(ABC):
 #
 # 3. Slash-region synthesis: Dorico exports slash regions as
 #    <measure-style><slash/> with NO <note> elements (verified: drum part
-#    mm. 3-19 of the test score), which Verovio renders as empty measures
-#    and which produce no timemap events. The adapter must synthesize
-#    slash elements: one per beat from the time signature, kind = SLASH,
-#    staff-positioned, with onsets on the beats, so slash regions render
-#    and animate like notes.
+#    mm. 3-9, 11-15, 16-17 of the test score — three [start, stop)
+#    regions; m10 and m18 are real fills), which Verovio renders as empty
+#    measures and which produce no timemap events. The adapter must
+#    synthesize slash elements: one per beat from the time signature,
+#    kind = SLASH, staff-positioned, with onsets on the beats, so slash
+#    regions render and animate like notes.
+#
+# 4. Header as stage element (ruling 2026-07-10): long-term, the
+#    title/composer block does NOT come from the engraving pipeline.
+#    From Phase 2 on, Verovio renders with the header suppressed;
+#    title/composer/lyricist become stage-level text elements stored in
+#    stage_config, styled and positioned in-app and animatable like any
+#    element (see PHASES 2.3). Phase 1's decomposition nevertheless
+#    reproduces whatever Verovio emits — encoded header included —
+#    faithfully; suppression is a rendering option, not a decomposition
+#    exemption.
 
 @dataclass(frozen=True)
 class RenderedElement:
@@ -174,7 +185,9 @@ Project (saved file, versioned schema)
 ├── layout_overrides     {ElementId → dx, dy, hidden}
 ├── tempo_map            events, swing regions, raw taps (kept for re-derive)
 ├── style_rules          part colors, effect assignments, overrides
-└── stage_config         background, letterbox behavior
+└── stage_config         background, letterbox behavior, header text
+                         elements (title/composer/lyricist — stage-level
+                         text, not engraved; adapter ruling 4)
 ```
 
 Never persisted: Layout, timemaps, decomposed geometry — always re-derived.
