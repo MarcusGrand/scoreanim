@@ -1,0 +1,15 @@
+[project]
+name = "scoreanim"
+version = "0.0.1"
+description = "Animates a Dorico-exported MusicXML score in sync with a recorded audio performance."
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.7",
+    "verovio>=4.3",
+    "music21>=9.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
