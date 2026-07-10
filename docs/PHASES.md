@@ -93,16 +93,25 @@ fidelity reviewable in the bbox-overlay artifact
 **Exit criteria**: `pytest` green; a script can print, for a real score,
 every notehead with (part, onset_beats, page, x, y).
 
-## Phase 2 — Static render: Layout on screen
+## Phase 2 — Static render: Layout on screen — ✅ COMPLETE 2026-07-11
 
-- [ ] **2.1 Scene builder** (`render/scene.py`): Layout →
+Exit criteria passed: visual review accepted by the user 2026-07-11
+(review artifact: Qt render vs Phase-0 reference vs Dorico PDF, tinted
+part demo). 74 headless tests green. `python -m scoreanim <score>` shows
+the paged score letterboxed with zoom/pan and a Parts tint menu. Build
+findings (header:"none" id-stability + space reclaim, Dorico credit
+coordinates unreliable, Qt WindingFill / QPen SVG defaults, Bravura WOFF2
+registration) in `spikes/NOTES.md` Phase 2 section. Stage-header defaults
+(credit positions ignored, block fitted above the top staff) accepted.
+
+- [x] **2.1 Scene builder** (`render/scene.py`): Layout →
       QGraphicsItems keyed by ElementId; per-element addressability
       demonstrated by recoloring one part.
-- [ ] **2.2 StageView + minimal app shell**: paged display at the score's
+- [x] **2.2 StageView + minimal app shell**: paged display at the score's
       own aspect, letterboxed; page prev/next; zoom.
       Verify: open `testdata/testscore.musicxml`, flip through pages,
       one part tinted.
-- [ ] **2.3 Header as stage element** (ruling 2026-07-10, ARCHITECTURE.md
+- [x] **2.3 Header as stage element** (ruling 2026-07-10, ARCHITECTURE.md
       §3 ruling 4): engrave with Verovio's header suppressed;
       title/composer/lyricist become stage-level text elements in
       stage_config, styled and positioned in-app, animatable like any
@@ -111,7 +120,8 @@ every notehead with (part, onset_beats, page, x, y).
       engraved page; moving/restyling them never re-engraves.
 
 **Exit criteria**: app opens a Dorico MusicXML and displays it paged,
-faithful to Phase-0 SVGs, with per-element control proven.
+faithful to Phase-0 SVGs, with per-element control proven. **PASSED
+2026-07-11.**
 
 ## Phase 3 — Time: TempoMap, clocks, transport, first animation
 
@@ -184,4 +194,6 @@ growing slurs plays in sync; adding "pop" required only a preset.
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-
 score auto-alignment provider; custom engraving provider; MIDI input;
-richer effect editor; arbitrary-exporter MusicXML robustness.
+richer effect editor; arbitrary-exporter MusicXML robustness; in-app
+editing of score-anchored texts (part labels, title, tempo marks) with
+the score shifting to fit — ruling 2026-07-11, BACKLOG item 5.

@@ -1,10 +1,27 @@
-"""Application entry point. GUI shell arrives in Phase 2."""
+"""Application entry point (Phase 2 shell: static paged score display)."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
 
 
-def main() -> None:
-    raise SystemExit("ScoreAnim has no GUI yet (Phase 2). "
-                     "Run `pytest` or `python -m scoreanim.tools.dump_notes`.")
+def main() -> int:
+    from PySide6.QtWidgets import QApplication
+
+    from scoreanim.render.fonts import register_bravura
+    from scoreanim.ui.main_window import MainWindow
+
+    app = QApplication(sys.argv)
+    if not register_bravura():
+        print("note: Bravura text font unavailable — the metronome-note "
+              "glyph falls back to tofu (BACKLOG item 3)", file=sys.stderr)
+
+    score = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+    window = MainWindow(score)
+    window.show()
+    return app.exec()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

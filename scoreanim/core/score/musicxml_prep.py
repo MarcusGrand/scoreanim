@@ -10,6 +10,9 @@ plus facts extracted from the raw XML that neither library exposes:
 - Slash regions (<measure-style><slash/>) — music21 drops them entirely
   (verified, spikes/NOTES.md), so they are scanned here.
 - Page geometry from <defaults> — Verovio does not read it itself.
+- Credit texts (<credit>) — from Phase 2 on the engraved header is
+  suppressed and title/composer/… become stage-level text elements
+  (ARCHITECTURE.md §3 ruling 4); their defaults are seeded from these.
 """
 
 from __future__ import annotations
@@ -45,12 +48,26 @@ class SlashRegion:
 
 
 @dataclass(frozen=True)
+class CreditText:
+    credit_type: str | None      # "title", "composer", …; None if untyped
+    text: str
+    page: int                    # 1-based
+    font_size_pt: float | None   # MusicXML font-size is in points
+    justify: str | None          # "left" | "center" | "right"
+    color: str | None            # e.g. "#C0C0C0"
+    default_x: float | None      # tenths, from the page's left edge
+    default_y: float | None      # tenths, from the page's BOTTOM edge (y-up)
+
+
+@dataclass(frozen=True)
 class PreparedScore:
     canonical_xml: str
     parts: tuple[PartInfo, ...]
     slash_regions: tuple[SlashRegion, ...]
+    credits: tuple[CreditText, ...]
     page_width: float            # page units (1/10 mm)
     page_height: float
+    units_per_tenth: float       # tenths → page units (1/10 mm) factor
 
     def part_for_staff(self, staff_n: int) -> PartInfo:
         for p in self.parts:
@@ -68,8 +85,9 @@ def _neutralize_octave_only_transposes(root: ET.Element) -> None:
                 attributes.remove(tr)
 
 
-def _page_size(root: ET.Element) -> tuple[float, float]:
-    """(width, height) in 1/10 mm from <defaults> (as spikes/fidelity.py)."""
+def _page_size(root: ET.Element) -> tuple[float, float, float]:
+    """(width, height, units_per_tenth) in 1/10 mm from <defaults>
+    (as spikes/fidelity.py)."""
     scaling = root.find("./defaults/scaling")
     layout = root.find("./defaults/page-layout")
     if scaling is None or layout is None:
@@ -77,10 +95,38 @@ def _page_size(root: ET.Element) -> tuple[float, float]:
                          "cannot derive page geometry")
     mm = float(scaling.findtext("millimeters"))
     tenths = float(scaling.findtext("tenths"))
-    mm_per_tenth = mm / tenths
-    width = float(layout.findtext("page-width")) * mm_per_tenth * 10
-    height = float(layout.findtext("page-height")) * mm_per_tenth * 10
-    return width, height
+    units_per_tenth = mm / tenths * 10
+    width = float(layout.findtext("page-width")) * units_per_tenth
+    height = float(layout.findtext("page-height")) * units_per_tenth
+    return width, height, units_per_tenth
+
+
+def _credits(root: ET.Element) -> tuple[CreditText, ...]:
+    """One CreditText per <credit-words>, carrying its credit's type.
+    Untyped credits (Dorico's "other" fields, e.g. the lyricist line) keep
+    credit_type None."""
+    def fnum(el: ET.Element, name: str) -> float | None:
+        v = el.get(name)
+        return float(v) if v is not None else None
+
+    out: list[CreditText] = []
+    for credit in root.findall("credit"):
+        ctype = credit.findtext("credit-type")
+        page = int(credit.get("page", "1"))
+        for words in credit.iter("credit-words"):
+            text = (words.text or "").strip()
+            if not text:
+                continue
+            out.append(CreditText(
+                credit_type=ctype.strip() if ctype else None,
+                text=text, page=page,
+                font_size_pt=fnum(words, "font-size"),
+                justify=words.get("justify") or words.get("halign"),
+                color=words.get("color"),
+                default_x=fnum(words, "default-x"),
+                default_y=fnum(words, "default-y"),
+            ))
+    return tuple(out)
 
 
 def _parts(root: ET.Element) -> tuple[PartInfo, ...]:
@@ -143,13 +189,16 @@ def prepare(score_path: Path) -> PreparedScore:
 
     parts = _parts(root)
     slash_regions = _slash_regions(root)
-    width, height = _page_size(root)
+    credits = _credits(root)
+    width, height, units_per_tenth = _page_size(root)
     _neutralize_octave_only_transposes(root)
 
     return PreparedScore(
         canonical_xml=ET.tostring(root, encoding="unicode"),
         parts=parts,
         slash_regions=slash_regions,
+        credits=credits,
         page_width=width,
         page_height=height,
+        units_per_tenth=units_per_tenth,
     )

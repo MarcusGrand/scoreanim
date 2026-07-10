@@ -44,6 +44,9 @@ of the current phase.
 7. **The user owns page layout.** We honor the MusicXML's encoded system
    and page breaks (Verovio break-respect mode). We never reflow to fit
    the window. Paged presentation; mismatched aspect is letterboxed.
+   (Planned, not scheduled: in-app editing of part labels/title/tempo
+   texts that re-engraves so the score shifts to fit — a re-engrave with
+   changed inputs is not window reflow. See docs/BACKLOG.md item 5.)
 
 8. **Every document mutation is an undoable command** (command pattern)
    from the first mutation implemented onward.

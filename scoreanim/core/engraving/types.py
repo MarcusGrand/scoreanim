@@ -170,3 +170,9 @@ class EngravingParams:
     # Fixed seed so provider-internal ids are stable across loads
     # (CLAUDE.md rule 4); not user-facing.
     xml_id_seed: int = 42
+    # ARCHITECTURE.md §3 ruling 4: from Phase 2 on the engraved header is
+    # suppressed — title/composer live in stage_config. Not user-facing;
+    # False exists so tests can keep pinning pgHead text decomposition
+    # (suppression is a rendering option, not a decomposition exemption).
+    # Verified: Verovio ids are identical either way, joins unaffected.
+    suppress_header: bool = True

@@ -2,8 +2,10 @@
 
 import pytest
 
-from scoreanim.core.engraving.svg_geom import (ellipse_path, parse_transform,
-                                               path_bbox, polygon_path,
+from scoreanim.core.engraving.svg_geom import (ClosePath, CubicTo, LineTo,
+                                               MoveTo, QuadTo, ellipse_path,
+                                               parse_transform, path_bbox,
+                                               path_segments, polygon_path,
                                                rect_path)
 
 
@@ -77,3 +79,56 @@ def test_polygon_and_rect_paths() -> None:
     assert (r.x, r.y, r.w, r.h) == (0, 0, 10, 8)
     r2 = path_bbox(rect_path(1, 2, 3, 4))
     assert (r2.x, r2.y, r2.w, r2.h) == (1, 2, 3, 4)
+
+
+# --- path_segments: the parser consumed by both path_bbox and render/ -------
+
+
+def test_segments_absolute_basic() -> None:
+    assert path_segments("M0 0 L10 5 Z") == (
+        MoveTo(0, 0), LineTo(10, 5), ClosePath())
+
+
+def test_segments_relative_and_hv_resolve_to_absolute_lines() -> None:
+    assert path_segments("m5 5 l10 0 v10 h-10 z") == (
+        MoveTo(5, 5), LineTo(15, 5), LineTo(15, 15), LineTo(5, 15),
+        ClosePath())
+
+
+def test_segments_implicit_lineto_after_moveto() -> None:
+    assert path_segments("M0 0 10 10 20 0") == (
+        MoveTo(0, 0), LineTo(10, 10), LineTo(20, 0))
+
+
+def test_segments_relative_moveto_after_close_uses_subpath_start() -> None:
+    # after Z the current point is the subpath start (2, 3)
+    assert path_segments("M2 3 L10 3 Z m1 1")[-1] == MoveTo(3, 4)
+
+
+def test_segments_smooth_cubic_reflects_previous_control() -> None:
+    segs = path_segments("M0 0 C0 -10 10 -10 10 0 S20 10 20 0")
+    # reflection of (10, -10) about (10, 0) is (10, 10)
+    assert segs[2] == CubicTo(10, 10, 20, 10, 20, 0)
+
+
+def test_segments_smooth_cubic_without_predecessor_uses_current_point() -> None:
+    segs = path_segments("M5 5 S10 10 20 5")
+    assert segs[1] == CubicTo(5, 5, 10, 10, 20, 5)
+
+
+def test_segments_smooth_quad_reflects_previous_control() -> None:
+    segs = path_segments("M0 0 Q5 -10 10 0 T20 0")
+    # reflection of (5, -10) about (10, 0) is (15, 10)
+    assert segs[2] == QuadTo(15, 10, 20, 0)
+
+
+def test_segments_relative_cubic() -> None:
+    segs = path_segments("M10 10 c1 2 3 4 5 6")
+    assert segs[1] == CubicTo(11, 12, 13, 14, 15, 16)
+
+
+def test_segments_reject_arcs_and_leading_numbers() -> None:
+    with pytest.raises(ValueError):
+        path_segments("M0 0 A5 5 0 0 1 10 10")
+    with pytest.raises(ValueError):
+        path_segments("10 10 L20 20")

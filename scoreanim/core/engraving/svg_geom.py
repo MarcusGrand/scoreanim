@@ -1,14 +1,21 @@
 """SVG geometry math for the Verovio adapter (plan D3).
 
 Pure functions: transform-attribute parsing (translate/scale/matrix only —
-Verovio emits nothing else; anything rotating is a hard error) and exact
-path bounding boxes via cubic/quadratic bézier extrema.
+Verovio emits nothing else; anything rotating is a hard error), path-data
+parsing into neutral segments, and exact path bounding boxes via
+cubic/quadratic bézier extrema.
+
+`path_segments` is the single parser for SVG path data: relative
+coordinates, H/V shorthands, and S/T reflections are resolved to absolute
+explicit segments, so consumers (path_bbox here, QPainterPath construction
+in render/) never deal with path-data syntax.
 """
 
 from __future__ import annotations
 
 import math
 import re
+from dataclasses import dataclass
 
 from scoreanim.core.engraving.types import Affine, Rect
 
@@ -110,12 +117,52 @@ _PATH_TOKEN_RE = re.compile(
     r"([MmLlHhVvCcSsQqTtAaZz])|" + _NUMBER_RE.pattern)
 
 
-def path_bbox(d: str) -> Rect:
-    """Exact bounding box of an SVG path's geometry (anchor points plus
-    bézier extrema). Supports M/L/H/V/C/S/Q/T/Z, absolute and relative;
-    arcs (A) are rejected loudly — Verovio does not emit them."""
+@dataclass(frozen=True)
+class MoveTo:
+    x: float
+    y: float
+
+
+@dataclass(frozen=True)
+class LineTo:
+    x: float
+    y: float
+
+
+@dataclass(frozen=True)
+class CubicTo:
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    x: float
+    y: float
+
+
+@dataclass(frozen=True)
+class QuadTo:
+    x1: float
+    y1: float
+    x: float
+    y: float
+
+
+@dataclass(frozen=True)
+class ClosePath:
+    pass
+
+
+PathSegment = MoveTo | LineTo | CubicTo | QuadTo | ClosePath
+
+
+def path_segments(d: str) -> tuple[PathSegment, ...]:
+    """Parse SVG path data into absolute, explicit segments. Supports
+    M/L/H/V/C/S/Q/T/Z, absolute and relative; relative coordinates, H/V
+    shorthands, and S/T control-point reflections are all resolved, so the
+    result contains only MoveTo/LineTo/CubicTo/QuadTo/ClosePath. Arcs (A)
+    are rejected loudly — Verovio does not emit them."""
     tokens: list[str] = [m.group(0) for m in _PATH_TOKEN_RE.finditer(d)]
-    ext = _Extent()
+    segments: list[PathSegment] = []
     i = 0
     cx = cy = 0.0                 # current point
     sx = sy = 0.0                 # subpath start
@@ -148,26 +195,27 @@ def path_bbox(d: str) -> Rect:
 
         if op == "Z":
             cx, cy = sx, sy
+            segments.append(ClosePath())
         elif op == "M":
             x, y = num(), num()
             if rel:
                 x, y = cx + x, cy + y
             cx, cy = sx, sy = x, y
-            ext.add(cx, cy)
+            segments.append(MoveTo(x, y))
         elif op == "L":
             x, y = num(), num()
             if rel:
                 x, y = cx + x, cy + y
             cx, cy = x, y
-            ext.add(cx, cy)
+            segments.append(LineTo(x, y))
         elif op == "H":
             x = num()
             cx = cx + x if rel else x
-            ext.add(cx, cy)
+            segments.append(LineTo(cx, cy))
         elif op == "V":
             y = num()
             cy = cy + y if rel else y
-            ext.add(cx, cy)
+            segments.append(LineTo(cx, cy))
         elif op in ("C", "S"):
             if op == "C":
                 x1, y1 = num(), num()
@@ -182,11 +230,7 @@ def path_bbox(d: str) -> Rect:
             x, y = num(), num()
             if rel:
                 x2, y2, x, y = cx + x2, cy + y2, cx + x, cy + y
-            ext.add(x, y)
-            for t in _cubic_extrema(cx, x1, x2, x):
-                ext.add(_cubic_at(cx, x1, x2, x, t), _cubic_at(cy, y1, y2, y, t))
-            for t in _cubic_extrema(cy, y1, y2, y):
-                ext.add(_cubic_at(cx, x1, x2, x, t), _cubic_at(cy, y1, y2, y, t))
+            segments.append(CubicTo(x1, y1, x2, y2, x, y))
             new_cubic = (x2, y2)
             cx, cy = x, y
         elif op in ("Q", "T"):
@@ -202,11 +246,7 @@ def path_bbox(d: str) -> Rect:
             x, y = num(), num()
             if rel:
                 x, y = cx + x, cy + y
-            ext.add(x, y)
-            for t in _quad_extrema(cx, x1, x):
-                ext.add(_quad_at(cx, x1, x, t), _quad_at(cy, y1, y, t))
-            for t in _quad_extrema(cy, y1, y):
-                ext.add(_quad_at(cx, x1, x, t), _quad_at(cy, y1, y, t))
+            segments.append(QuadTo(x1, y1, x, y))
             new_quad = (x1, y1)
             cx, cy = x, y
         elif op == "A":
@@ -218,6 +258,42 @@ def path_bbox(d: str) -> Rect:
         prev_cubic_ctrl = new_cubic
         prev_quad_ctrl = new_quad
 
+    return tuple(segments)
+
+
+def path_bbox(d: str) -> Rect:
+    """Exact bounding box of an SVG path's geometry (anchor points plus
+    bézier extrema)."""
+    ext = _Extent()
+    cx = cy = 0.0                 # current point
+    sx = sy = 0.0                 # subpath start
+    for seg in path_segments(d):
+        if isinstance(seg, MoveTo):
+            cx, cy = sx, sy = seg.x, seg.y
+            ext.add(cx, cy)
+        elif isinstance(seg, LineTo):
+            cx, cy = seg.x, seg.y
+            ext.add(cx, cy)
+        elif isinstance(seg, CubicTo):
+            ext.add(seg.x, seg.y)
+            for t in _cubic_extrema(cx, seg.x1, seg.x2, seg.x):
+                ext.add(_cubic_at(cx, seg.x1, seg.x2, seg.x, t),
+                        _cubic_at(cy, seg.y1, seg.y2, seg.y, t))
+            for t in _cubic_extrema(cy, seg.y1, seg.y2, seg.y):
+                ext.add(_cubic_at(cx, seg.x1, seg.x2, seg.x, t),
+                        _cubic_at(cy, seg.y1, seg.y2, seg.y, t))
+            cx, cy = seg.x, seg.y
+        elif isinstance(seg, QuadTo):
+            ext.add(seg.x, seg.y)
+            for t in _quad_extrema(cx, seg.x1, seg.x):
+                ext.add(_quad_at(cx, seg.x1, seg.x, t),
+                        _quad_at(cy, seg.y1, seg.y, t))
+            for t in _quad_extrema(cy, seg.y1, seg.y):
+                ext.add(_quad_at(cx, seg.x1, seg.x, t),
+                        _quad_at(cy, seg.y1, seg.y, t))
+            cx, cy = seg.x, seg.y
+        else:                     # ClosePath
+            cx, cy = sx, sy
     return ext.rect()
 
 

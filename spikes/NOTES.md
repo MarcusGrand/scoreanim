@@ -1,4 +1,36 @@
-# Phase 0 & 1 spike notes
+# Phase 0–2 spike & build notes
+
+## Phase 2 build findings (2026-07-10)
+
+Library facts discovered while building the Qt render layer; verified
+against verovio 6.2.1 / PySide6 6.11.1:
+
+- **`header: "none"` is safe for the join**: all Verovio element ids are
+  byte-identical to a `header: "encoded"` load (verified) — timemap/MEI/
+  SVG cross-referencing is unaffected. But Verovio **reclaims the header
+  space**: the fixture's page-1 top staff rises from y≈165 to y≈138 page
+  units. There is no option to reserve a Dorico-style title frame.
+- **Dorico's credit `default-x/default-y` are unreliable for layout**:
+  on the fixture they match neither Dorico's own PDF title block (the
+  title would sit 22% down the page) nor the page center (593.75 tenths
+  on a 1397.65-tenth page; Dorico centers credits on its music frame).
+  `default_stage_config` therefore ignores them and derives positions
+  from justify + font size, fitted into the band above the top staff.
+- **Qt accepts Verovio's embedded Bravura WOFF2**: the pip package ships
+  no OTF/TTF, but `data/Bravura.css` embeds base64 WOFF2, and
+  `QFontDatabase.addApplicationFontFromData` registers it (FreeType) —
+  the metronome-note text run renders for real, no tofu
+  (`render/fonts.py`). Verovio's own upstream tofu (BACKLOG 3) remains.
+- **QPainterPath must be switched to `WindingFill`**: SVG's default fill
+  rule is nonzero; Qt's is odd-even, which inverts glyph counters
+  (half-note heads render solid). One line in `render/qpath.py`.
+- **QPen defaults mismatch SVG stroke defaults** three ways: Qt uses
+  square caps (SVG: butt — square would lengthen every staff line and
+  stem by half a width), bevel joins (SVG: miter), miter limit 2 (SVG:
+  4). `render/items.py::svg_pen` bakes the SVG values.
+- Qt performance is a non-issue at this score's scale: engrave+decompose
+  0.22 s, scene build 0.29 s, ~2450 items across 3 scenes (densest page
+  695 elements / ~1060 primitives).
 
 ## Phase 1 T0 — MEI bridge (`spikes/mei_bridge.py`, 2026-07-10)
 

@@ -97,6 +97,11 @@ class EngravingProvider(ABC):
 #    reproduces whatever Verovio emits — encoded header included —
 #    faithfully; suppression is a rendering option, not a decomposition
 #    exemption.
+#    Planned revision (ruling 2026-07-11, BACKLOG item 5): score-anchored
+#    texts (part labels, tempo marks, possibly the title) are to become
+#    editable in-app with the engraved score shifting to fit — i.e. text
+#    edits feed back into the engraving inputs and re-engrave. Not
+#    scheduled; do not build toward it without an explicit decision.
 
 @dataclass(frozen=True)
 class RenderedElement:

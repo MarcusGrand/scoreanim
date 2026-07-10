@@ -117,7 +117,6 @@ def test_text_decomposition_preserves_anchor_and_styling(engraved) -> None:
     match Verovio's own output — including its upstream tofu):
 
     - staff labels are end-anchored single runs with the part names;
-    - the page header keeps per-line anchors and the gray lyricist fill;
     - the tempo mark is four runs, with the metronome note isolated as a
       720px Bravura run (and Verovio's own tofu  left in the
       405px text run — upstream, BACKLOG item 3, not ours to fix)."""
@@ -129,26 +128,47 @@ def test_text_decomposition_preserves_anchor_and_styling(engraved) -> None:
     assert {t.runs[0].content for t in labels} == PART_NAMES
     assert all(t.anchor == "end" for t in labels)
 
-    def by_content(fragment: str):
-        for e in page1:
-            for t in e.glyph.texts:
-                if fragment in "".join(r.content for r in t.runs):
-                    return t
-        raise AssertionError(f"no text containing {fragment!r}")
-
-    title = by_content("Det var en gang")
-    assert title.anchor == "middle"
-    assert title.runs[0].font_weight == "bold"
-    assert by_content("Fra Lyriske stykker").runs[0].font_style == "italic"
-    assert by_content("Edvard Grieg").anchor == "end"
-    assert by_content("Project Lyricist").runs[0].fill == "#C0C0C0"
-
-    tempo = by_content("Swing")
+    tempo = _text_by_content(page1, "Swing")
     assert [r.content for r in tempo.runs] == \
         ["Swing ", "", "\xa0=\xa0", "120"]
     assert tempo.runs[1].font_family == "Bravura"
     assert tempo.runs[1].font_size == 720
     assert all(r.font_weight == "bold" for r in tempo.runs)
+
+
+def _text_by_content(elements, fragment: str):
+    for e in elements:
+        for t in e.glyph.texts:
+            if fragment in "".join(r.content for r in t.runs):
+                return t
+    raise AssertionError(f"no text containing {fragment!r}")
+
+
+def test_header_suppressed_by_default(engraved) -> None:
+    """ARCHITECTURE.md §3 ruling 4: no engraved header text anywhere;
+    title/composer come from stage_config instead."""
+    texts = ["".join(r.content for t in e.glyph.texts for r in t.runs)
+             for e in engraved.layout.elements]
+    assert not any("Det var en gang" in t or "Grieg" in t for t in texts)
+
+
+def test_pghead_decomposition_still_works_when_not_suppressed() -> None:
+    """Suppression is a rendering option, not a decomposition exemption:
+    with the header enabled, pgHead lines keep per-line anchors and the
+    gray lyricist fill (moved from the default-load test when
+    suppress_header became the default)."""
+    engraved = VerovioEngravingProvider().load_detailed(
+        TESTSCORE, EngravingParams(suppress_header=False))
+    page1 = [e for e in engraved.layout.elements if e.page == 1]
+
+    title = _text_by_content(page1, "Det var en gang")
+    assert title.anchor == "middle"
+    assert title.runs[0].font_weight == "bold"
+    assert _text_by_content(page1, "Fra Lyriske stykker").runs[0].font_style \
+        == "italic"
+    assert _text_by_content(page1, "Edvard Grieg").anchor == "end"
+    assert _text_by_content(page1, "Project Lyricist").runs[0].fill \
+        == "#C0C0C0"
 
 
 def test_every_text_primitive_is_well_formed(engraved) -> None:

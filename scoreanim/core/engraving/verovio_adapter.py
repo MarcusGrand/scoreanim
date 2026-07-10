@@ -542,7 +542,7 @@ class VerovioEngravingProvider(EngravingProvider):
             "pageWidth": round(prep.page_width),
             "pageHeight": round(prep.page_height),
             "scaleToPageSize": True,
-            "header": "encoded",
+            "header": "none" if params.suppress_header else "encoded",
             "footer": "encoded",
             "svgHtml5": False,
             "svgViewBox": True,
