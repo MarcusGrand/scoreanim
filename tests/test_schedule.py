@@ -218,5 +218,6 @@ def test_animated_census(engraved) -> None:
         if ident.kind in static_kinds:
             assert not is_animated(ident), ident.element_id
         if ident.kind in (ElementKind.NOTEHEAD, ElementKind.SLASH,
-                          ElementKind.STEM, ElementKind.BEAM):
+                          ElementKind.STEM, ElementKind.BEAM,
+                          ElementKind.LEDGER_LINES):
             assert is_animated(ident), ident.element_id

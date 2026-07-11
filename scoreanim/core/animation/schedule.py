@@ -55,6 +55,7 @@ ANIMATED_KINDS = frozenset({
     ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.STEM,
     ElementKind.FLAG, ElementKind.BEAM, ElementKind.ACCIDENTAL,
     ElementKind.ARTICULATION, ElementKind.TIE, ElementKind.SLUR,
+    ElementKind.LEDGER_LINES,
 })
 
 

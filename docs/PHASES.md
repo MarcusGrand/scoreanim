@@ -125,9 +125,9 @@ faithful to Phase-0 SVGs, with per-element control proven. **PASSED
 
 ## Phase 3 — Time: TempoMap, clocks, transport, first animation
 
-Build complete 2026-07-11 (146 headless tests green); **exit criteria
-pending the user's sync session against the real recording.** Rulings
-taken during planning: recording available as wav+mp3; tempo entry via
+Build complete 2026-07-11 (146 headless tests green); exit criteria
+**PASSED 2026-07-11** (user's sync session against the real recording).
+Rulings taken during planning: recording available as wav+mp3; tempo entry via
 sidecar text file (`<score>.tempo`, auto-loaded, F5 reloads, `m<n>`
 measure syntax); full note ink animates (heads, slashes, stems, flags,
 beams, accidentals, articulations, dots, ties/slurs as step-appear) —
@@ -169,24 +169,53 @@ their notes — they fold into the static STAFF_LINES ink. BACKLOG item 6.
       ~0.5 items/tick — flat.
 
 **Exit criteria**: real score + real recording + hand-set tempo events
-play in sync live; all core logic covered headless. **Awaiting the
-user's judgment** — starter `testdata/testscore.tempo` provided; watch/
+play in sync live; all core logic covered headless. **PASSED
+2026-07-11** — starter `testdata/testscore.tempo` provided; watch/
 listen checklist in the Phase 3 plan (also summarized in the session
 close-out).
 
 ## Phase 4 — Sync authoring: waveform, tempo lane, taps
 
-- [ ] **4.1 WaveformView**: peak rendering, shared time axis, playhead,
-      click-to-seek.
-- [ ] **4.2 TempoLaneView**: tempo events as draggable points; add/remove;
-      all edits as undoable commands.
-- [ ] **4.3 Tap capture**: tap key during playback records
-      (beat, timestamp); derive smoothed tempo events per tapped section;
-      optional per-region "lock to taps" (dense events). Headless tests on
-      synthetic tap data (noisy taps → stable BPM).
-- [ ] **4.4 Swing regions**: ratio parameter shifting off-beat
-      subdivisions; lane UI; headless tests for onset math at 0.5/0.6/0.667.
-- [ ] **4.5 Project save/load + undo stack** across all of the above.
+Build complete 2026-07-11 (219 headless tests green); **exit criteria
+pending the user's authoring session.** Rulings taken at plan review:
+file opens live outside the undo stack (open score = new doc + cleared
+stack; open audio = ref swap, not undoable — rule 8 governs intent
+edits, not session binding); BACKLOG 6 fixed first as task 4.0a; tap
+anchor = nearest beat under the current map, sequential quarters after.
+Build facts: numpy declared explicitly (already a hard music21 dep);
+QAudioDecoder spike passed (decode ~0.03 s for the 35 s fixture, no
+worker thread needed — spikes/NOTES.md Phase 4); `.scoreanim` = JSON v1,
+paths relative to the project file + sha256 (warn, don't block); drag
+gestures preview-against-committed and commit ONE command on release.
+
+- [x] **4.0a Ledger lines dim with their notes** (BACKLOG 6): adapter
+      emits per-dash LEDGER_LINES elements attributed to noteheads by
+      overlap; staff scaffold back to exactly 5 paths everywhere.
+- [x] **4.1 WaveformView**: peak rendering (multi-res min/max/rms
+      pyramid in core/audio/peaks.py, O(pixels) paint at any zoom,
+      progressive fill), shared TimeAxis on AppState, playhead,
+      click-to-seek, wheel zoom shared with the lane.
+- [x] **4.2 TempoLaneView**: tempo events as draggable points over the
+      same axis; add (double-click)/move (drag, snapped)/remove
+      (Delete/context menu); every gesture one undoable command;
+      last-event removal refused.
+- [x] **4.3 Tap capture**: T during playback records (beat, AudioClock
+      seconds); Theil–Sen ±2 smoothing + greedy segmentation (steady →
+      ONE event, rit → ramp; 199/200 seeds at σ=30 ms); per-session
+      "lock to taps" dense anchors (exact to 1e-9); start residual
+      reported, never absorbed. Headless tests incl. the spec's two
+      cases.
+- [x] **4.4 Swing regions**: per-quarter piecewise-linear warp upstream
+      of seconds_at (the Phase 3 seam held; TempoMap untouched); strip
+      UI authored NUMERICALLY (ruling 2026-07-11, replacing
+      drag-to-create: double-click the strip → start/end/ratio dialog,
+      prefilled with the clicked measure; right-click Edit…/Delete —
+      matching how tempo events are added/edited); onset math tested at
+      0.5/0.6/0.667.
+- [x] **4.5 Project save/load + undo stack**: ProjectDoc + 11 commands +
+      UndoStack (core/project/), versioned JSON round-trip incl. RAW tap
+      sessions, Save/Save As/Open Project, dirty star, hash-mismatch
+      warnings, close prompt.
 
 **Exit criteria**: full authoring loop — load score + audio, tap through a
 rubato section, adjust, save, reload, everything intact; undo works

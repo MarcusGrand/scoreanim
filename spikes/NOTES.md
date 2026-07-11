@@ -1,4 +1,43 @@
-# Phase 0–3 spike & build notes
+# Phase 0–4 spike & build notes
+
+## Phase 4 — QAudioDecoder spike (`spikes/decode_audio.py`, 2026-07-11)
+
+Question: is QAudioDecoder viable for waveform peak extraction (formats,
+speed, coexistence with the playback QMediaPlayer)? Measured on the real
+recording (`testdata/testscore.{wav,mp3}`, 34.56 s), PySide6 6.11.1 /
+Qt ffmpeg backend / macOS:
+
+- **Decode is effectively instant**: full-file decode in 0.03 s (wav) /
+  0.04 s (mp3) wall — even a 5-minute file is sub-second. The
+  event-driven design (per-buffer numpy binning on `bufferReady`) is
+  comfortably event-loop friendly; no worker thread needed.
+- **Formats delivered**: wav → `Int16`/2ch/48kHz in 4096-frame buffers
+  (406 buffers); mp3 → `Float`/2ch/48kHz in 1152-frame buffers (1442).
+  The extractor must handle at least Int16/Int32/UInt8/Float
+  (QAudioFormat's full set) — scale each to [-1, 1].
+- **Exact duration agreement**: both containers decode to the identical
+  1 659 059 frames = 34.564 s, matching `QMediaPlayer.duration()`
+  (34 563 ms). The mp3 encoder delay/padding is compensated by the
+  backend (ffmpeg logs "skipped/discarded samples" and trims) — wav and
+  mp3 waveforms align sample-exactly, so peak x-positions can be trusted
+  against the playhead on either format.
+- **`QAudioDecoder.duration()` is useless** (returns −1 throughout) —
+  derive duration from accumulated frames / sample rate instead.
+- **Concurrent decode works**: decoding a file the transport's
+  QMediaPlayer currently has loaded behaves identically (LoadedMedia,
+  same buffers, same speed).
+
+Phase 4 build findings (library facts, 2026-07-11):
+
+- **`QAudioBuffer.constData()` returns a memoryview** that dies with its
+  buffer — `np.frombuffer` on it is fine within the handler, but any
+  array kept past the handler must be an owned copy (`astype` copies;
+  ui/peaks_worker.py relies on this).
+- **`QAudioDecoder.stop()` re-emits `finished` synchronously**, so a
+  finished-handler that calls stop() re-enters itself. The extractor
+  nulls its decoder reference before stopping (peaks_worker.stop()).
+- **Modal QMessageBox hangs offscreen scripts** — headless smoke tests
+  must avoid paths that raise dialogs (or stub them).
 
 ## Phase 3 — audio playhead spike (`spikes/audio_playhead.py`, 2026-07-11)
 

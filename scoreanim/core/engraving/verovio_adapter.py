@@ -84,9 +84,11 @@ _KIND_BY_CLASS: dict[str, ElementKind] = {
 
 # Transparent grouping classes: never emitted, provide context only.
 # keyAccid/fig fold their glyphs into the enclosing keySig / harm element;
-# space and the milestone markers contain nothing drawable.
+# space and the milestone markers contain nothing drawable. ledgerLines
+# is NOT here: its dashes are emitted per-path as LEDGER_LINES elements
+# and attributed to noteheads afterwards (BACKLOG 6).
 _CONTAINER_CLASSES = {
-    "measure", "layer", "chord", "graceGrp", "notehead", "ledgerLines",
+    "measure", "layer", "chord", "graceGrp", "notehead",
     "page-margin", "definition-scale", "section", "pb", "sb", "ending",
     "keyAccid", "fig", "mdiv", "score", "svg", "space",
     "pageMilestoneEnd", "systemMilestoneEnd", "pageElement",
@@ -260,6 +262,7 @@ class _ElementAccumulator:
     staff: int | None
     layer: int | None
     owner_onset: Beats | None    # onset of enclosing note/chord (for stems etc.)
+    ledger_dir: str | None = None        # "above" | "below" for ledger dashes
     paths: list[PathPrimitive] = field(default_factory=list)
     texts: list[TextPrimitive] = field(default_factory=list)
     use_origins: list[Point] = field(default_factory=list)
@@ -333,6 +336,10 @@ class _PageDecomposer:
                         onset = st.onset_by_id.get(member) if member else None
                     if onset is not None:
                         new_owner_onset = onset
+                if cls == "ledgerLines":
+                    self._add_ledger_dashes(child, child_ctm,
+                                            new_measure, new_staff)
+                    continue
                 if cid and cls in _KIND_BY_CLASS:
                     acc = _ElementAccumulator(
                         verovio_id=cid, svg_class=cls,
@@ -361,6 +368,32 @@ class _PageDecomposer:
                 self._add_drawable(owner, tag, child, child_ctm)
                 self.drawables_claimed += 1
             # desc, style, title, defs handled elsewhere / ignored
+
+    def _add_ledger_dashes(self, group: ET.Element, ctm: Affine,
+                           measure: int | None, staff: int | None) -> None:
+        """Each ledger dash becomes its own LEDGER_LINES element so it can
+        dim with the note that owns it (BACKLOG 6). The group carries no
+        id; onset/voice are attributed geometrically afterwards
+        (_attribute_ledger_dashes)."""
+        tokens = (group.get("class") or "").split()
+        direction = ("above" if "above" in tokens
+                     else "below" if "below" in tokens else None)
+        for dash in group:
+            tag = dash.tag.removeprefix(_SVG_NS)
+            if tag != "path":
+                raise ValueError(f"page {self.page}: unexpected <{tag}> "
+                                 f"inside ledgerLines")
+            self.drawables_seen += 1
+            acc = _ElementAccumulator(
+                verovio_id="", svg_class="ledgerLines",
+                kind=ElementKind.LEDGER_LINES,
+                measure=measure, staff=staff, layer=None,
+                owner_onset=None, ledger_dir=direction)
+            self._add_drawable(
+                acc, "path", dash,
+                ctm.compose(parse_transform(dash.get("transform"))))
+            self.drawables_claimed += 1
+            self.done.append(acc)
 
     def _has_drawables(self, node: ET.Element) -> bool:
         drawable = {"use", "path", "rect", "line", "polygon", "polyline",
@@ -594,6 +627,7 @@ class VerovioEngravingProvider(EngravingProvider):
             for acc in _PageDecomposer(tk.renderToSVG(page), page, state).run():
                 accumulators.append((page, acc))
 
+        _attribute_ledger_dashes(accumulators, state)
         elements, note_records, staff_geo = _build_elements(accumulators, state)
         elements.extend(_synthesize_slashes(state, staff_geo))
         layout = Layout(pages=pages, elements=tuple(elements))
@@ -609,6 +643,58 @@ def _container_ns(mei_xml: str, tag: str) -> dict[str, int]:
         if el_id and el.get("n"):
             result[el_id] = _int_or(el.get("n"), 0)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Ledger-dash attribution (BACKLOG 6): a dash carries no id and no onset;
+# it dims with the notehead it serves. Owner = the notehead in the same
+# (page, measure, staff) whose bbox overlaps the dash horizontally, on the
+# correct side of the staff; a dash serving several heads (chords,
+# multi-ledger stacks) takes the earliest onset so it never lights late.
+# Tie resolution then happens for free: the dash inherits the owner's
+# (onset, voice), which is exactly the schedule's attachment-group key.
+# ---------------------------------------------------------------------------
+
+def _attribute_ledger_dashes(
+        accumulators: list[tuple[int, _ElementAccumulator]],
+        st: _LoadState) -> None:
+    notes_by_scope: dict[tuple, list[tuple[Rect, Beats, int]]] = \
+        defaultdict(list)
+    for page, acc in accumulators:
+        if acc.svg_class != "note" or acc.bbox is None:
+            continue
+        onset = st.onset_by_id.get(acc.verovio_id)
+        mei_note = st.mei.notes.get(acc.verovio_id)
+        if onset is None or mei_note is None:
+            continue                     # _build_elements raises for these
+        notes_by_scope[(page, acc.measure, acc.staff)].append(
+            (acc.bbox, onset, mei_note.layer))
+
+    for page, acc in accumulators:
+        if acc.kind is not ElementKind.LEDGER_LINES or acc.bbox is None:
+            continue
+        dash_cy = acc.bbox.y + acc.bbox.h / 2
+        candidates: list[tuple[Beats, int]] = []
+        for bbox, onset, layer in notes_by_scope.get(
+                (page, acc.measure, acc.staff), ()):
+            if (bbox.x + bbox.w <= acc.bbox.x
+                    or acc.bbox.x + acc.bbox.w <= bbox.x):
+                continue                 # no horizontal overlap
+            note_cy = bbox.y + bbox.h / 2
+            # a dash above the staff is owned by notes at or above it
+            # (y-down coordinates); intermediate dashes under a high note
+            # pass this too. Mirror rule below the staff.
+            if acc.ledger_dir == "above" and note_cy > dash_cy + bbox.h / 2:
+                continue
+            if acc.ledger_dir == "below" and note_cy < dash_cy - bbox.h / 2:
+                continue
+            candidates.append((onset, layer))
+        if not candidates:
+            raise ValueError(
+                f"page {page} m{acc.measure} staff {acc.staff}: ledger dash "
+                f"at x={acc.bbox.x:.0f} matches no notehead — attribution "
+                f"failed")
+        acc.owner_onset, acc.layer = min(candidates)
 
 
 # ---------------------------------------------------------------------------

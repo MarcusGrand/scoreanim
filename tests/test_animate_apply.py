@@ -127,3 +127,57 @@ def test_current_page_steps_through_the_score(schedule, applier) -> None:
     assert seen == [1, 2, 3]
     applier.apply_at(-1.0)
     assert applier.current_page() == 1
+
+
+# -- swing (PHASES 4.4): warp slots in upstream of seconds_at ----------------
+
+def test_swing_delays_exactly_the_offbeat_triggers(scenes, schedule) -> None:
+    from scoreanim.core.timing import SwingRegion, resolve_seconds
+
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, appear(FLOOR))
+    region = SwingRegion((0.0, 8.0), 0.667)
+    # an off-beat-eighth trigger inside the region (fixture has many)
+    idx = next(i for i, b in enumerate(schedule.beat_values)
+               if 0.0 <= b < 8.0 and b % 1.0 == 0.5)
+    trigger = schedule.triggers[idx]
+    straight_s = TEMPO.seconds_at(trigger.beats)
+    swung_s = resolve_seconds([trigger.beats], TEMPO, (region,))[0]
+    assert swung_s - straight_s == pytest.approx(0.167 * 0.5, abs=1e-9)
+
+    applier.set_timing(TEMPO, (region,))
+    mid = (straight_s + swung_s) / 2               # after straight, before swung
+    applier.refresh(mid)
+    for eid in trigger.element_ids:
+        assert scenes.items[eid].opacity() == pytest.approx(FLOOR), eid
+    applier.refresh(swung_s)                        # at-onset inclusive holds
+    for eid in trigger.element_ids:
+        assert scenes.items[eid].opacity() == pytest.approx(1.0), eid
+    # on-beat triggers in the region are NOT moved
+    on_beat = next(t for t in schedule.triggers
+                   if 0.0 <= t.beats < 8.0 and t.beats % 1.0 == 0.0)
+    assert resolve_seconds([on_beat.beats], TEMPO, (region,))[0] \
+        == pytest.approx(TEMPO.seconds_at(on_beat.beats))
+
+
+def test_scrubbing_stateless_with_swing(qapp, engraved, schedule,
+                                        scenes) -> None:
+    from scoreanim.core.timing import SwingRegion
+
+    region = SwingRegion((0.0, 12.0), 0.62)
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, appear(FLOOR))
+    applier.set_timing(TEMPO, (region,))
+    rng = random.Random(11)
+    t = 0.0
+    for _ in range(40):
+        t = max(-2.0, t + rng.uniform(-9.0, 11.0))
+        applier.apply_at(t)
+    applier.apply_at(6.1)
+    walked = _opacities(scenes)
+
+    fresh_scenes = ScoreScenes(engraved.layout, default_stage_config(
+        engraved.prepared, page_content_top(engraved.layout)))
+    fresh = AnimationApplier(fresh_scenes.items, schedule, TEMPO,
+                             appear(FLOOR))
+    fresh.set_timing(TEMPO, (region,))
+    fresh.refresh(6.1)
+    assert walked == _opacities(fresh_scenes)

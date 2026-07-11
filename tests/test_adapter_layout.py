@@ -84,6 +84,33 @@ def test_open_ties_are_not_rendered(engraved) -> None:
                t.identity.extent[0] < t.identity.extent[1] for t in ties)
 
 
+def test_staff_lines_are_exactly_five_paths(engraved) -> None:
+    """BACKLOG 6: ledger dashes no longer fold into the staff scaffold."""
+    staves = [e for e in engraved.layout.elements
+              if e.identity.kind is ElementKind.STAFF_LINES]
+    assert staves
+    assert all(len(e.glyph.paths) == 5 for e in staves)
+
+
+def test_ledger_dashes_are_note_owned_elements(engraved) -> None:
+    """BACKLOG 6: one LEDGER_LINES element per dash, attributed to the
+    notehead it serves. 90 dashes counted from the raw Verovio render
+    (15/44/31 per page)."""
+    ledgers = [e for e in engraved.layout.elements
+               if e.identity.kind is ElementKind.LEDGER_LINES]
+    assert len(ledgers) == 90
+    per_page = Counter(e.page for e in ledgers)
+    assert per_page == {1: 15, 2: 44, 3: 31}
+    assert all(len(e.glyph.paths) == 1 and not e.glyph.texts
+               for e in ledgers)
+    assert all(e.identity.onset is not None and e.identity.part is not None
+               and e.identity.voice is not None for e in ledgers)
+    # known case: the P4 m2 dashes carry their notes' onsets (beats 4, 5.5)
+    m2 = sorted(e.identity.onset for e in ledgers
+                if str(e.identity.element_id).startswith("P4:m2:"))
+    assert m2 == [4.0, 5.5]
+
+
 def test_element_ids_unique(engraved) -> None:
     ids = [e.identity.element_id for e in engraved.layout.elements]
     assert len(ids) == len(set(ids))

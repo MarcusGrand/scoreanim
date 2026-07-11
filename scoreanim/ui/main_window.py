@@ -1,6 +1,13 @@
-"""App shell: open a score, flip pages, zoom/pan, tint parts, and (Phase
-3) play a recording against it — notes at floor opacity going full at
-onset, transport bar with seek, tempo sidecar, page follow."""
+"""App shell: open a score, flip pages, zoom/pan, tint parts, and play a
+recording against it — notes at floor opacity going full at onset.
+
+Phase 4: the window owns an AppState (document + undo stack + shared
+time axis) and is the only bridge between it and the transport. Every
+timing/style edit is an undoable command; the tempo sidecar is an
+import command; file opens reset/bind outside the stack (ruling
+2026-07-11). On document_changed the window retimes the animation and
+diffs part tints — views never talk to each other.
+"""
 
 from __future__ import annotations
 
@@ -9,22 +16,34 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QColor, QKeySequence
-from PySide6.QtWidgets import (QFileDialog, QLabel, QMainWindow, QMenu,
-                               QMessageBox, QSlider, QToolBar)
+from PySide6.QtWidgets import (QDoubleSpinBox, QFileDialog, QLabel,
+                               QMainWindow, QMenu, QMessageBox, QSlider,
+                               QSplitter, QToolBar)
 
 from scoreanim.core.animation import appear, build_trigger_schedule
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
-from scoreanim.core.project.stage_config import (default_stage_config,
-                                                 page_content_top)
+from scoreanim.core.project import (DEFAULT_BPM, SUFFIX, ApplyTaps, FileRef,
+                                    ImportTempoSetup, ProjectDoc, SetOffset,
+                                    SetPartColor, StageConfig, check_ref,
+                                    default_stage_config, load_project,
+                                    page_content_top, sha256_of)
+from scoreanim.core.project import save_project as write_project_file
 from scoreanim.core.score.identity import PartId
 from scoreanim.core.score.join import join_notes
 from scoreanim.core.score.model import build_score_model
-from scoreanim.core.timing import TempoEvent, TempoMap
+from scoreanim.core.timing import TempoEvent, TempoMap, parse_tempo_file
+from scoreanim.core.timing.taps import (TapSession, derive_tempo_events,
+                                        start_residual)
 from scoreanim.render.animate import AnimationApplier
 from scoreanim.render.scene import ScoreScenes
+from scoreanim.ui.app_state import AppState
+from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.stage_view import StageView
+from scoreanim.ui.taps import TapRecorder
+from scoreanim.ui.tempo_lane import TempoLaneView
+from scoreanim.ui.waveform import WaveformView
 
 FLOOR_OPACITY = 0.3
 
@@ -38,19 +57,57 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("ScoreAnim")
         self.resize(1000, 1200)
-        self.view = StageView()
-        self.setCentralWidget(self.view)
 
         self._scenes: ScoreScenes | None = None
         self._page = 1
         self._page_label = QLabel("–/–")
+        self._score_name: str | None = None
+        self._project_path: Path | None = None
+        self._tempo_path: Path | None = None
+        self._applied_colors: dict[PartId, str | None] = {}
+        self._part_actions: dict[PartId, QAction] = {}
 
+        self.app_state = AppState(self)
         self.playback = PlaybackController(self)
+        self.peaks = PeakExtractor(self)
+        self.tap_recorder = TapRecorder(self.app_state,
+                                        self.playback.transport, self)
+        self.tap_recorder.status.connect(
+            lambda msg: self.statusBar().showMessage(msg))
+        self.tap_recorder.session_finished.connect(self._on_tap_session)
+
+        # stage above, timeline views below, one splitter (ARCHITECTURE §7)
+        self.view = StageView()
+        self.waveform = WaveformView(self.app_state)
+        self.tempo_lane = TempoLaneView(self.app_state)
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(self.view)
+        splitter.addWidget(self.waveform)
+        splitter.addWidget(self.tempo_lane)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setStretchFactor(2, 0)
+        splitter.setCollapsible(0, False)
+        self.setCentralWidget(splitter)
+
+        self.peaks.progress.connect(
+            lambda: self.app_state.set_peaks(self.peaks.cache))
+        self.peaks.finished.connect(
+            lambda: self.app_state.set_peaks(self.peaks.cache))
+        self.peaks.failed.connect(self._on_peaks_failed)
+
         self.playback.page_changed.connect(self.show_page)
         self.playback.status_message.connect(
             lambda msg: self.statusBar().showMessage(msg))
         self.playback.time_changed.connect(self._on_time)
         self.playback.transport.playing_changed.connect(self._on_playing)
+        self.playback.transport.duration_changed.connect(
+            self.app_state.axis.set_duration)
+
+        self.app_state.seek_requested.connect(self.playback.seek)
+        self.app_state.document_changed.connect(self._on_document_changed)
+        self.app_state.status.connect(
+            lambda msg: self.statusBar().showMessage(msg))
 
         self._build_actions()
         self._build_transport_bar()
@@ -64,9 +121,21 @@ class MainWindow(QMainWindow):
         toolbar = self.addToolBar("Main")
         toolbar.setMovable(False)
 
-        open_action = QAction("Open…", self)
+        open_action = QAction("Open Score…", self)
         open_action.setShortcut(QKeySequence.StandardKey.Open)
         open_action.triggered.connect(self._open_dialog)
+
+        open_project_action = QAction("Open Project…", self)
+        open_project_action.setShortcut("Ctrl+Shift+O")
+        open_project_action.triggered.connect(self._open_project_dialog)
+
+        save_action = QAction("Save Project", self)
+        save_action.setShortcut(QKeySequence.StandardKey.Save)
+        save_action.triggered.connect(self.save_project)
+
+        save_as_action = QAction("Save Project As…", self)
+        save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
+        save_as_action.triggered.connect(self.save_project_as)
 
         self._prev = QAction("◀", self)
         self._prev.setShortcut(QKeySequence.StandardKey.MoveToPreviousPage)
@@ -87,15 +156,35 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(fit)
 
+        self._undo = QAction("Undo", self)
+        self._undo.setShortcut(QKeySequence.StandardKey.Undo)
+        self._undo.setEnabled(False)
+        self._undo.triggered.connect(self.app_state.undo)
+        self._redo = QAction("Redo", self)
+        self._redo.setShortcut(QKeySequence.StandardKey.Redo)
+        self._redo.setEnabled(False)
+        self._redo.triggered.connect(self.app_state.redo)
+
         self._parts_menu = QMenu("&Parts", self)
         menubar = self.menuBar()
         file_menu = menubar.addMenu("&File")
         file_menu.addAction(open_action)
+        file_menu.addAction(open_project_action)
+        file_menu.addSeparator()
+        file_menu.addAction(save_action)
+        file_menu.addAction(save_as_action)
+        edit_menu = menubar.addMenu("&Edit")
+        edit_menu.addAction(self._undo)
+        edit_menu.addAction(self._redo)
         view_menu = menubar.addMenu("&View")
         view_menu.addAction(fit)
         view_menu.addAction(self._prev)
         view_menu.addAction(self._next)
         menubar.addMenu(self._parts_menu)
+        # window-level so shortcuts fire regardless of focus
+        self.addAction(self._undo)
+        self.addAction(self._redo)
+        self.addAction(save_action)
 
     def _build_transport_bar(self) -> None:
         bar = QToolBar("Transport")
@@ -104,12 +193,11 @@ class MainWindow(QMainWindow):
 
         open_audio = QAction("Open Audio…", self)
         open_audio.triggered.connect(self._open_audio_dialog)
-        open_tempo = QAction("Open Tempo…", self)
+        open_tempo = QAction("Import Tempo…", self)
         open_tempo.triggered.connect(self._open_tempo_dialog)
         reload_tempo = QAction("Reload Tempo", self)
         reload_tempo.setShortcut("F5")
-        reload_tempo.triggered.connect(
-            lambda: self._tempo_result(self.playback.reload_tempo()))
+        reload_tempo.triggered.connect(self._reload_tempo)
 
         self._play = QAction("▶ Play", self)
         self._play.setShortcut(Qt.Key.Key_Space)
@@ -120,6 +208,15 @@ class MainWindow(QMainWindow):
         self._follow.setChecked(True)
         self._follow.toggled.connect(self.playback.set_follow)
 
+        self._arm_taps = QAction("● Arm Taps", self)
+        self._arm_taps.setCheckable(True)
+        self._arm_taps.setShortcut("Shift+T")
+        self._arm_taps.toggled.connect(self.tap_recorder.set_armed)
+        tap_action = QAction("Tap", self)
+        tap_action.setShortcut("T")
+        tap_action.setAutoRepeat(False)
+        tap_action.triggered.connect(self.tap_recorder.tap)
+
         self._slider = QSlider(Qt.Orientation.Horizontal)
         self._slider.setRange(0, 0)
         self._slider.setSingleStep(100)        # ms
@@ -129,6 +226,15 @@ class MainWindow(QMainWindow):
         self._slider.valueChanged.connect(self._on_slider_value)
         self._time_label = QLabel(" 0:00.0 / 0:00.0 ")
 
+        self._offset_spin = QDoubleSpinBox()
+        self._offset_spin.setPrefix("offset ")
+        self._offset_spin.setSuffix(" s")
+        self._offset_spin.setDecimals(2)
+        self._offset_spin.setSingleStep(0.05)
+        self._offset_spin.setRange(-60.0, 3600.0)
+        self._offset_spin.setKeyboardTracking(False)
+        self._offset_spin.editingFinished.connect(self._commit_offset)
+
         bar.addAction(open_audio)
         bar.addAction(open_tempo)
         bar.addAction(reload_tempo)
@@ -136,10 +242,14 @@ class MainWindow(QMainWindow):
         bar.addAction(self._play)
         bar.addWidget(self._slider)
         bar.addWidget(self._time_label)
+        bar.addWidget(self._offset_spin)
+        bar.addAction(self._arm_taps)
         bar.addAction(self._follow)
         # window-level so shortcuts fire regardless of focus
         self.addAction(self._play)
         self.addAction(reload_tempo)
+        self.addAction(self._arm_taps)
+        self.addAction(tap_action)
 
     def _open_dialog(self) -> None:
         name, _ = QFileDialog.getOpenFileName(
@@ -148,23 +258,63 @@ class MainWindow(QMainWindow):
         if name:
             self.open_score(Path(name))
 
+    def _open_project_dialog(self) -> None:
+        name, _ = QFileDialog.getOpenFileName(
+            self, "Open project", "",
+            f"ScoreAnim projects (*{SUFFIX});;All files (*)")
+        if name:
+            self.open_project(Path(name))
+
     def _open_audio_dialog(self) -> None:
         name, _ = QFileDialog.getOpenFileName(
             self, "Open recording", "",
             "Audio (*.wav *.mp3 *.m4a *.flac);;All files (*)")
         if name:
-            self.playback.open_audio(Path(name))
+            self.open_audio(Path(name))
+
+    def open_audio(self, path: Path) -> None:
+        """Audio binding: outside the undo stack (ruling 2026-07-11)."""
+        path = path.resolve()        # refs are absolute at runtime,
+        self.app_state.bind_audio(FileRef(path=str(path),  # relative on disk
+                                          sha256=sha256_of(path)))
+        self.playback.open_audio(path)
+        self.app_state.set_peaks(None)       # clear stale waveform
+        self.peaks.start(path)
+
+    def _on_peaks_failed(self, message: str) -> None:
+        """No waveform is a degraded view, never a blocker for playback."""
+        self.app_state.set_peaks(None)
+        self.statusBar().showMessage(f"waveform unavailable: {message}")
 
     def _open_tempo_dialog(self) -> None:
         name, _ = QFileDialog.getOpenFileName(
-            self, "Open tempo file", "",
+            self, "Import tempo file", "",
             "Tempo files (*.tempo *.txt);;All files (*)")
         if name:
-            self._tempo_result(self.playback.load_tempo(Path(name)))
+            self._import_tempo(Path(name))
 
-    def _tempo_result(self, error: str | None) -> None:
-        if error is not None:
-            QMessageBox.warning(self, "Tempo file", error)
+    def _import_tempo(self, path: Path) -> None:
+        """Sidecar import — one undoable command replacing offset + all
+        tempo events (the file's semantics)."""
+        try:
+            setup = parse_tempo_file(path.read_text(),
+                                     self.app_state.measures)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Tempo file", f"{path.name}: {exc}")
+            return
+        self._tempo_path = path
+        if self.app_state.execute(ImportTempoSetup(
+                setup.offset_seconds, setup.events, path.name)):
+            self.statusBar().showMessage(
+                f"tempo: {path.name} — offset {setup.offset_seconds:.2f}s, "
+                f"{len(setup.events)} event(s)")
+
+    def _reload_tempo(self) -> None:
+        if self._tempo_path is None:
+            QMessageBox.warning(self, "Tempo file",
+                                "no tempo file imported (Import Tempo… first)")
+            return
+        self._import_tempo(self._tempo_path)
 
     # -- playback feedback -----------------------------------------------------
 
@@ -178,6 +328,7 @@ class MainWindow(QMainWindow):
             self._slider.setRange(0, int(duration * 1000))
             self._slider.setValue(int(audio_seconds * 1000))
             self._slider.blockSignals(False)
+        self.app_state.set_playhead(audio_seconds)
 
     def _on_slider_value(self, ms: int) -> None:
         # keyboard/page-step changes (sliderMoved covers drags)
@@ -186,16 +337,143 @@ class MainWindow(QMainWindow):
 
     def _on_playing(self, playing: bool) -> None:
         self._play.setText("⏸ Pause" if playing else "▶ Play")
+        if not playing and self.tap_recorder.armed:
+            self._arm_taps.setChecked(False)     # pause ends the session
 
-    # -- score ---------------------------------------------------------------
+    def _on_tap_session(self, session: TapSession) -> None:
+        doc = self.app_state.doc
+        derivation = derive_tempo_events(session)
+        residual = start_residual(
+            session, TempoMap(list(doc.timing.tempo_events)),
+            doc.timing.offset_seconds)
+        if self.app_state.execute(ApplyTaps(
+                session, derivation.events,
+                (derivation.first_beat, derivation.last_beat), "derive")):
+            notes = (" · " + "; ".join(derivation.warnings)
+                     if derivation.warnings else "")
+            self.statusBar().showMessage(
+                f"taps: {len(session.taps)} taps → "
+                f"{len(derivation.events)} tempo event(s) in "
+                f"[{derivation.first_beat:g}, {derivation.last_beat:g}) · "
+                f"start residual {residual * 1000:+.0f} ms{notes}")
+
+    # -- document → world -------------------------------------------------------
+
+    def _on_document_changed(self) -> None:
+        doc = self.app_state.doc
+        self.playback.set_timing_config(
+            doc.timing.offset_seconds,
+            TempoMap(list(doc.timing.tempo_events)),
+            doc.timing.swing_regions)
+        self._sync_part_colors(doc)
+        self._offset_spin.blockSignals(True)
+        self._offset_spin.setValue(doc.timing.offset_seconds)
+        self._offset_spin.blockSignals(False)
+        undo_text = self.app_state.undo_text()
+        redo_text = self.app_state.redo_text()
+        self._undo.setEnabled(self.app_state.can_undo)
+        self._undo.setText(f"Undo {undo_text}" if undo_text else "Undo")
+        self._redo.setEnabled(self.app_state.can_redo)
+        self._redo.setText(f"Redo {redo_text}" if redo_text else "Redo")
+        self._sync_title()
+
+    def _sync_part_colors(self, doc: ProjectDoc) -> None:
+        if self._scenes is None:
+            return
+        for pid, action in self._part_actions.items():
+            color = doc.style.part_colors.get(pid)
+            if self._applied_colors.get(pid) != color:
+                self._scenes.set_part_color(
+                    pid, QColor(color) if color else None)
+                self._applied_colors[pid] = color
+            action.blockSignals(True)
+            action.setChecked(color is not None)
+            action.blockSignals(False)
+
+    def _sync_title(self) -> None:
+        star = " *" if self.app_state.is_dirty else ""
+        name = f" — {self._score_name}{star}" if self._score_name else ""
+        self.setWindowTitle(f"ScoreAnim{name}")
+
+    def _commit_offset(self) -> None:
+        value = self._offset_spin.value()
+        if abs(value - self.app_state.doc.timing.offset_seconds) > 1e-9:
+            self.app_state.execute(SetOffset(value))
+
+    # -- score / project --------------------------------------------------------
 
     def open_score(self, path: Path) -> None:
+        """Fresh document from a bare score (undo stack reset — ruling
+        2026-07-11). A sibling .tempo sidecar auto-imports as a command."""
+        path = path.resolve()        # refs are absolute at runtime
+        stage = self._load_score(path, EngravingParams(), stage=None)
+        doc = ProjectDoc(score=FileRef(path=str(path),
+                                       sha256=sha256_of(path)),
+                         stage=stage)
+        self._project_path = None
+        self._score_name = path.name
+        self._tempo_path = None
+        self.app_state.reset_document(doc)   # → _on_document_changed
+        self.show_page(1)
+        self.view.fit()
+
+        sidecar = path.with_suffix(".tempo")
+        if sidecar.exists():
+            self._import_tempo(sidecar)
+
+    def open_project(self, path: Path) -> None:
+        """Re-derive everything from the saved intent: engrave the
+        referenced score with the saved params/stage, install the doc,
+        rebind audio. Hash mismatches warn; a missing score aborts
+        (nothing to display); a project never auto-loads a sidecar."""
+        try:
+            doc = load_project(path)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Open project", str(exc))
+            return
+        if doc.score is None:
+            QMessageBox.warning(self, "Open project",
+                                f"{path.name}: no score reference")
+            return
+        warnings = []
+        score_warning = check_ref(doc.score)
+        if score_warning is not None:
+            if "missing" in score_warning:
+                QMessageBox.warning(self, "Open project", score_warning)
+                return
+            warnings.append(score_warning)
+
+        self._load_score(Path(doc.score.path), doc.engraving,
+                         stage=doc.stage)
+        self._project_path = path
+        self._score_name = path.name
+        self._tempo_path = None
+        self.app_state.reset_document(doc)
+        self.show_page(1)
+        self.view.fit()
+
+        if doc.audio is not None:
+            audio_warning = check_ref(doc.audio)
+            if audio_warning is not None:
+                warnings.append(audio_warning)
+            if audio_warning is None or "missing" not in audio_warning:
+                audio_path = Path(doc.audio.path)
+                self.playback.open_audio(audio_path)
+                self.app_state.set_peaks(None)
+                self.peaks.start(audio_path)
+        if warnings:
+            QMessageBox.warning(self, "Open project", "\n".join(warnings))
+
+    def _load_score(self, path: Path, params: EngravingParams,
+                    stage: StageConfig | None) -> StageConfig:
+        """Engrave + decompose + join + wire the animation. Returns the
+        stage config used (seeded from the score's credits when None)."""
         t0 = time.perf_counter()
-        engraved = VerovioEngravingProvider().load_detailed(
-            path, EngravingParams())
+        engraved = VerovioEngravingProvider().load_detailed(path, params)
         t1 = time.perf_counter()
-        stage = default_stage_config(engraved.prepared,
-                                     page_content_top(engraved.layout))
+        if stage is None:
+            stage = default_stage_config(engraved.prepared,
+                                         page_content_top(engraved.layout))
         self._scenes = ScoreScenes(engraved.layout, stage)
         t2 = time.perf_counter()
 
@@ -207,34 +485,71 @@ class MainWindow(QMainWindow):
                          f"/{len(report.unmatched_layout)} unmatched)")
         schedule = build_trigger_schedule(engraved.layout, report.mapping)
         applier = AnimationApplier(self._scenes.items, schedule,
-                                   TempoMap([TempoEvent(0.0, 120.0)]),
+                                   TempoMap([TempoEvent(0.0, DEFAULT_BPM)]),
                                    appear(FLOOR_OPACITY))
         self.playback.set_animation(applier, model.measures)
+        self.app_state.set_measures(model.measures)
         t3 = time.perf_counter()
 
         self._parts_menu.clear()
+        self._part_actions = {}
+        self._applied_colors = {}
         for info in engraved.prepared.parts:
             action = QAction(info.name, self)
             action.setCheckable(True)
             color = _PART_COLORS[info.index % len(_PART_COLORS)]
             action.toggled.connect(
-                lambda checked, pid=info.part_id, c=color:
-                self._scenes.set_part_color(
-                    PartId(pid), QColor(c) if checked else None))
+                lambda checked, pid=PartId(info.part_id), c=color:
+                self.app_state.execute(
+                    SetPartColor(pid, c if checked else None)))
             self._parts_menu.addAction(action)
+            self._part_actions[PartId(info.part_id)] = action
 
-        self.setWindowTitle(f"ScoreAnim — {path.name}")
         self.statusBar().showMessage(
             f"engrave+decompose {t1 - t0:.2f}s · scene build {t2 - t1:.2f}s · "
             f"animation prep {t3 - t2:.2f}s · "
             f"{len(self._scenes.items)} elements on "
             f"{self._scenes.page_count} pages{join_note}")
-        self.show_page(1)
-        self.view.fit()
+        return stage
 
-        sidecar = path.with_suffix(".tempo")
-        if sidecar.exists():
-            self._tempo_result(self.playback.load_tempo(sidecar))
+    # -- save / load --------------------------------------------------------------
+
+    def save_project(self) -> bool:
+        if self._project_path is None:
+            return self.save_project_as()
+        write_project_file(self.app_state.doc, self._project_path)
+        self.app_state.mark_saved()
+        self.statusBar().showMessage(f"saved {self._project_path.name}")
+        return True
+
+    def save_project_as(self) -> bool:
+        name, _ = QFileDialog.getSaveFileName(
+            self, "Save project", "",
+            f"ScoreAnim projects (*{SUFFIX})")
+        if not name:
+            return False
+        path = Path(name)
+        if path.suffix != SUFFIX:
+            path = path.with_suffix(SUFFIX)
+        self._project_path = path
+        self._score_name = path.name
+        return self.save_project()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        if self.app_state.is_dirty:
+            answer = QMessageBox.question(
+                self, "Unsaved changes", "Save project before closing?",
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel)
+            if answer == QMessageBox.StandardButton.Save:
+                if not self.save_project():
+                    event.ignore()
+                    return
+            elif answer == QMessageBox.StandardButton.Cancel:
+                event.ignore()
+                return
+        event.accept()
 
     def show_page(self, page: int) -> None:
         if self._scenes is None:

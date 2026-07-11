@@ -39,6 +39,7 @@ class ElementKind(enum.Enum):
     METER_SIG = enum.auto()
     BARLINE = enum.auto()
     STAFF_LINES = enum.auto()
+    LEDGER_LINES = enum.auto()           # per-dash, note-owned (BACKLOG 6)
     LYRIC = enum.auto()
     CHORD_SYMBOL = enum.auto()
     TEXT = enum.auto()                   # directions, tempo text, rehearsal marks

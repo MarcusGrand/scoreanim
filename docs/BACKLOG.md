@@ -43,9 +43,17 @@ See `spikes/NOTES.md` for the full investigation of each.
 ## Animation fixes required (user rulings)
 
 6. **Ledger lines must dim with their notes** (Marcus, 2026-07-11, at
-   Phase 3 review). Today ledger lines stay at full opacity while the
-   notes sitting on them are at floor opacity. Priority: **high — next
-   build session.**
+   Phase 3 review). **FIXED 2026-07-11 (Phase 4 task 4.0a)**: the adapter
+   emits each ledger dash as its own LEDGER_LINES element, attributed to
+   its notehead by horizontal-overlap + staff-side within
+   (page, measure, staff); a shared dash takes the earliest owner onset.
+   Ties resolve through the schedule's attachment-group rule (the dash
+   inherits the owner's onset+voice). Pinned:
+   tests/test_adapter_layout.py::test_ledger_dashes_are_note_owned_elements
+   (90 dashes, 15/44/31 per page; every STAFF_LINES back to exactly
+   5 paths).
+   Original ruling: ledger lines stayed at full opacity while the notes
+   sitting on them were at floor opacity.
    Cause (established): Verovio gives `<g class="ledgerLines">` no ids
    (Phase 0 finding), and the adapter lists `ledgerLines` in
    `_CONTAINER_CLASSES` (verovio_adapter.py), so its dash paths fold

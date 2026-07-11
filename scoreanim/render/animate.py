@@ -19,12 +19,12 @@ color-lightening).
 from __future__ import annotations
 
 from bisect import bisect_right
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from scoreanim.core.animation import (OPACITY, Effect, TriggerSchedule,
                                       element_state)
 from scoreanim.core.score.identity import ElementId
-from scoreanim.core.timing import TempoMap
+from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
 from scoreanim.render.items import ElementItem
 
 _BEFORE_EVERYTHING = float("-inf")
@@ -45,9 +45,14 @@ class AnimationApplier:
         self._t = _BEFORE_EVERYTHING
         self.set_timing(tempo_map)       # also refreshes: floor everywhere
 
-    def set_timing(self, tempo_map: TempoMap) -> None:
-        self._trigger_seconds = [tempo_map.seconds_at(trig.beats)
-                                 for trig in self._schedule.triggers]
+    def set_timing(self, tempo_map: TempoMap,
+                   swing: Sequence[SwingRegion] = ()) -> None:
+        """Beats → seconds for every trigger: swing warp upstream of the
+        tempo map (core/timing/swing.py). Both stages are strictly
+        monotone, so the sorted-trigger bisect logic is untouched."""
+        self._trigger_seconds = resolve_seconds(
+            [trig.beats for trig in self._schedule.triggers],
+            tempo_map, swing)
         self.refresh(self._t)
 
     def apply_at(self, t_score_seconds: float) -> int:

@@ -21,14 +21,12 @@ from typing import Sequence
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
 from scoreanim.core.score.model import MeasureInfo
-from scoreanim.core.timing import (TempoEvent, TempoMap, TempoSetup,
-                                   parse_tempo_file)
+from scoreanim.core.timing import SwingRegion, TempoMap
 from scoreanim.render.animate import AnimationApplier
 from scoreanim.ui.audio import AudioTransport
 
 _TICK_MS = 16
 _STATS_EVERY_S = 5.0
-_DEFAULT_SETUP = TempoSetup(0.0, (TempoEvent(0.0, 120.0),))
 
 
 class PlaybackController(QObject):
@@ -41,8 +39,7 @@ class PlaybackController(QObject):
         self.transport = AudioTransport(self)
         self._applier: AnimationApplier | None = None
         self._measures: Sequence[MeasureInfo] = ()
-        self._setup = _DEFAULT_SETUP
-        self._tempo_path: Path | None = None
+        self._offset_seconds = 0.0
         self._follow = True
         self._last_page = 1
 
@@ -65,27 +62,17 @@ class PlaybackController(QObject):
                       measures: Sequence[MeasureInfo]) -> None:
         self._applier = applier
         self._measures = measures
-        self._apply_setup()
+        self._refresh()
 
-    def load_tempo(self, path: Path) -> str | None:
-        """Apply a tempo sidecar; returns an error message or None. On
-        error the previous tempo stays in effect."""
-        try:
-            setup = parse_tempo_file(path.read_text(), self._measures)
-        except (OSError, ValueError) as exc:
-            return f"{path.name}: {exc}"
-        self._setup = setup
-        self._tempo_path = path
-        self._apply_setup()
-        self.status_message.emit(
-            f"tempo: {path.name} — offset {setup.offset_seconds:.2f}s, "
-            f"{len(setup.events)} event(s)")
-        return None
-
-    def reload_tempo(self) -> str | None:
-        if self._tempo_path is None:
-            return "no tempo file loaded (Open Tempo… first)"
-        return self.load_tempo(self._tempo_path)
+    def set_timing_config(self, offset_seconds: float, tempo_map: TempoMap,
+                          swing: Sequence[SwingRegion] = ()) -> None:
+        """Retime the animation from the document's timing intent (called
+        on every document change — edits, previews, undo). The offset is
+        the audio time of beat 0 (never TempoMap's business)."""
+        self._offset_seconds = offset_seconds
+        if self._applier is not None:
+            self._applier.set_timing(tempo_map, swing)
+        self._refresh()
 
     def set_follow(self, follow: bool) -> None:
         self._follow = follow
@@ -107,13 +94,8 @@ class PlaybackController(QObject):
 
     # -- internals ---------------------------------------------------------------
 
-    def _apply_setup(self) -> None:
-        if self._applier is not None:
-            self._applier.set_timing(TempoMap(list(self._setup.events)))
-        self._refresh()
-
     def _score_time(self, audio_seconds: float) -> float:
-        return audio_seconds - self._setup.offset_seconds
+        return audio_seconds - self._offset_seconds
 
     def _refresh(self) -> None:
         t_audio = self.transport.clock.now_seconds()
