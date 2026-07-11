@@ -6,7 +6,7 @@ from collections import defaultdict
 import pytest
 
 from scoreanim.core.animation import build_trigger_schedule, is_animated
-from scoreanim.core.animation.schedule import _pitch_key, _q
+from scoreanim.core.animation.schedule import _pitch_key, quantize_beats
 from scoreanim.core.score.identity import ElementKind
 
 
@@ -111,12 +111,12 @@ def test_all_tied_chords_inherit_through_their_ink(schedule, join_mapping,
     for eid, note in join_mapping.items():
         ident = identities[eid]
         heads_by_group[(ident.part, ident.staff, ident.voice,
-                        _q(ident.onset))].append(eid)
+                        quantize_beats(ident.onset))].append(eid)
     ink_by_group = defaultdict(list)
     for eid, ident in identities.items():
         if ident.kind in (ElementKind.STEM, ElementKind.FLAG):
             ink_by_group[(ident.part, ident.staff, ident.voice,
-                          _q(ident.onset))].append(eid)
+                          quantize_beats(ident.onset))].append(eid)
     all_tied_groups = 0
     for key, heads in heads_by_group.items():
         tied = [e for e in heads if join_mapping[e].tie in ("stop", "continue")]
@@ -136,8 +136,8 @@ def test_fresh_elements_of_a_trigger_share_one_page(schedule, identities,
     pages = {el.identity.element_id: el.page for el in engraved.layout.elements}
     for trigger in schedule.triggers:
         fresh_pages = {pages[eid] for eid in trigger.element_ids
-                       if _q(schedule.beats_by_element[eid])
-                       == _q(identities[eid].onset)}
+                       if quantize_beats(schedule.beats_by_element[eid])
+                       == quantize_beats(identities[eid].onset)}
         if fresh_pages:
             assert len(fresh_pages) == 1
             assert trigger.page == fresh_pages.pop()

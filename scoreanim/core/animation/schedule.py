@@ -47,7 +47,9 @@ from scoreanim.core.score.model import ScoreNote
 _Q = 4096                    # exact for binary subdivisions (join convention)
 
 
-def _q(beats: Beats) -> int:
+def quantize_beats(beats: Beats) -> int:
+    """Shared beat quantizer: simultaneity is decided at 1/4096-beat
+    resolution everywhere (schedule grouping, reveal anchors)."""
     return round(beats * _Q)
 
 
@@ -133,12 +135,13 @@ def build_trigger_schedule(layout: Layout,
         own = ident.onset
         if own is None:                  # defensive; noteheads always carry one
             continue
-        key = (ident.part, ident.staff, ident.voice, _q(own))
+        key = (ident.part, ident.staff, ident.voice, quantize_beats(own))
         group_triggers[key].append((trigger, own))
 
     group_trigger: dict[tuple, Beats] = {}
     for key, pairs in group_triggers.items():
-        fresh = [own for trigger, own in pairs if _q(trigger) == _q(own)]
+        fresh = [own for trigger, own in pairs
+                 if quantize_beats(trigger) == quantize_beats(own)]
         group_trigger[key] = fresh[0] if fresh \
             else min(trigger for trigger, _ in pairs)
 
@@ -155,14 +158,14 @@ def build_trigger_schedule(layout: Layout,
         if eid in note_trigger:
             trigger = note_trigger[eid]
         else:
-            key = (ident.part, ident.staff, ident.voice, _q(own))
+            key = (ident.part, ident.staff, ident.voice, quantize_beats(own))
             trigger = group_trigger.get(key, own)
         beats_by_element[eid] = trigger
-        bucket = by_qbeat.setdefault(_q(trigger), {
+        bucket = by_qbeat.setdefault(quantize_beats(trigger), {
             "beats": trigger, "ids": [], "fresh_pages": set(), "pages": set()})
         bucket["ids"].append(eid)
         bucket["pages"].add(el.page)
-        if _q(trigger) == _q(own):
+        if quantize_beats(trigger) == quantize_beats(own):
             bucket["fresh_pages"].add(el.page)
 
     triggers = tuple(
