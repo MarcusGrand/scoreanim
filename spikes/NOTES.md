@@ -1,4 +1,43 @@
-# Phase 0–4 spike & build notes
+# Phase 0–5 spike & build notes
+
+## Phase 5 — broken-spanner anatomy (`spikes/spanner_split.py`, 2026-07-11)
+
+Question: how does Verovio represent spanners broken across systems, and
+what identity do hairpins carry? Measured on verovio 6.2.1 against
+`testdata/broken_hairpin_and_slur_test.musicxml` (user-provided Dorico
+export: 2 parts — Tpts in B♭ (chromatic transpose) + Tbns — 10 measures,
+3 systems on one page; hairpin broken across the m4→m5 system break, slur
+broken across m8→m9, ties broken across m8→m9; companion `.wav`).
+
+- **Broken spanner = one id-bearing `<g>` + one id-less `<g>` per
+  continuation system.** Segment 1 is a normal `<g class="slur|tie|hairpin"
+  id=...>` inside the START measure's subtree. Each continuation segment is
+  an **id-less** `<g class="...">` emitted as a direct child of the
+  continuation `<g class="system">` — outside any measure. One drawable per
+  group; no duplicate ids anywhere; never one `<g>` with multiple segment
+  paths.
+- **The current adapter silently absorbs continuation segments into the
+  system element** (kind OTHER, "systemic barline"): the id-less group's
+  class is in `_KIND_BY_CLASS`, so no unknown-class error fires, and its
+  drawable falls through to the enclosing system accumulator. The fixture
+  loads without error (639 elements) but the continuation ink is static
+  system ink — invisible to animation, tinting, and clip-reveal. Phase 5.1a
+  must intercept id-less spanner-class groups in `_walk`.
+- **Hairpin ink is `<polyline>`, not `<path>`** (closed first segment: one
+  3-point polyline; open continuation: two polylines). Already handled by
+  `_add_drawable`'s polyline branch.
+- **Hairpins carry `@staff` + `@tstamp`/`@tstamp2` (`form`, `vgrp`) and NO
+  `startid`/`endid`** — e.g. `staff='1' tstamp='1' tstamp2='1m+2.5'`.
+  The adapter's spanner identity path (startid → part/staff/onset/extent)
+  therefore yields part=None/onset=None/extent=None for hairpins today;
+  `_parse_mei` must record spanner `@staff` and resolve tstamp extents.
+  `tstamp2` grammar: `<n>m+<beat>` (n measures ahead, beat in meter units,
+  1-based). Beat→quarters needs the active meter: MEI `meterSig
+  count/unit` elements appear in document order (initial scoreDef +
+  changes), so the meter per measure is trackable in the existing
+  `_parse_mei` walk.
+- **Open (unmatched) ties render as 0-path `<g>`s** here too (3 in this
+  fixture — same importer quirk as the main fixture's 5).
 
 ## Phase 4 — QAudioDecoder spike (`spikes/decode_audio.py`, 2026-07-11)
 

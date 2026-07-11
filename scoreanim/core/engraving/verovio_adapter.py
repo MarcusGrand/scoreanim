@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import verovio
@@ -97,6 +97,11 @@ _CONTAINER_CLASSES = {
 # Short kind tag used inside minted ElementIds.
 _ID_TAG = {k: k.name.lower() for k in ElementKind}
 
+# SVG classes that are drawn spanners. A system-broken spanner renders as
+# one id-bearing <g> in its start measure plus one id-less <g> per
+# continuation system (Phase 5 spike, spikes/spanner_split.py).
+_SPANNER_CLASSES = {"slur", "tie", "hairpin", "lv"}
+
 # Verovio styles its SVG through one small stylesheet instead of element
 # attributes; its effective rules are baked into the primitives so the
 # redraw needs no CSS: every shape strokes in currentColor, and text
@@ -134,8 +139,18 @@ class _MeiIndex:
     beam_note_ids: dict[str, tuple[str, ...]] = field(default_factory=dict)
     spanners: dict[str, tuple[str | None, str | None]] = field(default_factory=dict)
     measure_by_id: dict[str, int] = field(default_factory=dict)
-    # measure-attached elements (dynam, dir, tempo, harm...) → their @staff
+    # measure-attached elements (dynam, dir, tempo, harm...) → their @staff.
+    # Spanners are recorded here too (Phase 5): hairpins carry @staff but
+    # no startid, so this is their only staff source.
     staff_attr_by_id: dict[str, int] = field(default_factory=dict)
+    # timestamp-addressed spanners (hairpins): id → (measure_n, tstamp,
+    # tstamp2 or None). tstamp is in meter units, 1-based; tstamp2 grammar
+    # is "<n>m+<beat>" (n measures ahead) or a bare beat (same measure).
+    spanner_tstamps: dict[str, tuple[int, str, str | None]] = \
+        field(default_factory=dict)
+    # active meter denominator per measure (document-order tracking of
+    # meterSig), for tstamp → quarter-note conversion
+    meter_unit_by_measure: dict[int, int] = field(default_factory=dict)
 
 
 def _int_or(value: str | None, fallback: int) -> int:
@@ -151,6 +166,20 @@ def _parse_mei(mei_xml: str) -> _MeiIndex:
 
     def ref(value: str | None) -> str | None:
         return value.lstrip("#") if value else None
+
+    # Document-order meter tracking: meterSig elements (initial scoreDef +
+    # mid-score changes) precede the measures they govern. Needed to
+    # convert spanner tstamps (meter units) to quarters (Phase 5 spike).
+    unit = 4
+    meter_ordinal = 0
+    for el in root.iter():
+        tag = el.tag.removeprefix(_MEI_NS)
+        if tag == "meterSig" and el.get("unit"):
+            unit = _int_or(el.get("unit"), unit)
+        elif tag == "measure":
+            meter_ordinal += 1
+            index.meter_unit_by_measure[
+                _int_or(el.get("n"), meter_ordinal)] = unit
 
     measure_ordinal = 0
     for measure in root.iter(f"{_MEI_NS}measure"):
@@ -172,7 +201,10 @@ def _parse_mei(mei_xml: str) -> _MeiIndex:
             if tag in ("slur", "tie", "hairpin", "octave", "lv"):
                 index.spanners[sp_id] = (ref(sp.get("startid")),
                                          ref(sp.get("endid")))
-            elif sp.get("staff"):
+                if sp.get("tstamp"):
+                    index.spanner_tstamps[sp_id] = (
+                        m_n, sp.get("tstamp", "1"), sp.get("tstamp2"))
+            if sp.get("staff"):
                 index.staff_attr_by_id[sp_id] = _int_or(
                     sp.get("staff", "").split()[0], 0)
     return index
@@ -262,7 +294,14 @@ class _ElementAccumulator:
     staff: int | None
     layer: int | None
     owner_onset: Beats | None    # onset of enclosing note/chord (for stems etc.)
+    system: int | None = None            # score-wide system index (1-based)
     ledger_dir: str | None = None        # "above" | "below" for ledger dashes
+    # Continuation segment of a system-broken spanner (Phase 5 spike):
+    # an id-less <g class="slur|tie|hairpin"> child of the continuation
+    # system. Attributed to its source spanner post-decomposition.
+    continuation: bool = False
+    source_vid: str | None = None        # set by _attribute_spanner_segments
+    seg_index: int = 0                   # 1-based continuation order
     paths: list[PathPrimitive] = field(default_factory=list)
     texts: list[TextPrimitive] = field(default_factory=list)
     use_origins: list[Point] = field(default_factory=list)
@@ -300,7 +339,8 @@ class _PageDecomposer:
         root_ctm = Affine(a=outer_vb[2] / inner_vb[2],
                           d=outer_vb[3] / inner_vb[3])
         self._walk(inner, root_ctm, owner=None,
-                   measure=None, staff=None, layer=None, owner_onset=None)
+                   measure=None, staff=None, layer=None, owner_onset=None,
+                   system=None)
         if self.drawables_claimed != self.drawables_seen:
             raise ValueError(
                 f"page {self.page}: {self.drawables_seen - self.drawables_claimed} "
@@ -312,7 +352,7 @@ class _PageDecomposer:
     def _walk(self, node: ET.Element, ctm: Affine,
               owner: _ElementAccumulator | None,
               measure: int | None, staff: int | None, layer: int | None,
-              owner_onset: Beats | None) -> None:
+              owner_onset: Beats | None, system: int | None) -> None:
         st = self.st
         for child in node:
             tag = child.tag.removeprefix(_SVG_NS)
@@ -322,8 +362,15 @@ class _PageDecomposer:
                 cid = child.get(_XML_ID) or child.get("id")
                 new_measure, new_staff, new_layer = measure, staff, layer
                 new_owner, new_owner_onset = owner, owner_onset
-                if cls == "measure" and cid in st.mei.measure_by_id:
+                new_system = system
+                if cls == "system":
+                    st.system_count += 1
+                    new_system = st.system_count
+                elif cls == "measure" and cid in st.mei.measure_by_id:
                     new_measure = st.mei.measure_by_id[cid]
+                    if new_system is not None:
+                        st.system_of_measure.setdefault(new_measure,
+                                                        new_system)
                 elif cls == "staff":
                     new_staff = _int_or(child.get("data-n"), 0) or \
                         st.staff_n_by_id.get(cid or "", 0) or staff or 0
@@ -338,16 +385,33 @@ class _PageDecomposer:
                         new_owner_onset = onset
                 if cls == "ledgerLines":
                     self._add_ledger_dashes(child, child_ctm,
-                                            new_measure, new_staff)
+                                            new_measure, new_staff,
+                                            new_system)
+                    continue
+                if cls in _SPANNER_CLASSES and not cid:
+                    # Continuation segment of a system-broken spanner:
+                    # id-less, hosted directly in the continuation system
+                    # (Phase 5 spike). Emitted as its own element;
+                    # attributed to its source spanner in a post-pass.
+                    acc = _ElementAccumulator(
+                        verovio_id="", svg_class=cls,
+                        kind=_KIND_BY_CLASS[cls],
+                        measure=None, staff=None, layer=None,
+                        owner_onset=None, system=new_system,
+                        continuation=True)
+                    self._walk(child, child_ctm, acc, new_measure, new_staff,
+                               new_layer, new_owner_onset, new_system)
+                    if acc.paths or acc.texts:
+                        self.done.append(acc)
                     continue
                 if cid and cls in _KIND_BY_CLASS:
                     acc = _ElementAccumulator(
                         verovio_id=cid, svg_class=cls,
                         kind=_KIND_BY_CLASS[cls],
                         measure=new_measure, staff=new_staff, layer=new_layer,
-                        owner_onset=new_owner_onset)
+                        owner_onset=new_owner_onset, system=new_system)
                     self._walk(child, child_ctm, acc, new_measure, new_staff,
-                               new_layer, new_owner_onset)
+                               new_layer, new_owner_onset, new_system)
                     if acc.paths or acc.texts:
                         self.done.append(acc)
                     continue
@@ -356,7 +420,7 @@ class _PageDecomposer:
                     raise ValueError(f"page {self.page}: unknown SVG class "
                                      f"{cls!r} with drawable content")
                 self._walk(child, child_ctm, new_owner, new_measure, new_staff,
-                           new_layer, new_owner_onset)
+                           new_layer, new_owner_onset, new_system)
             elif tag in ("use", "path", "rect", "line", "polygon", "polyline",
                          "ellipse", "circle", "text"):
                 self.drawables_seen += 1
@@ -370,7 +434,8 @@ class _PageDecomposer:
             # desc, style, title, defs handled elsewhere / ignored
 
     def _add_ledger_dashes(self, group: ET.Element, ctm: Affine,
-                           measure: int | None, staff: int | None) -> None:
+                           measure: int | None, staff: int | None,
+                           system: int | None) -> None:
         """Each ledger dash becomes its own LEDGER_LINES element so it can
         dim with the note that owns it (BACKLOG 6). The group carries no
         id; onset/voice are attributed geometrically afterwards
@@ -388,7 +453,7 @@ class _PageDecomposer:
                 verovio_id="", svg_class="ledgerLines",
                 kind=ElementKind.LEDGER_LINES,
                 measure=measure, staff=staff, layer=None,
-                owner_onset=None, ledger_dir=direction)
+                owner_onset=None, system=system, ledger_dir=direction)
             self._add_drawable(
                 acc, "path", dash,
                 ctm.compose(parse_transform(dash.get("transform"))))
@@ -547,6 +612,8 @@ class _LoadState:
     measure_duration: dict[int, Beats]       # from timemap start deltas
     staff_n_by_id: dict[str, int]
     layer_n_by_id: dict[str, int]
+    system_count: int = 0                    # score-wide, across pages
+    system_of_measure: dict[int, int] = field(default_factory=dict)
     _glyph_bbox_cache: dict[str, Rect] = field(default_factory=dict)
 
     def glyph_bbox(self, def_id: str, d: str) -> Rect:
@@ -628,6 +695,7 @@ class VerovioEngravingProvider(EngravingProvider):
                 accumulators.append((page, acc))
 
         _attribute_ledger_dashes(accumulators, state)
+        _attribute_spanner_segments(accumulators, state)
         elements, note_records, staff_geo = _build_elements(accumulators, state)
         elements.extend(_synthesize_slashes(state, staff_geo))
         layout = Layout(pages=pages, elements=tuple(elements))
@@ -698,6 +766,113 @@ def _attribute_ledger_dashes(
 
 
 # ---------------------------------------------------------------------------
+# Spanner continuation segments (Phase 5, spikes/spanner_split.py): a
+# system-broken spanner renders as its id-bearing <g> (start system) plus
+# one id-less <g> per continuation system. Each id-less segment is matched
+# to the source spanner it continues: same SVG class, source starts in an
+# earlier system, source's musical end lands in the segment's system or
+# later. Stacked same-kind candidates (several broken ties at once) are
+# disambiguated by vertical order — segments and candidate end anchors
+# are paired in y order, which is stable because a tie continuation hugs
+# the pitch height of its end note. Loud failure on count mismatch.
+# ---------------------------------------------------------------------------
+
+def _attribute_spanner_segments(
+        accumulators: list[tuple[int, _ElementAccumulator]],
+        st: _LoadState) -> None:
+    note_accs: dict[str, _ElementAccumulator] = {
+        acc.verovio_id: acc for _, acc in accumulators
+        if acc.svg_class == "note"}
+
+    # (svg_class, start_sys, end_sys, sort_key, vid)
+    sources: list[tuple[str, int, int, tuple, str]] = []
+    for _, acc in accumulators:
+        if acc.continuation or acc.svg_class not in _SPANNER_CLASSES:
+            continue
+        vid = acc.verovio_id
+        start_id, end_id = st.mei.spanners.get(vid, (None, None))
+        end_sys: int | None = None
+        end_y: float | None = None
+        staff_n = 0
+        end_note = note_accs.get(end_id or "")
+        if end_note is not None:
+            end_sys = end_note.system
+            end_y = end_note.bbox.center.y if end_note.bbox else None
+            staff_n = end_note.staff or 0
+        elif vid in st.mei.spanner_tstamps:
+            m, _, tstamp2 = st.mei.spanner_tstamps[vid]
+            end_sys = st.system_of_measure.get(_tstamp2_end_measure(m, tstamp2))
+            staff_n = st.mei.staff_attr_by_id.get(vid, 0)
+        if acc.system is None or end_sys is None or end_sys <= acc.system:
+            continue
+        sources.append((acc.svg_class, acc.system, end_sys,
+                        (staff_n, end_y if end_y is not None else 0.0), vid))
+
+    segments: dict[tuple[str, int], list[_ElementAccumulator]] = \
+        defaultdict(list)
+    for _, acc in accumulators:
+        if acc.continuation:
+            if acc.system is None or acc.bbox is None:
+                raise ValueError(
+                    f"continuation {acc.svg_class} segment without "
+                    f"system/bbox — cannot attribute")
+            segments[(acc.svg_class, acc.system)].append(acc)
+
+    for (cls, sys_n), segs in segments.items():
+        candidates = sorted(
+            (s for s in sources
+             if s[0] == cls and s[1] < sys_n <= s[2]),
+            key=lambda s: s[3])
+        if len(candidates) != len(segs):
+            raise ValueError(
+                f"system {sys_n}: {len(segs)} {cls} continuation "
+                f"segment(s) but {len(candidates)} crossing source "
+                f"spanner(s) — attribution failed")
+        segs.sort(key=lambda a: a.bbox.center.y)       # type: ignore[union-attr]
+        for seg, (_, _, _, _, vid) in zip(segs, candidates):
+            seg.source_vid = vid
+
+    # Segment index per source, in system order (a spanner across 3+
+    # systems has several continuation segments: seg1, seg2, ...).
+    by_source: dict[str, list[_ElementAccumulator]] = defaultdict(list)
+    for _, acc in accumulators:
+        if acc.continuation:
+            by_source[acc.source_vid or ""].append(acc)
+    for segs in by_source.values():
+        segs.sort(key=lambda a: a.system or 0)
+        for k, seg in enumerate(segs, start=1):
+            seg.seg_index = k
+
+
+def _tstamp2_end_measure(start_measure: int, tstamp2: str | None) -> int:
+    if tstamp2 and "m+" in tstamp2:
+        return start_measure + int(tstamp2.split("m+", 1)[0])
+    return start_measure
+
+
+def _tstamp_extent(entry: tuple[int, str, str | None], st: _LoadState
+                   ) -> tuple[Beats, tuple[Beats, Beats]]:
+    """Onset/extent in quarters for a timestamp-addressed spanner
+    (hairpins: @tstamp/@tstamp2 in meter units, 1-based; tstamp2 grammar
+    "<n>m+<beat>" or a bare beat)."""
+    m, tstamp, tstamp2 = entry
+
+    def q_at(measure: int, beat: str) -> Beats:
+        unit = st.mei.meter_unit_by_measure.get(measure, 4)
+        return st.measure_start[measure] + (float(beat) - 1.0) * (4.0 / unit)
+
+    start = q_at(m, tstamp)
+    if not tstamp2:
+        return start, (start, start)
+    if "m+" in tstamp2:
+        ahead, beat = tstamp2.split("m+", 1)
+        end = q_at(m + int(ahead), beat)
+    else:
+        end = q_at(m, tstamp2)
+    return start, (start, end)
+
+
+# ---------------------------------------------------------------------------
 # Identity minting (plan D5) and element construction
 # ---------------------------------------------------------------------------
 
@@ -705,21 +880,26 @@ def _build_elements(
     accumulators: list[tuple[int, _ElementAccumulator]],
     st: _LoadState,
 ) -> tuple[list[RenderedElement], list[AdapterNoteRecord],
-           dict[tuple, tuple[int, Rect]]]:
+           dict[tuple, tuple[int, int | None, Rect]]]:
     counters: dict[tuple, int] = defaultdict(int)
     elements: list[RenderedElement] = []
     note_records: list[AdapterNoteRecord] = []
     voice_order: dict[tuple, int] = defaultdict(int)
     seen_ids: set[str] = set()
-    # (part_id, measure, staff_local) → (page, staff-lines bbox), for
-    # slash synthesis
-    staff_geo: dict[tuple, tuple[int, Rect]] = {}
+    identity_by_vid: dict[str, ElementIdentity] = {}
+    # (part_id, measure, staff_local) → (page, system, staff-lines bbox),
+    # for slash synthesis
+    staff_geo: dict[tuple, tuple[int, int | None, Rect]] = {}
 
     for page, acc in accumulators:
+        if acc.continuation:
+            continue                     # second pass, after sources exist
         identity = _identity_for(acc, page, st, counters)
         if str(identity.element_id) in seen_ids:
             raise ValueError(f"duplicate ElementId {identity.element_id}")
         seen_ids.add(str(identity.element_id))
+        if acc.verovio_id:
+            identity_by_vid[acc.verovio_id] = identity
 
         if acc.bbox is None:
             continue
@@ -733,12 +913,13 @@ def _build_elements(
             anchor=anchor,
             glyph=RenderPrimitive(paths=tuple(acc.paths),
                                   texts=tuple(acc.texts)),
+            system=acc.system,
         ))
 
         if (identity.kind is ElementKind.STAFF_LINES
                 and identity.part is not None and acc.measure is not None):
             staff_geo[(identity.part, acc.measure, identity.staff)] = \
-                (page, acc.bbox)
+                (page, acc.system, acc.bbox)
 
         if acc.svg_class == "note":
             mei_note = st.mei.notes.get(acc.verovio_id)
@@ -766,6 +947,32 @@ def _build_elements(
                 chord_group=_chord_group(mei_note, st, part),
                 order_in_voice=order,
             ))
+
+    # Second pass: continuation segments inherit the source spanner's
+    # identity under a ":seg<k>" id — deterministic because segment
+    # matching and system order are (per-element overrides on a broken
+    # spanner therefore target one segment, documented in the plan).
+    for page, acc in accumulators:
+        if not acc.continuation:
+            continue
+        source = identity_by_vid.get(acc.source_vid or "")
+        if source is None or acc.bbox is None:
+            raise ValueError(
+                f"continuation {acc.svg_class} segment in system "
+                f"{acc.system} has no source element")
+        eid = f"{source.element_id}:seg{acc.seg_index}"
+        if eid in seen_ids:
+            raise ValueError(f"duplicate ElementId {eid}")
+        seen_ids.add(eid)
+        identity = replace(source, element_id=ElementId(eid))
+        elements.append(RenderedElement(
+            identity=identity, page=page,
+            x=acc.bbox.center.x, y=acc.bbox.center.y,
+            bbox=acc.bbox, anchor=acc.bbox.center,
+            glyph=RenderPrimitive(paths=tuple(acc.paths),
+                                  texts=tuple(acc.texts)),
+            system=acc.system,
+        ))
     return elements, note_records, staff_geo
 
 
@@ -783,7 +990,7 @@ _SLASH_D = "M0.475 -1 L0.675 -1 L-0.475 1 L-0.675 1 Z"
 
 
 def _synthesize_slashes(st: _LoadState,
-                        staff_geo: dict[tuple, tuple[int, Rect]]
+                        staff_geo: dict[tuple, tuple[int, int | None, Rect]]
                         ) -> list[RenderedElement]:
     out: list[RenderedElement] = []
     glyph_bbox = path_bbox(_SLASH_D)
@@ -796,7 +1003,7 @@ def _synthesize_slashes(st: _LoadState,
                 raise ValueError(f"slash region {region.part} m{m}: "
                                  f"non-positive slash count")
             # v1 limitation: slash regions on the part's first staff
-            page, staff_bbox = staff_geo[(region.part, m, 1)]
+            page, system, staff_bbox = staff_geo[(region.part, m, 1)]
             staff_space = staff_bbox.h / 4
             mid_y = staff_bbox.y + staff_bbox.h / 2
             slot_w = staff_bbox.w / count
@@ -816,6 +1023,7 @@ def _synthesize_slashes(st: _LoadState,
                     bbox=bbox, anchor=bbox.center,
                     glyph=RenderPrimitive(paths=(
                         PathPrimitive(d=_SLASH_D, transform=tf),)),
+                    system=system,
                 ))
     return out
 
@@ -868,6 +1076,10 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
         if start is not None:
             onset = start
             extent = (start, end if end is not None else start)
+        elif vid in st.mei.spanner_tstamps:
+            # timestamp-addressed spanner (hairpins carry @tstamp/@tstamp2
+            # and @staff, no startid/endid — Phase 5 spike)
+            onset, extent = _tstamp_extent(st.mei.spanner_tstamps[vid], st)
     elif vid in st.mei.beam_note_ids:
         onsets = [st.onset_by_id[n] for n in st.mei.beam_note_ids[vid]
                   if n in st.onset_by_id]

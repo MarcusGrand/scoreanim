@@ -76,12 +76,18 @@ def test_note_records_cover_all_notes(engraved) -> None:
 def test_open_ties_are_not_rendered(engraved) -> None:
     """64 ties exist in the source; the 5 with unresolved endpoints
     (spikes/NOTES.md) produce no drawn curve. None of the drawn ties has
-    a degenerate extent."""
+    a degenerate extent. The 7 ties broken across the m8→m9 system break
+    additionally emit one continuation-segment element each (Phase 5)."""
     ties = [e for e in engraved.layout.elements
             if e.identity.kind is ElementKind.TIE]
-    assert len(ties) == 59
+    sources = [t for t in ties if ":seg" not in str(t.identity.element_id)]
+    segments = [t for t in ties if ":seg" in str(t.identity.element_id)]
+    assert len(sources) == 59
+    assert len(segments) == 7
     assert all(t.identity.extent is None or
                t.identity.extent[0] < t.identity.extent[1] for t in ties)
+    # segments continue m8→m9 ties: system 3, page 2, source in system 2
+    assert all(s.system == 3 and s.page == 2 for s in segments)
 
 
 def test_staff_lines_are_exactly_five_paths(engraved) -> None:

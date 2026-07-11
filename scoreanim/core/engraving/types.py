@@ -145,6 +145,11 @@ class RenderedElement:
     bbox: Rect
     anchor: Point                # transform origin (bbox center) for scale/pop
     glyph: RenderPrimitive
+    # Score-wide system index (1-based, document order), stamped from the
+    # engraved SVG's system nesting. Engraving-derived layout data (like
+    # page), not musical identity — reveal_x (Phase 5) is per system.
+    # None for elements outside any system (e.g. page-header texts).
+    system: int | None = None
 
 
 @dataclass(frozen=True)
