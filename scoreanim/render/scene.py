@@ -15,14 +15,16 @@ stroke "currentColor" → element color, pen width stroke_width or 1
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsScene
 
+from scoreanim.core.animation.reveal import REVEALED_KINDS
 from scoreanim.core.engraving.types import Layout, PathPrimitive
 from scoreanim.core.project.stage_config import StageConfig
 from scoreanim.core.score.identity import ElementId, ElementKind, PartId
-from scoreanim.render.items import DEFAULT_COLOR, ElementItem, svg_pen
+from scoreanim.render.items import (DEFAULT_COLOR, ElementItem,
+                                    RevealPathItem, svg_pen)
 from scoreanim.render.qpath import to_qpainter_path, to_qtransform
 from scoreanim.render.text import add_stage_text, add_text_rows
 
@@ -34,9 +36,11 @@ _UNTINTED_KINDS = frozenset({ElementKind.STAFF_LINES, ElementKind.BARLINE})
 class ScoreScenes:
     """All pages of one score as scenes + the element registry."""
 
-    def __init__(self, layout: Layout, stage: StageConfig) -> None:
+    def __init__(self, layout: Layout, stage: StageConfig,
+                 ghost_opacity: float = 0.3) -> None:
         self.items: dict[ElementId, ElementItem] = {}
         self._path_cache: dict[str, QPainterPath] = {}
+        self._ghost_opacity = ghost_opacity
         self.scenes: list[QGraphicsScene] = []
         for geo in layout.pages:
             scene = QGraphicsScene(0, 0, geo.width, geo.height)
@@ -46,9 +50,19 @@ class ScoreScenes:
             self.scenes.append(scene)
 
         for el in layout.elements:
-            item = ElementItem(el.identity)
+            item = ElementItem(
+                el.identity,
+                bbox=QRectF(el.bbox.x, el.bbox.y, el.bbox.w, el.bbox.h),
+                anchor=QPointF(el.anchor.x, el.anchor.y),
+                system=el.system)
+            # Spanners reveal by clip-grow: each path gets a dimmed ghost
+            # of the whole curve underneath the clipped full-opacity copy
+            # (Phase 5.2 ruling — consistent with the dimmed ghost score).
+            reveal = el.identity.kind in REVEALED_KINDS
             for prim in el.glyph.paths:
-                self._add_path(item, prim)
+                if reveal:
+                    self._add_path(item, prim, ghost=True)
+                self._add_path(item, prim, reveal=reveal)
             for prim in el.glyph.texts:
                 add_text_rows(item, prim)
             self.scenes[el.page - 1].addItem(item)
@@ -88,9 +102,13 @@ class ScoreScenes:
             path = self._path_cache[d] = to_qpainter_path(d)
         return path
 
-    def _add_path(self, parent: ElementItem, prim: PathPrimitive) -> None:
-        child = QGraphicsPathItem(self._qpath(prim.d))
+    def _add_path(self, parent: ElementItem, prim: PathPrimitive,
+                  reveal: bool = False, ghost: bool = False) -> None:
+        cls = RevealPathItem if reveal else QGraphicsPathItem
+        child = cls(self._qpath(prim.d))
         child.setTransform(to_qtransform(prim.transform))
+        if ghost:
+            child.setOpacity(self._ghost_opacity)
 
         fill_tracks = prim.fill is None
         if prim.fill is None:

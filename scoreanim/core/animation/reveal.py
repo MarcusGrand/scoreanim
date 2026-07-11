@@ -46,6 +46,17 @@ from scoreanim.core.timing.tempo_map import TempoMap
 # Kinds whose (onset, x) pairs define the reveal edge.
 ANCHOR_KINDS = frozenset({ElementKind.NOTEHEAD, ElementKind.SLASH})
 
+# Spanner kinds revealed by clip-grow at the reveal edge (Phase 5.2
+# ruling: grow REPLACES the Phase 3 step-appear for SLUR/TIE and newly
+# covers HAIRPIN per the 5.2 task text; the dynamic letters stay static).
+# Their opacity stays 1.0 — the clip does all revealing.
+REVEALED_KINDS = frozenset({ElementKind.SLUR, ElementKind.TIE,
+                            ElementKind.HAIRPIN})
+
+
+def is_revealed(kind: ElementKind) -> bool:
+    return kind in REVEALED_KINDS
+
 
 class RevealMode(enum.Enum):
     CONTINUOUS = enum.auto()     # lerp x between onset positions (sweep)

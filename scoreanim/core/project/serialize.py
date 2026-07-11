@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from scoreanim.core.animation.reveal import RevealMode
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.document import (FileRef, LayoutOverride,
                                              ProjectDoc, StyleConfig,
@@ -67,7 +68,8 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
             ],
         },
         "style": {"part_colors": {str(p): c for p, c
-                                  in sorted(doc.style.part_colors.items())}},
+                                  in sorted(doc.style.part_colors.items())},
+                  "reveal_mode": doc.style.reveal_mode.name.lower()},
         "stage": {"texts": [
             {"element_id": t.element_id, "content": t.content,
              "page": t.page, "x": t.x, "y": t.y, "anchor": t.anchor,
@@ -118,10 +120,15 @@ def from_dict(data: dict[str, Any],
                     for s in timing.get("tap_sessions", [])
                 ),
             ),
-            style=StyleConfig(part_colors={
-                PartId(p): c for p, c
-                in data.get("style", {}).get("part_colors", {}).items()
-            }),
+            style=StyleConfig(
+                part_colors={
+                    PartId(p): c for p, c
+                    in (data.get("style") or {})
+                    .get("part_colors", {}).items()
+                },
+                reveal_mode=_reveal_mode_in(
+                    (data.get("style") or {}).get("reveal_mode")),
+            ),
             stage=StageConfig(texts=tuple(
                 StageTextElement(
                     element_id=t["element_id"], content=t["content"],
@@ -133,6 +140,15 @@ def from_dict(data: dict[str, Any],
         )
     except (KeyError, TypeError) as exc:
         raise ValueError(f"malformed project data: {exc!r}") from exc
+
+
+def _reveal_mode_in(value: Any) -> RevealMode:
+    if value is None:
+        return RevealMode.STEPPED
+    try:
+        return RevealMode[str(value).upper()]
+    except KeyError as exc:
+        raise ValueError(f"unknown reveal mode {value!r}") from exc
 
 
 # ---------------------------------------------------------------------------

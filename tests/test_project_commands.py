@@ -205,6 +205,19 @@ def test_set_part_color_and_reset(doc) -> None:
         SetPartColor(p3, "red").apply(doc)
 
 
+def test_set_reveal_mode(doc) -> None:
+    from scoreanim.core.animation import RevealMode
+    from scoreanim.core.project import SetRevealMode
+
+    assert doc.style.reveal_mode is RevealMode.STEPPED
+    out = SetRevealMode(RevealMode.CONTINUOUS).apply(doc)
+    assert out.style.reveal_mode is RevealMode.CONTINUOUS
+    assert doc.style.reveal_mode is RevealMode.STEPPED
+    assert out.style.part_colors == doc.style.part_colors
+    with pytest.raises(CommandError):
+        SetRevealMode("continuous").apply(doc)   # type: ignore[arg-type]
+
+
 # -- undo stack ---------------------------------------------------------------
 
 def test_stack_execute_undo_redo(doc) -> None:

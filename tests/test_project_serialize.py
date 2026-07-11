@@ -12,6 +12,7 @@ from scoreanim.core.project import (FileRef, LayoutOverride, ProjectDoc,
                                     StyleConfig, TimingConfig, check_ref,
                                     from_dict, load_project, save_project,
                                     sha256_of, to_dict)
+from scoreanim.core.animation import RevealMode
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.core.timing import SwingRegion, Tap, TapSession, TempoEvent
 
@@ -33,7 +34,8 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
             tap_sessions=(TapSession(unit=1.0, taps=(
                 Tap(24.0, 13.412), Tap(25.0, 13.955), Tap(26.0, 14.508))),),
         ),
-        style=StyleConfig(part_colors={PartId("P1"): "#cc2222"}),
+        style=StyleConfig(part_colors={PartId("P1"): "#cc2222"},
+                          reveal_mode=RevealMode.CONTINUOUS),
         stage=StageConfig(texts=(
             StageTextElement(element_id="stage:title", content="Det var…",
                              page=1, x=1049.0, y=80.0, anchor="middle",
@@ -72,6 +74,21 @@ def test_defaults_for_absent_optional_fields() -> None:
     doc = from_dict({"version": 1})
     assert doc == ProjectDoc()
     assert doc.timing.tempo_events == (TempoEvent(0.0, 120.0),)
+    assert doc.style.reveal_mode is RevealMode.STEPPED
+
+
+def test_reveal_mode_round_trip_and_legacy_default() -> None:
+    """Phase 4 files carry no reveal_mode → STEPPED; unknown values are
+    an error, not a silent default."""
+    doc = _full_doc("/s.musicxml", "/a.wav")
+    assert to_dict(doc)["style"]["reveal_mode"] == "continuous"
+    assert from_dict(to_dict(doc)).style.reveal_mode \
+        is RevealMode.CONTINUOUS
+    legacy = from_dict({"version": 1,
+                        "style": {"part_colors": {"P1": "#cc2222"}}})
+    assert legacy.style.reveal_mode is RevealMode.STEPPED
+    with pytest.raises(ValueError, match="reveal mode"):
+        from_dict({"version": 1, "style": {"reveal_mode": "wobbly"}})
 
 
 def test_version_guard() -> None:

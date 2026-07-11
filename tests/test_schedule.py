@@ -206,16 +206,25 @@ def test_all_tied_chord_inherits_stem() -> None:
 
 
 def test_animated_census(engraved) -> None:
-    """Scaffold never animates; note ink always does."""
+    """Three-way split (Phase 5.2 ruling): scaffold never animates; note
+    ink dims and lights via opacity triggers; spanners (slurs, ties,
+    hairpins — user ruling 2026-07-11 moving HAIRPIN out of static)
+    reveal by clip-grow only — never opacity-triggered."""
+    from scoreanim.core.animation import REVEALED_KINDS, is_revealed
+
     static_kinds = {ElementKind.REST, ElementKind.MREST, ElementKind.CLEF,
                     ElementKind.KEY_SIG, ElementKind.METER_SIG,
                     ElementKind.BARLINE, ElementKind.STAFF_LINES,
                     ElementKind.DYNAMIC, ElementKind.TEXT,
-                    ElementKind.CHORD_SYMBOL, ElementKind.LYRIC,
-                    ElementKind.HAIRPIN}
+                    ElementKind.CHORD_SYMBOL, ElementKind.LYRIC}
+    assert REVEALED_KINDS == {ElementKind.SLUR, ElementKind.TIE,
+                              ElementKind.HAIRPIN}
     for el in engraved.layout.elements:
         ident = el.identity
         if ident.kind in static_kinds:
+            assert not is_animated(ident), ident.element_id
+            assert not is_revealed(ident.kind), ident.element_id
+        if ident.kind in REVEALED_KINDS:
             assert not is_animated(ident), ident.element_id
         if ident.kind in (ElementKind.NOTEHEAD, ElementKind.SLASH,
                           ElementKind.STEM, ElementKind.BEAM,

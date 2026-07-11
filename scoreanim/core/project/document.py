@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Mapping
 
+from scoreanim.core.animation.reveal import RevealMode
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.stage_config import StageConfig
 from scoreanim.core.score.identity import Beats, ElementId, PartId
@@ -51,10 +52,11 @@ class TimingConfig:
 
 @dataclass(frozen=True)
 class StyleConfig:
-    """The minimal styling that exists today (Parts tint menu). The
-    rule-based StyleRules engine is Phase 5.3."""
+    """The minimal styling that exists today (Parts tint menu + reveal
+    mode). The rule-based StyleRules engine is Phase 5.3."""
     part_colors: Mapping[PartId, str] = field(default_factory=dict)
     # part id → "#rrggbb"; absent key = default (untinted)
+    reveal_mode: RevealMode = RevealMode.STEPPED
 
 
 @dataclass(frozen=True)

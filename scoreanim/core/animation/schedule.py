@@ -53,11 +53,14 @@ def quantize_beats(beats: Beats) -> int:
     return round(beats * _Q)
 
 
+# Note-owned ink that dims and lights via opacity triggers. SLUR/TIE
+# left this set in Phase 5.2: spanners (with HAIRPIN) reveal by clip-grow
+# at reveal_x instead (REVEALED_KINDS in core/animation/reveal.py) —
+# their opacity stays 1.0 and they carry no trigger.
 ANIMATED_KINDS = frozenset({
     ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.STEM,
     ElementKind.FLAG, ElementKind.BEAM, ElementKind.ACCIDENTAL,
-    ElementKind.ARTICULATION, ElementKind.TIE, ElementKind.SLUR,
-    ElementKind.LEDGER_LINES,
+    ElementKind.ARTICULATION, ElementKind.LEDGER_LINES,
 })
 
 

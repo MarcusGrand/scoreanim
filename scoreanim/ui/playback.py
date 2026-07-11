@@ -77,6 +77,12 @@ class PlaybackController(QObject):
     def set_follow(self, follow: bool) -> None:
         self._follow = follow
 
+    def set_reveal_mode(self, mode) -> None:
+        """Forward the document's RevealMode to the applier (no-op until
+        an applier exists; the applier dedups unchanged modes)."""
+        if self._applier is not None:
+            self._applier.set_reveal_mode(mode)
+
     # -- transport surface used by the window ----------------------------------
 
     def open_audio(self, path: Path) -> None:

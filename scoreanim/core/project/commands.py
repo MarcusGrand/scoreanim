@@ -18,6 +18,7 @@ import math
 import re
 from dataclasses import dataclass, replace
 
+from scoreanim.core.animation.reveal import RevealMode
 from scoreanim.core.project.document import ProjectDoc
 from scoreanim.core.score.identity import Beats, PartId
 from scoreanim.core.timing.swing import SwingRegion, validate_regions
@@ -306,6 +307,19 @@ class SetPartColor(Command):
 
     def describe(self) -> str:
         return "set part color"
+
+
+@dataclass(frozen=True)
+class SetRevealMode(Command):
+    mode: RevealMode
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not isinstance(self.mode, RevealMode):
+            raise CommandError(f"bad reveal mode {self.mode!r}")
+        return replace(doc, style=replace(doc.style, reveal_mode=self.mode))
+
+    def describe(self) -> str:
+        return "set reveal mode"
 
 
 # ---------------------------------------------------------------------------

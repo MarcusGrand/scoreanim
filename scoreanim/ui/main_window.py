@@ -20,13 +20,15 @@ from PySide6.QtWidgets import (QDoubleSpinBox, QFileDialog, QLabel,
                                QMainWindow, QMenu, QMessageBox, QSlider,
                                QSplitter, QToolBar)
 
-from scoreanim.core.animation import appear, build_trigger_schedule
+from scoreanim.core.animation import (RevealMode, appear,
+                                      build_reveal_tracks,
+                                      build_trigger_schedule)
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
 from scoreanim.core.project import (DEFAULT_BPM, SUFFIX, ApplyTaps, FileRef,
                                     ImportTempoSetup, ProjectDoc,
                                     SetGlobalSwing, SetOffset, SetPartColor,
-                                    StageConfig, check_ref,
+                                    SetRevealMode, StageConfig, check_ref,
                                     default_stage_config, load_project,
                                     page_content_top, sha256_of)
 from scoreanim.core.project import save_project as write_project_file
@@ -209,6 +211,16 @@ class MainWindow(QMainWindow):
         self._follow.setChecked(True)
         self._follow.toggled.connect(self.playback.set_follow)
 
+        # RevealMode toggle: checked = CONTINUOUS sweep, unchecked =
+        # STEPPED (jumps at musical onsets). Document intent → command.
+        self._sweep = QAction("Sweep", self)
+        self._sweep.setCheckable(True)
+        self._sweep.setToolTip("Continuous reveal sweep; unchecked steps "
+                               "at musical onsets")
+        self._sweep.toggled.connect(
+            lambda checked: self.app_state.execute(SetRevealMode(
+                RevealMode.CONTINUOUS if checked else RevealMode.STEPPED)))
+
         self._arm_taps = QAction("● Arm Taps", self)
         self._arm_taps.setCheckable(True)
         self._arm_taps.setShortcut("Shift+T")
@@ -255,6 +267,7 @@ class MainWindow(QMainWindow):
         bar.addWidget(self._time_label)
         bar.addWidget(self._offset_spin)
         bar.addWidget(self._swing_spin)
+        bar.addAction(self._sweep)
         bar.addAction(self._arm_taps)
         bar.addAction(self._follow)
         # window-level so shortcuts fire regardless of focus
@@ -378,6 +391,11 @@ class MainWindow(QMainWindow):
             TempoMap(list(doc.timing.tempo_events)),
             doc.timing.swing_regions)
         self._sync_part_colors(doc)
+        self.playback.set_reveal_mode(doc.style.reveal_mode)
+        self._sweep.blockSignals(True)
+        self._sweep.setChecked(doc.style.reveal_mode
+                               is RevealMode.CONTINUOUS)
+        self._sweep.blockSignals(False)
         self._offset_spin.blockSignals(True)
         self._offset_spin.setValue(doc.timing.offset_seconds)
         self._offset_spin.blockSignals(False)
@@ -508,7 +526,8 @@ class MainWindow(QMainWindow):
         if stage is None:
             stage = default_stage_config(engraved.prepared,
                                          page_content_top(engraved.layout))
-        self._scenes = ScoreScenes(engraved.layout, stage)
+        self._scenes = ScoreScenes(engraved.layout, stage,
+                                   ghost_opacity=FLOOR_OPACITY)
         t2 = time.perf_counter()
 
         model = build_score_model(engraved.prepared)
@@ -518,9 +537,13 @@ class MainWindow(QMainWindow):
             join_note = (f" · JOIN INCOMPLETE ({len(report.unmatched_score)}"
                          f"/{len(report.unmatched_layout)} unmatched)")
         schedule = build_trigger_schedule(engraved.layout, report.mapping)
+        score_end = max((m.start + m.quarter_length for m in model.measures),
+                        default=0.0)
+        reveal_tracks = build_reveal_tracks(engraved.layout, score_end)
         applier = AnimationApplier(self._scenes.items, schedule,
                                    TempoMap([TempoEvent(0.0, DEFAULT_BPM)]),
-                                   appear(FLOOR_OPACITY))
+                                   appear(FLOOR_OPACITY), reveal_tracks,
+                                   self.app_state.doc.style.reveal_mode)
         self.playback.set_animation(applier, model.measures)
         self.app_state.set_measures(model.measures)
         t3 = time.perf_counter()
