@@ -125,25 +125,54 @@ faithful to Phase-0 SVGs, with per-element control proven. **PASSED
 
 ## Phase 3 — Time: TempoMap, clocks, transport, first animation
 
-- [ ] **3.1 TempoMap** (core, headless-tested): events, seconds_at/
-      beats_at both directions, segment precomputation. Property tests:
-      round-trip beats→seconds→beats; monotonicity.
-- [ ] **3.2 Clock interface + AudioClock**: load wav/mp3, play/pause/seek;
-      AudioClock exposes playhead seconds. Spike Qt playhead query
-      precision first (risk 3). Verify: seek + query agree within a frame.
-- [ ] **3.3 Animation evaluator** (core): properties, Envelope, Effect,
-      element_state(t) — pure. Headless tests: exact expected values at
-      chosen t for "appear" (step envelope) including pre-onset, at-onset,
-      post-onset.
-- [ ] **3.4 Wire it**: transport bar; per-frame tick queries AudioClock →
-      TempoMap → element_state → scene update, touching only changing
-      elements. Effect: notes at floor opacity, full opacity at onset.
-      Verify: play the test score against its recording with a manually
-      entered BPM; notes land audibly on time; scrubbing is instant and
-      stateless.
+Build complete 2026-07-11 (146 headless tests green); **exit criteria
+pending the user's sync session against the real recording.** Rulings
+taken during planning: recording available as wav+mp3; tempo entry via
+sidecar text file (`<score>.tempo`, auto-loaded, F5 reloads, `m<n>`
+measure syntax); full note ink animates (heads, slashes, stems, flags,
+beams, accidentals, articulations, dots, ties/slurs as step-appear) —
+rests/clefs/signatures/barlines/staff lines/dynamics/texts stay static.
+Known defect (ruled 2026-07-11, must fix): ledger lines do not dim with
+their notes — they fold into the static STAFF_LINES ink. BACKLOG item 6.
+
+- [x] **3.1 TempoMap** (core/timing/tempo_map.py): piecewise-constant
+      bpm → piecewise-linear beats⇄seconds, precomputed boundaries,
+      bisect+lerp, exactly invertible; seconds_at(0)==0 (audio lead-in
+      is the transport `offset`, from the tempo sidecar). Property
+      tests: round-trip < 1e-9, monotone both directions, boundary
+      exactness, validation. Swing (Phase 4) slots in as a beat-domain
+      warp applied before seconds_at; TempoMap unchanged.
+- [x] **3.2 Clock + AudioClock**: spike ran FIRST (risk 3 — see
+      spikes/NOTES.md Phase 3): QMediaPlayer.position() updates only
+      every 100 ms (wav) / 50 ms (mp3) → raw reads unusable; **verdict
+      tier 2b**, sliding-mean anchored extrapolation (measured p95
+      7.1 ms wav / 1.2 ms mp3, seeks settle < 1 ms — well inside the
+      ≤20 ms ideal band). Clock ABC (core/timing/clock.py) is
+      now_seconds() only; AudioClock/AudioTransport in ui/audio.py.
+- [x] **3.3 Animation evaluator** (core/animation/): Envelope (with
+      `initial`, ARCHITECTURE §3 amendment) / Effect / element_state,
+      pure; exact-value tests pre-/at-/post-onset (at-onset inclusive).
+      TriggerSchedule gates ties on ScoreNote.tie — chain key is
+      (part, staff, pitch) WITHOUT the per-measure voice label (an
+      m18→19 drum tie crosses a voice relabeling); tied heads inherit
+      the chain-start trigger; graces fire at their fractional Verovio
+      qstamp (just before the beat); attachments resolve through an
+      any-fresh group rule (fixture has no mixed tied chords — pinned;
+      rule covered synthetically).
+- [x] **3.4 Wire it**: bottom transport bar (Open Audio/Tempo, Reload
+      F5, Play/Pause Space, seek slider, time label, Follow page-turn
+      toggle); 16 ms PreciseTimer tick only while playing; cursor-diff
+      apply touches only crossed triggers (O(log n + changes)); every
+      seek does a one-shot full refresh (scrub is stateless — pinned by
+      test and by the offscreen smoke run: walk → scrub back ≡ fresh
+      state). Measured on the fixture: tick mean 0.08 ms, max 0.54 ms,
+      ~0.5 items/tick — flat.
 
 **Exit criteria**: real score + real recording + hand-set tempo events
-play in sync live; all core logic covered headless.
+play in sync live; all core logic covered headless. **Awaiting the
+user's judgment** — starter `testdata/testscore.tempo` provided; watch/
+listen checklist in the Phase 3 plan (also summarized in the session
+close-out).
 
 ## Phase 4 — Sync authoring: waveform, tempo lane, taps
 

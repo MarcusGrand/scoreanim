@@ -13,3 +13,7 @@ dist/
 .DS_Store
 
 # spikes/out and testdata are intentionally tracked (Phase 0 artifacts / fixtures)
+
+# Spike-generated audio (spikes/audio_playhead.py recreates on demand)
+spikes/out/click.wav
+spikes/out/click.mp3

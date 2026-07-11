@@ -21,3 +21,11 @@ def engraved() -> EngravedScore:
 def score_model(engraved):
     from scoreanim.core.score.model import build_score_model
     return build_score_model(engraved.prepared)
+
+
+@pytest.fixture(scope="session")
+def join_mapping(engraved, score_model):
+    from scoreanim.core.score.join import join_notes
+    report = join_notes(score_model, engraved.note_records)
+    assert report.is_complete
+    return report.mapping

@@ -40,6 +40,27 @@ See `spikes/NOTES.md` for the full investigation of each.
    - ElementId stability across such re-engraves matters (ids are minted
      from musical identity, so they should survive; verify).
 
+## Animation fixes required (user rulings)
+
+6. **Ledger lines must dim with their notes** (Marcus, 2026-07-11, at
+   Phase 3 review). Today ledger lines stay at full opacity while the
+   notes sitting on them are at floor opacity. Priority: **high — next
+   build session.**
+   Cause (established): Verovio gives `<g class="ledgerLines">` no ids
+   (Phase 0 finding), and the adapter lists `ledgerLines` in
+   `_CONTAINER_CLASSES` (verovio_adapter.py), so its dash paths fold
+   into the enclosing staff's STAFF_LINES element — static scaffold by
+   the Phase 3 animated-ink ruling. Verified on the fixture: the 133
+   STAFF_LINES elements carry 5 staff-line paths plus 1–7 ledger dashes
+   wherever ledger notes occur.
+   Fix shape: stop folding — emit ledger dashes as their own minted
+   elements (OTHER-with-onset already animates, or add a LEDGER_LINES
+   kind), attributing each dash to a notehead by geometric overlap
+   (bbox x/y within the same staff+measure; a dash shared by several
+   heads takes the earliest of their resolved triggers). Verify:
+   staff-line path count returns to exactly 5 everywhere; a ledger-note
+   measure (e.g. P4 mm 2–5) dims dashes with its notes.
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

@@ -1,4 +1,60 @@
-# Phase 0–2 spike & build notes
+# Phase 0–3 spike & build notes
+
+## Phase 3 — audio playhead spike (`spikes/audio_playhead.py`, 2026-07-11)
+
+Known risk 3: is Qt's audio playhead query precise enough to be the master
+clock for onset animation? Criteria stated before measuring: effective
+clock error ≤ 20 ms ideal (~1 frame @ 60 fps), ≤ 33 ms acceptable (below
+ITU-R BT.1359 a/v-asynchrony detectability both directions). Measured on
+PySide6 6.11.1 / Qt ffmpeg multimedia backend / macOS (Darwin 24), against
+a synthesized 60 s click track (wav + libmp3lame mp3 twin).
+
+- **`QMediaPlayer.position()` is cached and coarse**: it updates in
+  lockstep with `positionChanged` at a fixed cadence — every **100 ms for
+  wav, 50 ms for mp3** (cadence is evidently container/decoder dependent).
+  Raw per-frame reads (tier 1) give a staircase with residuals up to
+  120 ms — unusable. Zero backward jumps in steady playback.
+- **Seeks are essentially instant and exact**, playing and paused:
+  settle < 1 ms, landing error ~0.5 ms (both formats, 20 random seeks).
+  Seek precision is NOT the problem; update cadence is.
+- **Pause freezes position exactly** (0.00 ms drift over 1 s).
+  **Resume jumps forward** ~20–60 ms relative to expected continuation
+  (one-time transient while the pipeline restarts) — the AudioClock
+  wrapper resets its anchor window on resume so this shows as one small
+  re-anchor, not a sustained error.
+- **Audio clock vs wall clock run at the same rate** to ~4e-5 (linear-fit
+  slope 0.99997–1.00001) → extrapolating between anchors by wall-clock
+  elapsed is safe, and offset averaging cannot drift.
+- **Tier 2 (extrapolate from the single latest anchor)**: mp3 passes
+  (p95 12 ms), wav is acceptable-but-not-ideal (p95 24 ms, max 27 ms) —
+  anchor-timing jitter at 100 ms cadence is too big for the 20 ms bar.
+- **Tier 2b (added during the spike): sliding-mean offset** — clock =
+  `wall_now + mean(anchor_pos − anchor_wall)` over the last ~12 anchors
+  (~1.2 s), monotone-clamped, frozen while paused, window reset on
+  seek/resume. Simulated offline on the same traces: **wav p95 7.1 ms /
+  max 21.8 ms; mp3 p95 1.2 ms / max 8.3 ms — PASS ideal on both.**
+- **VERDICT: tier 2b.** AudioClock (ui/audio.py) implements sliding-mean
+  anchored extrapolation. No accumulation (rule 2): the estimate is a pure
+  function of (recent authoritative positions, wall time); every
+  `positionChanged` updates the window, so error is bounded and cannot
+  grow over a piece. Tier 3 (QAudioSink/processedUSecs) not needed.
+- **Not measurable without a loopback rig**: absolute output latency
+  (does `position()` lead the speakers by the sink buffer?) and any mp3
+  decoder-delay constant offset (the encoded twin declares
+  `start: 0.025057` — Qt appears to handle it, but a constant shift
+  would be invisible to this spike by construction). Both are constants;
+  the tempo file's `offset` absorbs them. Prefer wav for the reference
+  recording to remove the mp3 question entirely.
+- **Confirmed on the real recording** (`testdata/testscore.{wav,mp3}`,
+  34.6 s, measured 2026-07-11 after fixing the spike's hardcoded 60 s
+  seek bounds to use the player-reported duration): same cadences
+  (wav 100 ms / mp3 50 ms), tier 2b PASS both — wav p95 6.3 ms /
+  max 29.1 ms, mp3 p95 0.3 ms / max 9.0 ms; 20/20 seeks settle < 1 ms.
+  Resume jump on the real wav is larger (~+100 ms one-time transient
+  while the pipeline restarts); the AudioClock's anchor-window reset on
+  resume absorbs it as one forward re-anchor — watch for a visible
+  skip-at-resume in the sync session; if it bothers, tier 3 or a resume
+  ramp would be the follow-up, not a tempo edit.
 
 ## Phase 2 build findings (2026-07-10)
 

@@ -1,0 +1,16 @@
+# "Det var en gang" — starter tempo setup (auto-loaded next to the score).
+# Score says Swing quarter = 120; swing itself is Phase 4, so judge sync
+# on beat-aligned material only (see the Phase 3 checklist).
+#
+# Positions: <float beats> | m<n> | m<n>+<beats>  (measure numbers are
+# safest — the 2/4 bars m5/m14 make raw beat arithmetic error-prone).
+
+offset 0.77   # TUNE THIS FIRST: seconds of audio before m1 beat 1.
+              # It also absorbs any constant output/decoder latency.
+m1 126        # then refine; live players rarely sit exactly at 120.
+
+# Only if drift becomes visible, add corrections at section starts:
+# m5 119
+# m9 119      # rehearsal A / page 2
+# m13 121
+# m17 121     # rehearsal B / page 3

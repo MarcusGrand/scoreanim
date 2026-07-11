@@ -143,7 +143,10 @@ class RevealMode(Enum):
 
 @dataclass(frozen=True)
 class Envelope:
+    initial: float                      # value before the first keyframe
     keyframes: tuple[Keyframe, ...]     # (t_rel_seconds, value, easing)
+    # `initial` added by Phase 3 ruling (2026-07-11): "floor before
+    # onset" is inexpressible with finite keyframes under hold semantics.
 
 @dataclass(frozen=True)
 class Effect:
@@ -205,10 +208,19 @@ re-touching. "Clear overrides on selection" must be cheap.
 ## 5. Clocks, sync, drift
 
 - `Clock` interface in core: `now_seconds() -> float` relative to
-  transport start, plus transport state.
+  transport start. **No transport state on the ABC** (Phase 3 ruling,
+  2026-07-11): no core consumer branches on transport — the UI drives
+  the tick and owns play/pause/seek on the Qt wrapper. Transport state
+  joins the interface only when a core consumer actually needs it.
 - `AudioClock`: wraps the audio backend's playhead position query.
   Implemented in render/ui land (it touches Qt multimedia); core sees only
-  the interface.
+  the interface. Because `QMediaPlayer.position()` is cached at a
+  50–100 ms cadence (Phase 3 spike), the implementation is **tier 2b**:
+  `now = perf_counter() + mean(position_i − perf_counter_i)` over the
+  last ~12 positionChanged anchors, monotone-clamped, frozen while
+  paused, re-anchored on seek. Not accumulation: a pure function of
+  (recent authoritative audio positions, wall time), error bounded by
+  the anchor cadence — the audio playhead stays master (rules 2/3).
 - `FrameClock`: `now = frame_index / fps`. Export walks frames, evaluates
   `element_state`, renders offscreen (transparent background for overlay),
   hands frames to the encoder. Deterministic by construction; drift is
@@ -256,7 +268,12 @@ a QSplitter/dock concern, orthogonal to the stage's aspect.
    identity recovery for stems/beams/spanners (Phase 1). Phase 0
    established: every musical element carries a unique id except
    `notehead` (the single child of its id-bearing `note` group).
-3. Qt audio playhead query precision/latency for AudioClock (Phase 3).
+3. Qt audio playhead query precision/latency for AudioClock — **resolved
+   Phase 3** (spike 2026-07-11, `spikes/audio_playhead.py`): raw
+   position() too coarse (50–100 ms cadence); sliding-mean anchored
+   extrapolation passes the ≤20 ms band (see §5 and spikes/NOTES.md).
+   Absolute output latency remains unmeasured (needs loopback); any
+   constant is absorbed by the tempo sidecar's `offset`.
 4. Glow performance (deferred; property-bag design accommodates either
    backend).
 5. QtSvg (SVG Tiny 1.2) cannot render Verovio SVG (nested <svg> is
