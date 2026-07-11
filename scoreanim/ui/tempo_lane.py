@@ -1,17 +1,15 @@
 """TempoLaneView: tempo events as draggable points over the shared time
-axis (PHASES 4.2), swing regions as a numeric strip below them.
+axis (PHASES 4.2).
 
 Observes AppState only — the same axis object as the waveform, so the two
 views scroll and zoom together without knowing of each other. Every
 gesture is exactly one undoable command: tempo drags preview against the
 committed document and commit on release (see ui/app_state.py); clicks,
-double-clicks and the context menus execute one-shot commands.
+double-clicks and the context menu execute one-shot commands.
 
-Swing regions are authored NUMERICALLY, matching how tempo events are
-edited (ruling 2026-07-11, replacing drag-to-create): double-click the
-strip for a start/end/ratio dialog (create prefilled with the measure
-under the click, or edit the region there); right-click for
-Edit…/Delete; Delete removes the selected region.
+Swing does not live here (ruling 2026-07-11): v1 swing is one global
+ratio set numerically on the transport bar (ui/main_window.py,
+SetGlobalSwing); per-region authoring returns later (BACKLOG 7).
 
 x ⇄ beat mapping goes through the document's own TempoMap (beat →
 seconds → axis x). During a tempo drag the PRE-DRAG committed map does
@@ -20,20 +18,16 @@ preview retimes everything else live.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox,
-                               QFormLayout, QInputDialog, QMenu, QSizePolicy,
-                               QWidget)
+from PySide6.QtWidgets import QInputDialog, QMenu, QSizePolicy, QWidget
 
-from scoreanim.core.project import (AddSwingRegion, AddTempoEvent,
-                                    MoveTempoEvent, RemoveSwingRegion,
-                                    RemoveTempoEvent, SetSwingRegion)
+from scoreanim.core.project import (AddTempoEvent, MoveTempoEvent,
+                                    RemoveTempoEvent)
 from scoreanim.core.score.identity import Beats
-from scoreanim.core.timing import SwingRegion, TempoMap
+from scoreanim.core.timing import TempoMap
 from scoreanim.ui.app_state import AppState, apply_wheel
 
 _BG = QColor("#1d1f24")
@@ -42,19 +36,14 @@ _GRID_TEXT = QColor("#8a8f99")
 _LINE = QColor("#c46a6a")
 _DOT = QColor("#e08585")
 _DOT_SELECTED = QColor("#ffd27f")
-_STRIP_BG = QColor("#24262d")
-_SWING = QColor(95, 212, 127, 60)
-_SWING_TEXT = QColor("#5fd47f")
 _PLAYHEAD = QColor("#e8b34a")
 
 _HIT_PX = 7.0                    # dot hit radius
 _SNAP_BEATS = 0.5                # drag/add snap (Alt = free)
 _MIN_GAP_BEATS = 0.25            # events may not collide while dragging
 _BPM_MIN, _BPM_MAX = 20.0, 400.0
-_RATIO_MIN, _RATIO_MAX = 0.50, 0.75
 _TOP_PAD = 16                    # measure-number strip
-_BOTTOM_PAD = 16                 # swing strip
-_DEFAULT_RATIO = 0.6
+_BOTTOM_PAD = 6
 
 
 @dataclass
@@ -74,7 +63,6 @@ class TempoLaneView(QWidget):
         self._map = TempoMap(list(app_state.doc.timing.tempo_events))
         self._drag: _Drag | None = None
         self._selected: Beats | None = None
-        self._selected_swing: tuple[Beats, Beats] | None = None
         self.setMinimumHeight(110)
         self.setSizePolicy(QSizePolicy.Policy.Expanding,
                            QSizePolicy.Policy.Preferred)
@@ -90,14 +78,10 @@ class TempoLaneView(QWidget):
 
     def _on_document_changed(self) -> None:
         self._map = TempoMap(list(self._state.doc.timing.tempo_events))
-        timing = self._state.doc.timing
         if self._selected is not None and not any(
-                e.position == self._selected for e in timing.tempo_events):
+                e.position == self._selected
+                for e in self._state.doc.timing.tempo_events):
             self._selected = None
-        if self._selected_swing is not None and not any(
-                r.span == self._selected_swing
-                for r in timing.swing_regions):
-            self._selected_swing = None
         self.update()
 
     # -- coordinate mapping ---------------------------------------------------
@@ -140,7 +124,6 @@ class TempoLaneView(QWidget):
         painter.fillRect(self.rect(), _BG)
         w, h = self.width(), self.height()
         self._draw_measure_grid(painter, w, h)
-        self._draw_swing_strip(painter, w, h)
         self._draw_tempo(painter, w)
         x = self._state.axis.x_of(self._state.playhead, w)
         if 0 <= x <= w:
@@ -162,30 +145,6 @@ class TempoLaneView(QWidget):
             if x - last_label_x >= 28:           # avoid label pile-up
                 painter.drawText(QPointF(x + 2, _TOP_PAD - 4), f"m{number}")
                 last_label_x = x
-
-    def _draw_swing_strip(self, painter: QPainter, w: int, h: int) -> None:
-        strip = QRectF(0, h - _BOTTOM_PAD, w, _BOTTOM_PAD)
-        painter.fillRect(strip, _STRIP_BG)      # visible target, always
-        regions = self._state.doc.timing.swing_regions
-        if not regions:
-            painter.setPen(_GRID_TEXT)
-            painter.drawText(strip.adjusted(4, 0, 0, 0),
-                             Qt.AlignmentFlag.AlignVCenter,
-                             "swing — double-click to add")
-        for region in regions:
-            x0 = self._x_of_beat(region.span[0])
-            x1 = self._x_of_beat(region.span[1])
-            if x1 < 0 or x0 > w:
-                continue
-            rect = QRectF(x0, h - _BOTTOM_PAD, x1 - x0, _BOTTOM_PAD)
-            painter.fillRect(rect, _SWING)
-            if region.span == self._selected_swing:
-                painter.setPen(QPen(_SWING_TEXT, 1))
-                painter.drawRect(rect.adjusted(0, 0, -1, -1))
-            painter.setPen(_SWING_TEXT)
-            painter.drawText(rect.adjusted(3, 0, 0, 0),
-                             Qt.AlignmentFlag.AlignVCenter,
-                             f"swing {region.ratio:.2f}")
 
     def _draw_tempo(self, painter: QPainter, w: int) -> None:
         events = self._state.doc.timing.tempo_events
@@ -221,36 +180,8 @@ class TempoLaneView(QWidget):
                 return event
         return None
 
-    def _in_strip(self, pos: QPointF) -> bool:
-        return pos.y() >= self.height() - _BOTTOM_PAD
-
-    def _region_at(self, beat: Beats) -> SwingRegion | None:
-        for region in self._state.doc.timing.swing_regions:
-            if region.span[0] <= beat < region.span[1]:
-                return region
-        return None
-
     def mousePressEvent(self, event) -> None:  # noqa: N802
         pos = event.position()
-        if self._in_strip(pos):
-            region = self._region_at(self._beat_of_x(pos.x()))
-            if event.button() == Qt.MouseButton.LeftButton:
-                if region is not None:       # select; empty strip seeks
-                    self._selected_swing = region.span
-                    self._selected = None
-                else:
-                    self._selected_swing = None
-                    t = self._state.axis.t_of(pos.x(), self.width())
-                    self._state.request_seek(
-                        min(max(t, 0.0), self._state.axis.duration))
-                self.update()
-            elif event.button() == Qt.MouseButton.RightButton \
-                    and region is not None:
-                self._selected_swing = region.span
-                self.update()
-                self._swing_context_menu(region,
-                                         event.globalPosition().toPoint())
-            return
         hit = self._event_at(pos)
         if event.button() == Qt.MouseButton.LeftButton:
             if hit is not None:
@@ -295,17 +226,8 @@ class TempoLaneView(QWidget):
             self._state.commit(cmd)
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
-        if event.button() != Qt.MouseButton.LeftButton:
-            return
-        if self._in_strip(event.position()):
-            beat = self._beat_of_x(event.position().x())
-            region = self._region_at(beat)
-            if region is not None:
-                self._edit_swing_region(region)
-            else:
-                self._create_swing_region(beat)
-            return
-        if self._event_at(event.position()) is not None:
+        if event.button() != Qt.MouseButton.LeftButton \
+                or self._event_at(event.position()) is not None:
             return
         beat = self._beat_of_x(event.position().x())
         if not event.modifiers() & Qt.KeyboardModifier.AltModifier:
@@ -315,94 +237,14 @@ class TempoLaneView(QWidget):
             self._selected = max(0.0, beat)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
-        dragging = self._drag is not None
-        if event.key() == Qt.Key.Key_Escape and dragging:
+        if event.key() == Qt.Key.Key_Escape and self._drag is not None:
             self._drag = None
             self._state.cancel_preview()
         elif event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) \
-                and not dragging:
-            if self._selected is not None:
-                self._state.execute(RemoveTempoEvent(self._selected))
-            elif self._selected_swing is not None:
-                self._state.execute(
-                    RemoveSwingRegion(self._selected_swing))
+                and self._selected is not None and self._drag is None:
+            self._state.execute(RemoveTempoEvent(self._selected))
         else:
             super().keyPressEvent(event)
-
-    # -- swing: numeric authoring (ruling 2026-07-11) ------------------------
-
-    def _create_swing_region(self, beat: Beats) -> None:
-        start, end = self._measure_span(beat)
-        values = self._swing_dialog("Add swing region", start, end,
-                                    _DEFAULT_RATIO)
-        if values is not None:
-            region = SwingRegion((values[0], values[1]), values[2])
-            if self._state.execute(AddSwingRegion(region)):
-                self._selected_swing = region.span
-
-    def _edit_swing_region(self, region: SwingRegion) -> None:
-        values = self._swing_dialog("Edit swing region", region.span[0],
-                                    region.span[1], region.ratio)
-        if values is not None:
-            new = SwingRegion((values[0], values[1]), values[2])
-            if self._state.execute(SetSwingRegion(region.span, new)):
-                self._selected_swing = new.span
-
-    def _swing_dialog(self, title: str, start: Beats, end: Beats,
-                      ratio: float) -> tuple[float, float, float] | None:
-        """Start / end / ratio as numbers — same authoring feel as tempo
-        events (add at a position, type the value)."""
-        dialog = QDialog(self)
-        dialog.setWindowTitle(title)
-        form = QFormLayout(dialog)
-        measures = self._state.measures
-        last_beat = (measures[-1].start + measures[-1].quarter_length
-                     if measures else 10_000.0)
-
-        def beat_spin(value: float) -> QDoubleSpinBox:
-            spin = QDoubleSpinBox()
-            spin.setDecimals(0)              # whole beats (validation rule)
-            spin.setSingleStep(1.0)
-            spin.setRange(0.0, last_beat)
-            spin.setValue(value)
-            return spin
-
-        start_spin = beat_spin(start)
-        end_spin = beat_spin(end)
-        ratio_spin = QDoubleSpinBox()
-        ratio_spin.setDecimals(2)
-        ratio_spin.setSingleStep(0.01)
-        ratio_spin.setRange(_RATIO_MIN, _RATIO_MAX)
-        ratio_spin.setValue(ratio)
-        form.addRow("Start beat", start_spin)
-        form.addRow("End beat", end_spin)
-        form.addRow("Ratio (0.50 straight … 0.67 triplet)", ratio_spin)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
-                                   | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        form.addRow(buttons)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return None
-        return start_spin.value(), end_spin.value(), ratio_spin.value()
-
-    def _measure_span(self, beat: Beats) -> tuple[Beats, Beats]:
-        """Default new-region span: the measure under the click."""
-        for m in self._state.measures:
-            if m.start <= beat < m.start + m.quarter_length:
-                return m.start, m.start + m.quarter_length
-        base = max(0.0, math.floor(beat))
-        return base, base + 4.0
-
-    def _swing_context_menu(self, region: SwingRegion, global_pos) -> None:
-        menu = QMenu(self)
-        edit = menu.addAction("Edit…")
-        remove = menu.addAction("Delete")
-        chosen = menu.exec(global_pos)
-        if chosen is edit:
-            self._edit_swing_region(region)
-        elif chosen is remove:
-            self._state.execute(RemoveSwingRegion(region.span))
 
     def wheelEvent(self, event) -> None:  # noqa: N802
         apply_wheel(self._state.axis, event, self.width())

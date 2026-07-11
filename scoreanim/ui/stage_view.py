@@ -8,14 +8,19 @@ cursor) leaves fit mode until the Fit action restores it. Drag to pan.
 
 from __future__ import annotations
 
+import math
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
 
 _LETTERBOX = QColor("#3a3a3a")
-_ZOOM_STEP = 1.25
 _ZOOM_MIN = 0.05
 _ZOOM_MAX = 40.0
+# Same curve as the timeline views (ui/app_state.apply_wheel — keep in
+# step): pixel-precise trackpad deltas, one wheel notch (≈40 px) = ×1.1.
+_ZOOM_PER_PIXEL = math.log(1.1) / 40.0
+_PIXELS_PER_NOTCH = 40.0
 
 
 class StageView(QGraphicsView):
@@ -52,12 +57,21 @@ class StageView(QGraphicsView):
             self._fit()
 
     def wheelEvent(self, event) -> None:  # noqa: N802
-        delta = event.angleDelta().y()
-        if delta == 0:
+        pixel = event.pixelDelta()
+        dy = (float(pixel.y()) if not pixel.isNull()
+              else event.angleDelta().y() / 120.0 * _PIXELS_PER_NOTCH)
+        if not dy:
             return
-        factor = _ZOOM_STEP if delta > 0 else 1 / _ZOOM_STEP
+        factor = math.exp(dy * _ZOOM_PER_PIXEL)
         current = self.transform().m11()
-        if not (_ZOOM_MIN <= current * factor <= _ZOOM_MAX):
-            return
-        self._fit_mode = False
-        self.scale(factor, factor)
+        # clamp to the limits: smooth stop, and never move AGAINST the
+        # gesture (a fit scale can legitimately sit below _ZOOM_MIN —
+        # zooming out from there just holds, it must not snap upward)
+        if factor < 1.0:
+            factor = max(factor, min(1.0, _ZOOM_MIN / current))
+        else:
+            factor = min(factor, max(1.0, _ZOOM_MAX / current))
+        if factor != 1.0:
+            self._fit_mode = False
+            self.scale(factor, factor)
+        event.accept()

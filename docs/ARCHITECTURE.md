@@ -250,9 +250,10 @@ selection + shared time-axis zoom/scroll):
 - **StageView**: the paged score at the score's own aspect ratio,
   letterboxed in the window; shows animation state; click-to-select for
   overrides.
-- **TempoLaneView**: tempo events as draggable points, swing regions
-  (authored numerically — start/end/ratio dialog, ruling 2026-07-11),
-  tap markers; shares the time axis with the waveform.
+- **TempoLaneView**: tempo events as draggable points; shares the time
+  axis with the waveform. Swing is a single global ratio set numerically
+  on the transport bar in v1 (ruling 2026-07-11); the SwingRegion data
+  model is unchanged and per-region authoring returns later (BACKLOG 7).
 - **WaveformView**: rendered peaks, playhead, click-to-seek; tap capture
   during playback.
 

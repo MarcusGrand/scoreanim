@@ -215,6 +215,32 @@ class RemoveTapSession(Command):
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
+class SetGlobalSwing(Command):
+    """Phase 4 authoring surface (ruling 2026-07-11): ONE swing ratio for
+    the whole piece — replaces every swing region with a single region
+    covering [0, end_beat), or none at 0.5 (straight). The region model
+    underneath is unchanged; per-region authoring returns later
+    (BACKLOG 7)."""
+    ratio: float
+    end_beat: Beats              # score end — runtime data the UI supplies
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not 0.5 <= self.ratio < 1.0:
+            raise CommandError(f"swing ratio {self.ratio} outside "
+                               f"[0.5, 1.0)")
+        if self.ratio == 0.5:
+            return _with_timing(doc, swing_regions=())
+        end = float(math.ceil(self.end_beat))
+        if end <= 0:
+            raise CommandError("no score extent to swing")
+        regions = (SwingRegion((0.0, end), self.ratio),)
+        return _with_timing(doc, swing_regions=_validated_regions(regions))
+
+    def describe(self) -> str:
+        return "set swing"
+
+
+@dataclass(frozen=True)
 class AddSwingRegion(Command):
     region: SwingRegion
 

@@ -3,9 +3,9 @@ from scoreanim.core.project.commands import (AddSwingRegion, AddTempoEvent,
                                              ImportTempoSetup, MoveTempoEvent,
                                              RemoveSwingRegion,
                                              RemoveTapSession,
-                                             RemoveTempoEvent, SetOffset,
-                                             SetPartColor, SetSwingRegion,
-                                             UndoStack)
+                                             RemoveTempoEvent, SetGlobalSwing,
+                                             SetOffset, SetPartColor,
+                                             SetSwingRegion, UndoStack)
 from scoreanim.core.project.document import (DEFAULT_BPM, FileRef,
                                              LayoutOverride, ProjectDoc,
                                              StyleConfig, TimingConfig)
@@ -23,7 +23,8 @@ __all__ = [
     "CommandError", "DEFAULT_BPM", "FileRef", "ImportTempoSetup",
     "LayoutOverride", "MoveTempoEvent", "PROJECT_VERSION", "ProjectDoc",
     "RemoveSwingRegion", "RemoveTapSession", "RemoveTempoEvent",
-    "SUFFIX", "SetOffset", "SetPartColor", "SetSwingRegion", "StageConfig",
+    "SUFFIX", "SetGlobalSwing", "SetOffset", "SetPartColor",
+    "SetSwingRegion", "StageConfig",
     "StageTextElement", "StyleConfig", "TimingConfig", "UndoStack",
     "check_ref", "default_stage_config", "from_dict", "load_project",
     "page_content_top", "save_project", "sha256_of", "to_dict",

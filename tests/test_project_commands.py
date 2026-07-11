@@ -12,8 +12,9 @@ from scoreanim.core.project import (AddSwingRegion, AddTempoEvent, ApplyTaps,
                                     CommandError, ImportTempoSetup,
                                     MoveTempoEvent, ProjectDoc,
                                     RemoveSwingRegion, RemoveTapSession,
-                                    RemoveTempoEvent, SetOffset, SetPartColor,
-                                    SetSwingRegion, TimingConfig, UndoStack)
+                                    RemoveTempoEvent, SetGlobalSwing,
+                                    SetOffset, SetPartColor, SetSwingRegion,
+                                    TimingConfig, UndoStack)
 from scoreanim.core.score.identity import PartId
 from scoreanim.core.timing import SwingRegion, Tap, TapSession, TempoEvent
 
@@ -156,6 +157,25 @@ def test_swing_add_edit_remove(doc) -> None:
     assert doc.timing.swing_regions[0] == SwingRegion((0.0, 6.0), 0.55)
     doc = RemoveSwingRegion((8.0, 12.0)).apply(doc)
     assert [r.span for r in doc.timing.swing_regions] == [(0.0, 6.0)]
+
+
+def test_set_global_swing(doc) -> None:
+    """v1 authoring surface (ruling 2026-07-11): one ratio, whole piece."""
+    out = SetGlobalSwing(0.66, 76.0).apply(doc)
+    assert out.timing.swing_regions == (SwingRegion((0.0, 76.0), 0.66),)
+    # replaces whatever regions exist (collapses to one global)
+    doc2 = AddSwingRegion(SwingRegion((0.0, 8.0), 0.6)).apply(doc)
+    out2 = SetGlobalSwing(0.62, 76.0).apply(doc2)
+    assert out2.timing.swing_regions == (SwingRegion((0.0, 76.0), 0.62),)
+    # 0.5 = straight = no regions at all
+    assert SetGlobalSwing(0.5, 76.0).apply(out).timing.swing_regions == ()
+    # fractional score end is ceiled to a whole beat (validation rule)
+    assert SetGlobalSwing(0.6, 75.5).apply(doc).timing.swing_regions[0] \
+        .span == (0.0, 76.0)
+    with pytest.raises(CommandError):
+        SetGlobalSwing(0.4, 76.0).apply(doc)
+    with pytest.raises(CommandError):
+        SetGlobalSwing(0.6, 0.0).apply(doc)
 
 
 def test_swing_validation(doc) -> None:

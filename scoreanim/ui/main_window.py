@@ -24,8 +24,9 @@ from scoreanim.core.animation import appear, build_trigger_schedule
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
 from scoreanim.core.project import (DEFAULT_BPM, SUFFIX, ApplyTaps, FileRef,
-                                    ImportTempoSetup, ProjectDoc, SetOffset,
-                                    SetPartColor, StageConfig, check_ref,
+                                    ImportTempoSetup, ProjectDoc,
+                                    SetGlobalSwing, SetOffset, SetPartColor,
+                                    StageConfig, check_ref,
                                     default_stage_config, load_project,
                                     page_content_top, sha256_of)
 from scoreanim.core.project import save_project as write_project_file
@@ -235,6 +236,16 @@ class MainWindow(QMainWindow):
         self._offset_spin.setKeyboardTracking(False)
         self._offset_spin.editingFinished.connect(self._commit_offset)
 
+        # global swing ratio (ruling 2026-07-11): 0.50 straight … 0.67
+        # triplet, one value for the whole piece; regions later (BACKLOG 7)
+        self._swing_spin = QDoubleSpinBox()
+        self._swing_spin.setPrefix("swing ")
+        self._swing_spin.setDecimals(2)
+        self._swing_spin.setSingleStep(0.01)
+        self._swing_spin.setRange(0.50, 0.75)
+        self._swing_spin.setKeyboardTracking(False)
+        self._swing_spin.editingFinished.connect(self._commit_swing)
+
         bar.addAction(open_audio)
         bar.addAction(open_tempo)
         bar.addAction(reload_tempo)
@@ -243,6 +254,7 @@ class MainWindow(QMainWindow):
         bar.addWidget(self._slider)
         bar.addWidget(self._time_label)
         bar.addWidget(self._offset_spin)
+        bar.addWidget(self._swing_spin)
         bar.addAction(self._arm_taps)
         bar.addAction(self._follow)
         # window-level so shortcuts fire regardless of focus
@@ -369,6 +381,9 @@ class MainWindow(QMainWindow):
         self._offset_spin.blockSignals(True)
         self._offset_spin.setValue(doc.timing.offset_seconds)
         self._offset_spin.blockSignals(False)
+        self._swing_spin.blockSignals(True)
+        self._swing_spin.setValue(self._global_swing_ratio(doc))
+        self._swing_spin.blockSignals(False)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
         self._undo.setEnabled(self.app_state.can_undo)
@@ -399,6 +414,25 @@ class MainWindow(QMainWindow):
         value = self._offset_spin.value()
         if abs(value - self.app_state.doc.timing.offset_seconds) > 1e-9:
             self.app_state.execute(SetOffset(value))
+
+    @staticmethod
+    def _global_swing_ratio(doc: ProjectDoc) -> float:
+        """v1 reads the single global region; a multi-region doc (from a
+        later build or hand edit) shows its first ratio, and committing
+        the spinbox collapses it to one global region."""
+        regions = doc.timing.swing_regions
+        return regions[0].ratio if regions else 0.5
+
+    def _commit_swing(self) -> None:
+        value = self._swing_spin.value()
+        doc = self.app_state.doc
+        if abs(value - self._global_swing_ratio(doc)) < 1e-9:
+            return
+        measures = self.app_state.measures
+        if not measures:
+            return
+        end_beat = measures[-1].start + measures[-1].quarter_length
+        self.app_state.execute(SetGlobalSwing(value, end_beat))
 
     # -- score / project --------------------------------------------------------
 

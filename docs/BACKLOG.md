@@ -69,6 +69,14 @@ See `spikes/NOTES.md` for the full investigation of each.
    staff-line path count returns to exactly 5 everywhere; a ledger-note
    measure (e.g. P4 mm 2–5) dims dashes with its notes.
 
+7. **Per-region swing authoring UI** (Marcus, 2026-07-11, at Phase 4
+   re-test): v1 swing is one global ratio on the transport bar
+   (SetGlobalSwing). The document model, commands
+   (Add/Set/RemoveSwingRegion), warp math, and serialization already
+   support arbitrary non-overlapping regions — only the authoring UI is
+   deferred ("we will implement more sophistication later"). When picked
+   up, match the tempo-event editing idiom.
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

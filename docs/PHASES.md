@@ -176,8 +176,11 @@ close-out).
 
 ## Phase 4 — Sync authoring: waveform, tempo lane, taps
 
-Build complete 2026-07-11 (219 headless tests green); **exit criteria
-pending the user's authoring session.** Rulings taken at plan review:
+Build complete 2026-07-11 (220 headless tests green); exit criteria
+**PASSED 2026-07-11** (user's authoring sessions: taps/undo/round-trip
+first pass; swing + zoom accepted after two re-test fix rounds — swing
+became a global numeric ratio on the transport bar, all zooms moved to
+the gentle trackpad curve). Rulings taken at plan review:
 file opens live outside the undo stack (open score = new doc + cleared
 stack; open audio = ref swap, not undoable — rule 8 governs intent
 edits, not session binding); BACKLOG 6 fixed first as task 4.0a; tap
@@ -205,13 +208,14 @@ gestures preview-against-committed and commit ONE command on release.
       "lock to taps" dense anchors (exact to 1e-9); start residual
       reported, never absorbed. Headless tests incl. the spec's two
       cases.
-- [x] **4.4 Swing regions**: per-quarter piecewise-linear warp upstream
-      of seconds_at (the Phase 3 seam held; TempoMap untouched); strip
-      UI authored NUMERICALLY (ruling 2026-07-11, replacing
-      drag-to-create: double-click the strip → start/end/ratio dialog,
-      prefilled with the clicked measure; right-click Edit…/Delete —
-      matching how tempo events are added/edited); onset math tested at
-      0.5/0.6/0.667.
+- [x] **4.4 Swing**: per-quarter piecewise-linear warp upstream of
+      seconds_at (the Phase 3 seam held; TempoMap untouched); onset math
+      tested at 0.5/0.6/0.667. Authoring (ruling 2026-07-11, superseding
+      both drag-to-create and the start/end/ratio dialog): v1 swing is
+      ONE GLOBAL ratio, a numeric spinbox on the transport bar
+      (SetGlobalSwing command → a single region spanning the score;
+      0.50 clears it). SwingRegion stays the document model; per-region
+      authoring UI deferred to BACKLOG 7.
 - [x] **4.5 Project save/load + undo stack**: ProjectDoc + 11 commands +
       UndoStack (core/project/), versioned JSON round-trip incl. RAW tap
       sessions, Save/Save As/Open Project, dirty star, hash-mismatch
