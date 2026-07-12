@@ -111,6 +111,9 @@ class RenderedElement:
     bbox: Rect
     anchor: Point                # transform origin (bbox center) for scale/pop
     glyph: RenderPrimitive       # v1: SVG path fragment; engine-neutral wrapper
+    system: int | None           # score-wide system index (Phase 5) —
+                                 # engraving-derived like page; reveal
+                                 # tracks are per (system, part)
 
 @dataclass(frozen=True)
 class Layout:
@@ -138,8 +141,12 @@ class TempoMap:
 
 # core/animation/
 class RevealMode(Enum):
-    CONTINUOUS = auto()          # lerp x between onset positions (sweep)
-    STEPPED    = auto()          # step function; jumps at musical onsets
+    # STEPPED: the edge jumps at the part's EVENTS (tie-gated triggers,
+    # rests resolving at min(next note, own barline) — see the reveal
+    # section below). CONTINUOUS: placeholder lerp over the same
+    # anchors; the real sweep is a single shared wavefront (BACKLOG 8).
+    CONTINUOUS = auto()
+    STEPPED    = auto()
 
 @dataclass(frozen=True)
 class Envelope:
@@ -150,17 +157,24 @@ class Envelope:
 
 @dataclass(frozen=True)
 class Effect:
-    name: str                    # "appear", "pop", "glow_pulse"
+    name: str                    # preset registry: "appear", "pop"
     tracks: Mapping[PropertyId, Envelope]
 
-# Open property set. v1 properties: opacity, color, reveal_fraction,
-# scale, offset_x, offset_y, glow. Adding a property must not require
-# touching the evaluator.
+# Open property set; the evaluator never branches on a property.
+# Applied today: opacity (ElementItem parent), scale (around the stored
+# anchor, restricted render-side to anchored kinds). REVISED from the
+# original sketch (Phase 5 as built): reveal is NOT a property track —
+# it is the clip edge driven by reveal_x below — and color is static
+# tint (StyleRules), not an animated track. offset/glow remain unbuilt.
 
-def element_state(identity, style_rules, effects, tempo_map, t_seconds
-                  ) -> Mapping[PropertyId, Value]:
-    """Pure. No hidden state, no timers, no accumulation. Same function
-    serves AudioClock playback, scrubbing, and FrameClock export."""
+# As built (Phase 5.3): the pure kernel stays minimal —
+#     element_state(trigger_seconds, effect, t_seconds)
+# identity → effect resolution happens OUTSIDE it (StyleRules.resolve
+# + the preset registry, cached in the applier), and beats → seconds
+# for all triggers/anchors goes through one swing-aware
+# resolve_seconds call. No hidden state, no timers, no accumulation;
+# the same kernel serves AudioClock playback, scrubbing, and
+# FrameClock export.
 ```
 
 ### Reveal / playhead-x unification (revised 2026-07-12, rulings A–C)
@@ -182,15 +196,23 @@ broken segments fold into the bucket of the system they sit in). The
 edge steps past the full tied value at once and next advances at the
 part's next event; a chain broken across systems stands revealed from
 chain start on both sides. Events are noteheads, slashes, **and rests**
-(ruling B); dynamics animate at their attach point but are attachments,
-not events. Edges are per part so one part's tie holds only its own
+(ruling B) — a rest's trigger is when its silence resolves:
+min(next note's trigger in its part/voice scope, end of its own bar),
+never on its own silent beat (second-session ruling 2026-07-12), so the
+edge never advances mid-silence. Dynamics animate at their attach point
+(MEI @startid / @tstamp, adapter-resolved) but are attachments, not
+events. Edges are per part so one part's tie holds only its own
 spanners (known limit: per part, not per voice — voice labels relabel
-per measure).
+per measure; BACKLOG 10).
 
-Per-spanner grow (slurs, ties, hairpins: clip-rect right edge at
-`reveal_x`) and any cursor read this one function. Spanners split
-across systems by Verovio reveal per segment; segments in
-not-yet-reached systems sit at reveal = 0 with no page logic.
+**Spanners grow — this REPLACED Phase 3's step-appear** (ruling
+2026-07-11): slurs, ties, and hairpins reveal by a clip-rect right edge
+at `reveal_x`, opacity pinned 1.0, with a floor-opacity ghost of the
+whole curve underneath (consistent with the dimmed ghost score);
+RevealMode is the only knob. Spanners split across systems by Verovio
+reveal per segment (adapter emits `<source-id>:seg<k>` elements);
+segments in not-yet-reached systems sit at reveal = 0 with no page
+logic. Any cursor reads this same function.
 
 ### Animated-ink taxonomy (revised 2026-07-12)
 
@@ -212,7 +234,13 @@ chord symbols.
 `StyleRules` map musical identity → base visual properties (per-part
 color + effect assignment, reveal mode). Rule-based, sparse; per-element
 user overrides are higher-priority rules, merged field-wise. Serialized
-in the project document. **Color scope ≠ animated scope** (ruling D):
+in the project document. StyleRules SUBSUMED Phase 2's `StyleConfig`
+(Phase 5.3) — one styling system: the tint menu drives part color
+rules; effect names are stored intent resolving against the preset
+registry (unknown → default, the name round-trips untouched). The
+element-override editing UI waits on stage click-to-select (BACKLOG 9);
+the floor opacity is preset data (`presets.FLOOR_OPACITY`), not a
+StyleRules field. **Color scope ≠ animated scope** (ruling D):
 `TINTED_KINDS` = the playing ink (heads through ledger dashes, plus
 slurs/ties/hairpins) — rests and dynamics animate but stay black, like
 clefs, signatures, and text.
@@ -226,11 +254,22 @@ Project (saved file, versioned schema)
 ├── engraving_params     scale etc. (page geometry comes from the score)
 ├── layout_overrides     {ElementId → dx, dy, hidden}
 ├── tempo_map            events, swing regions, raw taps (kept for re-derive)
-├── style_rules          part colors, effect assignments, overrides
+├── style_rules          reveal mode, per-part {color, effect-name}
+│                        rules, per-element overrides
 └── stage_config         background, letterbox behavior, header text
                          elements (title/composer/lyricist — stage-level
                          text, not engraved; adapter ruling 4)
 ```
+
+Schema versions (`core/project/serialize.py`, strict gate): **v1**
+(Phase 4) had `style.part_colors`; **v2** (Phase 5.3) is the StyleRules
+shape above. The reader accepts {1, 2} and folds v1 `part_colors` into
+part color rules at load; the writer emits 2. The gate is
+strict-by-version ON PURPOSE: a Phase 4 build REFUSES a v2 file instead
+of tolerantly reading it, silently dropping all styling, and destroying
+it on the next save. Effect names are stored intent — an unknown name
+fails soft to the default preset at animation time but round-trips
+untouched (rule 5).
 
 Never persisted: Layout, timemaps, decomposed geometry — always re-derived.
 All mutations go through undoable commands (`core/project/commands.py`).
@@ -266,10 +305,13 @@ re-touching. "Clear overrides on selection" must be cheap.
 
 - Load time (expensive, once): parse, engrave, decompose SVG into
   per-element `QGraphicsItem`s with identity, build indexes
-  (onset-sorted per system; per-part; spanner list).
-- Per frame (cheap): update only elements whose state changes — those
-  inside a transition window around the playhead — plus one clip-edge move
-  per active spanner. Target 60 fps on a dense page.
+  (trigger-bucketed schedule; reveal tracks and revealed-spanner lists
+  per (system, part)).
+- Per frame (cheap): update only elements whose state changes — crossed
+  triggers, timed effects inside their transition window, plus one
+  clip-edge move per active spanner (per-(system, part) edges are
+  cached, so a STEPPED edge that holds between events costs nothing).
+  Target 60 fps on a dense page.
 - Glow caveat: real blur effects rasterize per frame. Apply live Qt
   effects only to elements currently transitioning, or fake glow with a
   pre-rendered halo item whose opacity animates. Spike before promising

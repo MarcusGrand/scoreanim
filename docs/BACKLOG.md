@@ -80,19 +80,35 @@ See `spikes/NOTES.md` for the full investigation of each.
 8. **Single-wavefront sweep mode** (Marcus, 2026-07-12, at the Phase 5
    reveal re-plan): "Sweep means sweep" — when Sweep is on, ONE smooth
    shared wavefront per system moves in tempo and reveals EVERYTHING
-   (all animated ink, through glyphs; ultimately barlines and staff
-   scaffold too — the scaffold case needs its own ruling). Ties are
-   irrelevant to the front ("we shouldn't have to worry about tied
-   notes being regarded as a single note" in this mode) — a different
-   computational model from the stepped per-(system, part) event
-   anchors. Design sketch to propose when picked up: a per-system front
-   x(t) from measure-boundary geometry (measure starts ↔ barline x,
-   lerped in tempo) rather than note anchors; ghost + clipped-copy
-   layers generalized from spanners to all ink (~2× path items,
+   (all animated ink, through glyphs). **Barlines and staff scaffold
+   sweeping too is RULED WANTED, not scheduled** (Phase 5 close-out) —
+   include it in the wavefront design round. Ties are irrelevant to the
+   front ("we shouldn't have to worry about tied notes being regarded
+   as a single note" in this mode) — a different computational model
+   from the stepped per-(system, part) event anchors. Design sketch to
+   propose when picked up: a per-system front x(t) from
+   measure-boundary geometry (measure starts ↔ barline x, lerped in
+   tempo) rather than note anchors; ghost + clipped-copy layers
+   generalized from spanners to all ink incl. scaffold (~2× path items,
    measure); opacity triggers route to no-op for OPACITY in sweep mode
    (pop's SCALE still fires); mode switching must stay scrub-stateless.
    Until then the Sweep toggle drives the placeholder continuous mode
    (anchor lerp).
+
+9. **Per-element style override UI** (deferred at Phase 5.3): the model,
+   `SetElementStyle` command, and serialization exist and are tested;
+   the editing UI waits on stage click-to-select (which layout
+   overrides also need). On a spanner broken across systems an override
+   targets ONE segment (`…:seg<k>` ids) — decide whether the UI should
+   fan out to all segments of a source when it lands.
+
+10. **Per-voice reveal granularity** (accepted limit at the Phase 5
+    reveal re-plan, ruling A): reveal edges are per (system, part), not
+    per voice — a moving second voice under another voice's held tie
+    sits inside the revealed region early. Voice labels relabel per
+    measure (the m18→19 hi-hat tie), so voice-level keying needs a
+    stable voice identity first. Revisit only if it shows on real
+    material.
 
 ## Deferred (from PHASES.md "Later")
 

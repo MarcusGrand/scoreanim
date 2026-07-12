@@ -132,10 +132,13 @@ sidecar text file (`<score>.tempo`, auto-loaded, F5 reloads, `m<n>`
 measure syntax); full note ink animates (heads, slashes, stems, flags,
 beams, accidentals, articulations, dots, ties/slurs as step-appear) —
 rests/clefs/signatures/barlines/staff lines/dynamics/texts stay static.
-[AMENDED 2026-07-12, Phase 5 ruling B: rests, whole-bar rests, and
-dynamics JOIN the animated ink (dynamics trigger at their attach
-point); statics shrink to clefs/signatures/barlines/staff lines/texts.
-Ties/slurs moved from step-appear to clip-grow in Phase 5.2.]
+[AMENDED 2026-07-12, Phase 5 rulings: rests, whole-bar rests, and
+dynamics JOIN the animated ink — dynamics trigger at their attach
+point, rests when their silence resolves (min(next note, own barline),
+never on the silent beat); statics shrink to clefs/signatures/barlines/
+staff lines/texts. Ties/slurs moved from step-appear to clip-grow in
+Phase 5.2. The old taxonomy stated here no longer applies; see
+ARCHITECTURE.md §3 "Animated-ink taxonomy".]
 Known defect (ruled 2026-07-11, must fix): ledger lines do not dim with
 their notes — they fold into the static STAFF_LINES ink. BACKLOG item 6.
 
@@ -229,76 +232,91 @@ gestures preview-against-committed and commit ONE command on release.
 rubato section, adjust, save, reload, everything intact; undo works
 everywhere.
 
-## Phase 5 — Reveal effects & styling
+## Phase 5 — Reveal effects & styling — ✅ COMPLETE 2026-07-12
 
-Build complete 2026-07-12 (258 headless tests green); first visual
-session PASSED pop/colors/undo/scrub/round-trip but RE-OPENED the reveal
-model with four rulings (2026-07-12), rebuilt same day (260 tests):
+Built and closed in one day across three rounds (261 headless tests
+green); **exit criteria PASSED 2026-07-12** over two visual sessions
+(first: pop/colors/undo/scrub/round-trip; second: the revised reveal
+model incl. rest feel — "silence staying visually empty until it
+resolves is exactly right"). This phase superseded more of the original
+design than any before it; ARCHITECTURE.md §3 now records the model AS
+BUILT.
 
-- **A — a tied group is one event (STEPPED).** Reveal anchors moved from
-  notated onsets to the trigger schedule's tie-gated beats; a tied chain
-  collapses to one anchor at (chain start, its furthest ink incl. broken
-  segments); nothing advances at a tie-stop's notated onset. Edges
-  became per-(system, PART) so one part's tie holds only its own
-  spanners (per-voice granularity: known limit).
-- **B — rests and dynamics animate.** ANIMATED_KINDS += REST/MREST/
-  DYNAMIC; a dynamic's onset is its attach point (MEI @tstamp/@startid,
-  resolved in the adapter); rests are reveal anchors, dynamics are not.
-- **C — sweep deferred.** "Sweep" is a single smooth shared wavefront
-  revealing ALL ink — a different computational model, its own design
-  round (BACKLOG 8). Continuous mode stays reachable on the new anchors.
+Rulings at plan review (2026-07-11): hairpins JOIN the grow set (the
+5.2 task text supersedes the Phase 3 census default; dynamic letters
+were to stay static — later superseded by ruling B); spanners keep a
+dimmed floor-opacity ghost under the growing clipped copy; grow
+REPLACES step-appear for spanners — RevealMode (global, doc-stored,
+'Sweep' transport toggle) is the only knob.
+
+Rulings at the first visual session (2026-07-12), which re-opened the
+reveal model:
+
+- **A — a tied group is one event (stepped).** Reveal anchors moved
+  from notated onsets to the schedule's tie-gated beats; a tied chain
+  collapses to one anchor at (chain start, its furthest ink incl.
+  broken segments); nothing advances at a tie-stop's notated onset.
+  Edges became per-(system, PART) so one part's tie holds only its own
+  spanners (per-voice granularity: accepted limit, BACKLOG 10).
+- **B — rests and dynamics animate** (amends the Phase 3 animated-ink
+  ruling above). A dynamic's onset is its attach point (MEI
+  @tstamp/@startid, adapter-resolved); rests are reveal anchors,
+  dynamics are not.
+- **C — sweep deferred.** "Sweep means sweep": one smooth shared
+  wavefront revealing ALL ink — a different computational model, its
+  own design round (BACKLOG 8; scaffold/barline sweep wanted, not
+  scheduled). The Sweep toggle meanwhile drives a placeholder
+  continuous lerp over the stepped anchors.
 - **D — color scope.** TINTED_KINDS = playing ink + spanners; clefs,
-  signatures, texts (fixed — they wrongly tinted before), and — ruled —
+  signatures, texts (fixed — they wrongly tinted before) and — ruled —
   rests/dynamics stay black. Animated set ≠ tinted set.
 
-Second visual session (2026-07-12): A/B/D behaviors passed; one further
-ruling — **rests are retrospective ink**: a rest appearing ON its beat
-reads as an event at silence. Unified rule (user's choice at
-clarification): a rest triggers at min(next note in its part/voice,
-end of its own bar) — the whole-bar rest degenerately at its barline;
-never on its own beat. Reveal anchors follow (the edge never advances
-mid-silence). Exit criteria pending re-verification of the rest feel. Rulings at plan review (2026-07-11):
-hairpins JOIN the grow set (5.2 task text supersedes the Phase 3 census
-default; dynamic letters stay static); spanners keep a dimmed
-floor-opacity ghost under the growing clipped copy; grow REPLACES
-step-appear for spanners — RevealMode (global, on the doc, 'Sweep'
-toggle) is the only knob. Test material: user-provided Dorico export
+Ruling at the second visual session (2026-07-12): **rests are
+retrospective ink** — a rest appearing ON its beat reads as an event at
+silence. Unified rule (user's clarification choice): a rest triggers at
+min(next note's trigger in its part/voice scope, end of its own bar),
+never on its own beat; the whole-bar rest degenerately at its barline.
+Reveal anchors follow, so the edge never advances mid-silence.
+
+Test material: user-provided Dorico export
 `testdata/broken_hairpin_and_slur_test.*` (hairpin broken m4→m5,
 slur+ties broken m8→m9, companion wav). Build facts: Verovio renders a
-broken spanner as an id-bearing <g> plus one ID-LESS <g> per
+broken spanner as an id-bearing `<g>` plus one ID-LESS `<g>` per
 continuation system (previously silently absorbed into the static
-system element — testscore itself has 7 such broken ties); hairpins are
-tstamp/tstamp2+@staff addressed, no startid; PROJECT_VERSION bumped to
-2 (v1 part_colors folds into part color rules on load).
+system element — testscore itself has 7 such broken ties); hairpins AND
+dynamics are tstamp+@staff addressed (no startid); PROJECT_VERSION
+bumped to 2 (v1 part_colors folds into part color rules on load; a v1
+build refuses v2 rather than silently dropping styling).
 
-- [x] **5.1 reveal_x** per system (core): CONTINUOUS and STEPPED from
-      onset-sorted note positions; headless tests for both modes,
-      including simultaneous onsets across staves (step to musical onset).
-      Anchors are NOTATED onsets (identity.onset — not tie-gated trigger
-      beats); lead/end sentinels make CONTINUOUS continuous through
-      system breaks; swing applies via the same resolve_seconds seam as
-      triggers. RenderedElement gained `system` (adapter-stamped).
+- [x] **5.1 reveal_x** (core): per-(system, part) tracks from the
+      schedule's tie-gated triggers (as revised by rulings A/B and the
+      rest rule); STEPPED steps at part events, CONTINUOUS is the
+      placeholder lerp; interlocking per-part lead/end sentinels; swing
+      via the same resolve_seconds seam as triggers. RenderedElement
+      gained `system` (adapter-stamped; slashes via staff_geo).
 - [x] **5.2 Spanner reveal**: clip-rect grow for slurs/ties/hairpins via
-      RevealPathItem (paint-time clip, per-child clamp, no re-indexing);
-      per-segment elements (`<source-id>:seg<k>`) so system-split
-      spanners reveal per segment, later segments at reveal 0 with no
-      page logic. Verified: clip statelessness tests + offscreen pixel
-      check (ghost < half-grown < full).
+      RevealPathItem (paint-time clip, per-child clamp, no re-indexing)
+      over a floor-opacity ghost; per-segment elements
+      (`<source-id>:seg<k>`) so system-split spanners reveal per
+      segment, later segments at reveal 0 with no page logic. Verified:
+      clip statelessness tests + offscreen pixel check.
 - [x] **5.3 StyleRules**: ONE styling system — per-part color+effect
       rules, per-element overrides, reveal mode; element>part>default
       field-wise; effect names fail soft to 'appear'. SetPartColor
-      retargeted; SetPartEffect/SetElementStyle/SetRevealMode added.
-      Applier: per-element effects, opacity+scale property map (scale
-      restricted to anchored kinds), transition window with expiry
-      settle, refresh seeds mid-transition seeks. Parts menu: per-part
-      color swatches + Custom… + No Color, effect radios enumerated
-      from the preset registry.
+      retargeted; SetPartEffect/SetElementStyle/SetRevealMode added;
+      project schema v2. Applier: per-element effects, opacity+scale
+      property map (scale restricted to anchored kinds), transition
+      window with expiry settle, refresh seeds mid-transition seeks.
+      Parts menu: per-part color swatches + Custom… + No Color, effect
+      radios enumerated from the preset registry.
 - [x] **5.4 "pop" effect** as a preset (scale envelope around anchor) —
       proving effects-as-data: zero evaluator changes. The commit diff
-      is the proof: presets.py + its test only (`git show --stat`).
+      is the proof: presets.py + its test only (`git show --stat
+      c5268ea`).
 
 **Exit criteria**: a stepped-appearance animation with per-part colors and
 growing slurs plays in sync; adding "pop" required only a preset.
+**PASSED 2026-07-12.**
 
 ## Phase 6 — Export
 
