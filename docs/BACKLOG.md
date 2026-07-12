@@ -12,6 +12,12 @@ See `spikes/NOTES.md` for the full investigation of each.
    `<part-group>` elements at all, so there is nothing for Verovio to
    render — remedy is a Dorico re-export with bracket/group export enabled,
    or adapter-synthesized brackets.
+   **SCHEDULED → Phase 8** (2026-07-12, v2 scoping): remedy chosen —
+   `<part-group>` injection at the prep seam from doc-stored groupings
+   (verified at scoping: Verovio renders the `grpSym` bracket AND joins
+   barlines through the group; see `spikes/NOTES.md` "v2 scoping
+   probes"). No Dorico re-export needed; render-side synthesis rejected
+   (group-barline connectors need engraving collision avoidance).
 2. **m. 19 guitar slash notehead renders wrong** (stack of strokes instead
    of a slash). Priority: medium, cosmetic.
 3. **"Swing ♩ = 120" renders with a tofu box** before the note glyph.
@@ -39,6 +45,16 @@ See `spikes/NOTES.md` for the full investigation of each.
      stage texts remain for purely overlaid/animated text.
    - ElementId stability across such re-engraves matters (ids are minted
      from musical identity, so they should survive; verify).
+
+   **REVISED + SCHEDULED → Phase 9** (2026-07-12, v2 scoping): re-engrave
+   is cheap — 0.23 s measured for full engrave+decompose — so the split
+   is by TEXT CLASS, not by cost of reflow. Title/composer (already
+   stage texts) and tempo marks (float in empty space) edit as OVERLAY
+   and never re-engrave; only PART LABELS take the re-engrave path
+   (fixed left column engraved from the longest name — overlay edits
+   collide with the staff). Phase 9 rides Phase 8's prep-injection
+   infrastructure; the id-stability "verify" above is pinned by test in
+   Phase 8 (task 8.3).
 
 ## Animation fixes required (user rulings)
 
@@ -133,5 +149,5 @@ See `spikes/NOTES.md` for the full investigation of each.
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score
 auto-alignment provider; custom engraving provider; MIDI input; richer
-effect editor; arbitrary-exporter MusicXML robustness; in-app editable
-score texts with layout shift (item 5 above).
+effect editor; arbitrary-exporter MusicXML robustness. (In-app editable
+score texts — item 5 — graduated to Phase 9, 2026-07-12.)

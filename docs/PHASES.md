@@ -390,10 +390,147 @@ out, verified against the recording in a video editor. **PASSED
 `testscore.wav`: first note, rehearsal A, final note all within a
 frame; no drift; page cuts match live follow).
 
+## Phase 7 — Presentation & reveal control
+
+Scoped 2026-07-12 (v2 scoping session; verified facts in
+`spikes/NOTES.md` "v2 scoping probes"). Rulings at scoping:
+
+- **One schema v3** carries EVERY planned document field — floor
+  opacity, presentation mode, staff groups (Phase 8), text overrides
+  (Phase 9) — designed once, even where a field lands before its
+  feature. No per-phase schema bumps.
+- **Floor = 0 scope**: static scaffold (staff lines, clefs, signatures,
+  barlines, texts) STAYS at full opacity — notes appear onto a visible
+  staff, never a blank page filling in. The animated-ink taxonomy is
+  unchanged; sweep-covers-scaffold remains a separate deferred item
+  (BACKLOG 8).
+- **System-at-a-time is presentation-only** (verified at scoping): every
+  element carries a score-wide system index, reveal tracks are already
+  per (system, part) — the mode consumes the existing Layout; no
+  re-engrave, no engraving change.
+
+- [ ] **7.1 Schema v3**: design the full v3 shape once (floor_opacity,
+      presentation mode, staff_groups, text_overrides — the latter two
+      unused until Phases 8/9). Strict gate: reader accepts {1, 2, 3},
+      writer emits 3; existing v1/v2 folding unchanged. Verify:
+      round-trip tests; v2 files load with defaults for every new field;
+      the gate stays strict-by-version.
+- [ ] **7.2 User-settable floor opacity incl. 0**: presets become a
+      function of the document floor (registry stays data — rule 6);
+      applier re-resolves cached effects + refresh on change;
+      ScoreScenes tracks its spanner-ghost items and gains a setter
+      (ghost opacity is set at construction today); SetFloorOpacity
+      command + a control; export reads the document value. Verify:
+      floor 0 → unrevealed animated ink invisible, scaffold fully
+      visible, spanner clip-reveal still works over an invisible ghost;
+      envelope/ghost/round-trip tests headless.
+- [ ] **7.3 System framing (core, pure)**: per-system band rects (union
+      bbox of the system's elements — covers overhanging ink — at full
+      page width); `current_system()` on the applier (per-trigger
+      systems, the same bisect-cursor idiom as `current_page()`).
+      Verify: headless — fixture band rects for systems 1–5;
+      current_system walk matches the trigger schedule.
+- [ ] **7.4 System-at-a-time stage mode**: StageView frames the current
+      band centered vertically; letterbox MASKING so a neighboring
+      system on the same page never bleeds in (fitInView exposes scene
+      content beyond the band on aspect mismatch — this needs opaque
+      bars or clipping, live-side only); hard cut when current_system()
+      changes (page flip implied by the system→page map — mirrors live
+      page follow / ruling R2); mode is document intent (v3 field) +
+      undoable command + transport toggle. Verify: fixture pages 2–3
+      (two systems each) — one system on stage at a time,
+      chronological, centered, no bleed at any window aspect.
+- [ ] **7.5 System-mode export**: output canvas becomes user-chosen
+      (width no longer locked to page aspect in this mode); the band is
+      cropped from the page image and composited centered; cuts land on
+      the same frames as live follow. Verify: headless — cut frames
+      match the current_system() walk; band pixels centered; page-mode
+      export byte-identical to Phase 6 when the mode is off.
+
+**Exit criteria**: floor 0 plays and exports with unrevealed ink
+invisible on a visible scaffold; system mode shows and exports one
+system at a time, chronologically, centered, hard cuts in sync with
+live follow.
+
+## Phase 8 — Grouping: brackets & joined barlines
+
+Ruling 2026-07-12 (v2 scoping): brackets go through the ENGRAVING
+INPUTS — `<part-group>` injection at the prep seam — not render-side
+synthesis. Decisive fact: baseline barlines are per-staff segments, and
+Verovio's group-barline connectors split around obstacles; render-side
+joining would reimplement engraving collision avoidance. Verified at
+scoping (scratchpad probe, to be re-done properly in `spikes/` as task
+8.1): injection renders a `grpSym` bracket and joins barlines through
+the group; engrave+decompose costs 0.23 s. **Closes BACKLOG 1** (sax
+bracket, "before first production use"). The document stores the
+GROUPINGS (user intent); bracket geometry is re-derived — rule 5 holds.
+
+- [ ] **8.1 Part-group spike, properly** (re-do of the scoping probe,
+      house style, kept in `spikes/`): injection → grpSym + group
+      barlines on the fixture; record segment/obstacle behavior and
+      bracket left-margin geometry shift in `spikes/NOTES.md`.
+- [ ] **8.2 Adapter grpSym support**: map the class to a static kind
+      with sensible identity (unknown SVG classes raise ValueError
+      today — without this, grouped scores refuse to load). Verify:
+      grouped fixture loads headless; grpSym elements are static (not
+      animated, not tinted).
+- [ ] **8.3 staff_groups → prep injection**: doc field (ordered groups
+      of contiguous parts + symbol + joined-barlines flag; v3 field
+      from 7.1) applied as `<part-group>` elements at the prep seam
+      (musicxml_prep, alongside transpose neutralization). **Pin ID
+      stability**: ElementIds are minted from musical identity — assert
+      byte-equal ids with and without grouping (also discharges the
+      BACKLOG 5 "verify" note). Verify: headless.
+- [ ] **8.4 Command + UI + reload**: SetStaffGroups undoable; grouping
+      dialog (parts in score order, symbol, barline flag); group change
+      → re-engrave + scene rebuild (same path as project open; 0.23 s
+      measured); layout overrides re-apply as deltas on the shifted
+      base (accepted staleness — the bracket consumes left-margin
+      width). Verify: define the sax group in-app, bracket + joined
+      barlines appear, undo removes them, save/reload round-trips.
+
+**Exit criteria**: the sax section bracket and its joined barlines
+render on the fixture, defined interactively in-app, undoable,
+ElementIds stable across the re-engrave — BACKLOG 1 closed.
+
+## Phase 9 — Text editing
+
+Ruling 2026-07-12 (v2 scoping, revising BACKLOG 5's framing): the split
+is by TEXT CLASS, not by cost — re-engrave is cheap (0.23 s), so the
+question is which texts NEED reflow. Title/composer (already stage
+texts) and tempo marks (float in empty space above the staff) edit as
+OVERLAY, never re-engraving. Part labels (fixed left column engraved
+from the longest name — overlay edits collide with the staff) take the
+prep-seam re-engrave path, riding Phase 8's infrastructure. **Depends
+on Phase 8.**
+
+- [ ] **9.1 Stage text editing**: edit content/position/style of stage
+      texts (title/composer/lyricist) via undoable commands + minimal
+      UI; re-run band-fit scaling on edit. Full stage click-to-select
+      stays BACKLOG 9. Verify: edit the title, moves/restyles never
+      re-engrave, round-trips, undo works.
+- [ ] **9.2 Tempo-mark overlay**: hidden layout-override on the
+      engraved TEXT element + a replacement stage text seeded at its
+      engraved position/size; edits never re-engrave. Verify: edited
+      tempo text shows in place, engraved original hidden, round-trip +
+      undo.
+- [ ] **9.3 Part-label edits via the prep seam**: part-name/abbreviation
+      overrides in the doc (v3 text_overrides field) applied to the
+      part-list at prep → re-engrave; the label column re-derives so
+      the score shifts to fit (a re-engrave with changed inputs is not
+      window reflow — rule 7 holds); abbreviated labels on later
+      systems update from the same override. ID stability pinned as in
+      8.3. Verify: rename a part in-app → all systems' labels update,
+      score shifts, undo restores, ids stable.
+
+**Exit criteria**: title and tempo-mark edits are pure overlay; a part
+rename re-engraves with the score shifting to fit; everything undoable
+and round-tripping — BACKLOG 5 resolved as split.
+
 ## Later (explicitly not now)
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-
 score auto-alignment provider; custom engraving provider; MIDI input;
-richer effect editor; arbitrary-exporter MusicXML robustness; in-app
-editing of score-anchored texts (part labels, title, tempo marks) with
-the score shifting to fit — ruling 2026-07-11, BACKLOG item 5.
+richer effect editor; arbitrary-exporter MusicXML robustness.
+(In-app score-text editing graduated to Phase 9; brackets/grouping to
+Phase 8 — 2026-07-12.)

@@ -1,4 +1,41 @@
-# Phase 0–5 spike & build notes
+# Spike & build notes
+
+## v2 scoping probes (2026-07-12 — session-inline; re-do the part-group probe as a proper spike at Phase 8 start)
+
+Measured during the v2 scoping session (assessment only, nothing
+built). The part-group probe ran from a session scratchpad, not
+`spikes/` — ruling: re-do it properly here when Phase 8 opens (task
+8.1). Facts, verovio 6.2.1 against `testdata/testscore.musicxml`:
+
+- **Engrave + decompose is 0.23 s** (1686 elements, 3 pages) through
+  `VerovioEngravingProvider.load`. Re-engraving on edit is
+  computationally trivial; the real cost of any re-engrave feature is
+  commands/schema/UI, not the engrave. (Consistent with the Phase 2
+  finding of 0.22 s engrave+decompose; this run includes ledger-dash
+  and spanner-segment attribution added since.)
+- **Baseline barlines are per-staff segments, NOT joined**: each
+  BARLINE element's full-system-height bbox is a union over gapped
+  per-staff paths (page-1 y-spans 1942–2662, 4776–5496, … with nothing
+  drawn between staves). Any earlier impression of joined barlines was
+  a bbox artifact.
+- **`<part-group>` injection works**: inserting a part-group
+  (`group-symbol` bracket, `group-barline` yes) around P1–P3 in the
+  part-list makes Verovio render a `grpSym` bracket AND join barlines
+  through the group. Connector segments appear between the grouped
+  staves and are **split around obstacles** (m1's P2–P3 connector
+  breaks into two segments). Reimplementing that collision avoidance
+  render-side is exactly the engraving logic we don't hand-roll —
+  hence the Phase 8 ruling: brackets go through the engraving inputs.
+- **`grpSym` is an unknown SVG class to the adapter, and unknown
+  classes raise ValueError** in the decomposition walk — mapping it is
+  a mandatory first step of Phase 8 or grouped scores refuse to load.
+- **Every fixture element carries a system index** (zero `system=None`
+  across all 1686 elements; systems per page 1 / 2,3 / 4,5) —
+  system-at-a-time framing (Phase 7) is pure Layout consumption, no
+  re-engrave. ElementIds are minted from musical identity
+  (part/measure/staff/voice/kind/index), which a part-group does not
+  touch — id stability across grouped re-engraves is expected by
+  construction and gets pinned by test in Phase 8.
 
 ## Phase 5 — broken-spanner anatomy (`spikes/spanner_split.py`, 2026-07-11)
 
