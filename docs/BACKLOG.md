@@ -77,6 +77,23 @@ See `spikes/NOTES.md` for the full investigation of each.
    deferred ("we will implement more sophistication later"). When picked
    up, match the tempo-event editing idiom.
 
+8. **Single-wavefront sweep mode** (Marcus, 2026-07-12, at the Phase 5
+   reveal re-plan): "Sweep means sweep" — when Sweep is on, ONE smooth
+   shared wavefront per system moves in tempo and reveals EVERYTHING
+   (all animated ink, through glyphs; ultimately barlines and staff
+   scaffold too — the scaffold case needs its own ruling). Ties are
+   irrelevant to the front ("we shouldn't have to worry about tied
+   notes being regarded as a single note" in this mode) — a different
+   computational model from the stepped per-(system, part) event
+   anchors. Design sketch to propose when picked up: a per-system front
+   x(t) from measure-boundary geometry (measure starts ↔ barline x,
+   lerped in tempo) rather than note anchors; ghost + clipped-copy
+   layers generalized from spanners to all ink (~2× path items,
+   measure); opacity triggers route to no-op for OPACITY in sweep mode
+   (pop's SCALE still fires); mode switching must stay scrub-stateless.
+   Until then the Sweep toggle drives the placeholder continuous mode
+   (anchor lerp).
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

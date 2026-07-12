@@ -53,14 +53,20 @@ def quantize_beats(beats: Beats) -> int:
     return round(beats * _Q)
 
 
-# Note-owned ink that dims and lights via opacity triggers. SLUR/TIE
-# left this set in Phase 5.2: spanners (with HAIRPIN) reveal by clip-grow
-# at reveal_x instead (REVEALED_KINDS in core/animation/reveal.py) —
-# their opacity stays 1.0 and they carry no trigger.
+# Ink that dims and lights via opacity triggers. SLUR/TIE left this set
+# in Phase 5.2: spanners (with HAIRPIN) reveal by clip-grow at reveal_x
+# instead (REVEALED_KINDS in core/animation/reveal.py) — their opacity
+# stays 1.0 and they carry no trigger. REST/MREST/DYNAMIC joined
+# (ruling 2026-07-12, superseding the Phase 3 taxonomy): everything IN
+# the staves is dimmed and revealed; a rest fires at its notated onset,
+# a dynamic at its attach point (adapter resolves @tstamp/@startid).
+# Statics remain: clefs, key/time signatures, barlines, staff lines,
+# texts, lyrics, chord symbols.
 ANIMATED_KINDS = frozenset({
     ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.STEM,
     ElementKind.FLAG, ElementKind.BEAM, ElementKind.ACCIDENTAL,
     ElementKind.ARTICULATION, ElementKind.LEDGER_LINES,
+    ElementKind.REST, ElementKind.MREST, ElementKind.DYNAMIC,
 })
 
 

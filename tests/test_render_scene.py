@@ -71,20 +71,35 @@ def test_qpainter_path_bbox_matches_core_path_bbox(engraved) -> None:
     assert sampled >= 100
 
 
-def test_set_part_color_flips_exactly_that_part(scenes, engraved) -> None:
+def test_set_part_color_flips_exactly_that_parts_playing_ink(
+        scenes, engraved) -> None:
+    """Tint scope (ruling D, 2026-07-12): what plays, tints — minus
+    rests and dynamics. Clefs, signatures, texts, rests, dynamics stay
+    black even in the tinted part."""
+    from scoreanim.core.animation import takes_part_color
+
     part = PartId("P3")
     red = QColor("#cc2222")
     black = QColor("#000000")
     scenes.set_part_color(part, red)
     try:
+        seen_kinds_tinted = set()
+        seen_kinds_black = set()
         for el in engraved.layout.elements:
             item = scenes.items[el.identity.element_id]
-            if (el.identity.part == part
-                    and el.identity.kind not in (ElementKind.STAFF_LINES,
-                                                 ElementKind.BARLINE)):
-                assert item.color == red
+            if el.identity.part == part and takes_part_color(el.identity):
+                assert item.color == red, el.identity.element_id
+                seen_kinds_tinted.add(el.identity.kind)
             else:
-                assert item.color == black
+                assert item.color == black, el.identity.element_id
+                if el.identity.part == part:
+                    seen_kinds_black.add(el.identity.kind)
+        # the rule bites on real elements of this part, both ways
+        assert ElementKind.NOTEHEAD in seen_kinds_tinted
+        assert ElementKind.TIE in seen_kinds_tinted
+        assert ElementKind.CLEF in seen_kinds_black
+        assert ElementKind.DYNAMIC in seen_kinds_black
+        assert ElementKind.REST in seen_kinds_black
     finally:
         scenes.set_part_color(part, None)
     assert scenes.items[next(

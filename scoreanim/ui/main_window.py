@@ -23,7 +23,8 @@ from PySide6.QtWidgets import (QColorDialog, QDoubleSpinBox, QFileDialog,
 
 from scoreanim.core.animation import (DEFAULT_EFFECT, FLOOR_OPACITY, PRESETS,
                                       RevealMode, build_reveal_tracks,
-                                      build_trigger_schedule)
+                                      build_trigger_schedule,
+                                      takes_part_color)
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
 from scoreanim.core.project import (DEFAULT_BPM, SUFFIX, ApplyTaps, FileRef,
@@ -452,7 +453,7 @@ class MainWindow(QMainWindow):
         for eid, color in overrides.items():
             if self._applied_overrides.get(eid) != color:
                 item = self._scenes.items.get(eid)
-                if item is not None:
+                if item is not None and takes_part_color(item.identity):
                     item.set_color(QColor(color))
                     self._applied_overrides[eid] = color
 
@@ -672,7 +673,8 @@ class MainWindow(QMainWindow):
         schedule = build_trigger_schedule(engraved.layout, report.mapping)
         score_end = max((m.start + m.quarter_length for m in model.measures),
                         default=0.0)
-        reveal_tracks = build_reveal_tracks(engraved.layout, score_end)
+        reveal_tracks = build_reveal_tracks(engraved.layout, schedule,
+                                            score_end)
         applier = AnimationApplier(self._scenes.items, schedule,
                                    TempoMap([TempoEvent(0.0, DEFAULT_BPM)]),
                                    self.app_state.doc.style, reveal_tracks)

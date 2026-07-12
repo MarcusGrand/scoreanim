@@ -163,25 +163,53 @@ def element_state(identity, style_rules, effects, tempo_map, t_seconds
     serves AudioClock playback, scrubbing, and FrameClock export."""
 ```
 
-### Reveal / playhead-x unification
+### Reveal / playhead-x unification (revised 2026-07-12, rulings A–C)
 
-Per system, from the sorted `(onset_beats, x)` pairs of its noteheads
-(onsets taken from the timing model, then mapped to x — not derived from
-engraved x):
+Per **(system, part)**, from the sorted `(trigger_beats, x)` pairs of the
+part's events — beats taken from the trigger schedule's TIE-GATED
+`beats_by_element`, then mapped to x (never derived from engraved x):
 
-- `reveal_x(system, t, CONTINUOUS)` — piecewise-linear interpolation.
-- `reveal_x(system, t, STEPPED)` — x of the latest onset ≤ t.
+- `reveal_x(system, part, t, STEPPED)` — x of the latest event ≤ t.
+- `reveal_x(system, part, t, CONTINUOUS)` — piecewise-linear over the
+  same anchors. Placeholder: the real continuous mode is a single
+  smooth shared WAVEFRONT per system revealing all ink (a different
+  computational model — BACKLOG 8, its own design round).
 
-The whole-system sweep, per-spanner grow (slurs, hairpins: clip-rect right
-edge at `reveal_x`), and any cursor all read this one function. Spanners
-split across systems by Verovio reveal per segment; segments on
-not-yet-current pages sit at reveal = 0.
+**A tied chain is one event** (ruling A): tie-stop heads carry the
+chain-start trigger, so the whole group collapses into a single anchor
+at (chain start, x2 of the chain's furthest ink — its tie curves and
+broken segments fold into the bucket of the system they sit in). The
+edge steps past the full tied value at once and next advances at the
+part's next event; a chain broken across systems stands revealed from
+chain start on both sides. Events are noteheads, slashes, **and rests**
+(ruling B); dynamics animate at their attach point but are attachments,
+not events. Edges are per part so one part's tie holds only its own
+spanners (known limit: per part, not per voice — voice labels relabel
+per measure).
+
+Per-spanner grow (slurs, ties, hairpins: clip-rect right edge at
+`reveal_x`) and any cursor read this one function. Spanners split
+across systems by Verovio reveal per segment; segments in
+not-yet-reached systems sit at reveal = 0 with no page logic.
+
+### Animated-ink taxonomy (revised 2026-07-12)
+
+Opacity-triggered (dim at floor, light at trigger): noteheads, slashes,
+stems, flags, beams, accidentals, articulations, dots, ledger dashes,
+**rests, whole-bar rests, dynamics** (ruling B — everything IN the
+staves animates; a dynamic's trigger is its attach point). Clip-revealed
+(opacity pinned 1.0): slurs, ties, hairpins. Static: clefs, key/time
+signatures, barlines, staff lines, texts, lyrics, chord symbols.
 
 ### Styling
 
-`StyleRules` map musical identity → base visual properties (per-part color,
-floor opacity, assigned Effect). Rule-based, sparse; per-element user
-overrides are higher-priority rules. Serialized in the project document.
+`StyleRules` map musical identity → base visual properties (per-part
+color + effect assignment, reveal mode). Rule-based, sparse; per-element
+user overrides are higher-priority rules, merged field-wise. Serialized
+in the project document. **Color scope ≠ animated scope** (ruling D):
+`TINTED_KINDS` = the playing ink (heads through ledger dashes, plus
+slurs/ties/hairpins) — rests and dynamics animate but stay black, like
+clefs, signatures, and text.
 
 ## 4. Project document
 

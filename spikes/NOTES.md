@@ -38,6 +38,13 @@ broken across m8→m9, ties broken across m8→m9; companion `.wav`).
   `_parse_mei` walk.
 - **Open (unmatched) ties render as 0-path `<g>`s** here too (3 in this
   fixture — same importer quirk as the main fixture's 5).
+- **Dynamics are `@tstamp + @staff` addressed too** (verified on both
+  fixtures during the reveal re-plan, 2026-07-12): `<dynam staff='1'
+  tstamp='2' place='below' vgrp=...>` — no `startid` from Dorico
+  exports, though the adapter honors one if present. Same tstamp
+  arithmetic as hairpins (meter-unit beats, 1-based); the fixture's m1
+  dynamics at tstamp 2 resolve to 1.0 quarters — the tutti chord, not
+  the measure start.
 
 ## Phase 4 — QAudioDecoder spike (`spikes/decode_audio.py`, 2026-07-11)
 

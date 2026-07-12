@@ -15,7 +15,32 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 from scoreanim.core.animation.reveal import RevealMode
-from scoreanim.core.score.identity import ElementId, ElementIdentity, PartId
+from scoreanim.core.score.identity import (ElementId, ElementIdentity,
+                                           ElementKind, PartId)
+
+# Ink that takes the part color (ruling D, 2026-07-12): what plays,
+# tints — MINUS rests, whole-bar rests, and dynamic letters, which
+# animate (dim/reveal) but stay black, like clefs, signatures, texts,
+# barlines, and staff lines. Deliberately a separate policy set from
+# ANIMATED_KINDS/REVEALED_KINDS: the animated set and the tinted set
+# diverge.
+TINTED_KINDS = frozenset({
+    ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.STEM,
+    ElementKind.FLAG, ElementKind.BEAM, ElementKind.ACCIDENTAL,
+    ElementKind.ARTICULATION, ElementKind.LEDGER_LINES,
+    ElementKind.SLUR, ElementKind.TIE, ElementKind.HAIRPIN,
+})
+
+
+def takes_part_color(identity: ElementIdentity | None) -> bool:
+    """OTHER-with-onset covers augmentation dots (note-owned ink the
+    adapter classifies as OTHER but stamps with an onset)."""
+    if identity is None:
+        return False
+    if identity.kind in TINTED_KINDS:
+        return True
+    return (identity.kind is ElementKind.OTHER
+            and identity.onset is not None)
 
 
 @dataclass(frozen=True)

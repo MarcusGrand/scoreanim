@@ -83,18 +83,20 @@ class AnimationApplier:
         self._cursor = 0
         self._t = _BEFORE_EVERYTHING
 
-        # Spanners reveal by clip-grow at their system's reveal edge —
-        # no triggers involved (REVEALED_KINDS left the schedule).
+        # Spanners reveal by clip-grow at their (system, part) reveal
+        # edge — no triggers involved (REVEALED_KINDS left the
+        # schedule). Per-part edges: one part's tied group holds only
+        # that part's spanners (ruling A, 2026-07-12).
         self._reveal_tracks = tuple(reveal_tracks)
-        by_system: dict[int, list[ElementItem]] = defaultdict(list)
+        by_key: dict[tuple, list[ElementItem]] = defaultdict(list)
         for item in items.values():
             if (item.identity is not None and item.system is not None
                     and item.identity.kind in REVEALED_KINDS):
-                by_system[item.system].append(item)
-        self._revealed_by_system: dict[int, tuple[ElementItem, ...]] = {
-            s: tuple(v) for s, v in by_system.items()}
+                by_key[(item.system, item.identity.part)].append(item)
+        self._revealed_by_key: dict[tuple, tuple[ElementItem, ...]] = {
+            k: tuple(v) for k, v in by_key.items()}
         self._curves: tuple[RevealCurve, ...] = ()
-        self._last_edges: dict[int, float] = {}   # system → applied edge
+        self._last_edges: dict[tuple, float] = {}  # (system, part) → edge
 
         self._style = style
         self._resolve_effects()
@@ -210,11 +212,12 @@ class AnimationApplier:
         changed = 0
         mode = self._style.reveal_mode
         for curve in self._curves:
+            key = (curve.system, curve.part)
             edge = reveal_x(curve, t_score_seconds, mode)
-            if self._last_edges.get(curve.system) == edge:
+            if self._last_edges.get(key) == edge:
                 continue
-            self._last_edges[curve.system] = edge
-            for item in self._revealed_by_system.get(curve.system, ()):
+            self._last_edges[key] = edge
+            for item in self._revealed_by_key.get(key, ()):
                 if item.set_reveal_edge(edge):
                     changed += 1
         return changed

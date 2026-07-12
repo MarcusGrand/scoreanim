@@ -143,11 +143,14 @@ class _MeiIndex:
     # Spanners are recorded here too (Phase 5): hairpins carry @staff but
     # no startid, so this is their only staff source.
     staff_attr_by_id: dict[str, int] = field(default_factory=dict)
-    # timestamp-addressed spanners (hairpins): id → (measure_n, tstamp,
-    # tstamp2 or None). tstamp is in meter units, 1-based; tstamp2 grammar
-    # is "<n>m+<beat>" (n measures ahead) or a bare beat (same measure).
-    spanner_tstamps: dict[str, tuple[int, str, str | None]] = \
+    # timestamp-addressed elements (hairpins AND dynamics — Phase 5
+    # re-plan R.1): id → (measure_n, tstamp, tstamp2 or None). tstamp is
+    # in meter units, 1-based; tstamp2 grammar is "<n>m+<beat>"
+    # (n measures ahead) or a bare beat (same measure).
+    tstamps_by_id: dict[str, tuple[int, str, str | None]] = \
         field(default_factory=dict)
+    # dynamics addressed by @startid instead (other exporters)
+    dynam_startid: dict[str, str] = field(default_factory=dict)
     # active meter denominator per measure (document-order tracking of
     # meterSig), for tstamp → quarter-note conversion
     meter_unit_by_measure: dict[int, int] = field(default_factory=dict)
@@ -202,7 +205,17 @@ def _parse_mei(mei_xml: str) -> _MeiIndex:
                 index.spanners[sp_id] = (ref(sp.get("startid")),
                                          ref(sp.get("endid")))
                 if sp.get("tstamp"):
-                    index.spanner_tstamps[sp_id] = (
+                    index.tstamps_by_id[sp_id] = (
+                        m_n, sp.get("tstamp", "1"), sp.get("tstamp2"))
+            elif tag == "dynam":
+                # a dynamic's onset is its attach point (ruling
+                # 2026-07-12): @tstamp+@staff from Dorico exports,
+                # @startid honored for other exporters
+                startid = ref(sp.get("startid"))
+                if startid:
+                    index.dynam_startid[sp_id] = startid
+                if sp.get("tstamp"):
+                    index.tstamps_by_id[sp_id] = (
                         m_n, sp.get("tstamp", "1"), sp.get("tstamp2"))
             if sp.get("staff"):
                 index.staff_attr_by_id[sp_id] = _int_or(
@@ -799,8 +812,8 @@ def _attribute_spanner_segments(
             end_sys = end_note.system
             end_y = end_note.bbox.center.y if end_note.bbox else None
             staff_n = end_note.staff or 0
-        elif vid in st.mei.spanner_tstamps:
-            m, _, tstamp2 = st.mei.spanner_tstamps[vid]
+        elif vid in st.mei.tstamps_by_id:
+            m, _, tstamp2 = st.mei.tstamps_by_id[vid]
             end_sys = st.system_of_measure.get(_tstamp2_end_measure(m, tstamp2))
             staff_n = st.mei.staff_attr_by_id.get(vid, 0)
         if acc.system is None or end_sys is None or end_sys <= acc.system:
@@ -1076,10 +1089,10 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
         if start is not None:
             onset = start
             extent = (start, end if end is not None else start)
-        elif vid in st.mei.spanner_tstamps:
+        elif vid in st.mei.tstamps_by_id:
             # timestamp-addressed spanner (hairpins carry @tstamp/@tstamp2
             # and @staff, no startid/endid — Phase 5 spike)
-            onset, extent = _tstamp_extent(st.mei.spanner_tstamps[vid], st)
+            onset, extent = _tstamp_extent(st.mei.tstamps_by_id[vid], st)
     elif vid in st.mei.beam_note_ids:
         onsets = [st.onset_by_id[n] for n in st.mei.beam_note_ids[vid]
                   if n in st.onset_by_id]
@@ -1088,6 +1101,16 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
             extent = (min(onsets), max(onsets))
     elif acc.owner_onset is not None:
         onset = acc.owner_onset          # stems, flags, accid, artic, dots
+    elif acc.kind is ElementKind.DYNAMIC and (
+            st.mei.dynam_startid.get(vid, "") in st.onset_by_id
+            or vid in st.mei.tstamps_by_id):
+        # a dynamic's onset is its attach point (ruling 2026-07-12) —
+        # @startid's note when present, else @tstamp arithmetic
+        start_ref = st.mei.dynam_startid.get(vid, "")
+        if start_ref in st.onset_by_id:
+            onset = st.onset_by_id[start_ref]
+        else:
+            onset, _ = _tstamp_extent(st.mei.tstamps_by_id[vid], st)
     elif acc.kind in (ElementKind.DYNAMIC, ElementKind.TEXT,
                       ElementKind.CHORD_SYMBOL, ElementKind.MREST) \
             and acc.measure is not None:

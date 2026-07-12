@@ -1,0 +1,105 @@
+{
+  "version": 2,
+  "score": {
+    "path": "broken_hairpin_and_slur_test.musicxml",
+    "sha256": "7627cf4945cbf23195c6871b781cfb7d4e737504ecf93e53ea8af48beef726ab"
+  },
+  "audio": {
+    "path": "broken_hairpin_and_slur_test.wav",
+    "sha256": "9df410f65b93bbfed209d295c5650df4a376ed1dabb44ae4f0682ae97a75d97e"
+  },
+  "engraving": {
+    "xml_id_seed": 42,
+    "suppress_header": true
+  },
+  "layout_overrides": [],
+  "timing": {
+    "offset_seconds": 0.0,
+    "tempo_events": [
+      {
+        "position": 0.0,
+        "bpm": 120.0
+      }
+    ],
+    "swing_regions": [],
+    "tap_sessions": []
+  },
+  "style": {
+    "reveal_mode": "stepped",
+    "parts": {
+      "P1": {
+        "color": "#8422b8",
+        "effect": "pop"
+      },
+      "P2": {
+        "color": "#cc2222",
+        "effect": "pop"
+      }
+    },
+    "elements": {}
+  },
+  "stage": {
+    "texts": [
+      {
+        "element_id": "stage:title",
+        "content": "Det var en gang",
+        "page": 1,
+        "x": 1047.7518166250002,
+        "y": 64.70931076178961,
+        "anchor": "middle",
+        "font_size": 49.70931076178961,
+        "color": null,
+        "bold": false,
+        "italic": false
+      },
+      {
+        "element_id": "stage:subtitle",
+        "content": "Fra Lyriske stykker, bok 10",
+        "page": 1,
+        "x": 1047.7518166250002,
+        "y": 106.96222490931078,
+        "anchor": "middle",
+        "font_size": 24.854655380894805,
+        "color": null,
+        "bold": false,
+        "italic": false
+      },
+      {
+        "element_id": "stage:text",
+        "content": "Project Lyricist",
+        "page": 1,
+        "x": 146.68525432750005,
+        "y": 133.41467956469168,
+        "anchor": "start",
+        "font_size": 17.75332527206772,
+        "color": "#C0C0C0",
+        "bold": false,
+        "italic": false
+      },
+      {
+        "element_id": "stage:composer",
+        "content": "Edvard Grieg",
+        "page": 1,
+        "x": 1948.8183789225004,
+        "y": 133.41467956469168,
+        "anchor": "end",
+        "font_size": 17.75332527206772,
+        "color": null,
+        "bold": false,
+        "italic": false
+      },
+      {
+        "element_id": "stage:arranger",
+        "content": "Arr. Marcus Grand",
+        "page": 1,
+        "x": 1948.8183789225004,
+        "y": 157.3816686819831,
+        "anchor": "end",
+        "font_size": 17.75332527206772,
+        "color": null,
+        "bold": false,
+        "italic": false
+      }
+    ]
+  }
+}

@@ -13,14 +13,16 @@ from scoreanim.core.animation.schedule import (ANIMATED_KINDS, Trigger,
                                                build_trigger_schedule,
                                                is_animated, quantize_beats)
 from scoreanim.core.animation.state import element_state
-from scoreanim.core.animation.style import ElementStyle, StyleRules
+from scoreanim.core.animation.style import (TINTED_KINDS, ElementStyle,
+                                            StyleRules, takes_part_color)
 
 __all__ = [
     "ANCHOR_KINDS", "ANIMATED_KINDS", "DEFAULT_EFFECT", "Easing", "Effect",
     "ElementStyle", "Envelope", "FLOOR_OPACITY", "Keyframe", "OPACITY",
     "PRESETS", "PropertyId", "REVEALED_KINDS", "RevealCurve", "RevealMode",
-    "SCALE", "StyleRules", "SystemRevealTrack", "Trigger", "TriggerSchedule",
+    "SCALE", "StyleRules", "SystemRevealTrack", "TINTED_KINDS", "Trigger",
+    "TriggerSchedule",
     "appear", "build_reveal_tracks", "build_trigger_schedule",
     "effect_for", "element_state", "is_animated", "is_revealed",
-    "quantize_beats", "reveal_x",
+    "quantize_beats", "reveal_x", "takes_part_color",
 ]

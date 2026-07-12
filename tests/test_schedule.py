@@ -206,16 +206,16 @@ def test_all_tied_chord_inherits_stem() -> None:
 
 
 def test_animated_census(engraved) -> None:
-    """Three-way split (Phase 5.2 ruling): scaffold never animates; note
-    ink dims and lights via opacity triggers; spanners (slurs, ties,
-    hairpins — user ruling 2026-07-11 moving HAIRPIN out of static)
-    reveal by clip-grow only — never opacity-triggered."""
+    """Three-way split, amended by the 2026-07-12 ruling: rests and
+    dynamics joined the opacity-animated ink (everything IN the staves
+    dims and reveals); statics shrink to clefs, signatures, barlines,
+    staff lines, texts; spanners (slurs, ties, hairpins) reveal by
+    clip-grow only — never opacity-triggered."""
     from scoreanim.core.animation import REVEALED_KINDS, is_revealed
 
-    static_kinds = {ElementKind.REST, ElementKind.MREST, ElementKind.CLEF,
-                    ElementKind.KEY_SIG, ElementKind.METER_SIG,
-                    ElementKind.BARLINE, ElementKind.STAFF_LINES,
-                    ElementKind.DYNAMIC, ElementKind.TEXT,
+    static_kinds = {ElementKind.CLEF, ElementKind.KEY_SIG,
+                    ElementKind.METER_SIG, ElementKind.BARLINE,
+                    ElementKind.STAFF_LINES, ElementKind.TEXT,
                     ElementKind.CHORD_SYMBOL, ElementKind.LYRIC}
     assert REVEALED_KINDS == {ElementKind.SLUR, ElementKind.TIE,
                               ElementKind.HAIRPIN}
@@ -228,5 +228,26 @@ def test_animated_census(engraved) -> None:
             assert not is_animated(ident), ident.element_id
         if ident.kind in (ElementKind.NOTEHEAD, ElementKind.SLASH,
                           ElementKind.STEM, ElementKind.BEAM,
-                          ElementKind.LEDGER_LINES):
+                          ElementKind.LEDGER_LINES, ElementKind.REST,
+                          ElementKind.MREST, ElementKind.DYNAMIC):
             assert is_animated(ident), ident.element_id
+
+
+def test_rests_and_dynamics_carry_triggers(schedule, identities) -> None:
+    """Ruling B (2026-07-12): rests fire at their notated onsets,
+    dynamics at their attach point — the fixture's m1 dynamics attach
+    to the tutti chord at 1.0 quarters, not the measure start."""
+    rests = [eid for eid, ident in identities.items()
+             if ident.kind in (ElementKind.REST, ElementKind.MREST)]
+    assert rests
+    for eid in rests:
+        assert schedule.beats_by_element[eid] == identities[eid].onset, eid
+
+    dynamics = [eid for eid, ident in identities.items()
+                if ident.kind is ElementKind.DYNAMIC]
+    assert len(dynamics) == 16
+    for eid in dynamics:
+        assert schedule.beats_by_element[eid] == identities[eid].onset, eid
+    m1 = [eid for eid in dynamics if ":m1:" in str(eid)]
+    assert len(m1) == 6
+    assert all(schedule.beats_by_element[eid] == 1.0 for eid in m1)

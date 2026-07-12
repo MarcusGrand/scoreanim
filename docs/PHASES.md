@@ -132,6 +132,10 @@ sidecar text file (`<score>.tempo`, auto-loaded, F5 reloads, `m<n>`
 measure syntax); full note ink animates (heads, slashes, stems, flags,
 beams, accidentals, articulations, dots, ties/slurs as step-appear) —
 rests/clefs/signatures/barlines/staff lines/dynamics/texts stay static.
+[AMENDED 2026-07-12, Phase 5 ruling B: rests, whole-bar rests, and
+dynamics JOIN the animated ink (dynamics trigger at their attach
+point); statics shrink to clefs/signatures/barlines/staff lines/texts.
+Ties/slurs moved from step-appear to clip-grow in Phase 5.2.]
 Known defect (ruled 2026-07-11, must fix): ledger lines do not dim with
 their notes — they fold into the static STAFF_LINES ink. BACKLOG item 6.
 
@@ -227,8 +231,27 @@ everywhere.
 
 ## Phase 5 — Reveal effects & styling
 
-Build complete 2026-07-12 (258 headless tests green); exit criteria
-pending the user's visual session. Rulings at plan review (2026-07-11):
+Build complete 2026-07-12 (258 headless tests green); first visual
+session PASSED pop/colors/undo/scrub/round-trip but RE-OPENED the reveal
+model with four rulings (2026-07-12), rebuilt same day (260 tests):
+
+- **A — a tied group is one event (STEPPED).** Reveal anchors moved from
+  notated onsets to the trigger schedule's tie-gated beats; a tied chain
+  collapses to one anchor at (chain start, its furthest ink incl. broken
+  segments); nothing advances at a tie-stop's notated onset. Edges
+  became per-(system, PART) so one part's tie holds only its own
+  spanners (per-voice granularity: known limit).
+- **B — rests and dynamics animate.** ANIMATED_KINDS += REST/MREST/
+  DYNAMIC; a dynamic's onset is its attach point (MEI @tstamp/@startid,
+  resolved in the adapter); rests are reveal anchors, dynamics are not.
+- **C — sweep deferred.** "Sweep" is a single smooth shared wavefront
+  revealing ALL ink — a different computational model, its own design
+  round (BACKLOG 8). Continuous mode stays reachable on the new anchors.
+- **D — color scope.** TINTED_KINDS = playing ink + spanners; clefs,
+  signatures, texts (fixed — they wrongly tinted before), and — ruled —
+  rests/dynamics stay black. Animated set ≠ tinted set.
+
+Exit criteria pending the user's second visual session. Rulings at plan review (2026-07-11):
 hairpins JOIN the grow set (5.2 task text supersedes the Phase 3 census
 default; dynamic letters stay static); spanners keep a dimmed
 floor-opacity ghost under the growing clipped copy; grow REPLACES

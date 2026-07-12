@@ -20,17 +20,14 @@ from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsScene
 
 from scoreanim.core.animation.reveal import REVEALED_KINDS
+from scoreanim.core.animation.style import takes_part_color
 from scoreanim.core.engraving.types import Layout, PathPrimitive
 from scoreanim.core.project.stage_config import StageConfig
-from scoreanim.core.score.identity import ElementId, ElementKind, PartId
+from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.render.items import (DEFAULT_COLOR, ElementItem,
                                     RevealPathItem, svg_pen)
 from scoreanim.render.qpath import to_qpainter_path, to_qtransform
 from scoreanim.render.text import add_stage_text, add_text_rows
-
-# Structural elements a part tint leaves alone (deliberate: coloring the
-# staff itself reads as broken, not highlighted; easy to revisit).
-_UNTINTED_KINDS = frozenset({ElementKind.STAFF_LINES, ElementKind.BARLINE})
 
 
 class ScoreScenes:
@@ -84,12 +81,13 @@ class ScoreScenes:
         return len(self.scenes)
 
     def set_part_color(self, part: PartId, color: QColor | None) -> None:
-        """Tint every element of a part (None restores black). Staff
-        lines and barlines stay untinted."""
+        """Tint a part's playing ink (None restores black). Scope is
+        TINTED_KINDS (core/animation/style.py, ruling D 2026-07-12):
+        clefs, signatures, texts, rests, and dynamics stay black."""
         for item in self.items.values():
             identity = item.identity
             if (identity is not None and identity.part == part
-                    and identity.kind not in _UNTINTED_KINDS):
+                    and takes_part_color(identity)):
                 item.set_color(color)
 
     # -- construction helpers ------------------------------------------------
