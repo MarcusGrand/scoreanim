@@ -21,6 +21,7 @@ from dataclasses import dataclass, replace
 from scoreanim.core.animation.reveal import RevealMode
 from scoreanim.core.animation.style import ElementStyle
 from scoreanim.core.project.document import ProjectDoc
+from scoreanim.core.project.stage_config import PresentationMode
 from scoreanim.core.score.identity import Beats, ElementId, PartId
 from scoreanim.core.timing.swing import SwingRegion, validate_regions
 from scoreanim.core.timing.taps import TapSession
@@ -374,6 +375,44 @@ class SetRevealMode(Command):
 
     def describe(self) -> str:
         return "set reveal mode"
+
+
+@dataclass(frozen=True)
+class SetFloorOpacity(Command):
+    """Ghost-score floor (Phase 7.2). 0 is a value, not an error:
+    unrevealed animated ink invisible on the always-visible scaffold."""
+    value: float
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not (isinstance(self.value, (int, float))
+                and math.isfinite(self.value)
+                and 0.0 <= self.value <= 1.0):
+            raise CommandError(f"floor opacity {self.value!r} "
+                               f"not in [0, 1]")
+        return replace(doc, style=replace(doc.style,
+                                          floor_opacity=float(self.value)))
+
+    def describe(self) -> str:
+        return "set floor opacity"
+
+
+# ---------------------------------------------------------------------------
+# stage
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SetPresentationMode(Command):
+    """Paged (default) vs system-at-a-time framing (Phase 7.4). Stage
+    intent only — the Layout is identical in both modes."""
+    mode: PresentationMode
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not isinstance(self.mode, PresentationMode):
+            raise CommandError(f"bad presentation mode {self.mode!r}")
+        return replace(doc, stage=replace(doc.stage, mode=self.mode))
+
+    def describe(self) -> str:
+        return "set presentation mode"
 
 
 # ---------------------------------------------------------------------------

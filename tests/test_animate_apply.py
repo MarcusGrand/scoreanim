@@ -56,6 +56,22 @@ def test_construction_leaves_preroll_state(scenes, schedule, applier) -> None:
         assert item.opacity() == pytest.approx(expected), eid
 
 
+def test_document_floor_drives_pretrigger_opacity(scenes, schedule) -> None:
+    """Phase 7.2: the floor is StyleRules intent. Floor 0 → un-triggered
+    animated ink fully invisible while scaffold (never scheduled) stays
+    at 1.0; a set_style floor change moves an existing applier."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO,
+                               StyleRules(floor_opacity=0.0))
+    scheduled = set(schedule.beats_by_element)
+    for eid, item in scenes.items.items():
+        expected = 0.0 if eid in scheduled else 1.0
+        assert item.opacity() == pytest.approx(expected), eid
+    applier.set_style(StyleRules(floor_opacity=0.75))
+    for eid, item in scenes.items.items():
+        expected = 0.75 if eid in scheduled else 1.0
+        assert item.opacity() == pytest.approx(expected), eid
+
+
 def test_past_the_end_everything_full(scenes, schedule, applier) -> None:
     applier.refresh(1e6)
     assert all(item.opacity() == pytest.approx(1.0)

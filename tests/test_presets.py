@@ -6,13 +6,37 @@ from __future__ import annotations
 
 import pytest
 
-from scoreanim.core.animation import (OPACITY, PRESETS, SCALE, element_state,
+from scoreanim.core.animation import (OPACITY, PRESETS, SCALE, build_presets,
+                                      effect_for, element_state,
                                       FLOOR_OPACITY)
 
 
 def test_pop_is_registered() -> None:
     assert "pop" in PRESETS
     assert PRESETS["pop"].duration == pytest.approx(0.25)
+
+
+def test_registry_is_a_function_of_the_floor() -> None:
+    """Phase 7.2: presets stay data, parameterized by the document
+    floor. Floor 0 is a value — fully invisible before the trigger —
+    and the default registry equals build_presets(default)."""
+    assert PRESETS == build_presets(FLOOR_OPACITY)
+    zero = build_presets(0.0)
+    assert set(zero) == set(PRESETS)
+    for name in ("appear", "pop"):
+        before = element_state(10.0, zero[name], 9.9)
+        assert before[OPACITY] == 0.0
+        assert element_state(10.0, zero[name], 10.0)[OPACITY] == 1.0
+    # scale is not the floor's business: pop still bumps to 1.25
+    assert element_state(10.0, zero["pop"], 10.0)[SCALE] == 1.25
+
+
+def test_effect_for_resolves_against_a_given_registry() -> None:
+    half = build_presets(0.5)
+    assert effect_for("pop", half) is half["pop"]
+    assert effect_for("no-such-effect", half) is half["appear"]
+    assert effect_for(None, half) is half["appear"]
+    assert effect_for("pop") is PRESETS["pop"]      # default registry
 
 
 def test_pop_exact_values_through_the_unchanged_evaluator() -> None:

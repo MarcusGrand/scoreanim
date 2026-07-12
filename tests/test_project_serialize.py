@@ -7,11 +7,13 @@ from pathlib import Path
 import pytest
 
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.project import (FileRef, LayoutOverride, ProjectDoc,
-                                    StageConfig, StageTextElement,
-                                    StyleRules, TimingConfig, check_ref,
-                                    from_dict, load_project, save_project,
-                                    sha256_of, to_dict)
+from scoreanim.core.project import (FileRef, LayoutOverride,
+                                    PartTextOverride, PresentationMode,
+                                    ProjectDoc, StaffGroup, StageConfig,
+                                    StageTextElement, StyleRules,
+                                    TimingConfig, check_ref, from_dict,
+                                    load_project, save_project, sha256_of,
+                                    to_dict)
 from scoreanim.core.animation import ElementStyle, RevealMode
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.core.timing import SwingRegion, Tap, TapSession, TempoEvent
@@ -36,20 +38,33 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
         ),
         style=StyleRules(
             reveal_mode=RevealMode.CONTINUOUS,
+            # 0.0 on purpose: falsy — pins that no reader `or`s it away
+            floor_opacity=0.0,
             parts={PartId("P1"): ElementStyle(color="#cc2222",
                                               effect="pop"),
                    PartId("P2"): ElementStyle(effect="appear")},
             elements={ElementId("P1:m3:s1:v1:note:0"):
                       ElementStyle(color="#00aa00")},
         ),
-        stage=StageConfig(texts=(
-            StageTextElement(element_id="stage:title", content="Det var…",
-                             page=1, x=1049.0, y=80.0, anchor="middle",
-                             font_size=63.5),
-            StageTextElement(element_id="stage:composer", content="Grieg",
-                             page=1, x=1900.0, y=150.0, anchor="end",
-                             font_size=35.0, color="#C0C0C0", italic=True),
-        )),
+        stage=StageConfig(
+            mode=PresentationMode.SYSTEM,
+            texts=(
+                StageTextElement(element_id="stage:title",
+                                 content="Det var…",
+                                 page=1, x=1049.0, y=80.0, anchor="middle",
+                                 font_size=63.5),
+                StageTextElement(element_id="stage:composer",
+                                 content="Grieg",
+                                 page=1, x=1900.0, y=150.0, anchor="end",
+                                 font_size=35.0, color="#C0C0C0",
+                                 italic=True),
+            ),
+        ),
+        staff_groups=(StaffGroup(parts=(PartId("P1"), PartId("P2"),
+                                        PartId("P3")),
+                                 symbol="bracket", join_barlines=True),),
+        text_overrides={PartId("P2"): PartTextOverride(
+            name="Tenor Sax", abbreviation="T. Sx.")},
     )
 
 
@@ -96,7 +111,7 @@ def test_reveal_mode_round_trip_and_legacy_default() -> None:
 
 def test_v1_part_colors_fold_into_style_rules() -> None:
     """A Phase 4 project file (version 1, style.part_colors) loads with
-    its tints intact as part color rules; version 3 is refused."""
+    its tints intact as part color rules; version 4 is refused."""
     legacy = from_dict({"version": 1,
                         "style": {"part_colors": {"P1": "#cc2222",
                                                   "P4": "#1c4fd6"}}})
@@ -106,10 +121,50 @@ def test_v1_part_colors_fold_into_style_rules() -> None:
     }
     assert legacy.style.reveal_mode is RevealMode.STEPPED
     assert legacy.style.elements == {}
-    # new files declare version 2; a build from the future is refused
-    assert to_dict(ProjectDoc())["version"] == 2
+    # new files declare version 3; a build from the future is refused
+    assert to_dict(ProjectDoc())["version"] == 3
     with pytest.raises(ValueError, match="version"):
-        from_dict({"version": 3})
+        from_dict({"version": 4})
+
+
+def test_v2_file_loads_with_v3_defaults() -> None:
+    """A Phase 5/6 file (version 2 — no floor_opacity, mode,
+    staff_groups, or text_overrides keys) loads with the v3 defaults;
+    the strict gate stays strict for unknown mode values."""
+    v2 = {"version": 2,
+          "style": {"reveal_mode": "continuous",
+                    "parts": {"P1": {"color": "#cc2222"}}},
+          "stage": {"texts": []}}
+    doc = from_dict(v2)
+    assert doc.style.floor_opacity == 0.3
+    assert doc.style.reveal_mode is RevealMode.CONTINUOUS   # untouched
+    assert doc.stage.mode is PresentationMode.PAGED
+    assert doc.staff_groups == ()
+    assert doc.text_overrides == {}
+    with pytest.raises(ValueError, match="presentation mode"):
+        from_dict({"version": 3, "stage": {"mode": "scrolling"}})
+
+
+def test_v3_fields_round_trip() -> None:
+    """floor 0.0 (falsy!), SYSTEM mode, groups, and text overrides all
+    survive the dict round-trip; sparse override fields stay sparse."""
+    doc = _full_doc("/s.musicxml", "/a.wav")
+    payload = to_dict(doc)
+    assert payload["style"]["floor_opacity"] == 0.0
+    assert payload["stage"]["mode"] == "system"
+    assert payload["staff_groups"] == [
+        {"parts": ["P1", "P2", "P3"], "symbol": "bracket",
+         "join_barlines": True}]
+    assert payload["text_overrides"] == {
+        "P2": {"name": "Tenor Sax", "abbreviation": "T. Sx."}}
+    back = from_dict(payload)
+    assert back.style.floor_opacity == 0.0
+    assert back == doc
+    # None fields of an override are omitted on write, restored as None
+    sparse = ProjectDoc(text_overrides={
+        PartId("P1"): PartTextOverride(name="Flute")})
+    assert to_dict(sparse)["text_overrides"] == {"P1": {"name": "Flute"}}
+    assert from_dict(to_dict(sparse)) == sparse
 
 
 def test_version_guard() -> None:
@@ -148,4 +203,5 @@ def test_never_persists_derived_data() -> None:
     """The schema has no slot for layouts, timemaps, or peaks (rule 5)."""
     payload = to_dict(_full_doc("/s.musicxml", "/a.wav"))
     assert set(payload) == {"version", "score", "audio", "engraving",
-                            "layout_overrides", "timing", "style", "stage"}
+                            "layout_overrides", "timing", "style", "stage",
+                            "staff_groups", "text_overrides"}

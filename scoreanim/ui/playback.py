@@ -31,6 +31,7 @@ _STATS_EVERY_S = 5.0
 
 class PlaybackController(QObject):
     page_changed = Signal(int)
+    system_changed = Signal(int)             # Phase 7.4; window routes by mode
     status_message = Signal(str)
     time_changed = Signal(float, float)      # audio seconds, duration seconds
 
@@ -42,6 +43,7 @@ class PlaybackController(QObject):
         self._offset_seconds = 0.0
         self._follow = True
         self._last_page = 1
+        self._last_system = 1
 
         self._timer = QTimer(self)
         self._timer.setTimerType(Qt.TimerType.PreciseTimer)
@@ -108,16 +110,24 @@ class PlaybackController(QObject):
         t_audio = self.transport.clock.now_seconds()
         if self._applier is not None:
             self._applier.refresh(self._score_time(t_audio))
-            self._follow_page()
+            self._follow_position()
         self.time_changed.emit(t_audio, self.transport.duration_seconds())
 
-    def _follow_page(self) -> None:
+    def _follow_position(self) -> None:
+        """Emit page/system changes off the applier's cursor. The
+        controller stays document-agnostic: it reports both; the window
+        routes by the document's presentation mode."""
         assert self._applier is not None
         page = self._applier.current_page()
         if page != self._last_page:
             self._last_page = page
             if self._follow:
                 self.page_changed.emit(page)
+        system = self._applier.current_system()
+        if system != self._last_system:
+            self._last_system = system
+            if self._follow:
+                self.system_changed.emit(system)
 
     def _on_playing(self, playing: bool) -> None:
         if playing:
@@ -136,7 +146,7 @@ class PlaybackController(QObject):
         changed = 0
         if self._applier is not None:
             changed = self._applier.apply_at(self._score_time(t_audio))
-            self._follow_page()
+            self._follow_position()
         self.time_changed.emit(t_audio, self.transport.duration_seconds())
         self._tick_ms.append((time.perf_counter() - t0) * 1000.0)
         self._changed.append(changed)

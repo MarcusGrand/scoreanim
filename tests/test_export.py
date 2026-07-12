@@ -38,6 +38,9 @@ from scoreanim.core.timing import (TempoMap, parse_tempo_file,  # noqa: E402
 from scoreanim.render.encode import (EncodeError,  # noqa: E402
                                      PngSequenceSink, ProResFfmpegSink,
                                      find_ffmpeg)
+from scoreanim.core.engraving.systems import (centered_fit,  # noqa: E402
+                                              system_bands)
+from scoreanim.core.project.stage_config import PresentationMode  # noqa: E402
 from scoreanim.render.export import (AnimationInputs,  # noqa: E402
                                      ExportFormat, ExportSpec,
                                      FrameRenderer, even_size, frame_count,
@@ -318,6 +321,102 @@ def test_two_walks_are_byte_identical(qapp, inputs, schedule, tempo_map,
 
     for n in samples:
         assert digest(seeker.render_frame(n)) == walked[n], f"frame {n}"
+
+
+# -- system-mode export (Phase 7.5) ---------------------------------------------
+
+
+def make_system_renderer(inputs, tempo_map, offset, *, end, width, height,
+                         fps=FPS) -> FrameRenderer:
+    spec = ExportSpec(fps=fps, height=height, width=width,
+                      mode=PresentationMode.SYSTEM,
+                      start_seconds=0.0, end_seconds=end,
+                      offset_seconds=offset,
+                      format=ExportFormat.PNG_SEQUENCE,
+                      out_path=Path("unused"))
+    return FrameRenderer(inputs, StyleRules(), tempo_map, (), spec)
+
+
+def test_paged_export_untouched_by_system_machinery(
+        qapp, inputs, tempo_map, tempo_setup) -> None:
+    """A spec built without the new fields runs the Phase 6 path: no
+    band machinery constructed, size still page-aspect-locked. (The
+    byte-level pin is every pre-existing test in this file passing
+    unmodified, incl. test_two_walks_are_byte_identical.)"""
+    renderer = make_renderer(inputs, tempo_map,
+                             tempo_setup.offset_seconds, end=10.0)
+    assert renderer._band_by_system is None
+    geo = inputs.layout.pages[0]
+    assert renderer.size == even_size(geo.width, geo.height, HEIGHT)
+
+
+def test_system_renderer_requires_width_and_evens_the_canvas(
+        qapp, inputs, tempo_map, tempo_setup) -> None:
+    offset = tempo_setup.offset_seconds
+    with pytest.raises(ValueError, match="width"):
+        FrameRenderer(inputs, StyleRules(), tempo_map, (), ExportSpec(
+            fps=FPS, height=360, mode=PresentationMode.SYSTEM,
+            start_seconds=0.0, end_seconds=10.0, offset_seconds=offset,
+            format=ExportFormat.PNG_SEQUENCE, out_path=Path("unused")))
+    renderer = make_system_renderer(inputs, tempo_map, offset, end=10.0,
+                                    width=641, height=361)
+    assert renderer.size == (640, 360)               # independent even-floor
+
+
+def test_system_cut_frames_match_live_follow(qapp, inputs, schedule,
+                                             tempo_map,
+                                             tempo_setup) -> None:
+    """The system hard cut lands exactly where live follow flips: the
+    first frame with t_score >= the first trigger of each new system
+    (the page-turn pin generalized, ruling R2)."""
+    offset = tempo_setup.offset_seconds
+    seconds = _trigger_seconds(schedule, tempo_map)
+    end = _audio_end(schedule, tempo_map, offset)
+    renderer = make_system_renderer(inputs, tempo_map, offset, end=end,
+                                    width=640, height=360)
+    for target in (2, 3, 4, 5):
+        i = next(i for i, t in enumerate(schedule.triggers)
+                 if t.system == target)
+        expected = math.ceil((seconds[i] + offset) * FPS - 1e-6)
+        renderer.apply_frame(expected - 1)
+        assert renderer.current_system() == target - 1, target
+        renderer.apply_frame(expected)
+        assert renderer.current_system() == target, target
+
+
+@pytest.mark.parametrize("size", [(640, 360), (200, 640)])
+def test_system_frame_composites_band_centered(qapp, inputs, schedule,
+                                               tempo_map, tempo_setup,
+                                               size) -> None:
+    """The ruled canvas semantics, at a wide and a tall canvas: every
+    sampled pixel outside centered_fit's target is fully transparent
+    (crop + clip: no neighbour bleed, no letterbox ink), and the band
+    region contains ink."""
+    offset = tempo_setup.offset_seconds
+    seconds = _trigger_seconds(schedule, tempo_map)
+    end = _audio_end(schedule, tempo_map, offset)
+    w, h = size
+    renderer = make_system_renderer(inputs, tempo_map, offset, end=end,
+                                    width=w, height=h)
+    band = {b.system: b for b in system_bands(inputs.layout)}[1]
+    fit = centered_fit(band.rect.w, band.rect.h, *renderer.size)
+    # centered both axes by construction of the shared helper
+    assert fit.x == pytest.approx((renderer.size[0] - fit.w) / 2)
+    assert fit.y == pytest.approx((renderer.size[1] - fit.h) / 2)
+
+    onset = math.ceil((seconds[0] + offset) * FPS - 1e-6)
+    image = renderer.render_frame(onset)             # system 1, ink lit
+    ink = 0
+    for x in range(0, renderer.size[0], 4):
+        for y in range(0, renderer.size[1], 4):
+            alpha = image.pixelColor(x, y).alpha()
+            inside = (fit.x - 1 <= x <= fit.x2 + 1
+                      and fit.y - 1 <= y <= fit.y2 + 1)
+            if not inside:
+                assert alpha == 0, (x, y)
+            elif alpha > 0:
+                ink += 1
+    assert ink > 10                                  # the band drew content
 
 
 # -- encoder sinks -------------------------------------------------------------

@@ -56,6 +56,9 @@ class ScoreScenes:
         self.items: dict[ElementId, ElementItem] = {}
         self._path_cache: dict[str, QPainterPath] = {}
         self._ghost_opacity = ghost_opacity
+        # Spanner ghost children, tracked so the floor can change after
+        # construction (Phase 7.2: the floor is document intent).
+        self._ghost_items: list[QGraphicsPathItem] = []
         self.scenes: list[QGraphicsScene] = []
         # kept by reference so export can hide the paper for
         # transparent-background frames (Phase 6, ruling R1)
@@ -112,6 +115,14 @@ class ScoreScenes:
         for rect in self.page_rects:
             rect.setVisible(visible)
 
+    def set_ghost_opacity(self, value: float) -> None:
+        """Re-dim every spanner ghost to the document's floor opacity.
+        The clipped full-opacity reveal copies are untouched — at floor
+        0 a spanner still grows out of an invisible ghost."""
+        self._ghost_opacity = value
+        for child in self._ghost_items:
+            child.setOpacity(value)
+
     def set_part_color(self, part: PartId, color: QColor | None) -> None:
         """Tint a part's playing ink (None restores black). Scope is
         TINTED_KINDS (core/animation/style.py, ruling D 2026-07-12):
@@ -139,6 +150,7 @@ class ScoreScenes:
         child.setTransform(to_qtransform(prim.transform))
         if ghost:
             child.setOpacity(self._ghost_opacity)
+            self._ghost_items.append(child)
 
         fill_tracks = prim.fill is None
         if prim.fill is None:

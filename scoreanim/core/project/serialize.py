@@ -21,8 +21,11 @@ from scoreanim.core.animation.reveal import RevealMode
 from scoreanim.core.animation.style import ElementStyle, StyleRules
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.document import (FileRef, LayoutOverride,
-                                             ProjectDoc, TimingConfig)
-from scoreanim.core.project.stage_config import StageConfig, StageTextElement
+                                             PartTextOverride, ProjectDoc,
+                                             StaffGroup, TimingConfig)
+from scoreanim.core.project.stage_config import (PresentationMode,
+                                                 StageConfig,
+                                                 StageTextElement)
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.core.timing.swing import SwingRegion
 from scoreanim.core.timing.taps import Tap, TapSession
@@ -33,8 +36,12 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 # Phase 4 build REFUSES a v2 file instead of silently dropping styling
 # and destroying it on the next save. v1 files still load: part_colors
 # folds into part color rules below.
-PROJECT_VERSION = 2
-_READABLE_VERSIONS = (1, 2)
+# 3 (Phase 7.1): ONE bump carrying every planned v2 field — style
+# floor_opacity, stage mode, staff_groups (consumed Phase 8),
+# text_overrides (consumed Phase 9) — designed once, no per-phase
+# bumps. v1/v2 files load with defaults for every new field.
+PROJECT_VERSION = 3
+_READABLE_VERSIONS = (1, 2, 3)
 SUFFIX = ".scoreanim"
 
 
@@ -75,18 +82,31 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
         },
         "style": {
             "reveal_mode": doc.style.reveal_mode.name.lower(),
+            "floor_opacity": doc.style.floor_opacity,
             "parts": {str(p): _style_out(s)
                       for p, s in sorted(doc.style.parts.items())},
             "elements": {str(e): _style_out(s)
                          for e, s in sorted(doc.style.elements.items())},
         },
-        "stage": {"texts": [
-            {"element_id": t.element_id, "content": t.content,
-             "page": t.page, "x": t.x, "y": t.y, "anchor": t.anchor,
-             "font_size": t.font_size, "color": t.color,
-             "bold": t.bold, "italic": t.italic}
-            for t in doc.stage.texts
-        ]},
+        "stage": {
+            "mode": doc.stage.mode.name.lower(),
+            "texts": [
+                {"element_id": t.element_id, "content": t.content,
+                 "page": t.page, "x": t.x, "y": t.y, "anchor": t.anchor,
+                 "font_size": t.font_size, "color": t.color,
+                 "bold": t.bold, "italic": t.italic}
+                for t in doc.stage.texts
+            ],
+        },
+        "staff_groups": [
+            {"parts": [str(p) for p in g.parts], "symbol": g.symbol,
+             "join_barlines": g.join_barlines}
+            for g in doc.staff_groups
+        ],
+        "text_overrides": {
+            str(p): _text_override_out(o)
+            for p, o in sorted(doc.text_overrides.items())
+        },
     }
 
 
@@ -132,14 +152,31 @@ def from_dict(data: dict[str, Any],
                 ),
             ),
             style=_style_rules_in(data.get("style") or {}),
-            stage=StageConfig(texts=tuple(
-                StageTextElement(
-                    element_id=t["element_id"], content=t["content"],
-                    page=t["page"], x=t["x"], y=t["y"], anchor=t["anchor"],
-                    font_size=t["font_size"], color=t.get("color"),
-                    bold=t.get("bold", False), italic=t.get("italic", False))
-                for t in data.get("stage", {}).get("texts", [])
-            )),
+            stage=StageConfig(
+                mode=_presentation_mode_in(
+                    data.get("stage", {}).get("mode")),
+                texts=tuple(
+                    StageTextElement(
+                        element_id=t["element_id"], content=t["content"],
+                        page=t["page"], x=t["x"], y=t["y"],
+                        anchor=t["anchor"], font_size=t["font_size"],
+                        color=t.get("color"), bold=t.get("bold", False),
+                        italic=t.get("italic", False))
+                    for t in data.get("stage", {}).get("texts", [])
+                ),
+            ),
+            staff_groups=tuple(
+                StaffGroup(parts=tuple(PartId(p) for p in g["parts"]),
+                           symbol=g.get("symbol", "bracket"),
+                           join_barlines=g.get("join_barlines", True))
+                for g in data.get("staff_groups", [])
+            ),
+            text_overrides={
+                PartId(p): PartTextOverride(
+                    name=o.get("name"),
+                    abbreviation=o.get("abbreviation"))
+                for p, o in data.get("text_overrides", {}).items()
+            },
         )
     except (KeyError, TypeError) as exc:
         raise ValueError(f"malformed project data: {exc!r}") from exc
@@ -152,6 +189,24 @@ def _reveal_mode_in(value: Any) -> RevealMode:
         return RevealMode[str(value).upper()]
     except KeyError as exc:
         raise ValueError(f"unknown reveal mode {value!r}") from exc
+
+
+def _presentation_mode_in(value: Any) -> PresentationMode:
+    if value is None:                      # v1/v2 files: no "mode" key
+        return PresentationMode.PAGED
+    try:
+        return PresentationMode[str(value).upper()]
+    except KeyError as exc:
+        raise ValueError(f"unknown presentation mode {value!r}") from exc
+
+
+def _text_override_out(override: PartTextOverride) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if override.name is not None:
+        out["name"] = override.name
+    if override.abbreviation is not None:
+        out["abbreviation"] = override.abbreviation
+    return out
 
 
 def _style_out(style: ElementStyle) -> dict[str, Any]:
@@ -176,6 +231,8 @@ def _style_rules_in(style: dict[str, Any]) -> StyleRules:
         parts.setdefault(PartId(p), ElementStyle(color=c))
     return StyleRules(
         reveal_mode=_reveal_mode_in(style.get("reveal_mode")),
+        # .get, never `or`: a saved floor of 0.0 is falsy and must load
+        floor_opacity=style.get("floor_opacity", 0.3),
         parts=parts,
         elements={ElementId(e): _style_in(s)
                   for e, s in style.get("elements", {}).items()},

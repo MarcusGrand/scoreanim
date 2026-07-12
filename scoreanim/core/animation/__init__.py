@@ -2,7 +2,8 @@ from scoreanim.core.animation.effect import (OPACITY, SCALE, Easing, Effect,
                                              Envelope, Keyframe, PropertyId,
                                              appear)
 from scoreanim.core.animation.presets import (DEFAULT_EFFECT, FLOOR_OPACITY,
-                                              PRESETS, effect_for)
+                                              PRESETS, build_presets,
+                                              effect_for)
 from scoreanim.core.animation.reveal import (ANCHOR_KINDS, REVEALED_KINDS,
                                              RevealCurve, RevealMode,
                                              SystemRevealTrack,
@@ -22,7 +23,8 @@ __all__ = [
     "PRESETS", "PropertyId", "REVEALED_KINDS", "RevealCurve", "RevealMode",
     "SCALE", "StyleRules", "SystemRevealTrack", "TINTED_KINDS", "Trigger",
     "TriggerSchedule",
-    "appear", "build_reveal_tracks", "build_trigger_schedule",
+    "appear", "build_presets", "build_reveal_tracks",
+    "build_trigger_schedule",
     "effect_for", "element_state", "is_animated", "is_revealed",
     "quantize_beats", "reveal_x", "takes_part_color",
 ]

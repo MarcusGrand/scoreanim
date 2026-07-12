@@ -57,6 +57,11 @@ class ElementStyle:
 @dataclass(frozen=True)
 class StyleRules:
     reveal_mode: RevealMode = RevealMode.STEPPED
+    # Ghost-score floor: opacity of animated ink before its trigger
+    # (0 allowed — unrevealed ink invisible on the static scaffold,
+    # which never dims). Document intent from schema v3 (Phase 7.2);
+    # presets are built from it (presets.build_presets).
+    floor_opacity: float = 0.3
     parts: Mapping[PartId, ElementStyle] = field(default_factory=dict)
     elements: Mapping[ElementId, ElementStyle] = field(default_factory=dict)
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import (QAction, QActionGroup, QColor, QIcon,
                            QKeySequence, QPixmap)
 from PySide6.QtWidgets import (QColorDialog, QDoubleSpinBox, QFileDialog,
@@ -25,12 +25,16 @@ from scoreanim.core.animation import (DEFAULT_EFFECT, FLOOR_OPACITY, PRESETS,
                                       RevealMode, build_reveal_tracks,
                                       build_trigger_schedule,
                                       takes_part_color)
+from scoreanim.core.engraving.systems import system_bands
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
 from scoreanim.core.project import (DEFAULT_BPM, SUFFIX, ApplyTaps, FileRef,
-                                    ImportTempoSetup, ProjectDoc,
-                                    SetGlobalSwing, SetOffset, SetPartColor,
-                                    SetPartEffect, SetRevealMode,
+                                    ImportTempoSetup, PresentationMode,
+                                    ProjectDoc,
+                                    SetFloorOpacity, SetGlobalSwing,
+                                    SetOffset, SetPartColor,
+                                    SetPartEffect, SetPresentationMode,
+                                    SetRevealMode,
                                     StageConfig, check_ref,
                                     default_stage_config, load_project,
                                     page_content_top, sha256_of)
@@ -71,14 +75,19 @@ class MainWindow(QMainWindow):
 
         self._scenes: ScoreScenes | None = None
         self._animation_inputs: AnimationInputs | None = None
+        self._applier: AnimationApplier | None = None
         self._export_settings: dict | None = None    # session memory (R3)
         self._page = 1
         self._page_label = QLabel("–/–")
+        self._system = 1
+        self._band_by_system: dict = {}              # derived, never saved
+        self._applied_mode = PresentationMode.PAGED  # what the view shows
         self._score_name: str | None = None
         self._project_path: Path | None = None
         self._tempo_path: Path | None = None
         self._applied_colors: dict[PartId, str | None] = {}
         self._applied_overrides: dict = {}     # ElementId → applied color
+        self._applied_floor = FLOOR_OPACITY    # ghost opacity on the scenes
         self._part_color_actions: dict[PartId, dict] = {}
         self._part_effect_actions: dict[PartId, dict] = {}
 
@@ -111,7 +120,10 @@ class MainWindow(QMainWindow):
             lambda: self.app_state.set_peaks(self.peaks.cache))
         self.peaks.failed.connect(self._on_peaks_failed)
 
-        self.playback.page_changed.connect(self.show_page)
+        # follow reports page AND system; the window routes by the
+        # document's presentation mode (Phase 7.4)
+        self.playback.page_changed.connect(self._on_page_followed)
+        self.playback.system_changed.connect(self._on_system_followed)
         self.playback.status_message.connect(
             lambda msg: self.statusBar().showMessage(msg))
         self.playback.time_changed.connect(self._on_time)
@@ -157,12 +169,14 @@ class MainWindow(QMainWindow):
         self._export_action.setEnabled(False)        # needs a loaded score
         self._export_action.triggered.connect(self._open_export_dialog)
 
+        # prev/next step the presentation unit: pages in paged mode,
+        # systems in system mode
         self._prev = QAction("◀", self)
         self._prev.setShortcut(QKeySequence.StandardKey.MoveToPreviousPage)
-        self._prev.triggered.connect(lambda: self.show_page(self._page - 1))
+        self._prev.triggered.connect(lambda: self._step(-1))
         self._next = QAction("▶", self)
         self._next.setShortcut(QKeySequence.StandardKey.MoveToNextPage)
-        self._next.triggered.connect(lambda: self.show_page(self._page + 1))
+        self._next.triggered.connect(lambda: self._step(+1))
 
         fit = QAction("Fit", self)
         fit.setShortcut("Ctrl+0")
@@ -230,6 +244,17 @@ class MainWindow(QMainWindow):
         self._follow.setChecked(True)
         self._follow.toggled.connect(self.playback.set_follow)
 
+        # PresentationMode toggle (Phase 7.4): checked = one system at a
+        # time. Document intent → command, like Sweep.
+        self._systems_mode = QAction("Systems", self)
+        self._systems_mode.setCheckable(True)
+        self._systems_mode.setToolTip("Stage one system at a time; "
+                                      "unchecked shows whole pages")
+        self._systems_mode.toggled.connect(
+            lambda checked: self.app_state.execute(SetPresentationMode(
+                PresentationMode.SYSTEM if checked
+                else PresentationMode.PAGED)))
+
         # RevealMode toggle: checked = CONTINUOUS sweep, unchecked =
         # STEPPED (jumps at musical onsets). Document intent → command.
         self._sweep = QAction("Sweep", self)
@@ -277,6 +302,16 @@ class MainWindow(QMainWindow):
         self._swing_spin.setKeyboardTracking(False)
         self._swing_spin.editingFinished.connect(self._commit_swing)
 
+        # ghost floor (Phase 7.2): document intent, 0 allowed — scaffold
+        # stays visible, unrevealed animated ink goes fully invisible
+        self._floor_spin = QDoubleSpinBox()
+        self._floor_spin.setPrefix("floor ")
+        self._floor_spin.setDecimals(2)
+        self._floor_spin.setSingleStep(0.05)
+        self._floor_spin.setRange(0.0, 1.0)
+        self._floor_spin.setKeyboardTracking(False)
+        self._floor_spin.editingFinished.connect(self._commit_floor)
+
         bar.addAction(open_audio)
         bar.addAction(open_tempo)
         bar.addAction(reload_tempo)
@@ -286,9 +321,11 @@ class MainWindow(QMainWindow):
         bar.addWidget(self._time_label)
         bar.addWidget(self._offset_spin)
         bar.addWidget(self._swing_spin)
+        bar.addWidget(self._floor_spin)
         bar.addAction(self._sweep)
         bar.addAction(self._arm_taps)
         bar.addAction(self._follow)
+        bar.addAction(self._systems_mode)
         # window-level so shortcuts fire regardless of focus
         self.addAction(self._play)
         self.addAction(reload_tempo)
@@ -426,6 +463,14 @@ class MainWindow(QMainWindow):
         self._swing_spin.blockSignals(True)
         self._swing_spin.setValue(self._global_swing_ratio(doc))
         self._swing_spin.blockSignals(False)
+        self._floor_spin.blockSignals(True)
+        self._floor_spin.setValue(doc.style.floor_opacity)
+        self._floor_spin.blockSignals(False)
+        self._systems_mode.blockSignals(True)
+        self._systems_mode.setChecked(doc.stage.mode
+                                      is PresentationMode.SYSTEM)
+        self._systems_mode.blockSignals(False)
+        self._sync_presentation_mode(doc.stage.mode)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
         self._undo.setEnabled(self.app_state.can_undo)
@@ -437,9 +482,15 @@ class MainWindow(QMainWindow):
     def _sync_styles(self, doc: ProjectDoc) -> None:
         """Diff the document's StyleRules onto the scene: part tints,
         then per-element color overrides on top (a part re-tint touches
-        every item of the part, so overrides re-apply after it)."""
+        every item of the part, so overrides re-apply after it). The
+        ghost floor rides along: the trigger-animated side updates via
+        playback.set_style → applier re-resolve; the static spanner
+        ghosts need this push."""
         if self._scenes is None:
             return
+        if self._applied_floor != doc.style.floor_opacity:
+            self._scenes.set_ghost_opacity(doc.style.floor_opacity)
+            self._applied_floor = doc.style.floor_opacity
         parts_retinted = set()
         for pid in self._part_color_actions:
             rule = doc.style.parts.get(pid)
@@ -603,6 +654,12 @@ class MainWindow(QMainWindow):
         end_beat = measures[-1].start + measures[-1].quarter_length
         self.app_state.execute(SetGlobalSwing(value, end_beat))
 
+    def _commit_floor(self) -> None:
+        value = self._floor_spin.value()
+        if abs(value - self.app_state.doc.style.floor_opacity) < 1e-9:
+            return
+        self.app_state.execute(SetFloorOpacity(value))
+
     # -- score / project --------------------------------------------------------
 
     def open_score(self, path: Path) -> None:
@@ -617,7 +674,7 @@ class MainWindow(QMainWindow):
         self._score_name = path.name
         self._tempo_path = None
         self.app_state.reset_document(doc)   # → _on_document_changed
-        self.show_page(1)
+        self._show_current()
         self.view.fit()
 
         sidecar = path.with_suffix(".tempo")
@@ -652,7 +709,7 @@ class MainWindow(QMainWindow):
         self._score_name = path.name
         self._tempo_path = None
         self.app_state.reset_document(doc)
-        self.show_page(1)
+        self._show_current()
         self.view.fit()
 
         if doc.audio is not None:
@@ -677,8 +734,13 @@ class MainWindow(QMainWindow):
         if stage is None:
             stage = default_stage_config(engraved.prepared,
                                          page_content_top(engraved.layout))
+        # Constructed at the default; reset_document fires
+        # _on_document_changed right after load, and _sync_styles
+        # corrects the ghosts to a project-saved floor (same pattern as
+        # the applier, built with the pre-reset style then set_style'd).
         self._scenes = ScoreScenes(engraved.layout, stage,
                                    ghost_opacity=FLOOR_OPACITY)
+        self._applied_floor = FLOOR_OPACITY
         t2 = time.perf_counter()
 
         model = build_score_model(engraved.prepared)
@@ -701,7 +763,14 @@ class MainWindow(QMainWindow):
         applier = AnimationApplier(self._scenes.items, schedule,
                                    TempoMap([TempoEvent(0.0, DEFAULT_BPM)]),
                                    self.app_state.doc.style, reveal_tracks)
+        self._applier = applier
         self.playback.set_animation(applier, model.measures)
+        # per-system band rects for system-at-a-time framing (Phase 7.4)
+        # — derived from the Layout, never persisted (rule 5)
+        self._band_by_system = {b.system: b
+                                for b in system_bands(engraved.layout)}
+        self._page = 1
+        self._system = 1
         self.app_state.set_measures(model.measures)
         t3 = time.perf_counter()
 
@@ -731,9 +800,12 @@ class MainWindow(QMainWindow):
         dialog = ExportDialog(self._animation_inputs, doc.style, tempo_map,
                               swing, self.app_state.measures, offset,
                               duration, self._score_name or "score",
-                              settings=self._export_settings, parent=self)
+                              mode=doc.stage.mode,   # live doc, not the
+                              settings=self._export_settings,  # snapshot
+                              parent=self)
         dialog.exec()
-        self._export_settings = dialog.remembered()
+        self._export_settings = {**(self._export_settings or {}),
+                                 **dialog.remembered()}
 
     # -- save / load --------------------------------------------------------------
 
@@ -782,3 +854,59 @@ class MainWindow(QMainWindow):
         self._page_label.setText(f" {self._page}/{self._scenes.page_count} ")
         self._prev.setEnabled(self._page > 1)
         self._next.setEnabled(self._page < self._scenes.page_count)
+
+    def show_system(self, system: int) -> None:
+        """Frame one system's band (Phase 7.4): the band's page scene,
+        centered, masked — the page flip is implied by the band's page."""
+        if self._scenes is None or not self._band_by_system:
+            return
+        self._system = max(1, min(system, len(self._band_by_system)))
+        band = self._band_by_system[self._system]
+        self._page = band.page                   # keep page state coherent
+        rect = band.rect
+        self.view.show_system_band(
+            self._scenes.scene_for_page(band.page),
+            QRectF(rect.x, rect.y, rect.w, rect.h))
+        self._page_label.setText(
+            f" sys {self._system}/{len(self._band_by_system)} ")
+        self._prev.setEnabled(self._system > 1)
+        self._next.setEnabled(self._system < len(self._band_by_system))
+
+    def _step(self, delta: int) -> None:
+        """Prev/next in the current presentation unit."""
+        if self._applied_mode is PresentationMode.SYSTEM:
+            self.show_system(self._system + delta)
+        else:
+            self.show_page(self._page + delta)
+
+    def _show_current(self) -> None:
+        """(Re-)show the current position in the current mode — the
+        mode-aware version of the old show_page(1) after a load."""
+        if self._applied_mode is PresentationMode.SYSTEM:
+            self.show_system(self._system)
+        else:
+            self.show_page(self._page)
+
+    def _on_page_followed(self, page: int) -> None:
+        if self._applied_mode is PresentationMode.PAGED:
+            self.show_page(page)
+
+    def _on_system_followed(self, system: int) -> None:
+        if self._applied_mode is PresentationMode.SYSTEM:
+            self.show_system(system)
+
+    def _sync_presentation_mode(self, mode: PresentationMode) -> None:
+        """Diff the document's mode onto the view (called on every
+        document change — commands, undo, project load)."""
+        if mode is self._applied_mode:
+            return
+        self._applied_mode = mode
+        if self._scenes is None:
+            return
+        if mode is PresentationMode.SYSTEM:
+            self.show_system(self._applier.current_system()
+                             if self._applier is not None else 1)
+        else:
+            self.view.clear_band()
+            self.show_page(self._applier.current_page()
+                           if self._applier is not None else self._page)

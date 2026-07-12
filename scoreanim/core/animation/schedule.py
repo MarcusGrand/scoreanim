@@ -97,6 +97,9 @@ class Trigger:
     beats: Beats
     page: int                            # page of this beat's FRESH onsets
     element_ids: tuple[ElementId, ...]
+    system: int = 1                      # system, same fresh rule as page
+                                         # (defaulted last: Phase 7.3 field,
+                                         # synthetic construction survives)
 
 
 @dataclass(frozen=True)
@@ -229,15 +232,21 @@ def build_trigger_schedule(layout: Layout,
             trigger = group_trigger.get(key, own)
         beats_by_element[eid] = trigger
         bucket = by_qbeat.setdefault(quantize_beats(trigger), {
-            "beats": trigger, "ids": [], "fresh_pages": set(), "pages": set()})
+            "beats": trigger, "ids": [], "fresh_pages": set(), "pages": set(),
+            "fresh_systems": set(), "systems": set()})
         bucket["ids"].append(eid)
         bucket["pages"].add(el.page)
+        if el.system is not None:
+            bucket["systems"].add(el.system)
         if quantize_beats(trigger) == quantize_beats(own):
             bucket["fresh_pages"].add(el.page)
+            if el.system is not None:
+                bucket["fresh_systems"].add(el.system)
 
     triggers = tuple(
         Trigger(beats=b["beats"],
                 page=min(b["fresh_pages"] or b["pages"]),
+                system=min(b["fresh_systems"] or b["systems"] or {1}),
                 element_ids=tuple(b["ids"]))
         for _, b in sorted(by_qbeat.items()))
     return TriggerSchedule(

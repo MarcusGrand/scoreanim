@@ -85,6 +85,34 @@ def test_spanners_have_ghost_and_reveal_layers(qapp,
         assert item.opacity() == pytest.approx(1.0)
 
 
+def test_set_ghost_opacity_redims_ghosts_only(qapp, engraved_spanners,
+                                              spanner_setup) -> None:
+    """Phase 7.2: the ghost floor is settable after construction. At 0
+    the ghosts are invisible but the clip-reveal copies still work —
+    a spanner grows out of nothing."""
+    scenes, applier, score_end = _make(qapp, engraved_spanners,
+                                       spanner_setup)
+    scenes.set_ghost_opacity(0.0)
+    spanner_items = [item for item in scenes.items.values()
+                     if item.reveal_children]
+    assert spanner_items
+    for item in spanner_items:
+        ghosts = [c for c in item.childItems()
+                  if c not in item.reveal_children]
+        assert all(g.opacity() == pytest.approx(0.0) for g in ghosts)
+        # the reveal copies are untouched (clip does the revealing)
+        assert all(c.opacity() == pytest.approx(1.0)
+                   for c in item.reveal_children)
+    applier.refresh(score_end + 1.0)             # reveal still functions
+    for item in spanner_items:
+        assert all(c.clip_right is None for c in item.reveal_children)
+    scenes.set_ghost_opacity(0.6)                # and back up
+    for item in spanner_items:
+        ghosts = [c for c in item.childItems()
+                  if c not in item.reveal_children]
+        assert all(g.opacity() == pytest.approx(0.6) for g in ghosts)
+
+
 def test_preroll_hidden_past_end_revealed(qapp, engraved_spanners,
                                           spanner_setup) -> None:
     scenes, applier, score_end = _make(qapp, engraved_spanners,

@@ -19,7 +19,7 @@ from typing import Mapping
 from scoreanim.core.animation.style import StyleRules
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.stage_config import StageConfig
-from scoreanim.core.score.identity import Beats, ElementId
+from scoreanim.core.score.identity import Beats, ElementId, PartId
 from scoreanim.core.timing.swing import SwingRegion
 from scoreanim.core.timing.taps import TapSession
 from scoreanim.core.timing.tempo_map import TempoEvent
@@ -56,6 +56,26 @@ class TimingConfig:
 # files migrate at load (serialize.py).
 
 @dataclass(frozen=True)
+class StaffGroup:
+    """One bracket/brace group (schema v3 slot; consumed from Phase 8).
+    Intent only: the document stores WHICH contiguous parts group and
+    how; bracket geometry is re-derived by injecting <part-group>
+    elements at the prep seam and re-engraving (rule 5)."""
+    parts: tuple[PartId, ...]        # contiguous, in score order
+    symbol: str = "bracket"          # MusicXML group-symbol vocabulary
+    join_barlines: bool = True
+
+
+@dataclass(frozen=True)
+class PartTextOverride:
+    """Part-label edits (schema v3 slot; consumed from Phase 9). Applied
+    to the part-list at the prep seam → re-engrave; None fields keep
+    the score's own text."""
+    name: str | None = None
+    abbreviation: str | None = None
+
+
+@dataclass(frozen=True)
 class ProjectDoc:
     score: FileRef | None = None
     audio: FileRef | None = None
@@ -65,7 +85,10 @@ class ProjectDoc:
     timing: TimingConfig = field(default_factory=TimingConfig)
     style: StyleRules = field(default_factory=StyleRules)
     stage: StageConfig = field(default_factory=StageConfig)
+    staff_groups: tuple[StaffGroup, ...] = ()
+    text_overrides: Mapping[PartId, PartTextOverride] = \
+        field(default_factory=dict)
 
 
-__all__ = ["DEFAULT_BPM", "FileRef", "LayoutOverride", "ProjectDoc",
-           "StyleRules", "TimingConfig", "Beats"]
+__all__ = ["DEFAULT_BPM", "FileRef", "LayoutOverride", "PartTextOverride",
+           "ProjectDoc", "StaffGroup", "StyleRules", "TimingConfig", "Beats"]

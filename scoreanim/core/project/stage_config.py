@@ -11,6 +11,7 @@ first editing command (rule 8) arrives with the styling UI, not in Phase 2.
 
 from __future__ import annotations
 
+import enum
 from dataclasses import dataclass
 
 from scoreanim.core.engraving.types import Layout
@@ -54,9 +55,18 @@ class StageTextElement:
     italic: bool = False
 
 
+class PresentationMode(enum.Enum):
+    """What the stage frames: whole pages (v1 behavior, default) or one
+    system band at a time (Phase 7.4). Presentation intent only — the
+    Layout is identical in both modes (no re-engrave, rule 7)."""
+    PAGED = enum.auto()
+    SYSTEM = enum.auto()
+
+
 @dataclass(frozen=True)
 class StageConfig:
     texts: tuple[StageTextElement, ...] = ()
+    mode: PresentationMode = PresentationMode.PAGED
 
 
 def page_content_top(layout: Layout, page: int = 1) -> float:

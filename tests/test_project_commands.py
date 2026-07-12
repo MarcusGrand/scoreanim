@@ -254,6 +254,47 @@ def test_set_reveal_mode(doc) -> None:
         SetRevealMode("continuous").apply(doc)   # type: ignore[arg-type]
 
 
+def test_set_floor_opacity(doc) -> None:
+    from scoreanim.core.project import SetFloorOpacity
+
+    assert doc.style.floor_opacity == 0.3
+    out = SetFloorOpacity(0.0).apply(doc)        # 0 is a value, not an error
+    assert out.style.floor_opacity == 0.0
+    assert doc.style.floor_opacity == 0.3        # source doc untouched
+    assert SetFloorOpacity(1.0).apply(doc).style.floor_opacity == 1.0
+    assert out.style.parts == doc.style.parts
+    for bad in (-0.01, 1.01, float("nan"), float("inf")):
+        with pytest.raises(CommandError):
+            SetFloorOpacity(bad).apply(doc)
+
+
+def test_set_presentation_mode(doc) -> None:
+    from scoreanim.core.project import PresentationMode, SetPresentationMode
+
+    assert doc.stage.mode is PresentationMode.PAGED
+    out = SetPresentationMode(PresentationMode.SYSTEM).apply(doc)
+    assert out.stage.mode is PresentationMode.SYSTEM
+    assert out.stage.texts == doc.stage.texts    # texts untouched
+    assert doc.stage.mode is PresentationMode.PAGED
+    with pytest.raises(CommandError):
+        SetPresentationMode("system").apply(doc)  # type: ignore[arg-type]
+    stack = UndoStack()
+    d1 = stack.execute(SetPresentationMode(PresentationMode.SYSTEM), doc)
+    assert stack.undo() == doc
+    assert stack.redo() == d1
+
+
+def test_floor_opacity_undo_round_trip(doc) -> None:
+    from scoreanim.core.project import SetFloorOpacity
+
+    stack = UndoStack()
+    d1 = stack.execute(SetFloorOpacity(0.0), doc)
+    assert d1.style.floor_opacity == 0.0
+    assert stack.undo() == doc
+    assert stack.redo() == d1
+    assert stack.undo_text() == "set floor opacity"
+
+
 # -- undo stack ---------------------------------------------------------------
 
 def test_stack_execute_undo_redo(doc) -> None:

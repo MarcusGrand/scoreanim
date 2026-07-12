@@ -31,10 +31,11 @@ from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from typing import Callable, Mapping, Sequence
 
-from scoreanim.core.animation import (OPACITY, REVEALED_KINDS, SCALE, Effect,
-                                      RevealCurve, StyleRules,
+from scoreanim.core.animation import (OPACITY, PRESETS, REVEALED_KINDS,
+                                      SCALE, Effect, RevealCurve, StyleRules,
                                       SystemRevealTrack, TriggerSchedule,
-                                      effect_for, element_state, reveal_x)
+                                      build_presets, effect_for,
+                                      element_state, reveal_x)
 from scoreanim.core.score.identity import ElementId, ElementKind
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
 from scoreanim.render.items import ElementItem
@@ -79,6 +80,7 @@ class AnimationApplier:
             tuple(items[eid] for eid in trig.element_ids if eid in items)
             for trig in schedule.triggers)
         self._pages = tuple(trig.page for trig in schedule.triggers)
+        self._systems = tuple(trig.system for trig in schedule.triggers)
         self._trigger_seconds: list[float] = []
         self._cursor = 0
         self._t = _BEFORE_EVERYTHING
@@ -135,8 +137,14 @@ class AnimationApplier:
 
     def _resolve_effects(self) -> None:
         rules = self._style
+        # Built-in presets are rebuilt at the document's floor (Phase
+        # 7.2): a floor change is a StyleRules change, so it arrives
+        # through set_style's re-resolve + refresh like any styling
+        # edit. Overlaying onto PRESETS keeps entries registered beyond
+        # the built-ins resolvable (their own envelopes untouched).
+        presets = {**PRESETS, **build_presets(rules.floor_opacity)}
         self._effects_per_trigger: tuple[tuple[Effect, ...], ...] = tuple(
-            tuple(effect_for(rules.resolve(item.identity).effect)
+            tuple(effect_for(rules.resolve(item.identity).effect, presets)
                   for item in items)
             for items in self._items_per_trigger)
         self._durations = tuple(
@@ -175,6 +183,12 @@ class AnimationApplier:
     def current_page(self) -> int:
         """Page of the last crossed trigger (1 before anything fires)."""
         return self._pages[self._cursor - 1] if self._cursor else 1
+
+    def current_system(self) -> int:
+        """System of the last crossed trigger (1 before anything fires)
+        — the current_page() idiom on the same bisect cursor, consumed
+        identically by live follow and export (Phase 7)."""
+        return self._systems[self._cursor - 1] if self._cursor else 1
 
     # -- internals -----------------------------------------------------------
 

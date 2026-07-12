@@ -28,10 +28,11 @@ from typing import Sequence
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
 
-from scoreanim.core.animation import (FLOOR_OPACITY, StyleRules,
-                                      SystemRevealTrack, TriggerSchedule)
+from scoreanim.core.animation import (StyleRules, SystemRevealTrack,
+                                      TriggerSchedule)
+from scoreanim.core.engraving.systems import centered_fit, system_bands
 from scoreanim.core.engraving.types import Layout
-from scoreanim.core.project.stage_config import StageConfig
+from scoreanim.core.project.stage_config import PresentationMode, StageConfig
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.timing import (FrameClock, SwingRegion, TempoMap,
                                    resolve_seconds)
@@ -61,14 +62,23 @@ class ExportSpec:
     """User intent for one export run. Times are AUDIO seconds: the
     exported video's t=0 is the recording's t=start (start=0 default →
     video 0 == recording 0), and the sidecar offset is applied inside
-    the frame walk, never by the compositing user."""
+    the frame walk, never by the compositing user.
+
+    Phase 7.5, system mode: the canvas is user-chosen (width + height,
+    default 1920×1080 in the dialog, session memory only — ruling R3);
+    the current system's band is cropped from its page and composited
+    CENTERED both axes, scaled to fit preserving the band's aspect.
+    Paged mode keeps the Phase 6 semantics untouched: height only,
+    width derived from the page aspect."""
     fps: int
-    height: int                  # target pixel height; width from aspect
+    height: int                  # pixel height (paged: width from aspect)
     start_seconds: float
     end_seconds: float           # exclusive: frames sample [start, end)
     offset_seconds: float        # audio time of score beat 0 (sidecar)
     format: ExportFormat
     out_path: Path
+    mode: PresentationMode = PresentationMode.PAGED
+    width: int | None = None     # canvas width; required in system mode
 
 
 def even_size(page_w: float, page_h: float,
@@ -127,17 +137,30 @@ class FrameRenderer:
         self._clock = FrameClock(spec.fps)
         self._frames = frame_count(spec.start_seconds, spec.end_seconds,
                                    spec.fps)
+        # Floor comes from the document (Phase 7.2): the same StyleRules
+        # value the live path reads — no fork.
         self._scenes = ScoreScenes(inputs.layout, inputs.stage,
-                                   ghost_opacity=FLOOR_OPACITY)
+                                   ghost_opacity=style.floor_opacity)
         self._scenes.set_page_background_visible(False)
         apply_style_colors(self._scenes, style)
         self._applier = AnimationApplier(self._scenes.items, inputs.schedule,
                                          tempo_map, style,
                                          inputs.reveal_tracks)
         self._applier.set_timing(tempo_map, swing)
-        geo = inputs.layout.pages[0]
-        self._width, self._height = even_size(geo.width, geo.height,
-                                              spec.height)
+        if spec.mode is PresentationMode.SYSTEM:
+            if spec.width is None:
+                raise ValueError("system-mode export needs a canvas width")
+            # free-form canvas (ruled): both dimensions user-chosen,
+            # independently floored to even for the encoder
+            self._width = max(int(spec.width) & ~1, 2)
+            self._height = max(int(spec.height) & ~1, 2)
+            self._band_by_system = {b.system: b
+                                    for b in system_bands(inputs.layout)}
+        else:
+            geo = inputs.layout.pages[0]
+            self._width, self._height = even_size(geo.width, geo.height,
+                                                  spec.height)
+            self._band_by_system = None
         self._last_frame: int | None = None
 
     @property
@@ -154,6 +177,9 @@ class FrameRenderer:
 
     def current_page(self) -> int:
         return self._applier.current_page()
+
+    def current_system(self) -> int:
+        return self._applier.current_system()
 
     def state_time(self, n: int) -> float:
         """Score time sampled by frame n — the playback.py _score_time
@@ -175,6 +201,8 @@ class FrameRenderer:
 
     def render_frame(self, n: int) -> QImage:
         self.apply_frame(n)
+        if self._band_by_system is not None:
+            return self._render_system_frame()
         scene = self._scenes.scene_for_page(self._applier.current_page())
         image = QImage(self._width, self._height,
                        QImage.Format.Format_ARGB32_Premultiplied)
@@ -184,6 +212,32 @@ class FrameRenderer:
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         scene.render(painter, QRectF(0, 0, self._width, self._height),
                      scene.sceneRect(),
+                     Qt.AspectRatioMode.KeepAspectRatio)
+        painter.end()
+        return image
+
+    def _render_system_frame(self) -> QImage:
+        """One system's band, cropped from its page scene and composited
+        centered on the transparent canvas (Phase 7.5 ruling). The cut
+        lands on the frame current_system() changes — the same applier
+        walk as live follow (ruling R2). The explicit clip is the bleed
+        guarantee: nothing outside the band's target can paint, however
+        Qt clips the source internally."""
+        band = self._band_by_system[self._applier.current_system()]
+        scene = self._scenes.scene_for_page(band.page)
+        fit = centered_fit(band.rect.w, band.rect.h,
+                           self._width, self._height)
+        target = QRectF(fit.x, fit.y, fit.w, fit.h)
+        image = QImage(self._width, self._height,
+                       QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        painter.setClipRect(target)
+        scene.render(painter, target,
+                     QRectF(band.rect.x, band.rect.y,
+                            band.rect.w, band.rect.h),
                      Qt.AspectRatioMode.KeepAspectRatio)
         painter.end()
         return image
