@@ -318,16 +318,77 @@ build refuses v2 rather than silently dropping styling).
 growing slurs plays in sync; adding "pop" required only a preset.
 **PASSED 2026-07-12.**
 
-## Phase 6 — Export
+## Phase 6 — Export — ✅ COMPLETE 2026-07-12
 
-- [ ] **6.1 FrameClock + offscreen render**: walk t = n/fps, render stage
-      to transparent-background frames.
-- [ ] **6.2 Encoder**: pipe frames to ffmpeg (alpha-capable format, e.g.
-      ProRes 4444 or PNG sequence); mux nothing — video overlay happens in
-      the user's editor. Verify: exported overlay lines up with the
-      recording in a video editor, start to finish, no drift.
+Built and closed in one day (285 headless tests green); **exit criteria
+PASSED 2026-07-12** (user's composite check in his video editor: "ink
+lands on the audible onsets, no growing error, page cuts match live
+follow" — ghost legibility over footage accepted as-is). Rulings at
+plan review (2026-07-12): **R1** export is always transparent-background,
+the floor-opacity ghost ink exports as-is (no "opaque paper" option —
+judged fine in the composite); **R2** page turns mirror live follow
+mode exactly — hard cut on the frame where `current_page()` changes;
+**R3** export settings are session memory only, nothing enters the
+project document (no schema change). Format ruling: ProRes 4444 .mov is
+the default (one file, 10-bit, straight alpha, every NLE), PNG sequence
+the no-ffmpeg fallback.
 
-**Exit criteria**: end-to-end — Dorico score in, synced overlay video out.
+Post-composite polish (same day, ruled at close): dialog shows WIDTH
+locked to height (🔗, aspect is the page's own); the export range is
+entered in MEASURES (`measure_span_seconds` converts through the same
+swing-aware resolve_seconds seam as triggers — a pure input conversion,
+frame math untouched, onset-frame test still green); the dialog closes
+itself on success (cancel/failure behavior unchanged).
+
+The sync contract, pinned by test: exported video t=0 == recording t=0;
+frame n samples t_audio = start + n/fps (frame start), t_score =
+t_audio − offset — the exact mirror of the live tick's `_score_time`
+(ui/playback.py). Frame count = ceil((end−start)·fps − ε), so the
+overlay always covers the full audio span. The export walk uses the
+SAME applier methods as live playback (apply_at for n+1, refresh
+otherwise — the tick/seek split) over a private ScoreScenes+applier
+built from retained `AnimationInputs`; `render/animate.py`,
+`ui/playback.py`, and all of `core/animation/` are untouched.
+
+- [x] **6.1 FrameClock + offscreen render**: `FrameClock` (core/timing/
+      clock.py, t = n/fps, pure division); `FrameRenderer`
+      (render/export.py) renders the current page to transparent
+      `QImage`s (ARGB32_Premultiplied, paper rect hidden via the new
+      `ScoreScenes.page_rects`), page aspect preserved at a user height,
+      dimensions floored to even. Pinned headless against the REAL
+      sidecar (offset 0.77): onset frames at start/middle/end within
+      ±1 frame (assertion separates uniform error ⇒ offset bug from
+      spread ⇒ drift), frame-walk ≡ fresh refresh, byte-identical
+      determinism where one renderer ticks and the other seeks, page
+      turn on the exact live-follow frame, corner alpha 0 / ghost ≈
+      0.3 / lit ≥ 0.78 pixels (tests/test_export.py).
+- [x] **6.2 Encoder**: `ProResFfmpegSink` streams RGBA rawvideo to
+      ffmpeg stdin (no disk intermediate) → ProRes 4444 .mov
+      (prores_ks, yuva444p10le in, 12-bit out per ffmpeg 8's decoder);
+      `PngSequenceSink` (pure Qt) is the no-ffmpeg fallback; ffmpeg
+      found at runtime (shutil.which), missing → ProRes disabled with a
+      brew hint. One convertToFormat(RGBA8888) per frame un-premultiplies
+      to straight alpha; bytesPerLine asserted. Cancel/error → abort →
+      partial output deleted (pinned incl. an ffprobe smoke).
+      **Export Video… dialog** (ui/export_dialog.py, Ctrl+E): fps
+      24–60, format, size (height with width locked to the page
+      aspect), whole-recording or measure-span range, progress +
+      ETA + cancel, auto-close on success; chunked 40 ms batches
+      re-armed by QTimer.singleShot(0, …) on the GUI thread (no
+      QThread, matching PeakExtractor's idiom). Measured on the
+      fixture: 2074 frames at 1526×2160 in 57.5 s (~36 frames/s),
+      687 MB.
+      Build finds: a QDoubleSpinBox attribute named `_start` shadowed
+      the `_start()` slot (renamed `_start_spin`); retaining the
+      wrapper `scene.addRect` returns bus-errors shiboken teardown once
+      the scene deletes the C++ item first — the paper rect is now
+      Python-constructed + addItem, like every other item.
+
+**Exit criteria**: end-to-end — Dorico score in, synced overlay video
+out, verified against the recording in a video editor. **PASSED
+2026-07-12** (`~/Movies/testscore-overlay.mov` composited over
+`testscore.wav`: first note, rehearsal A, final note all within a
+frame; no drift; page cuts match live follow).
 
 ## Later (explicitly not now)
 

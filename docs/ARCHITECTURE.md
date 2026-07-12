@@ -294,10 +294,47 @@ re-touching. "Clear overrides on selection" must be cheap.
   paused, re-anchored on seek. Not accumulation: a pure function of
   (recent authoritative audio positions, wall time), error bounded by
   the anchor cadence — the audio playhead stays master (rules 2/3).
-- `FrameClock`: `now = frame_index / fps`. Export walks frames, evaluates
-  `element_state`, renders offscreen (transparent background for overlay),
-  hands frames to the encoder. Deterministic by construction; drift is
-  impossible in export.
+- `FrameClock` (core/timing/clock.py, Phase 6 as built): `now =
+  frame_index / fps` — a fresh division per query, never `t += 1/fps`,
+  so drift in export is impossible by construction and out-of-order
+  frame walks yield the same times as in-order ones.
+- **The export path does not fork the live path** (Phase 6 as built,
+  render/export.py). `FrameRenderer` owns a FrameClock and a PRIVATE
+  `ScoreScenes` + `AnimationApplier` pair built from the same
+  `AnimationInputs` the window retains at load (layout, stage, trigger
+  schedule, reveal tracks — identical geometry and triggers, no
+  re-engrave). Frame n calls `apply_at(t)` when n follows the last
+  frame and `refresh(t)` otherwise — the exact tick/seek split of
+  `PlaybackController`. Everything downstream (`element_state`,
+  `reveal_x`, `current_page()`) is byte-for-byte the live path, and the
+  export walk is pinned against fresh refresh, byte-identical across
+  independent walks, in tests/test_export.py. **Needing to edit
+  render/animate.py, ui/playback.py, or anything in core/animation/
+  for export is a flag-and-stop moment, not an implementation detail.**
+- **Sync contract** (Phase 6): exported video t=0 == recording t=0.
+  Frame n samples t_audio = start + n/fps (frame start) and hands the
+  applier t_score = t_audio − offset_seconds — the exact mirror of live
+  playback's `_score_time` (ui/playback.py); core never sees the offset
+  (`TempoMap.seconds_at(0) == 0` by construction). Frame count is
+  `ceil((end − start) · fps − ε)` so the overlay always covers the full
+  audio span. Range export shifts frame 0 to `start` (entered as a
+  measure span in the dialog, converted through the same swing-aware
+  `resolve_seconds` seam); the user composites the clip at that offset.
+  Pinned headless with the real sidecar offset: onset frames at the
+  start, middle, and end of the piece within ±1 frame — a uniform error
+  is an offset bug, a growing error is drift, and the assertion
+  separates them.
+- **Offscreen transparent render** (Phase 6): pages render to
+  `QImage(ARGB32_Premultiplied)` filled transparent — no window, no
+  view — with the paper rect hidden (`ScoreScenes.page_rects`); the
+  floor-opacity ghost ink exports as-is (ruling R1, transparent-only).
+  Page turns hard-cut on the frame where `current_page()` changes,
+  identical to live follow (ruling R2). One
+  `convertToFormat(RGBA8888)` per frame un-premultiplies to the
+  straight alpha encoders expect. ProRes 4444 .mov (ffmpeg stdin
+  stream, runtime-discovered) is the default; PNG sequence (pure Qt)
+  is the no-ffmpeg fallback. Export settings are session memory only
+  (ruling R3) — nothing enters the project document.
 - Rule 2 in CLAUDE.md (no time accumulation) exists because accumulated
   `t += dt` drifts over minutes-long pieces; absolute queries do not.
 

@@ -110,6 +110,25 @@ See `spikes/NOTES.md` for the full investigation of each.
     stable voice identity first. Revisit only if it shows on real
     material.
 
+## Export (deferred at Phase 6, 2026-07-12)
+
+11. **Project-persisted export settings** (ruling R3 deferred the
+    alternative): fps/format/size/range are session memory on the
+    dialog only. Persisting per-project means an ExportConfig on
+    ProjectDoc, an undoable SetExportConfig command (rule 8), and
+    schema v3 behind the strict version gate. Pick up only if
+    re-entering settings proves annoying across sessions.
+
+12. **Fractional/NTSC frame rates (29.97/23.976)**: v1 export is
+    integer fps only — FrameClock, frame_count, and the ffmpeg
+    `-framerate` argument would all need rational timebases end-to-end.
+    Noted in the dialog; no demand yet.
+
+13. **Hardware ProRes encode** (`prores_videotoolbox`): the software
+    `prores_ks` encoder keeps up with rasterization today (~36
+    frames/s at 1526×2160 on the fixture), so this is a perf option,
+    not a need. Revisit for long scores or 4K-height exports.
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score
