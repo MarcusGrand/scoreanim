@@ -38,12 +38,15 @@ from scoreanim.core.project import save_project as write_project_file
 from scoreanim.core.score.identity import PartId
 from scoreanim.core.score.join import join_notes
 from scoreanim.core.score.model import build_score_model
-from scoreanim.core.timing import TempoEvent, TempoMap, parse_tempo_file
+from scoreanim.core.timing import (TempoEvent, TempoMap, parse_tempo_file,
+                                   resolve_seconds)
 from scoreanim.core.timing.taps import (TapSession, derive_tempo_events,
                                         start_residual)
 from scoreanim.render.animate import AnimationApplier
+from scoreanim.render.export import AnimationInputs
 from scoreanim.render.scene import ScoreScenes
 from scoreanim.ui.app_state import AppState
+from scoreanim.ui.export_dialog import ExportDialog
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.stage_view import StageView
@@ -67,6 +70,8 @@ class MainWindow(QMainWindow):
         self.resize(1000, 1200)
 
         self._scenes: ScoreScenes | None = None
+        self._animation_inputs: AnimationInputs | None = None
+        self._export_settings: dict | None = None    # session memory (R3)
         self._page = 1
         self._page_label = QLabel("–/–")
         self._score_name: str | None = None
@@ -147,6 +152,11 @@ class MainWindow(QMainWindow):
         save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
         save_as_action.triggered.connect(self.save_project_as)
 
+        self._export_action = QAction("Export Video…", self)
+        self._export_action.setShortcut("Ctrl+E")
+        self._export_action.setEnabled(False)        # needs a loaded score
+        self._export_action.triggered.connect(self._open_export_dialog)
+
         self._prev = QAction("◀", self)
         self._prev.setShortcut(QKeySequence.StandardKey.MoveToPreviousPage)
         self._prev.triggered.connect(lambda: self.show_page(self._page - 1))
@@ -183,6 +193,8 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(save_action)
         file_menu.addAction(save_as_action)
+        file_menu.addSeparator()
+        file_menu.addAction(self._export_action)
         edit_menu = menubar.addMenu("&Edit")
         edit_menu.addAction(self._undo)
         edit_menu.addAction(self._redo)
@@ -391,12 +403,17 @@ class MainWindow(QMainWindow):
 
     # -- document → world -------------------------------------------------------
 
+    def _timing_config(self, doc: ProjectDoc) -> tuple[float, TempoMap, tuple]:
+        """THE construction of (offset, TempoMap, swing) from document
+        intent — one expression shared by live retiming and export, so
+        the two paths cannot diverge."""
+        return (doc.timing.offset_seconds,
+                TempoMap(list(doc.timing.tempo_events)),
+                doc.timing.swing_regions)
+
     def _on_document_changed(self) -> None:
         doc = self.app_state.doc
-        self.playback.set_timing_config(
-            doc.timing.offset_seconds,
-            TempoMap(list(doc.timing.tempo_events)),
-            doc.timing.swing_regions)
+        self.playback.set_timing_config(*self._timing_config(doc))
         self._sync_styles(doc)
         self.playback.set_style(doc.style)
         self._sweep.blockSignals(True)
@@ -676,6 +693,11 @@ class MainWindow(QMainWindow):
                         default=0.0)
         reveal_tracks = build_reveal_tracks(engraved.layout, schedule,
                                             score_end)
+        # retained for export: the private export scenes+applier build
+        # from the SAME inputs as the live ones (render/export.py)
+        self._animation_inputs = AnimationInputs(
+            engraved.layout, stage, schedule, tuple(reveal_tracks))
+        self._export_action.setEnabled(True)
         applier = AnimationApplier(self._scenes.items, schedule,
                                    TempoMap([TempoEvent(0.0, DEFAULT_BPM)]),
                                    self.app_state.doc.style, reveal_tracks)
@@ -691,6 +713,27 @@ class MainWindow(QMainWindow):
             f"{len(self._scenes.items)} elements on "
             f"{self._scenes.page_count} pages{join_note}")
         return stage
+
+    # -- export --------------------------------------------------------------------
+
+    def _open_export_dialog(self) -> None:
+        if self._animation_inputs is None:
+            return
+        self.playback.transport.pause()      # no live tick under the modal
+        doc = self.app_state.doc
+        offset, tempo_map, swing = self._timing_config(doc)
+        duration = self.playback.transport.duration_seconds()
+        if duration <= 0.0:                  # no audio loaded: score length
+            score_end = max((m.start + m.quarter_length
+                             for m in self.app_state.measures), default=0.0)
+            duration = offset + resolve_seconds([score_end], tempo_map,
+                                                swing)[0]
+        dialog = ExportDialog(self._animation_inputs, doc.style, tempo_map,
+                              swing, self.app_state.measures, offset,
+                              duration, self._score_name or "score",
+                              settings=self._export_settings, parent=self)
+        dialog.exec()
+        self._export_settings = dialog.remembered()
 
     # -- save / load --------------------------------------------------------------
 

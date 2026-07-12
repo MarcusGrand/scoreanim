@@ -17,10 +17,11 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen
-from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsScene
+from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsRectItem,
+                               QGraphicsScene)
 
 from scoreanim.core.animation.reveal import REVEALED_KINDS
-from scoreanim.core.animation.style import takes_part_color
+from scoreanim.core.animation.style import StyleRules, takes_part_color
 from scoreanim.core.engraving.types import Layout, PathPrimitive
 from scoreanim.core.project.stage_config import StageConfig
 from scoreanim.core.score.identity import ElementId, PartId
@@ -28,6 +29,23 @@ from scoreanim.render.items import (DEFAULT_COLOR, ElementItem,
                                     RevealPathItem, svg_pen)
 from scoreanim.render.qpath import to_qpainter_path, to_qtransform
 from scoreanim.render.text import add_stage_text, add_text_rows
+
+
+def apply_style_colors(scenes: "ScoreScenes", style: StyleRules) -> None:
+    """Full one-shot application of the document's static ink colors
+    onto FRESH scenes: part color rules, then per-element overrides on
+    top — the same precedence the main window's diff-based _sync_styles
+    maintains incrementally. Color scope is takes_part_color (ruling D)
+    for rules and overrides alike."""
+    for part, rule in style.parts.items():
+        if rule.color is not None:
+            scenes.set_part_color(part, QColor(rule.color))
+    for eid, elem in style.elements.items():
+        if elem.color is None:
+            continue
+        item = scenes.items.get(eid)
+        if item is not None and takes_part_color(item.identity):
+            item.set_color(QColor(elem.color))
 
 
 class ScoreScenes:
@@ -39,11 +57,19 @@ class ScoreScenes:
         self._path_cache: dict[str, QPainterPath] = {}
         self._ghost_opacity = ghost_opacity
         self.scenes: list[QGraphicsScene] = []
+        # kept by reference so export can hide the paper for
+        # transparent-background frames (Phase 6, ruling R1)
+        self.page_rects: list[QGraphicsRectItem] = []
         for geo in layout.pages:
             scene = QGraphicsScene(0, 0, geo.width, geo.height)
-            scene.addRect(0, 0, geo.width, geo.height,
-                          QPen(Qt.PenStyle.NoPen),
-                          QBrush(QColor(Qt.GlobalColor.white)))
+            # Python-constructed (not scene.addRect): a retained wrapper
+            # for a C++-created item bus-errors in shiboken teardown once
+            # the scene deletes the item first.
+            rect = QGraphicsRectItem(0, 0, geo.width, geo.height)
+            rect.setPen(QPen(Qt.PenStyle.NoPen))
+            rect.setBrush(QBrush(QColor(Qt.GlobalColor.white)))
+            scene.addItem(rect)
+            self.page_rects.append(rect)
             self.scenes.append(scene)
 
         for el in layout.elements:
@@ -79,6 +105,12 @@ class ScoreScenes:
     @property
     def page_count(self) -> int:
         return len(self.scenes)
+
+    def set_page_background_visible(self, visible: bool) -> None:
+        """Show/hide the white paper rects — hidden for transparent
+        overlay export; the live stage always shows them."""
+        for rect in self.page_rects:
+            rect.setVisible(visible)
 
     def set_part_color(self, part: PartId, color: QColor | None) -> None:
         """Tint a part's playing ink (None restores black). Scope is
