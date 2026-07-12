@@ -22,8 +22,9 @@ See `spikes/NOTES.md` for the full investigation of each.
    Groups…), stored as intent (`staff_groups`, schema v3 — no bump),
    injected at the prep seam, undoable (Add/Edit/RemoveStaffGroup);
    ElementId stability across the grouped re-engrave pinned by test
-   (which also discharges item 5's "verify" note). Closes with the
-   Phase 8 exit-criteria run.
+   (which also discharges item 5's "verify" note).
+   **CLOSED 2026-07-12**: Phase 8 exit criteria passed (user's
+   interactive run, accepted).
 2. **m. 19 guitar slash notehead renders wrong** (stack of strokes instead
    of a slash). Priority: medium, cosmetic.
 3. **"Swing ♩ = 120" renders with a tofu box** before the note glyph.

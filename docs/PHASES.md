@@ -491,7 +491,7 @@ refused; 1920×1080 system-mode export with the sys-2 cut at the exact
 live-follow frame and transparent corners — sample frames reviewed by
 the user).
 
-## Phase 8 — Grouping: brackets & joined barlines
+## Phase 8 — Grouping: brackets & joined barlines — ✅ COMPLETE 2026-07-12
 
 Ruling 2026-07-12 (v2 scoping): brackets go through the ENGRAVING
 INPUTS — `<part-group>` injection at the prep seam — not render-side
@@ -563,7 +563,9 @@ override-staleness exposure at all).
 
 **Exit criteria**: the sax section bracket and its joined barlines
 render on the fixture, defined interactively in-app, undoable,
-ElementIds stable across the re-engrave — BACKLOG 1 closed.
+ElementIds stable across the re-engrave — BACKLOG 1 closed. **PASSED
+2026-07-12** (user's interactive exit run on the build commit 7db56e0:
+accepted).
 
 ## Phase 9 — Text editing
 

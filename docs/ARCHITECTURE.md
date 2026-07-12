@@ -62,7 +62,13 @@ class ElementIdentity:
 
 # core/engraving/
 class EngravingProvider(ABC):
-    def load(self, score_path: Path, params: EngravingParams) -> Layout: ...
+    def load(self, score_path: Path, params: EngravingParams,
+             groups: tuple[PartGroupSpec, ...] = ()) -> Layout: ...
+    # `groups` (Phase 8): staff groups injected as <part-group> at the
+    # prep seam — engraving INPUTS like the score file itself. A
+    # separate argument, NOT an EngravingParams field, because params
+    # are serialized in the project document and a groups field there
+    # would duplicate doc.staff_groups (rule 5: one source of intent).
 
 # Verovio adapter obligations (Phase 0 rulings, 2026-07-10):
 #
@@ -100,8 +106,23 @@ class EngravingProvider(ABC):
 #    Planned revision (ruling 2026-07-11, BACKLOG item 5): score-anchored
 #    texts (part labels, tempo marks, possibly the title) are to become
 #    editable in-app with the engraved score shifting to fit — i.e. text
-#    edits feed back into the engraving inputs and re-engrave. Not
-#    scheduled; do not build toward it without an explicit decision.
+#    edits feed back into the engraving inputs and re-engrave.
+#    Scheduled as Phase 9, riding Phase 8's prep-injection seam.
+#
+# 5. Staff groups via prep injection (Phase 8, as built 2026-07-12):
+#    doc-stored groupings (staff_groups, user intent) become
+#    PartGroupSpec at the prep seam and are injected as <part-group>
+#    into the canonical MusicXML before Verovio. Verovio then renders
+#    the bracket (grpSym → ElementKind.GROUP_SYMBOL, static ink,
+#    part-span-keyed ids: score:sys{n}:grpsym:P1-P2) and joins barlines
+#    through the group itself — connector segments fold into the
+#    existing barLine groups, so the decomposer needs no connector
+#    handling and render-side synthesis (which would reimplement
+#    engraving collision avoidance) stays rejected. Musical ElementIds
+#    are pinned stable across the grouped re-engrave
+#    (tests/test_adapter_groups.py) even though every VEROVIO id
+#    re-rolls on any input change despite the fixed seed — which is
+#    exactly why identity is minted from musical position, not ids.
 
 @dataclass(frozen=True)
 class RenderedElement:
@@ -266,9 +287,10 @@ Project (saved file, versioned schema)
 ├── stage_config         presentation mode (paged | system, v3), header
 │                        text elements (title/composer/lyricist —
 │                        stage-level text, not engraved; adapter ruling 4)
-├── staff_groups         v3 slot, consumed from Phase 8: ordered groups of
+├── staff_groups         consumed since Phase 8 (v3): ordered groups of
 │                        contiguous parts + symbol + joined-barlines flag
-│                        (bracket geometry re-derives via prep injection)
+│                        (bracket geometry re-derives via prep injection;
+│                        adapter ruling 5)
 └── text_overrides       v3 slot, consumed from Phase 9: per-part
                          name/abbreviation edits (applied at the prep seam)
 ```
