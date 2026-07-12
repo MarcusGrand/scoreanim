@@ -9,7 +9,8 @@ degrades instead of crashing).
 """
 from __future__ import annotations
 
-from scoreanim.core.animation.effect import Effect, appear
+from scoreanim.core.animation.effect import (OPACITY, SCALE, Easing, Effect,
+                                             Envelope, Keyframe, appear)
 
 # Ghost-score floor: dimmed ink before the trigger (Phase 3 value,
 # moved here from the UI in Phase 5.3).
@@ -17,8 +18,22 @@ FLOOR_OPACITY = 0.3
 
 DEFAULT_EFFECT = "appear"
 
+# pop (PHASES 5.4): appear's opacity step plus a scale bump around the
+# element's stored anchor — 1.25× at onset, easing back to 1.0 over
+# 0.25 s. Pure data; the effects-as-data proof (rule 6).
+_POP_SCALE = 1.25
+_POP_SETTLE_S = 0.25
+
 PRESETS: dict[str, Effect] = {
     "appear": appear(FLOOR_OPACITY),
+    "pop": Effect("pop", {
+        OPACITY: Envelope(initial=FLOOR_OPACITY,
+                          keyframes=(Keyframe(0.0, 1.0, Easing.STEP),)),
+        SCALE: Envelope(initial=1.0,
+                        keyframes=(Keyframe(0.0, _POP_SCALE, Easing.STEP),
+                                   Keyframe(_POP_SETTLE_S, 1.0,
+                                            Easing.LINEAR))),
+    }),
 }
 
 
