@@ -227,16 +227,46 @@ everywhere.
 
 ## Phase 5 — Reveal effects & styling
 
-- [ ] **5.1 reveal_x** per system (core): CONTINUOUS and STEPPED from
+Build complete 2026-07-12 (258 headless tests green); exit criteria
+pending the user's visual session. Rulings at plan review (2026-07-11):
+hairpins JOIN the grow set (5.2 task text supersedes the Phase 3 census
+default; dynamic letters stay static); spanners keep a dimmed
+floor-opacity ghost under the growing clipped copy; grow REPLACES
+step-appear for spanners — RevealMode (global, on the doc, 'Sweep'
+toggle) is the only knob. Test material: user-provided Dorico export
+`testdata/broken_hairpin_and_slur_test.*` (hairpin broken m4→m5,
+slur+ties broken m8→m9, companion wav). Build facts: Verovio renders a
+broken spanner as an id-bearing <g> plus one ID-LESS <g> per
+continuation system (previously silently absorbed into the static
+system element — testscore itself has 7 such broken ties); hairpins are
+tstamp/tstamp2+@staff addressed, no startid; PROJECT_VERSION bumped to
+2 (v1 part_colors folds into part color rules on load).
+
+- [x] **5.1 reveal_x** per system (core): CONTINUOUS and STEPPED from
       onset-sorted note positions; headless tests for both modes,
       including simultaneous onsets across staves (step to musical onset).
-- [ ] **5.2 Spanner reveal**: clip-rect grow for slurs/hairpins; respects
-      RevealMode; system-split segments. Verify visually: stepped slur
-      ticks with the notes; continuous slur sweeps.
-- [ ] **5.3 StyleRules**: per-part colors, effect assignment, per-element
-      override rules; serialized; UI to assign part colors.
-- [ ] **5.4 "pop" effect** as a preset (scale envelope around anchor) —
-      proving effects-as-data: zero evaluator changes.
+      Anchors are NOTATED onsets (identity.onset — not tie-gated trigger
+      beats); lead/end sentinels make CONTINUOUS continuous through
+      system breaks; swing applies via the same resolve_seconds seam as
+      triggers. RenderedElement gained `system` (adapter-stamped).
+- [x] **5.2 Spanner reveal**: clip-rect grow for slurs/ties/hairpins via
+      RevealPathItem (paint-time clip, per-child clamp, no re-indexing);
+      per-segment elements (`<source-id>:seg<k>`) so system-split
+      spanners reveal per segment, later segments at reveal 0 with no
+      page logic. Verified: clip statelessness tests + offscreen pixel
+      check (ghost < half-grown < full).
+- [x] **5.3 StyleRules**: ONE styling system — per-part color+effect
+      rules, per-element overrides, reveal mode; element>part>default
+      field-wise; effect names fail soft to 'appear'. SetPartColor
+      retargeted; SetPartEffect/SetElementStyle/SetRevealMode added.
+      Applier: per-element effects, opacity+scale property map (scale
+      restricted to anchored kinds), transition window with expiry
+      settle, refresh seeds mid-transition seeks. Parts menu: per-part
+      color swatches + Custom… + No Color, effect radios enumerated
+      from the preset registry.
+- [x] **5.4 "pop" effect** as a preset (scale envelope around anchor) —
+      proving effects-as-data: zero evaluator changes. The commit diff
+      is the proof: presets.py + its test only (`git show --stat`).
 
 **Exit criteria**: a stepped-appearance animation with per-part colors and
 growing slurs plays in sync; adding "pop" required only a preset.
