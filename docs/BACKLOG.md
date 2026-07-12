@@ -130,10 +130,13 @@ See `spikes/NOTES.md` for the full investigation of each.
 
 11. **Project-persisted export settings** (ruling R3 deferred the
     alternative): fps/format/size/range are session memory on the
-    dialog only. Persisting per-project means an ExportConfig on
-    ProjectDoc, an undoable SetExportConfig command (rule 8), and
-    schema v3 behind the strict version gate. Pick up only if
-    re-entering settings proves annoying across sessions.
+    dialog only (Phase 7.5 added system-mode canvas_w/canvas_h to the
+    same session dict, mode-keyed). Persisting per-project means an
+    ExportConfig on ProjectDoc, an undoable SetExportConfig command
+    (rule 8), and a schema bump — v3 landed in Phase 7.1 WITHOUT this
+    field (v3 carries only floor/mode/groups/text-overrides), so this
+    would be v4. Pick up only if re-entering settings proves annoying
+    across sessions.
 
 12. **Fractional/NTSC frame rates (29.97/23.976)**: v1 export is
     integer fps only — FrameClock, frame_count, and the ffmpeg

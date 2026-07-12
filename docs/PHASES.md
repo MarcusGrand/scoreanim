@@ -390,9 +390,12 @@ out, verified against the recording in a video editor. **PASSED
 `testscore.wav`: first note, rehearsal A, final note all within a
 frame; no drift; page cuts match live follow).
 
-## Phase 7 — Presentation & reveal control
+## Phase 7 — Presentation & reveal control — ✅ COMPLETE 2026-07-12
 
-Scoped 2026-07-12 (v2 scoping session; verified facts in
+Built and closed in one day (dd4a021, 308 headless tests green); **exit
+criteria PASSED 2026-07-12** (user's review of the diff plus the
+scripted exit-checklist run and sample 1920×1080 export frames: "this
+works"). Scoped 2026-07-12 (v2 scoping session; verified facts in
 `spikes/NOTES.md` "v2 scoping probes"). Rulings at scoping:
 
 - **One schema v3** carries EVERY planned document field — floor
@@ -409,48 +412,84 @@ Scoped 2026-07-12 (v2 scoping session; verified facts in
   per (system, part) — the mode consumes the existing Layout; no
   re-engrave, no engraving change.
 
-- [ ] **7.1 Schema v3**: design the full v3 shape once (floor_opacity,
-      presentation mode, staff_groups, text_overrides — the latter two
-      unused until Phases 8/9). Strict gate: reader accepts {1, 2, 3},
-      writer emits 3; existing v1/v2 folding unchanged. Verify:
-      round-trip tests; v2 files load with defaults for every new field;
-      the gate stays strict-by-version.
-- [ ] **7.2 User-settable floor opacity incl. 0**: presets become a
-      function of the document floor (registry stays data — rule 6);
-      applier re-resolves cached effects + refresh on change;
-      ScoreScenes tracks its spanner-ghost items and gains a setter
-      (ghost opacity is set at construction today); SetFloorOpacity
-      command + a control; export reads the document value. Verify:
-      floor 0 → unrevealed animated ink invisible, scaffold fully
-      visible, spanner clip-reveal still works over an invisible ghost;
-      envelope/ghost/round-trip tests headless.
-- [ ] **7.3 System framing (core, pure)**: per-system band rects (union
-      bbox of the system's elements — covers overhanging ink — at full
-      page width); `current_system()` on the applier (per-trigger
-      systems, the same bisect-cursor idiom as `current_page()`).
-      Verify: headless — fixture band rects for systems 1–5;
-      current_system walk matches the trigger schedule.
-- [ ] **7.4 System-at-a-time stage mode**: StageView frames the current
-      band centered vertically; letterbox MASKING so a neighboring
-      system on the same page never bleeds in (fitInView exposes scene
-      content beyond the band on aspect mismatch — this needs opaque
-      bars or clipping, live-side only); hard cut when current_system()
-      changes (page flip implied by the system→page map — mirrors live
-      page follow / ruling R2); mode is document intent (v3 field) +
-      undoable command + transport toggle. Verify: fixture pages 2–3
-      (two systems each) — one system on stage at a time,
-      chronological, centered, no bleed at any window aspect.
-- [ ] **7.5 System-mode export**: output canvas becomes user-chosen
-      (width no longer locked to page aspect in this mode); the band is
-      cropped from the page image and composited centered; cuts land on
-      the same frames as live follow. Verify: headless — cut frames
-      match the current_system() walk; band pixels centered; page-mode
-      export byte-identical to Phase 6 when the mode is off.
+- [x] **7.1 Schema v3**: PROJECT_VERSION 3, ONE bump with every planned
+      field — `style.floor_opacity` (StyleRules), `stage.mode`
+      (PresentationMode enum, stage_config.py), top-level
+      `staff_groups` (StaffGroup: parts/symbol/join_barlines) and
+      `text_overrides` (PartTextOverride: name/abbreviation), the
+      latter two dormant until Phases 8/9. Reader accepts {1, 2, 3} —
+      v1/v2 files simply lack the keys and default per-field (no
+      migration code); writer emits 3; gate stays strict (version 4
+      refused). Pinned: round-trips incl. floor 0.0 (falsy — no `or`
+      defaulting), v2-loads-with-defaults, unknown-mode ValueError
+      (tests/test_project_serialize.py).
+- [x] **7.2 User-settable floor opacity incl. 0**: `build_presets(floor)`
+      — the registry as a function of the floor, still pure data (rule
+      6; the evaluator untouched). As built, the applier resolves
+      against `{**PRESETS, **build_presets(floor)}` so registry entries
+      beyond the built-ins still resolve (their own envelopes
+      untouched). Floor rides StyleRules, so a change arrives through
+      the EXISTING set_style re-resolve+refresh — zero new applier API,
+      live and export identical by construction (FrameRenderer already
+      takes StyleRules; both ghost_opacity passers now read
+      `style.floor_opacity`, the constant import is gone). ScoreScenes
+      tracks ghost children (`_ghost_items`) + `set_ghost_opacity`;
+      `SetFloorOpacity` command (rejects outside [0,1]/non-finite) + a
+      "floor" transport spinbox synced like swing. Verified: floor 0 →
+      un-triggered animated ink at 0, scaffold untouched at 1.0
+      (scaffold never enters the trigger schedule — ruled, not a bug),
+      clip-reveal still grows over the invisible ghost.
+- [x] **7.3 System framing (core, pure)**: `core/engraving/systems.py`
+      — `system_bands(layout)` (per-system union bbox widened to full
+      page width; raises on a page-spanning system) and `centered_fit`
+      (scale-to-fit + center both axes, shared by export and tests).
+      `Trigger.system` stamped by the schedule with the exact min-fresh
+      rule as page (defaulted last field, synthetic construction
+      survives); `current_system()` on the applier — the
+      `current_page()` idiom on the same bisect cursor. Pinned: fixture
+      bands systems 1–5 on pages 1/2/2/3/3, every element bbox
+      contained, current_system walk matches the stamps
+      (tests/test_systems.py).
+- [x] **7.4 System-at-a-time stage mode**: `show_system_band` = setScene
+      + fitInView(band) — a hard cut, exactly the page-flip mechanics.
+      Masking as built: a `drawForeground` override fills the exposed
+      scene area outside the band with the letterbox color — VIEW-level,
+      so export scenes structurally cannot see it, and it holds at any
+      aspect/zoom/resize. `SetPresentationMode` command + a "Systems"
+      transport toggle (synced blockSignals like Sweep); follow emits
+      page AND system, the window routes by `doc.stage.mode`; prev/next
+      step systems in system mode; page flip implied by the band's
+      page. Paged unchanged and default. Pinned: neighbour-system
+      pixels read letterbox at 1920×400 AND 400×1000 while the framed
+      band does not; clear_band restores paged pixels
+      (tests/test_stage_system_mode.py).
+- [x] **7.5 System-mode export**: `ExportSpec.mode` +
+      `ExportSpec.width` (canvas; both dims independently even-floored,
+      no aspect coupling); the dialog shows W×H spinboxes (default
+      1920×1080) in system mode, session memory only (R3 — mode-keyed:
+      canvas_w/canvas_h alongside paged height, the other mode's
+      settings pass through untouched). The dialog reads the mode from
+      the LIVE doc at open — `AnimationInputs.stage` is a load-time
+      snapshot and goes stale after a mode command. render_frame:
+      paged path verbatim behind a guard; system branch composites
+      `scene.render(source=band, target=centered_fit)` under an
+      explicit `setClipRect` (the bleed guarantee). Pinned: cut frames
+      match the live walk for all four system boundaries, sampled
+      pixels outside the fit rect fully transparent at wide and tall
+      canvases, paged spec builds no band machinery, and every
+      pre-existing Phase 6 test passes unmodified — including
+      byte-identical walks (tests/test_export.py).
 
 **Exit criteria**: floor 0 plays and exports with unrevealed ink
 invisible on a visible scaffold; system mode shows and exports one
 system at a time, chronologically, centered, hard cuts in sync with
-live follow.
+live follow. **PASSED 2026-07-12** (scripted exit run on the real
+MainWindow offscreen: floor 0.3/0/1 with undo restoring doc and scene;
+system mode framed sys 1/5 → step → implied page flip → undo clears
+the mask; v2 project loads with defaults and resaves as v3, v4
+refused; 1920×1080 system-mode export with the sys-2 cut at the exact
+live-follow frame and transparent corners — sample frames reviewed by
+the user).
 
 ## Phase 8 — Grouping: brackets & joined barlines
 

@@ -238,9 +238,16 @@ in the project document. StyleRules SUBSUMED Phase 2's `StyleConfig`
 (Phase 5.3) — one styling system: the tint menu drives part color
 rules; effect names are stored intent resolving against the preset
 registry (unknown → default, the name round-trips untouched). The
-element-override editing UI waits on stage click-to-select (BACKLOG 9);
-the floor opacity is preset data (`presets.FLOOR_OPACITY`), not a
-StyleRules field. **Color scope ≠ animated scope** (ruling D):
+element-override editing UI waits on stage click-to-select (BACKLOG 9).
+**The ghost floor is a StyleRules field since Phase 7.2**
+(`floor_opacity`, document intent, 0 allowed): built-in presets are
+built from it (`presets.build_presets(floor)` — the registry stays
+data, rule 6), spanner ghosts re-dim through
+`ScoreScenes.set_ghost_opacity`, and both live and export read the
+same value through the one StyleRules path (`presets.FLOOR_OPACITY`
+remains only as the default). Static scaffold never dims — it never
+enters the trigger schedule, so floor 0 means invisible unrevealed ink
+on a fully visible staff. **Color scope ≠ animated scope** (ruling D):
 `TINTED_KINDS` = the playing ink (heads through ledger dashes, plus
 slurs/ties/hairpins) — rests and dynamics animate but stay black, like
 clefs, signatures, and text.
@@ -254,22 +261,31 @@ Project (saved file, versioned schema)
 ├── engraving_params     scale etc. (page geometry comes from the score)
 ├── layout_overrides     {ElementId → dx, dy, hidden}
 ├── tempo_map            events, swing regions, raw taps (kept for re-derive)
-├── style_rules          reveal mode, per-part {color, effect-name}
-│                        rules, per-element overrides
-└── stage_config         background, letterbox behavior, header text
-                         elements (title/composer/lyricist — stage-level
-                         text, not engraved; adapter ruling 4)
+├── style_rules          reveal mode, floor opacity (v3), per-part
+│                        {color, effect-name} rules, per-element overrides
+├── stage_config         presentation mode (paged | system, v3), header
+│                        text elements (title/composer/lyricist —
+│                        stage-level text, not engraved; adapter ruling 4)
+├── staff_groups         v3 slot, consumed from Phase 8: ordered groups of
+│                        contiguous parts + symbol + joined-barlines flag
+│                        (bracket geometry re-derives via prep injection)
+└── text_overrides       v3 slot, consumed from Phase 9: per-part
+                         name/abbreviation edits (applied at the prep seam)
 ```
 
 Schema versions (`core/project/serialize.py`, strict gate): **v1**
 (Phase 4) had `style.part_colors`; **v2** (Phase 5.3) is the StyleRules
-shape above. The reader accepts {1, 2} and folds v1 `part_colors` into
-part color rules at load; the writer emits 2. The gate is
-strict-by-version ON PURPOSE: a Phase 4 build REFUSES a v2 file instead
-of tolerantly reading it, silently dropping all styling, and destroying
-it on the next save. Effect names are stored intent — an unknown name
-fails soft to the default preset at animation time but round-trips
-untouched (rule 5).
+shape above; **v3** (Phase 7.1) added floor_opacity, presentation mode,
+staff_groups, and text_overrides in ONE bump — every planned v2-era
+field designed at once, no per-phase bumps. The reader accepts
+{1, 2, 3}: v1 `part_colors` folds into part color rules, v1/v2 files
+default every v3 field per-field (no migration code — they just lack
+the keys); the writer emits 3. The gate is strict-by-version ON
+PURPOSE: an older build REFUSES a newer file instead of tolerantly
+reading it, silently dropping fields, and destroying them on the next
+save. Effect names are stored intent — an unknown name fails soft to
+the default preset at animation time but round-trips untouched
+(rule 5).
 
 Never persisted: Layout, timemaps, decomposed geometry — always re-derived.
 All mutations go through undoable commands (`core/project/commands.py`).
@@ -335,6 +351,22 @@ re-touching. "Clear overrides on selection" must be cheap.
   stream, runtime-discovered) is the default; PNG sequence (pure Qt)
   is the no-ffmpeg fallback. Export settings are session memory only
   (ruling R3) — nothing enters the project document.
+- **System-mode export** (Phase 7.5): when the document's presentation
+  mode is SYSTEM, the canvas is user-chosen (W×H, default 1920×1080,
+  dialog-editable, still session memory — R3 stands) and each frame
+  composites the current system's band — cropped from its page scene
+  — CENTERED both axes, scaled to fit preserving the band's aspect,
+  under an explicit clip rect (the bleed guarantee). Cuts land on the
+  frame `current_system()` changes — the same applier walk as live
+  follow (R2 extended to systems; `current_system()` is the
+  `current_page()` bisect idiom over `Trigger.system`, stamped by the
+  schedule with the same min-fresh rule as page). Band geometry is
+  `core/engraving/systems.py::system_bands` — pure, derived from the
+  Layout on demand, never persisted. The paged path runs verbatim
+  behind a guard: a paged export is byte-identical to Phase 6, pinned
+  by the unmodified Phase 6 test suite. The export dialog reads the
+  mode from the live document at open, never from `AnimationInputs.
+  stage` (a load-time snapshot that goes stale after a mode command).
 - Rule 2 in CLAUDE.md (no time accumulation) exists because accumulated
   `t += dt` drifts over minutes-long pieces; absolute queries do not.
 
@@ -362,7 +394,15 @@ selection + shared time-axis zoom/scroll):
 
 - **StageView**: the paged score at the score's own aspect ratio,
   letterboxed in the window; shows animation state; click-to-select for
-  overrides.
+  overrides. System-at-a-time mode (Phase 7.4, document intent
+  `stage.mode` + `SetPresentationMode` + a transport toggle): frames
+  the current system's band centered — a hard cut via the same
+  setScene page-flip mechanics — with a `drawForeground` override
+  painting letterbox color over everything outside the band, so a
+  same-page neighbour system never bleeds in at any window aspect.
+  View-level on purpose: export scenes structurally cannot see the
+  mask. Follow emits page AND system; the window routes by mode;
+  prev/next step the current presentation unit. Paged stays default.
 - **TempoLaneView**: tempo events as draggable points; shares the time
   axis with the waveform. Swing is a single global ratio set numerically
   on the transport bar in v1 (ruling 2026-07-11); the SwingRegion data
