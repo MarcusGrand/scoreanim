@@ -128,9 +128,13 @@ def test_continuous_reads_the_same_anchors(tied_setup) -> None:
         assert 410.0 <= reveal_x(c1, t, C) <= 460.0
 
 
-def test_rests_are_anchors() -> None:
-    """Ruling B: a rest is an event — the edge advances at it, so a
-    spanner over a rest bar advances."""
+def test_rests_anchor_when_their_silence_resolves() -> None:
+    """Rest rule (2026-07-12, second session): the edge never advances
+    at a silent beat. A rest's anchor is min(next note, own barline):
+    here the beat-1 rest completes at its bar's end (beat 2), the empty
+    bar's mRest at ITS barline (beat 4, with the next note)."""
+    from scoreanim.core.score.model import MeasureInfo
+
     layout = _layout(
         _el("s", ElementKind.STAFF_LINES, None, 1, 50, 450),
         _el("n0", ElementKind.NOTEHEAD, 0.0, 1, 100, 10),
@@ -140,13 +144,18 @@ def test_rests_are_anchors() -> None:
     )
     mapping = {ElementId("n0"): _note("P1", 0.0, "C", 0, None),
                ElementId("n3"): _note("P1", 4.0, "D", 1, None)}
-    schedule = build_trigger_schedule(layout, mapping)
+    measures = (MeasureInfo(1, 0.0, 2.0), MeasureInfo(2, 2.0, 2.0),
+                MeasureInfo(3, 4.0, 2.0))
+    schedule = build_trigger_schedule(layout, mapping, measures)
     (track,) = build_reveal_tracks(layout, schedule, score_end=6.0)
-    assert track.beats == (-1.0, 0.0, 1.0, 2.0, 4.0, 6.0)
-    assert track.xs == (50.0, 110.0, 210.0, 340.0, 460.0, 500.0)
+    assert track.beats == (-1.0, 0.0, 2.0, 4.0, 6.0)
+    assert track.xs == (50.0, 110.0, 210.0, 460.0, 500.0)
     c = track.resolve(BPM60)
-    assert reveal_x(c, 1.0, RevealMode.STEPPED) == 210.0   # rest advances
-    assert reveal_x(c, 2.0, RevealMode.STEPPED) == 340.0   # mRest advances
+    S = RevealMode.STEPPED
+    assert reveal_x(c, 1.0, S) == 110.0    # NO advance at the silent beat
+    assert reveal_x(c, 2.0, S) == 210.0    # rest completes at its barline
+    assert reveal_x(c, 3.99, S) == 210.0   # empty bar still pending
+    assert reveal_x(c, 4.0, S) == 460.0    # mRest at ITS barline + next note
 
 
 def test_grace_anchor_and_cummax() -> None:
@@ -204,7 +213,8 @@ def test_track_validation() -> None:
 
 @pytest.fixture(scope="module")
 def fixture_tracks(engraved, join_mapping, score_model):
-    schedule = build_trigger_schedule(engraved.layout, join_mapping)
+    schedule = build_trigger_schedule(engraved.layout, join_mapping,
+                                      score_model.measures)
     score_end = max(m.start + m.quarter_length for m in score_model.measures)
     return build_reveal_tracks(engraved.layout, schedule, score_end)
 
@@ -243,7 +253,8 @@ def test_broken_chain_reveals_both_sides_at_chain_start(
     track covers the tie's segment-1 ink out to the margin at chain
     start, and system 3's track has a chain-start anchor covering the
     stop head — both sides stand revealed from chain start."""
-    schedule = build_trigger_schedule(engraved.layout, join_mapping)
+    schedule = build_trigger_schedule(engraved.layout, join_mapping,
+                                      score_model.measures)
     score_end = max(m.start + m.quarter_length for m in score_model.measures)
     tracks = {(t.system, str(t.part)): t
               for t in build_reveal_tracks(engraved.layout, schedule,

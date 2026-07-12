@@ -32,17 +32,28 @@ it musically correct on real Dorico exports (spikes/NOTES.md):
    Beams/ties/slurs resolve through the same table at their start onset;
    a lookup miss (e.g. synthesized slashes) falls back to
    ``identity.onset``.
+
+4. Rests are retrospective ink (ruling 2026-07-12, second session): a
+   rest appearing ON its beat reads as an event happening at silence.
+   A rest's trigger is when its silence resolves — the next note in
+   its (part, staff, voice) scope (staff fallback) or the end of its
+   own bar, whichever comes first; never before its own onset. The
+   whole-bar rest is the degenerate case (no next note in the bar →
+   the barline); consecutive empty bars each complete at their own
+   barline. Needs ``measures`` for the bar-end cap; without them
+   (synthetic tests) only the next-note half applies.
 """
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from scoreanim.core.engraving.types import Layout
 from scoreanim.core.score.identity import (Beats, ElementId, ElementIdentity,
                                            ElementKind)
-from scoreanim.core.score.model import ScoreNote
+from scoreanim.core.score.model import MeasureInfo, ScoreNote
 
 _Q = 4096                    # exact for binary subdivisions (join convention)
 
@@ -104,7 +115,8 @@ def _pitch_key(note: ScoreNote) -> tuple:
 
 
 def build_trigger_schedule(layout: Layout,
-                           mapping: Mapping[ElementId, ScoreNote]
+                           mapping: Mapping[ElementId, ScoreNote],
+                           measures: Sequence[MeasureInfo] = ()
                            ) -> TriggerSchedule:
     ident_by_id = {el.identity.element_id: el.identity
                    for el in layout.elements}
@@ -154,6 +166,50 @@ def build_trigger_schedule(layout: Layout,
         group_trigger[key] = fresh[0] if fresh \
             else min(trigger for trigger, _ in pairs)
 
+    # -- rule 4: rests trigger when their silence resolves ------------------
+    notes_by_voice: dict[tuple, list[tuple[Beats, Beats]]] = defaultdict(list)
+    notes_by_staff: dict[tuple, list[tuple[Beats, Beats]]] = defaultdict(list)
+    for eid, trigger in note_trigger.items():
+        ident = ident_by_id[eid]
+        if ident.onset is None:
+            continue
+        entry = (ident.onset, trigger)
+        notes_by_voice[(ident.part, ident.staff, ident.voice)].append(entry)
+        notes_by_staff[(ident.part, ident.staff)].append(entry)
+    for scope_list in (*notes_by_voice.values(), *notes_by_staff.values()):
+        scope_list.sort()
+    bar_bounds = sorted({m.start for m in measures}
+                        | {m.start + m.quarter_length for m in measures})
+
+    def _rest_trigger(ident: ElementIdentity) -> Beats | None:
+        candidates: list[Beats] = []
+        for scope in (notes_by_voice.get((ident.part, ident.staff,
+                                          ident.voice)),
+                      notes_by_staff.get((ident.part, ident.staff))):
+            if not scope:
+                continue
+            i = bisect_right(scope, (ident.onset, float("inf")))
+            if i < len(scope):
+                candidates.append(scope[i][1])   # next note's TRIGGER
+                break
+        i = bisect_right(bar_bounds, ident.onset)
+        if i < len(bar_bounds):
+            candidates.append(bar_bounds[i])     # own bar's end
+        if not candidates:
+            return None                          # fall back to own onset
+        # a next note's trigger may be tie-gated into the past (another
+        # voice's chain); the rest still never shows before its own beat
+        return max(ident.onset, min(candidates))
+
+    rest_trigger: dict[ElementId, Beats] = {}
+    for el in layout.elements:
+        ident = el.identity
+        if (ident.kind in (ElementKind.REST, ElementKind.MREST)
+                and ident.onset is not None):
+            trigger = _rest_trigger(ident)
+            if trigger is not None:
+                rest_trigger[ident.element_id] = trigger
+
     # -- assemble all animated elements ------------------------------------
     by_qbeat: dict[int, dict] = {}
     beats_by_element: dict[ElementId, Beats] = {}
@@ -166,6 +222,8 @@ def build_trigger_schedule(layout: Layout,
         assert own is not None           # guaranteed by is_animated
         if eid in note_trigger:
             trigger = note_trigger[eid]
+        elif eid in rest_trigger:
+            trigger = rest_trigger[eid]
         else:
             key = (ident.part, ident.staff, ident.voice, quantize_beats(own))
             trigger = group_trigger.get(key, own)

@@ -197,9 +197,15 @@ not-yet-reached systems sit at reveal = 0 with no page logic.
 Opacity-triggered (dim at floor, light at trigger): noteheads, slashes,
 stems, flags, beams, accidentals, articulations, dots, ledger dashes,
 **rests, whole-bar rests, dynamics** (ruling B — everything IN the
-staves animates; a dynamic's trigger is its attach point). Clip-revealed
-(opacity pinned 1.0): slurs, ties, hairpins. Static: clefs, key/time
-signatures, barlines, staff lines, texts, lyrics, chord symbols.
+staves animates; a dynamic's trigger is its attach point). **A rest is
+retrospective ink** (ruling 2026-07-12, second session): it triggers
+when its silence resolves — at the next note in its part/voice or at
+the end of its own bar, whichever comes first, never on its own silent
+beat (a whole-bar rest completes at its barline). Reveal anchors follow
+the same triggers, so the edge never advances mid-silence.
+Clip-revealed (opacity pinned 1.0): slurs, ties, hairpins. Static:
+clefs, key/time signatures, barlines, staff lines, texts, lyrics,
+chord symbols.
 
 ### Styling
 

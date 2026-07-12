@@ -28,8 +28,9 @@ def qapp():
 
 
 @pytest.fixture(scope="module")
-def schedule(engraved, join_mapping):
-    return build_trigger_schedule(engraved.layout, join_mapping)
+def schedule(engraved, join_mapping, score_model):
+    return build_trigger_schedule(engraved.layout, join_mapping,
+                                  score_model.measures)
 
 
 @pytest.fixture()

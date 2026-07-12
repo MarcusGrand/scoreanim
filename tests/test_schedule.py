@@ -11,8 +11,9 @@ from scoreanim.core.score.identity import ElementKind
 
 
 @pytest.fixture(scope="module")
-def schedule(engraved, join_mapping):
-    return build_trigger_schedule(engraved.layout, join_mapping)
+def schedule(engraved, join_mapping, score_model):
+    return build_trigger_schedule(engraved.layout, join_mapping,
+                                  score_model.measures)
 
 
 @pytest.fixture(scope="module")
@@ -21,9 +22,11 @@ def identities(engraved):
             for el in engraved.layout.elements}
 
 
-def test_sorted_and_deterministic(engraved, join_mapping, schedule) -> None:
+def test_sorted_and_deterministic(engraved, join_mapping, schedule,
+                                  score_model) -> None:
     assert list(schedule.beat_values) == sorted(schedule.beat_values)
-    again = build_trigger_schedule(engraved.layout, join_mapping)
+    again = build_trigger_schedule(engraved.layout, join_mapping,
+                                  score_model.measures)
     assert again == schedule
 
 
@@ -233,16 +236,10 @@ def test_animated_census(engraved) -> None:
             assert is_animated(ident), ident.element_id
 
 
-def test_rests_and_dynamics_carry_triggers(schedule, identities) -> None:
-    """Ruling B (2026-07-12): rests fire at their notated onsets,
-    dynamics at their attach point — the fixture's m1 dynamics attach
-    to the tutti chord at 1.0 quarters, not the measure start."""
-    rests = [eid for eid, ident in identities.items()
-             if ident.kind in (ElementKind.REST, ElementKind.MREST)]
-    assert rests
-    for eid in rests:
-        assert schedule.beats_by_element[eid] == identities[eid].onset, eid
-
+def test_dynamics_trigger_at_their_attach_point(schedule,
+                                                identities) -> None:
+    """Ruling B (2026-07-12): the fixture's m1 dynamics attach to the
+    tutti chord at 1.0 quarters, not the measure start."""
     dynamics = [eid for eid, ident in identities.items()
                 if ident.kind is ElementKind.DYNAMIC]
     assert len(dynamics) == 16
@@ -251,3 +248,33 @@ def test_rests_and_dynamics_carry_triggers(schedule, identities) -> None:
     m1 = [eid for eid in dynamics if ":m1:" in str(eid)]
     assert len(m1) == 6
     assert all(schedule.beats_by_element[eid] == 1.0 for eid in m1)
+
+
+def test_rests_trigger_when_their_silence_resolves(schedule, identities,
+                                                   score_model) -> None:
+    """Rest rule (2026-07-12, second session): a rest appears at the
+    next note or at the end of its own bar, whichever comes first —
+    never on its own silent beat. Fixture pins:
+    - P1's opening rest shows with the GRACE note (fractional trigger
+      0.8828125 — 'when the next note shows'), not at beat 0;
+    - whole-bar rests complete at their own barline (m2 4/4 → beat 8,
+      m5 2/4 → beat 18);
+    - m12's two rests both cap at the next note (45.0), before the
+      barline (46.0)."""
+    rests = {str(eid): eid for eid, ident in identities.items()
+             if ident.kind in (ElementKind.REST, ElementKind.MREST)}
+    assert len(rests) == 114
+    t = schedule.beats_by_element
+    assert t[rests["P1:m1:s1:v1:rest:0"]] == 0.8828125
+    assert t[rests["P1:m2:s1:v1:mrest:0"]] == 8.0
+    assert t[rests["P1:m5:s1:v1:mrest:0"]] == 18.0
+    assert t[rests["P1:m12:s1:v1:rest:0"]] == 45.0
+    assert t[rests["P1:m12:s1:v1:rest:1"]] == 45.0
+    # the general shape: never before the rest's own beat, never past
+    # its own barline
+    for eid in rests.values():
+        onset = identities[eid].onset
+        assert t[eid] > onset, eid                 # never on the beat
+        measure = next(m for m in score_model.measures
+                       if m.start <= onset < m.start + m.quarter_length)
+        assert t[eid] <= measure.start + measure.quarter_length, eid

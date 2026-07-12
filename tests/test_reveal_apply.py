@@ -39,7 +39,7 @@ def spanner_setup(engraved_spanners):
     report = join_notes(model, engraved_spanners.note_records)
     assert report.is_complete
     schedule = build_trigger_schedule(engraved_spanners.layout,
-                                      report.mapping)
+                                      report.mapping, model.measures)
     score_end = max(m.start + m.quarter_length for m in model.measures)
     tracks = build_reveal_tracks(engraved_spanners.layout, schedule,
                                  score_end)

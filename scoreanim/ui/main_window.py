@@ -670,7 +670,8 @@ class MainWindow(QMainWindow):
         if not report.is_complete:
             join_note = (f" · JOIN INCOMPLETE ({len(report.unmatched_score)}"
                          f"/{len(report.unmatched_layout)} unmatched)")
-        schedule = build_trigger_schedule(engraved.layout, report.mapping)
+        schedule = build_trigger_schedule(engraved.layout, report.mapping,
+                                          model.measures)
         score_end = max((m.start + m.quarter_length for m in model.measures),
                         default=0.0)
         reveal_tracks = build_reveal_tracks(engraved.layout, schedule,

@@ -251,7 +251,13 @@ model with four rulings (2026-07-12), rebuilt same day (260 tests):
   signatures, texts (fixed — they wrongly tinted before), and — ruled —
   rests/dynamics stay black. Animated set ≠ tinted set.
 
-Exit criteria pending the user's second visual session. Rulings at plan review (2026-07-11):
+Second visual session (2026-07-12): A/B/D behaviors passed; one further
+ruling — **rests are retrospective ink**: a rest appearing ON its beat
+reads as an event at silence. Unified rule (user's choice at
+clarification): a rest triggers at min(next note in its part/voice,
+end of its own bar) — the whole-bar rest degenerately at its barline;
+never on its own beat. Reveal anchors follow (the edge never advances
+mid-silence). Exit criteria pending re-verification of the rest feel. Rulings at plan review (2026-07-11):
 hairpins JOIN the grow set (5.2 task text supersedes the Phase 3 census
 default; dynamic letters stay static); spanners keep a dimmed
 floor-opacity ghost under the growing clipped copy; grow REPLACES
