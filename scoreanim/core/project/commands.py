@@ -20,7 +20,7 @@ from dataclasses import dataclass, replace
 
 from scoreanim.core.animation.reveal import RevealMode
 from scoreanim.core.animation.style import ElementStyle
-from scoreanim.core.project.document import ProjectDoc
+from scoreanim.core.project.document import ProjectDoc, StaffGroup
 from scoreanim.core.project.stage_config import PresentationMode
 from scoreanim.core.score.identity import Beats, ElementId, PartId
 from scoreanim.core.timing.swing import SwingRegion, validate_regions
@@ -413,6 +413,103 @@ class SetPresentationMode(Command):
 
     def describe(self) -> str:
         return "set presentation mode"
+
+
+# ---------------------------------------------------------------------------
+# staff groups (Phase 8)
+# ---------------------------------------------------------------------------
+
+# MusicXML group-symbol vocabulary ("none" excluded: removing the group
+# is what RemoveStaffGroup is for)
+_GROUP_SYMBOLS = frozenset({"bracket", "brace", "line", "square"})
+
+
+def _validated_groups(groups: tuple[StaffGroup, ...],
+                      part_order: tuple[PartId, ...]
+                      ) -> tuple[StaffGroup, ...]:
+    """Validate against the score's part order (runtime data — the doc
+    stores intent only, so the UI supplies the order, like
+    SetGlobalSwing.end_beat) and normalize by first-part position so
+    the prep-seam injection order is deterministic regardless of the
+    order groups were added in."""
+    index = {pid: i for i, pid in enumerate(part_order)}
+    claimed: dict[PartId, int] = {}
+    for g_i, group in enumerate(groups):
+        if not group.parts:
+            raise CommandError("staff group has no parts")
+        if group.symbol not in _GROUP_SYMBOLS:
+            raise CommandError(
+                f"bad group symbol {group.symbol!r} "
+                f"(want one of {'/'.join(sorted(_GROUP_SYMBOLS))})")
+        if len(set(group.parts)) != len(group.parts):
+            raise CommandError(f"duplicate part in group {group.parts}")
+        for pid in group.parts:
+            if pid not in index:
+                raise CommandError(f"unknown part {pid!r}")
+            if pid in claimed:
+                raise CommandError(f"part {pid!r} is already in "
+                                   f"another staff group")
+            claimed[pid] = g_i
+        positions = [index[pid] for pid in group.parts]
+        if positions != list(range(positions[0], positions[0] + len(positions))):
+            raise CommandError("staff group parts must be contiguous "
+                               f"in score order, got {group.parts}")
+    return tuple(sorted(groups, key=lambda g: index[g.parts[0]]))
+
+
+def _group_at(doc: ProjectDoc, group_index: int) -> StaffGroup:
+    if not 0 <= group_index < len(doc.staff_groups):
+        raise CommandError(f"no staff group #{group_index}")
+    return doc.staff_groups[group_index]
+
+
+@dataclass(frozen=True)
+class AddStaffGroup(Command):
+    """Grouped staves get a bracket/brace and (optionally) joined
+    barlines, re-derived by <part-group> injection at the prep seam —
+    the doc stores only this intent (rule 5)."""
+    group: StaffGroup
+    part_order: tuple[PartId, ...]     # score order, from the loaded score
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        groups = _validated_groups(doc.staff_groups + (self.group,),
+                                   self.part_order)
+        return replace(doc, staff_groups=groups)
+
+    def describe(self) -> str:
+        return "add staff group"
+
+
+@dataclass(frozen=True)
+class EditStaffGroup(Command):
+    index: int                         # position in doc.staff_groups
+    group: StaffGroup
+    part_order: tuple[PartId, ...]
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        _group_at(doc, self.index)
+        groups = tuple(self.group if i == self.index else g
+                       for i, g in enumerate(doc.staff_groups))
+        return replace(doc,
+                       staff_groups=_validated_groups(groups,
+                                                      self.part_order))
+
+    def describe(self) -> str:
+        return "edit staff group"
+
+
+@dataclass(frozen=True)
+class RemoveStaffGroup(Command):
+    index: int
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        _group_at(doc, self.index)
+        groups = tuple(g for i, g in enumerate(doc.staff_groups)
+                       if i != self.index)
+        return replace(doc, staff_groups=groups)
+
+    def describe(self) -> str:
+        return "remove staff group"
 
 
 # ---------------------------------------------------------------------------

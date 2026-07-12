@@ -39,6 +39,8 @@ class ElementKind(enum.Enum):
     METER_SIG = enum.auto()
     BARLINE = enum.auto()
     STAFF_LINES = enum.auto()
+    GROUP_SYMBOL = enum.auto()           # staff-group bracket/brace ink
+                                         # (Phase 8) — static, untinted
     LEDGER_LINES = enum.auto()           # per-dash, note-owned (BACKLOG 6)
     LYRIC = enum.auto()
     CHORD_SYMBOL = enum.auto()

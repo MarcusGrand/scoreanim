@@ -18,6 +18,12 @@ See `spikes/NOTES.md` for the full investigation of each.
    barlines through the group; see `spikes/NOTES.md` "v2 scoping
    probes"). No Dorico re-export needed; render-side synthesis rejected
    (group-barline connectors need engraving collision avoidance).
+   **BUILT 2026-07-12 (Phase 8)**: groups defined in-app (Parts → Staff
+   Groups…), stored as intent (`staff_groups`, schema v3 — no bump),
+   injected at the prep seam, undoable (Add/Edit/RemoveStaffGroup);
+   ElementId stability across the grouped re-engrave pinned by test
+   (which also discharges item 5's "verify" note). Closes with the
+   Phase 8 exit-criteria run.
 2. **m. 19 guitar slash notehead renders wrong** (stack of strokes instead
    of a slash). Priority: medium, cosmetic.
 3. **"Swing ♩ = 120" renders with a tofu box** before the note glyph.

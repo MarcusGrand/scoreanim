@@ -1,5 +1,60 @@
 # Spike & build notes
 
+## Phase 8 — part-group injection (`spikes/part_group.py`, 2026-07-12)
+
+The proper re-do of the v2 scoping probe (task 8.1). Measured on verovio
+6.2.1 against `testdata/testscore.musicxml`, production adapter options
+(header none, xmlIdSeed 42, concert pitch, octave-only transposes
+neutralized). Variants: baseline; P1–P2 bracket+joined (the sax group);
+P1–P3 bracket+joined (the scoping-probe group); P1–P2 brace / line /
+square. Artifacts: `spikes/out/partgroup-*-page-*.svg` (+ page-1 PNGs
+for baseline and P1–P2-bracket, rasterized via headless Chrome — no
+rsvg/cairosvg on this machine; QtSvg can't render Verovio SVG).
+
+- **Injection works for all four symbols.** `<part-group type="start">`
+  with `<group-symbol>`/`<group-barline>` before the first grouped
+  `<score-part>` + `type="stop"` after the last → Verovio renders the
+  group symbol AND joins barlines through the group (visible in
+  `partgroup-P1-P2-bracket-page-1.png`: bracket on the two sax staves,
+  connectors through the inter-staff gap). In MEI the injected group is
+  a nested `staffGrp` with `bar.thru='true'`.
+- **`grpSym` is the ONLY new SVG class token, for all four symbols**
+  (census over all pages vs baseline). One per system per group (5 on
+  the fixture: systems 1/2,3/4,5), always id-bearing, always a direct
+  child of the system `<g>`. Ink: 2 `<use>` (end-cap glyphs) + 1
+  `<rect>` (body) for bracket — `use`/`rect` are both handled drawable
+  tags. Census noise worth recording: the id-less broken-tie
+  continuation segments carry class strings like `tie id-XXX spanning`,
+  and those embedded pseudo-ids CHANGED between baseline and grouped
+  renders — **fixed `xmlIdSeed` gives same-input determinism only; any
+  input change (the injection) re-rolls every Verovio id** (m1 barLine:
+  `p1l81zsh` → `r10709ff`). Our ElementIds are minted from musical
+  identity precisely so this doesn't matter; the 8.3 pin test asserts
+  it.
+- **grpSym does NOT cross-reference the MEI `staffGrp`** (neither
+  staffGrp id appears anywhere in the SVG). Identity must come from our
+  own injection knowledge: grpSyms within a system, ordered by y, map
+  1:1 to the injected groups sorted by first-part index. Geometry
+  confirms the mapping is trustworthy: page-1 bracket y-extent 827–3741
+  vs grouped staves at 884–2234 / 2964–3924 — brackets its staves
+  exactly, clear of staff 3 (4738+).
+- **Connector segments land INSIDE the measure's existing id-bearing
+  `<g class="barLine">` group — outcome A.** m1 baseline: 14 paths
+  (7 staves × 2); P1–P3 grouped: 20 paths — new spans 1604–2964 (P1–P2
+  gap) and 3684–4277 + 4729–4978 (P2–P3 gap **split around an
+  obstacle**, reproducing the scoping observation). Zero id-less
+  barLine groups anywhere. So the decomposer needs NO connector
+  handling: the paths fold into the existing BARLINE elements, whose
+  bboxes simply grow. The B1 silent-absorption / B2 orphan-raise
+  scenarios do not occur.
+- **No left-margin shift on this fixture**: staff-lines min-x is 3045
+  for every variant (delta 0), and overall ink min-x is unchanged. The
+  bracket (x 2865–2955 on system 1; 2121–2211 on later, abbreviated-
+  label systems) fits inside the existing part-label margin. The
+  accepted-staleness note for dx/dy overrides stands but is moot here —
+  grouped and ungrouped geometry are identical except for the added
+  ink.
+
 ## v2 scoping probes (2026-07-12 — session-inline; re-do the part-group probe as a proper spike at Phase 8 start)
 
 Measured during the v2 scoping session (assessment only, nothing

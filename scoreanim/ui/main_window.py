@@ -41,6 +41,7 @@ from scoreanim.core.project import (DEFAULT_BPM, SUFFIX, ApplyTaps, FileRef,
 from scoreanim.core.project import save_project as write_project_file
 from scoreanim.core.score.identity import PartId
 from scoreanim.core.score.join import join_notes
+from scoreanim.core.score.musicxml_prep import PartGroupSpec
 from scoreanim.core.score.model import build_score_model
 from scoreanim.core.timing import (TempoEvent, TempoMap, parse_tempo_file,
                                    resolve_seconds)
@@ -53,6 +54,7 @@ from scoreanim.ui.app_state import AppState
 from scoreanim.ui.export_dialog import ExportDialog
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
+from scoreanim.ui.staff_groups_dialog import StaffGroupsDialog
 from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.taps import TapRecorder
 from scoreanim.ui.tempo_lane import TempoLaneView
@@ -82,6 +84,8 @@ class MainWindow(QMainWindow):
         self._system = 1
         self._band_by_system: dict = {}              # derived, never saved
         self._applied_mode = PresentationMode.PAGED  # what the view shows
+        self._applied_groups: tuple = ()   # staff groups the engrave used
+        self._parts: tuple = ()            # PartInfos of the loaded score
         self._score_name: str | None = None
         self._project_path: Path | None = None
         self._tempo_path: Path | None = None
@@ -450,6 +454,14 @@ class MainWindow(QMainWindow):
 
     def _on_document_changed(self) -> None:
         doc = self.app_state.doc
+        # staff groups are engraving inputs: a change (execute, undo, OR
+        # redo — all arrive here) re-derives the engraved world FIRST,
+        # so the sync below re-pushes timing/tints/floor onto the fresh
+        # scenes in the same pass. The diff keeps every other command at
+        # its current cost.
+        if (self._scenes is not None and doc.score is not None
+                and doc.staff_groups != self._applied_groups):
+            self._reengrave(doc)
         self.playback.set_timing_config(*self._timing_config(doc))
         self._sync_styles(doc)
         self.playback.set_style(doc.style)
@@ -553,6 +565,10 @@ class MainWindow(QMainWindow):
         self._part_effect_actions = {}
         self._applied_colors = {}
         self._applied_overrides = {}
+        groups_action = QAction("Staff Groups…", self._parts_menu)
+        groups_action.triggered.connect(self._open_staff_groups_dialog)
+        self._parts_menu.addAction(groups_action)
+        self._parts_menu.addSeparator()
         for info in parts:
             pid = PartId(info.part_id)
             menu = self._parts_menu.addMenu(info.name)
@@ -703,8 +719,10 @@ class MainWindow(QMainWindow):
                 return
             warnings.append(score_warning)
 
+        # groups engrave here once; the reset_document below finds
+        # _applied_groups already equal — no double engrave
         self._load_score(Path(doc.score.path), doc.engraving,
-                         stage=doc.stage)
+                         stage=doc.stage, groups=doc.staff_groups)
         self._project_path = path
         self._score_name = path.name
         self._tempo_path = None
@@ -725,11 +743,36 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Open project", "\n".join(warnings))
 
     def _load_score(self, path: Path, params: EngravingParams,
-                    stage: StageConfig | None) -> StageConfig:
+                    stage: StageConfig | None,
+                    groups: tuple = ()) -> StageConfig:
+        """Fresh-load entry: engrave + wire, then reset to page 1."""
+        stage = self._engrave_and_wire(path, params, stage, groups)
+        self._page = 1
+        self._system = 1
+        return stage
+
+    def _reengrave(self, doc: ProjectDoc) -> None:
+        """Re-derive the engraved world after a staff-group change,
+        preserving page/system/zoom (no view.fit, no position reset).
+        ~0.6 s on the GUI thread per call (engrave + scene rebuild), so
+        group commands must arrive via execute(), never preview()."""
+        self._engrave_and_wire(Path(doc.score.path), doc.engraving,
+                               doc.stage, doc.staff_groups)
+        self._show_current()             # install the fresh scene
+
+    def _engrave_and_wire(self, path: Path, params: EngravingParams,
+                          stage: StageConfig | None,
+                          groups: tuple = ()) -> StageConfig:
         """Engrave + decompose + join + wire the animation. Returns the
-        stage config used (seeded from the score's credits when None)."""
+        stage config used (seeded from the score's credits when None).
+        `groups` is doc.staff_groups — injected as <part-group> at the
+        prep seam; geometry re-derives, ids survive (rule 5, Phase 8)."""
+        specs = tuple(PartGroupSpec(parts=g.parts, symbol=g.symbol,
+                                    join_barlines=g.join_barlines)
+                      for g in groups)
         t0 = time.perf_counter()
-        engraved = VerovioEngravingProvider().load_detailed(path, params)
+        engraved = VerovioEngravingProvider().load_detailed(path, params,
+                                                            specs)
         t1 = time.perf_counter()
         if stage is None:
             stage = default_stage_config(engraved.prepared,
@@ -769,12 +812,12 @@ class MainWindow(QMainWindow):
         # — derived from the Layout, never persisted (rule 5)
         self._band_by_system = {b.system: b
                                 for b in system_bands(engraved.layout)}
-        self._page = 1
-        self._system = 1
         self.app_state.set_measures(model.measures)
         t3 = time.perf_counter()
 
+        self._parts = engraved.prepared.parts
         self._build_parts_menu(engraved.prepared.parts)
+        self._applied_groups = groups
 
         self.statusBar().showMessage(
             f"engrave+decompose {t1 - t0:.2f}s · scene build {t2 - t1:.2f}s · "
@@ -782,6 +825,13 @@ class MainWindow(QMainWindow):
             f"{len(self._scenes.items)} elements on "
             f"{self._scenes.page_count} pages{join_note}")
         return stage
+
+    # -- staff groups ------------------------------------------------------------
+
+    def _open_staff_groups_dialog(self) -> None:
+        if not self._parts:
+            return
+        StaffGroupsDialog(self.app_state, self._parts, parent=self).exec()
 
     # -- export --------------------------------------------------------------------
 

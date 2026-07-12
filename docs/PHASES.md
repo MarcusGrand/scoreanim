@@ -497,36 +497,69 @@ Ruling 2026-07-12 (v2 scoping): brackets go through the ENGRAVING
 INPUTS — `<part-group>` injection at the prep seam — not render-side
 synthesis. Decisive fact: baseline barlines are per-staff segments, and
 Verovio's group-barline connectors split around obstacles; render-side
-joining would reimplement engraving collision avoidance. Verified at
-scoping (scratchpad probe, to be re-done properly in `spikes/` as task
-8.1): injection renders a `grpSym` bracket and joins barlines through
-the group; engrave+decompose costs 0.23 s. **Closes BACKLOG 1** (sax
-bracket, "before first production use"). The document stores the
-GROUPINGS (user intent); bracket geometry is re-derived — rule 5 holds.
+joining would reimplement engraving collision avoidance. **Closes
+BACKLOG 1** (sax bracket, "before first production use"). The document
+stores the GROUPINGS (user intent); bracket geometry is re-derived —
+rule 5 holds.
 
-- [ ] **8.1 Part-group spike, properly** (re-do of the scoping probe,
-      house style, kept in `spikes/`): injection → grpSym + group
-      barlines on the fixture; record segment/obstacle behavior and
-      bracket left-margin geometry shift in `spikes/NOTES.md`.
-- [ ] **8.2 Adapter grpSym support**: map the class to a static kind
-      with sensible identity (unknown SVG classes raise ValueError
-      today — without this, grouped scores refuse to load). Verify:
-      grouped fixture loads headless; grpSym elements are static (not
-      animated, not tinted).
-- [ ] **8.3 staff_groups → prep injection**: doc field (ordered groups
-      of contiguous parts + symbol + joined-barlines flag; v3 field
-      from 7.1) applied as `<part-group>` elements at the prep seam
-      (musicxml_prep, alongside transpose neutralization). **Pin ID
-      stability**: ElementIds are minted from musical identity — assert
-      byte-equal ids with and without grouping (also discharges the
-      BACKLOG 5 "verify" note). Verify: headless.
-- [ ] **8.4 Command + UI + reload**: SetStaffGroups undoable; grouping
-      dialog (parts in score order, symbol, barline flag); group change
-      → re-engrave + scene rebuild (same path as project open; 0.23 s
-      measured); layout overrides re-apply as deltas on the shifted
-      base (accepted staleness — the bracket consumes left-margin
-      width). Verify: define the sax group in-app, bracket + joined
-      barlines appear, undo removes them, save/reload round-trips.
+Build complete 2026-07-12 (330 headless tests green; 25/25 scripted
+exit checks on the real MainWindow offscreen). Rulings at plan review
+(2026-07-12): commands are the **Add/Edit/RemoveStaffGroup triad**
+(supersedes this plan's earlier "SetStaffGroups" wording); the grouping
+dialog **applies per action** (each Add/Edit/Remove executes
+immediately — one undo step each, live re-engrave behind the open
+dialog, Close-only); the symbol combo offers **all four** MusicXML
+symbols (bracket/brace/line/square — spike-verified: all four emit the
+same single new SVG class). Spike facts (spikes/NOTES.md "Phase 8"):
+grpSym is the ONLY new class, id-bearing, one per system per group, no
+MEI staffGrp cross-ref; connector paths fold into the measure's
+existing id-bearing barLine group (obstacle-split reproduced), so the
+decomposer needed NO connector handling; staff-lines min-x is unchanged
+by the bracket on the fixture (it fits inside the label margin — no
+override-staleness exposure at all).
+
+- [x] **8.1 Part-group spike, properly** (`spikes/part_group.py`):
+      injection → grpSym + group barlines on the fixture, all four
+      symbols; segment/obstacle behavior, class census, and margin
+      geometry recorded in `spikes/NOTES.md`.
+- [x] **8.2 Adapter grpSym support**: `ElementKind.GROUP_SYMBOL`
+      (static by construction — every animation/tint/reveal set is an
+      allowlist), `_KIND_BY_CLASS["grpSym"]`, and a dedicated
+      `_identity_for` branch minting part-span-keyed ids
+      (`score:sys{n}:grpsym:P1-P2` — the k-th grpSym in a system is the
+      k-th group in first-part score order; ordinal fallback for
+      native/foreign part-groups). `groups` threaded through
+      `EngravingProvider.load` → `load_detailed` → `prepare`. Verified:
+      tests/test_adapter_groups.py (loads losslessly, 5 static grpSyms
+      with system stamps, deterministic ids, joined barlines fill the
+      P1–P2 gap while lower gaps stay empty).
+- [x] **8.3 staff_groups → prep injection**: `PartGroupSpec` (neutral
+      prep-seam twin of StaffGroup) + `_inject_part_groups` in
+      musicxml_prep, alongside transpose neutralization; numbering
+      continues past any existing part-groups; ValueError on
+      unknown/non-contiguous parts (defense in depth behind the
+      commands). **ID stability pinned**:
+      test_element_ids_stable_under_grouping asserts the grouped id set
+      equals baseline + grpSym ids exactly (discharges the BACKLOG 5
+      "verify" note — and the spike showed every VEROVIO id re-rolls on
+      injection even with a fixed seed, which is precisely why ours
+      must not). Verify: headless, tests/test_musicxml_prep.py.
+- [x] **8.4 Commands + UI + reload**: Add/Edit/RemoveStaffGroup with
+      `part_order` as runtime data on the command (the
+      SetGlobalSwing.end_beat precedent — the doc stores intent only);
+      validation in apply (contiguity, overlap ⇒ nesting excluded in
+      v1, symbol vocabulary), normalized by first-part score order so
+      injection order is deterministic. Staff Groups… dialog atop the
+      Parts menu (manager list + From/To part combos — contiguity by
+      construction). Reload: `_engrave_and_wire` extracted from
+      `_load_score`; `_applied_groups` diff-guard at the TOP of
+      `_on_document_changed` re-engraves on execute, undo, AND redo
+      before the same pass re-pushes timing/tints/floor; page, system,
+      and zoom preserved (no view.fit); open_project engraves grouped
+      exactly once (guard sees equal groups after reset_document);
+      non-group commands never re-engrave (pinned in the exit run).
+      Cost on screen: ~0.6 s GUI-thread stall per group change (0.23 s
+      engrave + scene rebuild), status bar re-prints the timings.
 
 **Exit criteria**: the sax section bracket and its joined barlines
 render on the fixture, defined interactively in-app, undoable,

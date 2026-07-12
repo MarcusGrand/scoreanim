@@ -295,6 +295,100 @@ def test_floor_opacity_undo_round_trip(doc) -> None:
     assert stack.undo_text() == "set floor opacity"
 
 
+# -- staff groups (Phase 8) ---------------------------------------------------
+
+PART_ORDER = tuple(PartId(f"P{i}") for i in range(1, 8))   # the fixture's 7
+
+
+def _grp(*parts: str, symbol: str = "bracket",
+         join: bool = True) -> "StaffGroup":
+    from scoreanim.core.project import StaffGroup
+    return StaffGroup(parts=tuple(PartId(p) for p in parts),
+                      symbol=symbol, join_barlines=join)
+
+
+def test_add_staff_group(doc) -> None:
+    from scoreanim.core.project import AddStaffGroup
+
+    out = AddStaffGroup(_grp("P1", "P2"), PART_ORDER).apply(doc)
+    assert out.staff_groups == (_grp("P1", "P2"),)
+    assert doc.staff_groups == ()                    # apply is pure
+
+
+def test_add_staff_group_sorts_by_score_order(doc) -> None:
+    from scoreanim.core.project import AddStaffGroup
+
+    d1 = AddStaffGroup(_grp("P4", "P5"), PART_ORDER).apply(doc)
+    d2 = AddStaffGroup(_grp("P1", "P2"), PART_ORDER).apply(d1)
+    assert d2.staff_groups == (_grp("P1", "P2"), _grp("P4", "P5"))
+
+
+def test_add_staff_group_validation(doc) -> None:
+    from scoreanim.core.project import AddStaffGroup
+
+    with pytest.raises(CommandError, match="no parts"):
+        AddStaffGroup(_grp(), PART_ORDER).apply(doc)
+    with pytest.raises(CommandError, match="contiguous"):
+        AddStaffGroup(_grp("P1", "P3"), PART_ORDER).apply(doc)
+    with pytest.raises(CommandError, match="contiguous"):
+        AddStaffGroup(_grp("P2", "P1"), PART_ORDER).apply(doc)
+    with pytest.raises(CommandError, match="unknown part"):
+        AddStaffGroup(_grp("P1", "P99"), PART_ORDER).apply(doc)
+    with pytest.raises(CommandError, match="duplicate part"):
+        AddStaffGroup(_grp("P1", "P1"), PART_ORDER).apply(doc)
+    with pytest.raises(CommandError, match="bad group symbol"):
+        AddStaffGroup(_grp("P1", "P2", symbol="curly"), PART_ORDER).apply(doc)
+
+
+def test_add_staff_group_rejects_overlap(doc) -> None:
+    from scoreanim.core.project import AddStaffGroup
+
+    d1 = AddStaffGroup(_grp("P1", "P2"), PART_ORDER).apply(doc)
+    with pytest.raises(CommandError, match="already in another"):
+        AddStaffGroup(_grp("P2", "P3"), PART_ORDER).apply(d1)
+
+
+def test_edit_staff_group(doc) -> None:
+    from scoreanim.core.project import AddStaffGroup, EditStaffGroup
+
+    d1 = AddStaffGroup(_grp("P1", "P2"), PART_ORDER).apply(doc)
+    # overlap with ITSELF is fine — editing symbol/span in place
+    d2 = EditStaffGroup(0, _grp("P1", "P2", symbol="brace", join=False),
+                        PART_ORDER).apply(d1)
+    assert d2.staff_groups == (_grp("P1", "P2", symbol="brace", join=False),)
+    with pytest.raises(CommandError, match="no staff group #3"):
+        EditStaffGroup(3, _grp("P1", "P2"), PART_ORDER).apply(d1)
+
+
+def test_edit_staff_group_rejects_overlap_with_others(doc) -> None:
+    from scoreanim.core.project import AddStaffGroup, EditStaffGroup
+
+    d1 = AddStaffGroup(_grp("P1", "P2"), PART_ORDER).apply(doc)
+    d2 = AddStaffGroup(_grp("P4", "P5"), PART_ORDER).apply(d1)
+    with pytest.raises(CommandError, match="already in another"):
+        EditStaffGroup(1, _grp("P2", "P3"), PART_ORDER).apply(d2)
+
+
+def test_remove_staff_group(doc) -> None:
+    from scoreanim.core.project import AddStaffGroup, RemoveStaffGroup
+
+    d1 = AddStaffGroup(_grp("P1", "P2"), PART_ORDER).apply(doc)
+    assert RemoveStaffGroup(0).apply(d1).staff_groups == ()
+    with pytest.raises(CommandError, match="no staff group #1"):
+        RemoveStaffGroup(1).apply(d1)
+
+
+def test_staff_group_undo_round_trip(doc) -> None:
+    from scoreanim.core.project import AddStaffGroup
+
+    stack = UndoStack()
+    d1 = stack.execute(AddStaffGroup(_grp("P1", "P2"), PART_ORDER), doc)
+    assert d1.staff_groups == (_grp("P1", "P2"),)
+    assert stack.undo_text() == "add staff group"
+    assert stack.undo() == doc
+    assert stack.redo() == d1
+
+
 # -- undo stack ---------------------------------------------------------------
 
 def test_stack_execute_undo_redo(doc) -> None:

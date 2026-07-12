@@ -28,8 +28,8 @@ from scoreanim.core.engraving.types import (TRANSPOSE_TO_SOUNDING_PITCH,
                                             TextRun)
 from scoreanim.core.score.identity import (Beats, ElementId, ElementIdentity,
                                            ElementKind, PartId)
-from scoreanim.core.score.musicxml_prep import (PartInfo, PreparedScore,
-                                                prepare)
+from scoreanim.core.score.musicxml_prep import (PartGroupSpec, PartInfo,
+                                                PreparedScore, prepare)
 
 _MEI_NS = "{http://www.music-encoding.org/ns/mei}"
 _SVG_NS = "{http://www.w3.org/2000/svg}"
@@ -80,6 +80,11 @@ _KIND_BY_CLASS: dict[str, ElementKind] = {
     "octave": ElementKind.OTHER,
     "breath": ElementKind.OTHER,
     "system": ElementKind.OTHER,        # owns only the systemic barline path
+    "grpSym": ElementKind.GROUP_SYMBOL,  # staff-group bracket/brace (Phase 8);
+                                         # joined-barline connector paths land
+                                         # inside the ordinary barLine groups
+                                         # (spikes/NOTES.md Phase 8), so no
+                                         # further class is needed
 }
 
 # Transparent grouping classes: never emitted, provide context only.
@@ -625,6 +630,8 @@ class _LoadState:
     measure_duration: dict[int, Beats]       # from timemap start deltas
     staff_n_by_id: dict[str, int]
     layer_n_by_id: dict[str, int]
+    groups: tuple[PartGroupSpec, ...] = ()   # injected staff groups, sorted
+                                             # by first-part score order
     system_count: int = 0                    # score-wide, across pages
     system_of_measure: dict[int, int] = field(default_factory=dict)
     _glyph_bbox_cache: dict[str, Rect] = field(default_factory=dict)
@@ -642,12 +649,13 @@ class VerovioEngravingProvider(EngravingProvider):
     """MusicXML → Layout via Verovio, honoring encoded breaks and rendering
     at concert pitch (octave-only transpositions neutralized in prep)."""
 
-    def load(self, score_path: Path, params: EngravingParams) -> Layout:
-        return self.load_detailed(score_path, params).layout
+    def load(self, score_path: Path, params: EngravingParams,
+             groups: tuple[PartGroupSpec, ...] = ()) -> Layout:
+        return self.load_detailed(score_path, params, groups).layout
 
-    def load_detailed(self, score_path: Path,
-                      params: EngravingParams) -> EngravedScore:
-        prep = prepare(score_path)
+    def load_detailed(self, score_path: Path, params: EngravingParams,
+                      groups: tuple[PartGroupSpec, ...] = ()) -> EngravedScore:
+        prep = prepare(score_path, groups)
         tk = verovio.toolkit()
         tk.setOptions({
             "breaks": "encoded",
@@ -687,11 +695,16 @@ class VerovioEngravingProvider(EngravingProvider):
             for i, (n, q) in enumerate(starts)
         }
 
+        # grpSym identity maps the k-th symbol in a system to the k-th
+        # group in first-part score order, so hold them sorted.
+        part_index = {p.part_id: p.index for p in prep.parts}
         state = _LoadState(
             prep=prep, mei=mei, onset_by_id=onset_by_id,
             measure_start=measure_start, measure_duration=measure_duration,
             staff_n_by_id={vid: n.staff for vid, n in mei.notes.items()},
             layer_n_by_id={},
+            groups=tuple(sorted(groups,
+                                key=lambda g: part_index[g.parts[0]])),
         )
         # staff/layer container ids appear in both MEI and SVG; index them
         state.staff_n_by_id.update(_container_ns(tk.getMEI(), "staff"))
@@ -1057,6 +1070,28 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
     kind_tag = _ID_TAG[acc.kind] if acc.svg_class != "dots" else "dots"
     if acc.svg_class == "note":
         kind_tag = "note"
+
+    if acc.kind is ElementKind.GROUP_SYMBOL:
+        # One grpSym per group per system, emitted top-to-bottom, so the
+        # k-th in a system is the k-th injected group in first-part score
+        # order (st.groups is sorted; the two-group case is pinned by
+        # geometry in tests/test_adapter_groups.py). Part-span-keyed ids
+        # survive adding/removing OTHER groups; the ordinal fallback
+        # covers symbols we did not inject (a score with native
+        # part-groups) — deterministic, but not span-keyed.
+        scope = ("grpsym", acc.system)
+        seq = counters[scope]
+        counters[scope] += 1
+        if seq < len(st.groups):
+            g = st.groups[seq]
+            span = f"{g.parts[0]}-{g.parts[-1]}"
+        else:
+            span = f"x{seq}"
+        return ElementIdentity(
+            element_id=ElementId(f"score:sys{acc.system}:grpsym:{span}"),
+            kind=acc.kind, part=None, part_name=None, staff=None,
+            voice=None, onset=None, extent=None,
+        )
 
     # staff: from SVG nesting; measure-attached elements (dynam, dir…)
     # carry it as an MEI @staff attribute; spanners inherit their start
