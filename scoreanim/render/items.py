@@ -64,6 +64,11 @@ class ElementItem(GroupItem):
         self.bbox = bbox
         self.anchor = anchor
         self.system = system
+        if anchor is not None:
+            # scale/pop transforms pivot on the element's stored anchor
+            # (page == scene == item-local coords; the parent itself
+            # carries no transform)
+            self.setTransformOriginPoint(anchor)
         self._color = QColor(DEFAULT_COLOR)
         # (item, fill tracks element color, stroke tracks element color)
         self._tracked: list[tuple[QGraphicsItem, bool, bool]] = []

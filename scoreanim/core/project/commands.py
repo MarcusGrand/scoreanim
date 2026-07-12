@@ -19,8 +19,9 @@ import re
 from dataclasses import dataclass, replace
 
 from scoreanim.core.animation.reveal import RevealMode
+from scoreanim.core.animation.style import ElementStyle
 from scoreanim.core.project.document import ProjectDoc
-from scoreanim.core.score.identity import Beats, PartId
+from scoreanim.core.score.identity import Beats, ElementId, PartId
 from scoreanim.core.timing.swing import SwingRegion, validate_regions
 from scoreanim.core.timing.taps import TapSession
 from scoreanim.core.timing.tempo_map import TempoEvent, TempoMap
@@ -289,24 +290,77 @@ class RemoveSwingRegion(Command):
 # style
 # ---------------------------------------------------------------------------
 
+def _merge_rule(rules: dict, key, color=..., effect=...) -> dict:
+    """Field-wise update of one ElementStyle entry; empty entries are
+    dropped so the doc stays sparse. ``...`` = leave the field alone."""
+    current = rules.get(key, ElementStyle())
+    updated = ElementStyle(
+        color=current.color if color is ... else color,
+        effect=current.effect if effect is ... else effect,
+    )
+    if updated.is_empty:
+        rules.pop(key, None)
+    else:
+        rules[key] = updated
+    return rules
+
+
 @dataclass(frozen=True)
 class SetPartColor(Command):
     part: PartId
     color: str | None            # "#rrggbb" | None = back to default
 
     def apply(self, doc: ProjectDoc) -> ProjectDoc:
-        colors = dict(doc.style.part_colors)
-        if self.color is None:
-            colors.pop(self.part, None)
-        else:
-            if not _HEX_COLOR.match(self.color):
-                raise CommandError(f"bad color {self.color!r} "
-                                   f"(want #rrggbb)")
-            colors[self.part] = self.color
-        return replace(doc, style=replace(doc.style, part_colors=colors))
+        if self.color is not None and not _HEX_COLOR.match(self.color):
+            raise CommandError(f"bad color {self.color!r} (want #rrggbb)")
+        parts = _merge_rule(dict(doc.style.parts), self.part,
+                            color=self.color)
+        return replace(doc, style=replace(doc.style, parts=parts))
 
     def describe(self) -> str:
         return "set part color"
+
+
+@dataclass(frozen=True)
+class SetPartEffect(Command):
+    part: PartId
+    effect: str | None           # preset name | None = default effect
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if self.effect is not None and not self.effect.strip():
+            raise CommandError("empty effect name")
+        parts = _merge_rule(dict(doc.style.parts), self.part,
+                            effect=self.effect)
+        return replace(doc, style=replace(doc.style, parts=parts))
+
+    def describe(self) -> str:
+        return "set part effect"
+
+
+@dataclass(frozen=True)
+class SetElementStyle(Command):
+    """Per-element override rule — higher priority than the part rule.
+    No editing UI yet in Phase 5 (needs click-to-select); the model,
+    command, and serialization are the 5.3 deliverable. On a spanner
+    broken across systems this targets ONE segment (ids are
+    per-segment)."""
+    element_id: ElementId
+    style: ElementStyle | None   # None removes the override
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        elements = dict(doc.style.elements)
+        if self.style is None or self.style.is_empty:
+            elements.pop(self.element_id, None)
+        else:
+            if (self.style.color is not None
+                    and not _HEX_COLOR.match(self.style.color)):
+                raise CommandError(f"bad color {self.style.color!r} "
+                                   f"(want #rrggbb)")
+            elements[self.element_id] = self.style
+        return replace(doc, style=replace(doc.style, elements=elements))
+
+    def describe(self) -> str:
+        return "set element style"
 
 
 @dataclass(frozen=True)

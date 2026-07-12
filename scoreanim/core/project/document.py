@@ -16,10 +16,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Mapping
 
-from scoreanim.core.animation.reveal import RevealMode
+from scoreanim.core.animation.style import StyleRules
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.stage_config import StageConfig
-from scoreanim.core.score.identity import Beats, ElementId, PartId
+from scoreanim.core.score.identity import Beats, ElementId
 from scoreanim.core.timing.swing import SwingRegion
 from scoreanim.core.timing.taps import TapSession
 from scoreanim.core.timing.tempo_map import TempoEvent
@@ -50,14 +50,10 @@ class TimingConfig:
     tap_sessions: tuple[TapSession, ...] = ()   # raw taps, kept (rule 5)
 
 
-@dataclass(frozen=True)
-class StyleConfig:
-    """The minimal styling that exists today (Parts tint menu + reveal
-    mode). The rule-based StyleRules engine is Phase 5.3."""
-    part_colors: Mapping[PartId, str] = field(default_factory=dict)
-    # part id → "#rrggbb"; absent key = default (untinted)
-    reveal_mode: RevealMode = RevealMode.STEPPED
-
+# Styling is the rule-based StyleRules model (core/animation/style.py):
+# per-part color/effect rules + per-element overrides + reveal mode.
+# It subsumed Phase 2's StyleConfig.part_colors in Phase 5.3; legacy
+# files migrate at load (serialize.py).
 
 @dataclass(frozen=True)
 class ProjectDoc:
@@ -67,9 +63,9 @@ class ProjectDoc:
     layout_overrides: Mapping[ElementId, LayoutOverride] = \
         field(default_factory=dict)
     timing: TimingConfig = field(default_factory=TimingConfig)
-    style: StyleConfig = field(default_factory=StyleConfig)
+    style: StyleRules = field(default_factory=StyleRules)
     stage: StageConfig = field(default_factory=StageConfig)
 
 
 __all__ = ["DEFAULT_BPM", "FileRef", "LayoutOverride", "ProjectDoc",
-           "StyleConfig", "TimingConfig", "Beats"]
+           "StyleRules", "TimingConfig", "Beats"]

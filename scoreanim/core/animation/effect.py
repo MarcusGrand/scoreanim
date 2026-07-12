@@ -19,6 +19,7 @@ from typing import Mapping, NewType
 PropertyId = NewType("PropertyId", str)
 
 OPACITY = PropertyId("opacity")
+SCALE = PropertyId("scale")     # factor around the element's stored anchor
 
 
 class Easing(enum.Enum):
@@ -64,6 +65,14 @@ class Effect:
 
     def state_at(self, t_rel: float) -> dict[PropertyId, float]:
         return {pid: env.value_at(t_rel) for pid, env in self.tracks.items()}
+
+    @property
+    def duration(self) -> float:
+        """Last keyframe time across all tracks: 0 for pure step effects;
+        positive for timed effects, which need re-evaluation within
+        [trigger, trigger + duration] (the applier's transition window)."""
+        return max((kf.t_rel for env in self.tracks.values()
+                    for kf in env.keyframes), default=0.0)
 
 
 def appear(floor: float) -> Effect:

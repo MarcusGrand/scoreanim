@@ -195,14 +195,50 @@ def test_swing_validation(doc) -> None:
 # -- style --------------------------------------------------------------------
 
 def test_set_part_color_and_reset(doc) -> None:
+    from scoreanim.core.animation import ElementStyle
+
     p3 = PartId("P3")
     out = SetPartColor(p3, "#cc2222").apply(doc)
-    assert out.style.part_colors == {p3: "#cc2222"}
-    assert doc.style.part_colors == {}
+    assert out.style.parts == {p3: ElementStyle(color="#cc2222")}
+    assert doc.style.parts == {}
     back = SetPartColor(p3, None).apply(out)
-    assert back.style.part_colors == {}
+    assert back.style.parts == {}                # empty rules are dropped
     with pytest.raises(CommandError):
         SetPartColor(p3, "red").apply(doc)
+
+
+def test_part_color_and_effect_merge_fieldwise(doc) -> None:
+    """Color and effect edits on one part update ONE rule; clearing one
+    field keeps the other."""
+    from scoreanim.core.animation import ElementStyle
+    from scoreanim.core.project import SetPartEffect
+
+    p1 = PartId("P1")
+    out = SetPartColor(p1, "#cc2222").apply(doc)
+    out = SetPartEffect(p1, "pop").apply(out)
+    assert out.style.parts == {p1: ElementStyle(color="#cc2222",
+                                                effect="pop")}
+    out = SetPartColor(p1, None).apply(out)
+    assert out.style.parts == {p1: ElementStyle(effect="pop")}
+    out = SetPartEffect(p1, None).apply(out)
+    assert out.style.parts == {}
+    with pytest.raises(CommandError):
+        SetPartEffect(p1, "  ").apply(doc)
+
+
+def test_set_element_style_override(doc) -> None:
+    from scoreanim.core.animation import ElementStyle
+    from scoreanim.core.project import SetElementStyle
+    from scoreanim.core.score.identity import ElementId
+
+    eid = ElementId("P1:m3:s1:v1:note:0")
+    style = ElementStyle(color="#00aa00", effect="pop")
+    out = SetElementStyle(eid, style).apply(doc)
+    assert out.style.elements == {eid: style}
+    back = SetElementStyle(eid, None).apply(out)
+    assert back.style.elements == {}
+    with pytest.raises(CommandError):
+        SetElementStyle(eid, ElementStyle(color="green")).apply(doc)
 
 
 def test_set_reveal_mode(doc) -> None:
@@ -213,7 +249,7 @@ def test_set_reveal_mode(doc) -> None:
     out = SetRevealMode(RevealMode.CONTINUOUS).apply(doc)
     assert out.style.reveal_mode is RevealMode.CONTINUOUS
     assert doc.style.reveal_mode is RevealMode.STEPPED
-    assert out.style.part_colors == doc.style.part_colors
+    assert out.style.parts == doc.style.parts
     with pytest.raises(CommandError):
         SetRevealMode("continuous").apply(doc)   # type: ignore[arg-type]
 

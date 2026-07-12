@@ -9,10 +9,10 @@ import pytest
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project import (FileRef, LayoutOverride, ProjectDoc,
                                     StageConfig, StageTextElement,
-                                    StyleConfig, TimingConfig, check_ref,
+                                    StyleRules, TimingConfig, check_ref,
                                     from_dict, load_project, save_project,
                                     sha256_of, to_dict)
-from scoreanim.core.animation import RevealMode
+from scoreanim.core.animation import ElementStyle, RevealMode
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.core.timing import SwingRegion, Tap, TapSession, TempoEvent
 
@@ -34,8 +34,14 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
             tap_sessions=(TapSession(unit=1.0, taps=(
                 Tap(24.0, 13.412), Tap(25.0, 13.955), Tap(26.0, 14.508))),),
         ),
-        style=StyleConfig(part_colors={PartId("P1"): "#cc2222"},
-                          reveal_mode=RevealMode.CONTINUOUS),
+        style=StyleRules(
+            reveal_mode=RevealMode.CONTINUOUS,
+            parts={PartId("P1"): ElementStyle(color="#cc2222",
+                                              effect="pop"),
+                   PartId("P2"): ElementStyle(effect="appear")},
+            elements={ElementId("P1:m3:s1:v1:note:0"):
+                      ElementStyle(color="#00aa00")},
+        ),
         stage=StageConfig(texts=(
             StageTextElement(element_id="stage:title", content="Det var…",
                              page=1, x=1049.0, y=80.0, anchor="middle",
@@ -84,11 +90,26 @@ def test_reveal_mode_round_trip_and_legacy_default() -> None:
     assert to_dict(doc)["style"]["reveal_mode"] == "continuous"
     assert from_dict(to_dict(doc)).style.reveal_mode \
         is RevealMode.CONTINUOUS
-    legacy = from_dict({"version": 1,
-                        "style": {"part_colors": {"P1": "#cc2222"}}})
-    assert legacy.style.reveal_mode is RevealMode.STEPPED
     with pytest.raises(ValueError, match="reveal mode"):
-        from_dict({"version": 1, "style": {"reveal_mode": "wobbly"}})
+        from_dict({"version": 2, "style": {"reveal_mode": "wobbly"}})
+
+
+def test_v1_part_colors_fold_into_style_rules() -> None:
+    """A Phase 4 project file (version 1, style.part_colors) loads with
+    its tints intact as part color rules; version 3 is refused."""
+    legacy = from_dict({"version": 1,
+                        "style": {"part_colors": {"P1": "#cc2222",
+                                                  "P4": "#1c4fd6"}}})
+    assert legacy.style.parts == {
+        PartId("P1"): ElementStyle(color="#cc2222"),
+        PartId("P4"): ElementStyle(color="#1c4fd6"),
+    }
+    assert legacy.style.reveal_mode is RevealMode.STEPPED
+    assert legacy.style.elements == {}
+    # new files declare version 2; a build from the future is refused
+    assert to_dict(ProjectDoc())["version"] == 2
+    with pytest.raises(ValueError, match="version"):
+        from_dict({"version": 3})
 
 
 def test_version_guard() -> None:

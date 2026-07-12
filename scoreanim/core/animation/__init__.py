@@ -1,6 +1,8 @@
-from scoreanim.core.animation.effect import (OPACITY, Easing, Effect,
+from scoreanim.core.animation.effect import (OPACITY, SCALE, Easing, Effect,
                                              Envelope, Keyframe, PropertyId,
                                              appear)
+from scoreanim.core.animation.presets import (DEFAULT_EFFECT, FLOOR_OPACITY,
+                                              PRESETS, effect_for)
 from scoreanim.core.animation.reveal import (ANCHOR_KINDS, REVEALED_KINDS,
                                              RevealCurve, RevealMode,
                                              SystemRevealTrack,
@@ -11,12 +13,14 @@ from scoreanim.core.animation.schedule import (ANIMATED_KINDS, Trigger,
                                                build_trigger_schedule,
                                                is_animated, quantize_beats)
 from scoreanim.core.animation.state import element_state
+from scoreanim.core.animation.style import ElementStyle, StyleRules
 
 __all__ = [
-    "ANCHOR_KINDS", "ANIMATED_KINDS", "Easing", "Effect", "Envelope",
-    "Keyframe", "OPACITY", "PropertyId", "REVEALED_KINDS", "RevealCurve",
-    "RevealMode", "SystemRevealTrack", "Trigger", "TriggerSchedule",
+    "ANCHOR_KINDS", "ANIMATED_KINDS", "DEFAULT_EFFECT", "Easing", "Effect",
+    "ElementStyle", "Envelope", "FLOOR_OPACITY", "Keyframe", "OPACITY",
+    "PRESETS", "PropertyId", "REVEALED_KINDS", "RevealCurve", "RevealMode",
+    "SCALE", "StyleRules", "SystemRevealTrack", "Trigger", "TriggerSchedule",
     "appear", "build_reveal_tracks", "build_trigger_schedule",
-    "element_state", "is_animated", "is_revealed", "quantize_beats",
-    "reveal_x",
+    "effect_for", "element_state", "is_animated", "is_revealed",
+    "quantize_beats", "reveal_x",
 ]

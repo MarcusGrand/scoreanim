@@ -11,8 +11,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from scoreanim.core.animation import (REVEALED_KINDS, RevealMode,  # noqa: E402
-                                      appear, build_reveal_tracks,
+from scoreanim.core.animation import (FLOOR_OPACITY,  # noqa: E402
+                                      REVEALED_KINDS, RevealMode, StyleRules,
+                                      build_reveal_tracks,
                                       build_trigger_schedule)
 from scoreanim.core.project.stage_config import (  # noqa: E402
     default_stage_config, page_content_top)
@@ -23,7 +24,7 @@ from scoreanim.core.timing import TempoEvent, TempoMap  # noqa: E402
 from scoreanim.render.animate import AnimationApplier  # noqa: E402
 from scoreanim.render.scene import ScoreScenes  # noqa: E402
 
-FLOOR = 0.3
+FLOOR = FLOOR_OPACITY
 BPM60 = TempoMap([TempoEvent(0.0, 60.0)])   # seconds == beats
 
 
@@ -54,8 +55,8 @@ def _make(qapp, engraved_spanners, spanner_setup,
           mode=RevealMode.STEPPED):
     scenes = _scenes(qapp, engraved_spanners)
     schedule, tracks, score_end = spanner_setup
-    applier = AnimationApplier(scenes.items, schedule, BPM60, appear(FLOOR),
-                               tracks, mode)
+    applier = AnimationApplier(scenes.items, schedule, BPM60,
+                               StyleRules(reveal_mode=mode), tracks)
     return scenes, applier, score_end
 
 
@@ -137,7 +138,7 @@ def test_stepped_holds_between_onsets_continuous_moves(
     stepped_b = _clip_states(scenes)[eid]
     assert stepped_a == stepped_b               # STEPPED holds
 
-    applier.set_reveal_mode(RevealMode.CONTINUOUS)
+    applier.set_style(StyleRules(reveal_mode=RevealMode.CONTINUOUS))
     cont_a = _clip_states(scenes)[eid]
     applier.apply_at(start + 0.7)
     cont_b = _clip_states(scenes)[eid]

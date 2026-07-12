@@ -18,17 +18,23 @@ from pathlib import Path
 from typing import Any
 
 from scoreanim.core.animation.reveal import RevealMode
+from scoreanim.core.animation.style import ElementStyle, StyleRules
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.document import (FileRef, LayoutOverride,
-                                             ProjectDoc, StyleConfig,
-                                             TimingConfig)
+                                             ProjectDoc, TimingConfig)
 from scoreanim.core.project.stage_config import StageConfig, StageTextElement
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.core.timing.swing import SwingRegion
 from scoreanim.core.timing.taps import Tap, TapSession
 from scoreanim.core.timing.tempo_map import TempoEvent
 
-PROJECT_VERSION = 1
+# 2 (Phase 5.3): "style" became the StyleRules shape (reveal_mode, parts,
+# elements) — a version bump, not a tolerated-unknown-key change, so a
+# Phase 4 build REFUSES a v2 file instead of silently dropping styling
+# and destroying it on the next save. v1 files still load: part_colors
+# folds into part color rules below.
+PROJECT_VERSION = 2
+_READABLE_VERSIONS = (1, 2)
 SUFFIX = ".scoreanim"
 
 
@@ -67,9 +73,13 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
                 for s in doc.timing.tap_sessions
             ],
         },
-        "style": {"part_colors": {str(p): c for p, c
-                                  in sorted(doc.style.part_colors.items())},
-                  "reveal_mode": doc.style.reveal_mode.name.lower()},
+        "style": {
+            "reveal_mode": doc.style.reveal_mode.name.lower(),
+            "parts": {str(p): _style_out(s)
+                      for p, s in sorted(doc.style.parts.items())},
+            "elements": {str(e): _style_out(s)
+                         for e, s in sorted(doc.style.elements.items())},
+        },
         "stage": {"texts": [
             {"element_id": t.element_id, "content": t.content,
              "page": t.page, "x": t.x, "y": t.y, "anchor": t.anchor,
@@ -83,9 +93,10 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
 def from_dict(data: dict[str, Any],
               base_dir: Path | None = None) -> ProjectDoc:
     version = data.get("version")
-    if version != PROJECT_VERSION:
+    if version not in _READABLE_VERSIONS:
         raise ValueError(f"unsupported project version {version!r} "
-                         f"(this build reads version {PROJECT_VERSION})")
+                         f"(this build reads versions "
+                         f"{_READABLE_VERSIONS})")
     try:
         timing = data.get("timing", {})
         default_timing = TimingConfig()
@@ -120,15 +131,7 @@ def from_dict(data: dict[str, Any],
                     for s in timing.get("tap_sessions", [])
                 ),
             ),
-            style=StyleConfig(
-                part_colors={
-                    PartId(p): c for p, c
-                    in (data.get("style") or {})
-                    .get("part_colors", {}).items()
-                },
-                reveal_mode=_reveal_mode_in(
-                    (data.get("style") or {}).get("reveal_mode")),
-            ),
+            style=_style_rules_in(data.get("style") or {}),
             stage=StageConfig(texts=tuple(
                 StageTextElement(
                     element_id=t["element_id"], content=t["content"],
@@ -149,6 +152,34 @@ def _reveal_mode_in(value: Any) -> RevealMode:
         return RevealMode[str(value).upper()]
     except KeyError as exc:
         raise ValueError(f"unknown reveal mode {value!r}") from exc
+
+
+def _style_out(style: ElementStyle) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if style.color is not None:
+        out["color"] = style.color
+    if style.effect is not None:
+        out["effect"] = style.effect
+    return out
+
+
+def _style_in(data: dict[str, Any]) -> ElementStyle:
+    return ElementStyle(color=data.get("color"), effect=data.get("effect"))
+
+
+def _style_rules_in(style: dict[str, Any]) -> StyleRules:
+    parts = {PartId(p): _style_in(s)
+             for p, s in style.get("parts", {}).items()}
+    # v1 legacy: {"part_colors": {pid: "#rrggbb"}} folds into part color
+    # rules (explicit "parts" entries win if both are present)
+    for p, c in style.get("part_colors", {}).items():
+        parts.setdefault(PartId(p), ElementStyle(color=c))
+    return StyleRules(
+        reveal_mode=_reveal_mode_in(style.get("reveal_mode")),
+        parts=parts,
+        elements={ElementId(e): _style_in(s)
+                  for e, s in style.get("elements", {}).items()},
+    )
 
 
 # ---------------------------------------------------------------------------

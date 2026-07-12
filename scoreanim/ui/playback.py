@@ -77,11 +77,12 @@ class PlaybackController(QObject):
     def set_follow(self, follow: bool) -> None:
         self._follow = follow
 
-    def set_reveal_mode(self, mode) -> None:
-        """Forward the document's RevealMode to the applier (no-op until
-        an applier exists; the applier dedups unchanged modes)."""
+    def set_style(self, style) -> None:
+        """Forward the document's StyleRules (per-element effects +
+        reveal mode) to the applier; the applier no-ops on unchanged
+        rules."""
         if self._applier is not None:
-            self._applier.set_reveal_mode(mode)
+            self._applier.set_style(style)
 
     # -- transport surface used by the window ----------------------------------
 

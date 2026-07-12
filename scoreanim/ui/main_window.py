@@ -15,20 +15,22 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QColor, QKeySequence
-from PySide6.QtWidgets import (QDoubleSpinBox, QFileDialog, QLabel,
-                               QMainWindow, QMenu, QMessageBox, QSlider,
-                               QSplitter, QToolBar)
+from PySide6.QtGui import (QAction, QActionGroup, QColor, QIcon,
+                           QKeySequence, QPixmap)
+from PySide6.QtWidgets import (QColorDialog, QDoubleSpinBox, QFileDialog,
+                               QLabel, QMainWindow, QMenu, QMessageBox,
+                               QSlider, QSplitter, QToolBar)
 
-from scoreanim.core.animation import (RevealMode, appear,
-                                      build_reveal_tracks,
+from scoreanim.core.animation import (DEFAULT_EFFECT, FLOOR_OPACITY, PRESETS,
+                                      RevealMode, build_reveal_tracks,
                                       build_trigger_schedule)
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
 from scoreanim.core.project import (DEFAULT_BPM, SUFFIX, ApplyTaps, FileRef,
                                     ImportTempoSetup, ProjectDoc,
                                     SetGlobalSwing, SetOffset, SetPartColor,
-                                    SetRevealMode, StageConfig, check_ref,
+                                    SetPartEffect, SetRevealMode,
+                                    StageConfig, check_ref,
                                     default_stage_config, load_project,
                                     page_content_top, sha256_of)
 from scoreanim.core.project import save_project as write_project_file
@@ -48,9 +50,11 @@ from scoreanim.ui.taps import TapRecorder
 from scoreanim.ui.tempo_lane import TempoLaneView
 from scoreanim.ui.waveform import WaveformView
 
-FLOOR_OPACITY = 0.3
+# FLOOR_OPACITY moved to core/animation/presets.py in Phase 5.3 (the
+# ghost floor is preset data, not UI policy); imported above for the
+# spanner-ghost layers.
 
-# Demo tint palette, by part index (recolor-one-part, PHASES 2.1).
+# Part-color swatch palette for the Parts menu (Custom… covers the rest).
 _PART_COLORS = ["#cc2222", "#1a7a2e", "#1c4fd6", "#b26b00",
                 "#8422b8", "#0b7f7f", "#c22276"]
 
@@ -68,7 +72,9 @@ class MainWindow(QMainWindow):
         self._project_path: Path | None = None
         self._tempo_path: Path | None = None
         self._applied_colors: dict[PartId, str | None] = {}
-        self._part_actions: dict[PartId, QAction] = {}
+        self._applied_overrides: dict = {}     # ElementId → applied color
+        self._part_color_actions: dict[PartId, dict] = {}
+        self._part_effect_actions: dict[PartId, dict] = {}
 
         self.app_state = AppState(self)
         self.playback = PlaybackController(self)
@@ -390,8 +396,8 @@ class MainWindow(QMainWindow):
             doc.timing.offset_seconds,
             TempoMap(list(doc.timing.tempo_events)),
             doc.timing.swing_regions)
-        self._sync_part_colors(doc)
-        self.playback.set_reveal_mode(doc.style.reveal_mode)
+        self._sync_styles(doc)
+        self.playback.set_style(doc.style)
         self._sweep.blockSignals(True)
         self._sweep.setChecked(doc.style.reveal_mode
                                is RevealMode.CONTINUOUS)
@@ -410,18 +416,145 @@ class MainWindow(QMainWindow):
         self._redo.setText(f"Redo {redo_text}" if redo_text else "Redo")
         self._sync_title()
 
-    def _sync_part_colors(self, doc: ProjectDoc) -> None:
+    def _sync_styles(self, doc: ProjectDoc) -> None:
+        """Diff the document's StyleRules onto the scene: part tints,
+        then per-element color overrides on top (a part re-tint touches
+        every item of the part, so overrides re-apply after it)."""
         if self._scenes is None:
             return
-        for pid, action in self._part_actions.items():
-            color = doc.style.part_colors.get(pid)
+        parts_retinted = set()
+        for pid in self._part_color_actions:
+            rule = doc.style.parts.get(pid)
+            color = rule.color if rule is not None else None
             if self._applied_colors.get(pid) != color:
                 self._scenes.set_part_color(
                     pid, QColor(color) if color else None)
                 self._applied_colors[pid] = color
+                parts_retinted.add(pid)
+            self._check_part_menu(pid, rule)
+
+        overrides = {eid: st.color for eid, st in doc.style.elements.items()
+                     if st.color is not None}
+        for eid, prev in list(self._applied_overrides.items()):
+            item = self._scenes.items.get(eid)
+            if item is None:
+                del self._applied_overrides[eid]
+                continue
+            ident = item.identity
+            retinted = ident is not None and ident.part in parts_retinted
+            if eid not in overrides:                 # override removed →
+                part_color = self._applied_colors.get(       # part color
+                    ident.part if ident else None)
+                item.set_color(QColor(part_color) if part_color else None)
+                del self._applied_overrides[eid]
+            elif retinted:
+                del self._applied_overrides[eid]     # re-apply below
+        for eid, color in overrides.items():
+            if self._applied_overrides.get(eid) != color:
+                item = self._scenes.items.get(eid)
+                if item is not None:
+                    item.set_color(QColor(color))
+                    self._applied_overrides[eid] = color
+
+    def _check_part_menu(self, pid: PartId, rule) -> None:
+        color = rule.color if rule is not None else None
+        effect = rule.effect if rule is not None else None
+        color_actions = self._part_color_actions.get(pid, {})
+        for key, action in color_actions.items():
             action.blockSignals(True)
-            action.setChecked(color is not None)
+            if key == "custom":
+                action.setChecked(color is not None
+                                  and color not in color_actions)
+            else:
+                action.setChecked(color == key)
             action.blockSignals(False)
+        effect_actions = self._part_effect_actions.get(pid, {})
+        known = effect in effect_actions
+        for key, action in effect_actions.items():
+            action.blockSignals(True)
+            action.setChecked(effect == key if known else key is None)
+            action.blockSignals(False)
+
+    def _build_parts_menu(self, parts) -> None:
+        """One submenu per part: color swatches (palette + Custom… +
+        No Color) and an effect radio group enumerated from the preset
+        registry — adding a preset needs no menu code."""
+        self._parts_menu.clear()
+        self._part_color_actions = {}
+        self._part_effect_actions = {}
+        self._applied_colors = {}
+        self._applied_overrides = {}
+        for info in parts:
+            pid = PartId(info.part_id)
+            menu = self._parts_menu.addMenu(info.name)
+
+            color_group = QActionGroup(menu)
+            color_actions: dict = {}
+            for c in _PART_COLORS:
+                action = QAction(c, menu)
+                action.setCheckable(True)
+                pm = QPixmap(12, 12)
+                pm.fill(QColor(c))
+                action.setIcon(QIcon(pm))
+                action.triggered.connect(
+                    lambda _=False, p=pid, col=c:
+                    self.app_state.execute(SetPartColor(p, col)))
+                color_group.addAction(action)
+                menu.addAction(action)
+                color_actions[c] = action
+            custom = QAction("Custom…", menu)
+            custom.setCheckable(True)
+            custom.triggered.connect(
+                lambda _=False, p=pid: self._pick_part_color(p))
+            color_group.addAction(custom)
+            menu.addAction(custom)
+            color_actions["custom"] = custom
+            no_color = QAction("No Color", menu)
+            no_color.setCheckable(True)
+            no_color.setChecked(True)
+            no_color.triggered.connect(
+                lambda _=False, p=pid:
+                self.app_state.execute(SetPartColor(p, None)))
+            color_group.addAction(no_color)
+            menu.addAction(no_color)
+            color_actions[None] = no_color
+            self._part_color_actions[pid] = color_actions
+
+            menu.addSeparator()
+            effect_group = QActionGroup(menu)
+            effect_actions: dict = {}
+            default_action = QAction(f"Effect: {DEFAULT_EFFECT} (default)",
+                                     menu)
+            default_action.setCheckable(True)
+            default_action.setChecked(True)
+            default_action.triggered.connect(
+                lambda _=False, p=pid:
+                self.app_state.execute(SetPartEffect(p, None)))
+            effect_group.addAction(default_action)
+            menu.addAction(default_action)
+            effect_actions[None] = default_action
+            for name in sorted(PRESETS):
+                if name == DEFAULT_EFFECT:
+                    continue
+                action = QAction(f"Effect: {name}", menu)
+                action.setCheckable(True)
+                action.triggered.connect(
+                    lambda _=False, p=pid, n=name:
+                    self.app_state.execute(SetPartEffect(p, n)))
+                effect_group.addAction(action)
+                menu.addAction(action)
+                effect_actions[name] = action
+            self._part_effect_actions[pid] = effect_actions
+
+    def _pick_part_color(self, pid: PartId) -> None:
+        rule = self.app_state.doc.style.parts.get(pid)
+        initial = QColor(rule.color) if rule is not None and rule.color \
+            else QColor(_PART_COLORS[0])
+        color = QColorDialog.getColor(initial, self, "Part color")
+        if color.isValid():
+            self.app_state.execute(SetPartColor(pid, color.name()))
+        else:                                  # cancelled: restore checks
+            self._sync_styles(self.app_state.doc)
 
     def _sync_title(self) -> None:
         star = " *" if self.app_state.is_dirty else ""
@@ -542,25 +675,12 @@ class MainWindow(QMainWindow):
         reveal_tracks = build_reveal_tracks(engraved.layout, score_end)
         applier = AnimationApplier(self._scenes.items, schedule,
                                    TempoMap([TempoEvent(0.0, DEFAULT_BPM)]),
-                                   appear(FLOOR_OPACITY), reveal_tracks,
-                                   self.app_state.doc.style.reveal_mode)
+                                   self.app_state.doc.style, reveal_tracks)
         self.playback.set_animation(applier, model.measures)
         self.app_state.set_measures(model.measures)
         t3 = time.perf_counter()
 
-        self._parts_menu.clear()
-        self._part_actions = {}
-        self._applied_colors = {}
-        for info in engraved.prepared.parts:
-            action = QAction(info.name, self)
-            action.setCheckable(True)
-            color = _PART_COLORS[info.index % len(_PART_COLORS)]
-            action.toggled.connect(
-                lambda checked, pid=PartId(info.part_id), c=color:
-                self.app_state.execute(
-                    SetPartColor(pid, c if checked else None)))
-            self._parts_menu.addAction(action)
-            self._part_actions[PartId(info.part_id)] = action
+        self._build_parts_menu(engraved.prepared.parts)
 
         self.statusBar().showMessage(
             f"engrave+decompose {t1 - t0:.2f}s · scene build {t2 - t1:.2f}s · "
