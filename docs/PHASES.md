@@ -567,7 +567,7 @@ ElementIds stable across the re-engrave — BACKLOG 1 closed. **PASSED
 2026-07-12** (user's interactive exit run on the build commit 7db56e0:
 accepted).
 
-## Phase 9 — Text editing
+## Phase 9 — Text editing — ✅ COMPLETE 2026-07-13
 
 Ruling 2026-07-12 (v2 scoping, revising BACKLOG 5's framing): the split
 is by TEXT CLASS, not by cost — re-engrave is cheap (0.23 s), so the
@@ -673,7 +673,8 @@ layout isn't stored (rule 5), so nothing scales back up.
 
 **Exit criteria**: title and tempo-mark edits are pure overlay; a part
 rename re-engraves with the score shifting to fit; everything undoable
-and round-tripping — BACKLOG 5 resolved as split.
+and round-tripping — BACKLOG 5 resolved as split. **PASSED 2026-07-13**
+(user's interactive run on the build commit edb2d79: accepted).
 
 ## Later (explicitly not now)
 

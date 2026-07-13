@@ -73,7 +73,9 @@ See `spikes/NOTES.md` for the full investigation of each.
    the part-list at the prep seam → re-engrave, score shifts to fit,
    rename keeps the id set identical (pinned, 9.3). Editing UI: Edit →
    Texts… and Parts → Part Names… dialogs (stage click-to-select
-   remains item 9). Closes with the Phase 9 exit-criteria run.
+   remains item 9).
+   **CLOSED 2026-07-13**: Phase 9 exit criteria passed (user's
+   interactive run, accepted).
 
 ## Animation fixes required (user rulings)
 
