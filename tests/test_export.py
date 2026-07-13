@@ -326,9 +326,9 @@ def test_two_walks_are_byte_identical(qapp, inputs, schedule, tempo_map,
 # -- system-mode export (Phase 7.5) ---------------------------------------------
 
 
-def make_system_renderer(inputs, tempo_map, offset, *, end, width, height,
+def make_system_renderer(inputs, tempo_map, offset, *, end, height,
                          fps=FPS) -> FrameRenderer:
-    spec = ExportSpec(fps=fps, height=height, width=width,
+    spec = ExportSpec(fps=fps, height=height,
                       mode=PresentationMode.SYSTEM,
                       start_seconds=0.0, end_seconds=end,
                       offset_seconds=offset,
@@ -350,17 +350,42 @@ def test_paged_export_untouched_by_system_machinery(
     assert renderer.size == even_size(geo.width, geo.height, HEIGHT)
 
 
-def test_system_renderer_requires_width_and_evens_the_canvas(
+def test_system_canvas_is_page_aspect_from_height(
         qapp, inputs, tempo_map, tempo_setup) -> None:
+    """Phase 10R ruling: the frame never changes shape between modes —
+    system mode sizes its canvas exactly like paged mode (page aspect
+    from the height field), and the SAME height gives IDENTICAL pixels
+    in both modes (the user's export requirement: every frame the same
+    aspect ratio / pixel size)."""
     offset = tempo_setup.offset_seconds
-    with pytest.raises(ValueError, match="width"):
-        FrameRenderer(inputs, StyleRules(), tempo_map, (), ExportSpec(
-            fps=FPS, height=360, mode=PresentationMode.SYSTEM,
-            start_seconds=0.0, end_seconds=10.0, offset_seconds=offset,
-            format=ExportFormat.PNG_SEQUENCE, out_path=Path("unused")))
-    renderer = make_system_renderer(inputs, tempo_map, offset, end=10.0,
-                                    width=641, height=361)
-    assert renderer.size == (640, 360)               # independent even-floor
+    system = make_system_renderer(inputs, tempo_map, offset, end=10.0,
+                                  height=361)
+    geo = inputs.layout.pages[0]
+    assert system.size == even_size(geo.width, geo.height, 361)
+    paged = make_renderer(inputs, tempo_map, offset, end=10.0)  # HEIGHT
+    paged361 = make_system_renderer(inputs, tempo_map, offset, end=10.0,
+                                    height=HEIGHT)
+    assert paged.size == paged361.size    # systems == paged at same height
+
+
+def test_system_export_frames_are_all_one_size(qapp, inputs, schedule,
+                                               tempo_map, tempo_setup) -> None:
+    """Every exported frame is byte-for-byte the same pixel dimensions,
+    however the per-system band heights vary across the walk (the user's
+    'canvas must not change size' requirement, pinned end-to-end)."""
+    offset = tempo_setup.offset_seconds
+    end = _audio_end(schedule, tempo_map, offset)
+    renderer = make_system_renderer(inputs, tempo_map, offset, end=end,
+                                    height=360)
+    systems_seen = set()
+    sizes = set()
+    step = max(1, renderer.frame_count // 20)
+    for n in range(0, renderer.frame_count, step):
+        img = renderer.render_frame(n)
+        sizes.add((img.width(), img.height()))
+        systems_seen.add(renderer.current_system())
+    assert len(systems_seen) >= 3         # the walk really crossed systems
+    assert sizes == {renderer.size}       # one size throughout
 
 
 def test_system_cut_frames_match_live_follow(qapp, inputs, schedule,
@@ -373,7 +398,7 @@ def test_system_cut_frames_match_live_follow(qapp, inputs, schedule,
     seconds = _trigger_seconds(schedule, tempo_map)
     end = _audio_end(schedule, tempo_map, offset)
     renderer = make_system_renderer(inputs, tempo_map, offset, end=end,
-                                    width=640, height=360)
+                                    height=360)
     for target in (2, 3, 4, 5):
         i = next(i for i, t in enumerate(schedule.triggers)
                  if t.system == target)
@@ -384,34 +409,35 @@ def test_system_cut_frames_match_live_follow(qapp, inputs, schedule,
         assert renderer.current_system() == target, target
 
 
-@pytest.mark.parametrize("size", [(640, 360), (200, 640)])
-def test_system_frame_composites_band_centered(qapp, inputs, schedule,
-                                               tempo_map, tempo_setup,
-                                               size) -> None:
-    """The ruled canvas semantics, at a wide and a tall canvas: every
-    sampled pixel outside centered_fit's target is fully transparent
-    (crop + clip: no neighbour bleed, no letterbox ink), and the band
-    region contains ink."""
+@pytest.mark.parametrize("height", [360, 500])
+def test_system_frame_is_page_shaped_with_band_centered(
+        qapp, inputs, schedule, tempo_map, tempo_setup, height) -> None:
+    """Phase 10R framing: the canvas is page-shaped; the system's band
+    renders at natural page width, VERTICALLY CENTERED; every sampled
+    pixel outside the band's projected strip is fully transparent (clip:
+    no neighbour bleed, no letterbox ink)."""
     offset = tempo_setup.offset_seconds
     seconds = _trigger_seconds(schedule, tempo_map)
     end = _audio_end(schedule, tempo_map, offset)
-    w, h = size
     renderer = make_system_renderer(inputs, tempo_map, offset, end=end,
-                                    width=w, height=h)
+                                    height=height)
+    w, h = renderer.size
+    geo = inputs.layout.pages[0]
     band = {b.system: b for b in system_bands(inputs.layout)}[1]
-    fit = centered_fit(band.rect.w, band.rect.h, *renderer.size)
-    # centered both axes by construction of the shared helper
-    assert fit.x == pytest.approx((renderer.size[0] - fit.w) / 2)
-    assert fit.y == pytest.approx((renderer.size[1] - fit.h) / 2)
+    fit = centered_fit(geo.width, geo.height, w, h)
+    scale = fit.h / geo.height
+    strip_top = fit.y + (geo.height - band.rect.h) / 2 * scale
+    strip_bottom = strip_top + band.rect.h * scale
+    # the band strip is vertically centered in the canvas
+    assert (strip_top + strip_bottom) / 2 == pytest.approx(h / 2, abs=1.5)
 
     onset = math.ceil((seconds[0] + offset) * FPS - 1e-6)
     image = renderer.render_frame(onset)             # system 1, ink lit
     ink = 0
-    for x in range(0, renderer.size[0], 4):
-        for y in range(0, renderer.size[1], 4):
+    for x in range(0, w, 4):
+        for y in range(0, h, 4):
             alpha = image.pixelColor(x, y).alpha()
-            inside = (fit.x - 1 <= x <= fit.x2 + 1
-                      and fit.y - 1 <= y <= fit.y2 + 1)
+            inside = strip_top - 1 <= y <= strip_bottom + 1
             if not inside:
                 assert alpha == 0, (x, y)
             elif alpha > 0:

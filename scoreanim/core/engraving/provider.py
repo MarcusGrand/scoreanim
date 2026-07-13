@@ -13,12 +13,16 @@ class EngravingProvider(abc.ABC):
     @abc.abstractmethod
     def load(self, score_path: Path, params: EngravingParams,
              groups: tuple[PartGroupSpec, ...] = (),
-             texts: tuple[PartTextSpec, ...] = ()) -> Layout:
+             texts: tuple[PartTextSpec, ...] = (),
+             hide_empty_staves: bool = False) -> Layout:
         """Engrave the score and decompose it into an identity-tagged,
         paged Layout. Must be deterministic for (file contents, params,
-        groups, texts). `groups` are staff groups injected as
-        <part-group> at the prep seam (Phase 8); `texts` are part-label
-        overrides rewritten into the part-list there (Phase 9.3) —
-        engraving inputs, never persisted, and separate arguments (NOT
-        EngravingParams fields: params serialize in the doc and would
-        duplicate doc.staff_groups / doc.text_overrides)."""
+        groups, texts, hide_empty_staves). `groups` are staff groups
+        injected as <part-group> at the prep seam (Phase 8); `texts` are
+        part-label overrides rewritten into the part-list there (Phase
+        9.3); `hide_empty_staves` (Phase 10R) hides staves that are
+        empty for a whole system, as the score's encoded page layout
+        assumes — engraving inputs, never persisted, and separate
+        arguments (NOT EngravingParams fields: params serialize in the
+        doc and would duplicate doc.staff_groups / doc.text_overrides /
+        doc.hide_empty_staves)."""

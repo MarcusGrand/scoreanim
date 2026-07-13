@@ -111,6 +111,31 @@ class PreparedScore:
         raise KeyError(f"no part owns staff {staff_n}")
 
 
+def _repaginate(root: ET.Element, break_measures: tuple[int, ...]) -> None:
+    """Replace the encoded PAGE breaks with our own (Phase 10R, rule-7
+    amendment): keep every encoded system break, strip all new-page
+    attributes, and set new-page="yes" at the given system-start
+    measures. Part 1 only — Verovio reads print layout from the first
+    part (spike section D). Called only when the measured first pass
+    overflowed; the plan is derived data, never stored (rule 5)."""
+    parts = root.findall("part")
+    if not parts:
+        return
+    for part in parts:
+        for measure in part.findall("measure"):
+            pr = measure.find("print")
+            if pr is not None and pr.get("new-page"):
+                del pr.attrib["new-page"]
+    wanted = set(break_measures)
+    for measure in parts[0].findall("measure"):
+        if int(measure.get("number", "0")) in wanted:
+            pr = measure.find("print")
+            if pr is None:
+                pr = ET.Element("print")
+                measure.insert(0, pr)
+            pr.set("new-page", "yes")
+
+
 def _neutralize_octave_only_transposes(root: ET.Element) -> None:
     for attributes in root.iter("attributes"):
         for tr in list(attributes.findall("transpose")):
@@ -321,7 +346,8 @@ def _slash_regions(root: ET.Element) -> tuple[SlashRegion, ...]:
 
 def prepare(score_path: Path,
             groups: tuple[PartGroupSpec, ...] = (),
-            texts: tuple[PartTextSpec, ...] = ()) -> PreparedScore:
+            texts: tuple[PartTextSpec, ...] = (),
+            page_break_measures: tuple[int, ...] = ()) -> PreparedScore:
     root = ET.fromstring(score_path.read_bytes())
     if root.tag != "score-partwise":
         raise ValueError(f"expected score-partwise MusicXML, got <{root.tag}>")
@@ -334,6 +360,8 @@ def prepare(score_path: Path,
     width, height, units_per_tenth = _page_size(root)
     _neutralize_octave_only_transposes(root)
     _inject_part_groups(root, groups)
+    if page_break_measures:
+        _repaginate(root, page_break_measures)
 
     return PreparedScore(
         canonical_xml=ET.tostring(root, encoding="unicode"),

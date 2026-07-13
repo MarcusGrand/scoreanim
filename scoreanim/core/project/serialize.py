@@ -40,8 +40,11 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 # floor_opacity, stage mode, staff_groups (consumed Phase 8),
 # text_overrides (consumed Phase 9) — designed once, no per-phase
 # bumps. v1/v2 files load with defaults for every new field.
-PROJECT_VERSION = 3
-_READABLE_VERSIONS = (1, 2, 3)
+# 4 (Phase 10R): hide_empty_staves. Deliberately version-gated on read:
+# files saved at v<=3 predate the option and load OFF so their look is
+# unchanged; new documents default ON (document.py).
+PROJECT_VERSION = 4
+_READABLE_VERSIONS = (1, 2, 3, 4)
 SUFFIX = ".scoreanim"
 
 
@@ -107,6 +110,7 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
             str(p): _text_override_out(o)
             for p, o in sorted(doc.text_overrides.items())
         },
+        "hide_empty_staves": doc.hide_empty_staves,
     }
 
 
@@ -177,6 +181,9 @@ def from_dict(data: dict[str, Any],
                     abbreviation=o.get("abbreviation"))
                 for p, o in data.get("text_overrides", {}).items()
             },
+            # v<=3 predates the option: load OFF so the file's look is
+            # unchanged; a v4 file missing the key gets the new default
+            hide_empty_staves=data.get("hide_empty_staves", version >= 4),
         )
     except (KeyError, TypeError) as exc:
         raise ValueError(f"malformed project data: {exc!r}") from exc

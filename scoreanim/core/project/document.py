@@ -75,6 +75,12 @@ class PartTextOverride:
     abbreviation: str | None = None
 
 
+# New documents hide empty staves (Phase 10R ruling: the layouts our
+# scores encode assume Dorico's hide-empty-staves). Projects saved at
+# schema <= 3 load with it OFF so their look is unchanged (serialize.py).
+HIDE_EMPTY_STAVES_DEFAULT = True
+
+
 @dataclass(frozen=True)
 class ProjectDoc:
     score: FileRef | None = None
@@ -88,7 +94,11 @@ class ProjectDoc:
     staff_groups: tuple[StaffGroup, ...] = ()
     text_overrides: Mapping[PartId, PartTextOverride] = \
         field(default_factory=dict)
+    # Intent only (rule 5): whether staves empty for a whole system are
+    # hidden; the hidden layout is re-derived at every engrave.
+    hide_empty_staves: bool = HIDE_EMPTY_STAVES_DEFAULT
 
 
-__all__ = ["DEFAULT_BPM", "FileRef", "LayoutOverride", "PartTextOverride",
-           "ProjectDoc", "StaffGroup", "StyleRules", "TimingConfig", "Beats"]
+__all__ = ["DEFAULT_BPM", "FileRef", "HIDE_EMPTY_STAVES_DEFAULT",
+           "LayoutOverride", "PartTextOverride", "ProjectDoc", "StaffGroup",
+           "StyleRules", "TimingConfig", "Beats"]

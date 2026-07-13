@@ -68,16 +68,21 @@ def quantize_beats(beats: Beats) -> int:
 # in Phase 5.2: spanners (with HAIRPIN) reveal by clip-grow at reveal_x
 # instead (REVEALED_KINDS in core/animation/reveal.py) — their opacity
 # stays 1.0 and they carry no trigger. REST/MREST/DYNAMIC joined
-# (ruling 2026-07-12, superseding the Phase 3 taxonomy): everything IN
-# the staves is dimmed and revealed; a rest fires at its notated onset,
-# a dynamic at its attach point (adapter resolves @tstamp/@startid).
-# Statics remain: clefs, key/time signatures, barlines, staff lines,
-# texts, lyrics, chord symbols.
+# (ruling 2026-07-12); TEXT/CHORD_SYMBOL/LYRIC/METER_SIG joined (ruling
+# 2026-07-13, Phase 10R): ALL objects animate at their attach point —
+# texts above staves, chord symbols, lyrics, trills, fermatas, even
+# mid-piece meter changes. Statics remain: barlines, clefs, key sigs,
+# staff lines, group symbols/dividers, and page furniture (part labels,
+# pgHead/pgFoot, measure numbers — the adapter mints those onset-less,
+# so the onset gate below excludes them). Note ANIMATED ≠ TINTED
+# (ruling D) and ≠ reveal anchors: the new kinds are attachments.
 ANIMATED_KINDS = frozenset({
     ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.STEM,
     ElementKind.FLAG, ElementKind.BEAM, ElementKind.ACCIDENTAL,
     ElementKind.ARTICULATION, ElementKind.LEDGER_LINES,
     ElementKind.REST, ElementKind.MREST, ElementKind.DYNAMIC,
+    ElementKind.TEXT, ElementKind.CHORD_SYMBOL, ElementKind.LYRIC,
+    ElementKind.METER_SIG,
 })
 
 

@@ -17,15 +17,16 @@ from pathlib import Path
 import verovio
 
 from scoreanim.core.engraving.provider import EngravingProvider
+from scoreanim.core.engraving.systems import plan_page_breaks, system_bands
 from scoreanim.core.engraving.svg_geom import (ellipse_path, line_path,
                                                parse_transform, path_bbox,
                                                polygon_path, rect_path)
 from scoreanim.core.engraving.types import (TRANSPOSE_TO_SOUNDING_PITCH,
                                             Affine, EngravingParams, Layout,
-                                            PageGeometry, PathPrimitive,
-                                            Point, Rect, RenderedElement,
-                                            RenderPrimitive, TextPrimitive,
-                                            TextRun)
+                                            LoadWarning, PageGeometry,
+                                            PathPrimitive, Point, Rect,
+                                            RenderedElement, RenderPrimitive,
+                                            TextPrimitive, TextRun)
 from scoreanim.core.score.identity import (Beats, ElementId, ElementIdentity,
                                            ElementKind, PartId)
 from scoreanim.core.score.musicxml_prep import (PartGroupSpec, PartInfo,
@@ -86,6 +87,13 @@ _KIND_BY_CLASS: dict[str, ElementKind] = {
                                          # inside the ordinary barLine groups
                                          # (spikes/NOTES.md Phase 8), so no
                                          # further class is needed
+    # id-less between-system divider glyph; drawn only under condensed
+    # layout, which condense:"encoded" disables — defensive (Phase 10)
+    "systemDivider": ElementKind.SYSTEM_DIVIDER,
+    # bracket/line spanner group: id-bearing, empty on the Phase 10
+    # fixture; if a future score inks it, it renders as static OTHER
+    # instead of tripping the unknown-class guard
+    "bracketSpan": ElementKind.OTHER,
 }
 
 # Transparent grouping classes: never emitted, provide context only.
@@ -98,6 +106,8 @@ _CONTAINER_CLASSES = {
     "page-margin", "definition-scale", "section", "pb", "sb", "ending",
     "keyAccid", "fig", "mdiv", "score", "svg", "space",
     "pageMilestoneEnd", "systemMilestoneEnd", "pageElement",
+    "mSpace",           # invisible measure space (Phase 10 fixture) —
+                        # nothing drawable, the `space` precedent
 }
 
 # Short kind tag used inside minted ElementIds.
@@ -107,6 +117,21 @@ _ID_TAG = {k: k.name.lower() for k in ElementKind}
 # one id-bearing <g> in its start measure plus one id-less <g> per
 # continuation system (Phase 5 spike, spikes/spanner_split.py).
 _SPANNER_CLASSES = {"slur", "tie", "hairpin", "lv"}
+
+# Page furniture: TEXT sub-classes that stay STATIC under the Phase 10R
+# animate-everything ruling (part labels, page header/footer, measure
+# numbers are navigation furniture, not musical objects). They mint
+# onset=None, which is what the schedule's onset gate excludes.
+_STATIC_TEXT_CLASSES = {"label", "labelAbbr", "pgHead", "pgFoot", "mNum"}
+
+# SVG classes whose Verovio id is genuinely a timemap key (notes and
+# rests). Note-owned fragments (stems, flags, accidentals, beams, …)
+# derive their onset from their owner, NOT their own id — and MUST NOT
+# consult the id tables, because Verovio reuses SVG group ids across
+# element types under condensed layout (hide-empty-staves): an m1 stem
+# and an m44 note can share an id, so a naive id lookup would give the
+# stem the note's late onset (Phase 10R bug, spikes/NOTES.md).
+_TIMEMAP_CLASSES = {"note", "rest", "mRest", "multiRest"}
 
 # Verovio styles its SVG through one small stylesheet instead of element
 # attributes; its effective rules are baked into the primitives so the
@@ -144,6 +169,7 @@ class _MeiIndex:
     chord_members: dict[str, tuple[str, ...]] = field(default_factory=dict)
     beam_note_ids: dict[str, tuple[str, ...]] = field(default_factory=dict)
     spanners: dict[str, tuple[str | None, str | None]] = field(default_factory=dict)
+    spanner_tags: dict[str, str] = field(default_factory=dict)
     measure_by_id: dict[str, int] = field(default_factory=dict)
     # measure-attached elements (dynam, dir, tempo, harm...) → their @staff.
     # Spanners are recorded here too (Phase 5): hairpins carry @staff but
@@ -155,8 +181,10 @@ class _MeiIndex:
     # (n measures ahead) or a bare beat (same measure).
     tstamps_by_id: dict[str, tuple[int, str, str | None]] = \
         field(default_factory=dict)
-    # dynamics addressed by @startid instead (other exporters)
-    dynam_startid: dict[str, str] = field(default_factory=dict)
+    # measure-attached elements addressed by @startid (fermatas, trills,
+    # ornaments; dynamics from non-Dorico exporters) — their animation
+    # attach point (Phase 10R widened this beyond dynam)
+    attach_startid: dict[str, str] = field(default_factory=dict)
     # active meter denominator per measure (document-order tracking of
     # meterSig), for tstamp → quarter-note conversion
     meter_unit_by_measure: dict[int, int] = field(default_factory=dict)
@@ -210,16 +238,20 @@ def _parse_mei(mei_xml: str) -> _MeiIndex:
             if tag in ("slur", "tie", "hairpin", "octave", "lv"):
                 index.spanners[sp_id] = (ref(sp.get("startid")),
                                          ref(sp.get("endid")))
+                index.spanner_tags[sp_id] = tag
                 if sp.get("tstamp"):
                     index.tstamps_by_id[sp_id] = (
                         m_n, sp.get("tstamp", "1"), sp.get("tstamp2"))
-            elif tag == "dynam":
-                # a dynamic's onset is its attach point (ruling
-                # 2026-07-12): @tstamp+@staff from Dorico exports,
-                # @startid honored for other exporters
+            elif tag in ("dynam", "fermata", "trill", "mordent", "turn",
+                         "dir", "tempo", "reh", "harm"):
+                # measure-attached objects animate at their attach point
+                # (dynamics: ruling 2026-07-12; the rest: Phase 10R
+                # animate-everything ruling). Dorico addresses texts and
+                # dynamics by @tstamp+@staff, ornaments/fermatas by
+                # @startid; both are honored.
                 startid = ref(sp.get("startid"))
                 if startid:
-                    index.dynam_startid[sp_id] = startid
+                    index.attach_startid[sp_id] = startid
                 if sp.get("tstamp"):
                     index.tstamps_by_id[sp_id] = (
                         m_n, sp.get("tstamp", "1"), sp.get("tstamp2"))
@@ -298,6 +330,9 @@ class EngravedScore:
     layout: Layout
     note_records: tuple[AdapterNoteRecord, ...]
     prepared: PreparedScore
+    # Non-fatal load anomalies (Phase 10 ruling b): dropped spanners,
+    # continuation-attribution gaps. Empty on clean loads.
+    warnings: tuple[LoadWarning, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +441,21 @@ class _PageDecomposer:
                     self._add_ledger_dashes(child, child_ctm,
                                             new_measure, new_staff,
                                             new_system)
+                    continue
+                if cls == "systemDivider" and not cid:
+                    # Between-system divider: id-less <g> hosted directly
+                    # in the system (Phase 10 triage). Static ink with a
+                    # system-scoped identity; drawn only under condensed
+                    # layout, which condense:"encoded" disables.
+                    acc = _ElementAccumulator(
+                        verovio_id="", svg_class=cls,
+                        kind=ElementKind.SYSTEM_DIVIDER,
+                        measure=None, staff=None, layer=None,
+                        owner_onset=None, system=new_system)
+                    self._walk(child, child_ctm, acc, new_measure, new_staff,
+                               new_layer, new_owner_onset, new_system)
+                    if acc.paths or acc.texts:
+                        self.done.append(acc)
                     continue
                 if cls in _SPANNER_CLASSES and not cid:
                     # Continuation segment of a system-broken spanner:
@@ -631,10 +681,18 @@ class _LoadState:
     measure_duration: dict[int, Beats]       # from timemap start deltas
     staff_n_by_id: dict[str, int]
     layer_n_by_id: dict[str, int]
-    groups: tuple[PartGroupSpec, ...] = ()   # injected staff groups, sorted
-                                             # by first-part score order
+    # system → {global staff n → staff-lines y center}, built after
+    # decomposition; grpSym identity reads which staves a symbol spans
+    # (geometric — Phase 10; slot bookkeeping broke on native braces,
+    # which Verovio SUPPRESSES when an injected group overlaps them)
+    staff_centers_by_system: dict[int, dict[int, float]] = \
+        field(default_factory=dict)
     system_count: int = 0                    # score-wide, across pages
     system_of_measure: dict[int, int] = field(default_factory=dict)
+    warnings: list[LoadWarning] = field(default_factory=list)
+    # ties suppressed as engraving artifacts (Phase 10R): neither the
+    # source element nor its continuation segments are emitted
+    suppressed_spanners: set[str] = field(default_factory=set)
     _glyph_bbox_cache: dict[str, Rect] = field(default_factory=dict)
 
     def glyph_bbox(self, def_id: str, d: str) -> Rect:
@@ -652,13 +710,70 @@ class VerovioEngravingProvider(EngravingProvider):
 
     def load(self, score_path: Path, params: EngravingParams,
              groups: tuple[PartGroupSpec, ...] = (),
-             texts: tuple[PartTextSpec, ...] = ()) -> Layout:
-        return self.load_detailed(score_path, params, groups, texts).layout
+             texts: tuple[PartTextSpec, ...] = (),
+             hide_empty_staves: bool = False) -> Layout:
+        return self.load_detailed(score_path, params, groups, texts,
+                                  hide_empty_staves).layout
 
     def load_detailed(self, score_path: Path, params: EngravingParams,
                       groups: tuple[PartGroupSpec, ...] = (),
-                      texts: tuple[PartTextSpec, ...] = ()) -> EngravedScore:
+                      texts: tuple[PartTextSpec, ...] = (),
+                      hide_empty_staves: bool = False) -> EngravedScore:
         prep = prepare(score_path, groups, texts)
+        extra: list[LoadWarning] = []
+        effective_hide = hide_empty_staves
+        engraved, first_measure = self._engrave_prepared(
+            score_path, prep, params, effective_hide)
+        if engraved is None:
+            # Hiding made a slash-region staff vanish (Verovio judges
+            # slash measures empty — MEI <space>). Slash regions are
+            # first-class (rule 10), so they win over the option:
+            # engrave flat, flagged (spikes/NOTES.md Phase 10R).
+            effective_hide = False
+            extra.append(LoadWarning(
+                "hide-unavailable",
+                "a slash-region staff would be hidden; empty-staff "
+                "hiding skipped for this score"))
+            engraved, first_measure = self._engrave_prepared(
+                score_path, prep, params, effective_hide)
+            assert engraved is not None
+
+        # Never-clip guard (Phase 10R, rule-7 amendment): when the
+        # encoded page breaks cannot hold their systems (e.g. Dorico
+        # breaks computed assuming hidden staves), keep the encoded
+        # SYSTEM breaks and repaginate ourselves at the prep seam.
+        # Page-scoped ids (score:p{n}:…) shift — accepted; musical ids
+        # are pagination-independent.
+        page_h = engraved.layout.pages[0].height
+        bands = system_bands(engraved.layout)
+        if any(b.rect.y + b.rect.h > page_h for b in bands):
+            breaks = plan_page_breaks(bands, page_h, first_measure)
+            if breaks:
+                prep = prepare(score_path, groups, texts,
+                               page_break_measures=breaks)
+                engraved, _ = self._engrave_prepared(
+                    score_path, prep, params, effective_hide)
+                assert engraved is not None    # same flag that succeeded
+                extra.append(LoadWarning(
+                    "repaginated",
+                    f"systems overflowed the encoded page height; "
+                    f"{len(breaks)} page break(s) re-derived "
+                    f"(before measures "
+                    f"{', '.join(str(m) for m in breaks)})"))
+                for b in system_bands(engraved.layout):
+                    if b.rect.y + b.rect.h > page_h:
+                        extra.append(LoadWarning(
+                            "system-overflow",
+                            f"system {b.system} still overflows page "
+                            f"{b.page} after repagination"))
+        if extra:
+            engraved = replace(engraved,
+                               warnings=engraved.warnings + tuple(extra))
+        return engraved
+
+    @staticmethod
+    def _make_toolkit(prep: PreparedScore,
+                      params: EngravingParams) -> "verovio.toolkit":
         tk = verovio.toolkit()
         tk.setOptions({
             "breaks": "encoded",
@@ -672,9 +787,46 @@ class VerovioEngravingProvider(EngravingProvider):
             "svgViewBox": True,
             "transposeToSoundingPitch": TRANSPOSE_TO_SOUNDING_PITCH,
             "xmlIdSeed": params.xml_id_seed,
+            # Verovio's default condense:"auto" silently switches to
+            # condensed layout once a score has 2+ staff groups — hiding
+            # empty staves per system and drawing systemDividers. That is
+            # engraver-derived reflow, which rule 7 forbids; "encoded"
+            # honors only what the file encodes. Verified byte-identical
+            # for 0- and 1-group renders (Phase 10 triage spike). A fixed
+            # rule like transposeToSoundingPitch, not a params field.
+            # Hide-empty-staves (Phase 10R) opts IN per score by setting
+            # scoreDef@optimize on the MEI round-trip — condense stays
+            # "encoded" either way.
+            "condense": "encoded",
+            # Condensed layouts draw between-system dividers by default;
+            # Dorico's default look has none (Phase 10R spike). The
+            # SYSTEM_DIVIDER decomposer support stays as defense.
+            "systemDivider": "none",
         })
+        return tk
+
+    def _engrave_prepared(self, score_path: Path, prep: PreparedScore,
+                          params: EngravingParams,
+                          hide_empty_staves: bool
+                          ) -> tuple[EngravedScore | None, dict[int, int]]:
+        """One full engrave+decompose; also returns the first measure
+        of every system (for the repagination planner). The score is
+        None only when hide_empty_staves hid a slash-region staff (the
+        caller retries flat)."""
+        tk = self._make_toolkit(prep, params)
         if not tk.loadData(prep.canonical_xml):
             raise ValueError(f"Verovio failed to load {score_path}")
+        if hide_empty_staves:
+            # Two-pass load: Verovio honors hidden empty staves only via
+            # MEI scoreDef@optimize (staff-details print-object and
+            # staffDef@visible are ignored). The round-trip is id- and
+            # timemap-transparent (Phase 10R spike, section A).
+            mei_text = _set_scoredef_optimize(tk.getMEI())
+            tk = self._make_toolkit(prep, params)
+            if not tk.loadData(mei_text):
+                raise ValueError(
+                    f"Verovio failed to reload optimized MEI for "
+                    f"{score_path}")
 
         mei = _parse_mei(tk.getMEI())
         timemap = tk.renderToTimemap({"includeMeasures": True,
@@ -698,16 +850,11 @@ class VerovioEngravingProvider(EngravingProvider):
             for i, (n, q) in enumerate(starts)
         }
 
-        # grpSym identity maps the k-th symbol in a system to the k-th
-        # group in first-part score order, so hold them sorted.
-        part_index = {p.part_id: p.index for p in prep.parts}
         state = _LoadState(
             prep=prep, mei=mei, onset_by_id=onset_by_id,
             measure_start=measure_start, measure_duration=measure_duration,
             staff_n_by_id={vid: n.staff for vid, n in mei.notes.items()},
             layer_n_by_id={},
-            groups=tuple(sorted(groups,
-                                key=lambda g: part_index[g.parts[0]])),
         )
         # staff/layer container ids appear in both MEI and SVG; index them
         state.staff_n_by_id.update(_container_ns(tk.getMEI(), "staff"))
@@ -723,14 +870,45 @@ class VerovioEngravingProvider(EngravingProvider):
             for acc in _PageDecomposer(tk.renderToSVG(page), page, state).run():
                 accumulators.append((page, acc))
 
+        # staff y-centers per system, for geometric grpSym identity
+        for _, acc in accumulators:
+            if (acc.svg_class == "staff" and acc.bbox is not None
+                    and acc.staff and acc.system is not None):
+                state.staff_centers_by_system.setdefault(
+                    acc.system, {}).setdefault(
+                    acc.staff, acc.bbox.y + acc.bbox.h / 2)
+
         _attribute_ledger_dashes(accumulators, state)
         _attribute_spanner_segments(accumulators, state)
+        _flag_implausible_ties(state)
         elements, note_records, staff_geo = _build_elements(accumulators, state)
+        first_measure: dict[int, int] = {}
+        for measure_n, system_n in state.system_of_measure.items():
+            if measure_n < first_measure.get(system_n, 1 << 30):
+                first_measure[system_n] = measure_n
+        if hide_empty_staves and any(
+                (r.part, m, 1) not in staff_geo
+                for r in prep.slash_regions
+                for m in range(r.start_measure, r.stop_measure)):
+            return None, first_measure   # caller retries flat (rule 10)
         elements.extend(_synthesize_slashes(state, staff_geo))
         layout = Layout(pages=pages, elements=tuple(elements))
         return EngravedScore(layout=layout,
                              note_records=tuple(note_records),
-                             prepared=prep)
+                             prepared=prep,
+                             warnings=tuple(state.warnings)), first_measure
+
+
+def _set_scoredef_optimize(mei_xml: str) -> str:
+    """Mark the score's first scoreDef optimize='true' — the encoding
+    Verovio's condense honors for hiding empty staves per system."""
+    ET.register_namespace("", _MEI_NS.strip("{}"))
+    root = ET.fromstring(mei_xml)
+    score_def = next(root.iter(f"{_MEI_NS}scoreDef"), None)
+    if score_def is None:
+        raise ValueError("MEI has no scoreDef to optimize")
+    score_def.set("optimize", "true")
+    return ET.tostring(root, encoding="unicode")
 
 
 def _container_ns(mei_xml: str, tag: str) -> dict[str, int]:
@@ -744,12 +922,16 @@ def _container_ns(mei_xml: str, tag: str) -> dict[str, int]:
 
 # ---------------------------------------------------------------------------
 # Ledger-dash attribution (BACKLOG 6): a dash carries no id and no onset;
-# it dims with the notehead it serves. Owner = the notehead in the same
+# it dims with the ink it serves. Owner = the notehead in the same
 # (page, measure, staff) whose bbox overlaps the dash horizontally, on the
 # correct side of the staff; a dash serving several heads (chords,
 # multi-ledger stacks) takes the earliest onset so it never lights late.
-# Tie resolution then happens for free: the dash inherits the owner's
-# (onset, voice), which is exactly the schedule's attachment-group key.
+# Verovio also draws ledger dashes through RESTS displaced off the staff
+# (two-voice measures — Phase 10 triage, spikes/video_test_triage.py);
+# a dash no notehead claims falls through to a rest tier with the same
+# geometry rule. Tie resolution then happens for free: the dash inherits
+# the owner's (onset, voice), which is exactly the schedule's
+# attachment-group key — REST and LEDGER_LINES both animate.
 # ---------------------------------------------------------------------------
 
 def _attribute_ledger_dashes(
@@ -757,53 +939,75 @@ def _attribute_ledger_dashes(
         st: _LoadState) -> None:
     notes_by_scope: dict[tuple, list[tuple[Rect, Beats, int]]] = \
         defaultdict(list)
+    rests_by_scope: dict[tuple, list[tuple[Rect, Beats, int]]] = \
+        defaultdict(list)
     for page, acc in accumulators:
-        if acc.svg_class != "note" or acc.bbox is None:
+        if acc.bbox is None:
             continue
-        onset = st.onset_by_id.get(acc.verovio_id)
-        mei_note = st.mei.notes.get(acc.verovio_id)
-        if onset is None or mei_note is None:
-            continue                     # _build_elements raises for these
-        notes_by_scope[(page, acc.measure, acc.staff)].append(
-            (acc.bbox, onset, mei_note.layer))
+        if acc.svg_class == "note":
+            onset = st.onset_by_id.get(acc.verovio_id)
+            mei_note = st.mei.notes.get(acc.verovio_id)
+            if onset is None or mei_note is None:
+                continue                 # _build_elements raises for these
+            notes_by_scope[(page, acc.measure, acc.staff)].append(
+                (acc.bbox, onset, mei_note.layer))
+        elif acc.svg_class == "rest":
+            onset = st.onset_by_id.get(acc.verovio_id)
+            if onset is None:
+                continue                 # not in the timemap: no trigger
+            rests_by_scope[(page, acc.measure, acc.staff)].append(
+                (acc.bbox, onset, acc.layer if acc.layer is not None else 0))
+
+    def matching(pool: list[tuple[Rect, Beats, int]],
+                 dash: _ElementAccumulator) -> list[tuple[Beats, int]]:
+        dash_cy = dash.bbox.y + dash.bbox.h / 2      # type: ignore[union-attr]
+        out: list[tuple[Beats, int]] = []
+        for bbox, onset, layer in pool:
+            if (bbox.x + bbox.w <= dash.bbox.x
+                    or dash.bbox.x + dash.bbox.w <= bbox.x):
+                continue                 # no horizontal overlap
+            owner_cy = bbox.y + bbox.h / 2
+            # a dash above the staff is owned by ink at or above it
+            # (y-down coordinates); intermediate dashes under a high note
+            # pass this too. Mirror rule below the staff.
+            if dash.ledger_dir == "above" and owner_cy > dash_cy + bbox.h / 2:
+                continue
+            if dash.ledger_dir == "below" and owner_cy < dash_cy - bbox.h / 2:
+                continue
+            out.append((onset, layer))
+        return out
 
     for page, acc in accumulators:
         if acc.kind is not ElementKind.LEDGER_LINES or acc.bbox is None:
             continue
-        dash_cy = acc.bbox.y + acc.bbox.h / 2
-        candidates: list[tuple[Beats, int]] = []
-        for bbox, onset, layer in notes_by_scope.get(
-                (page, acc.measure, acc.staff), ()):
-            if (bbox.x + bbox.w <= acc.bbox.x
-                    or acc.bbox.x + acc.bbox.w <= bbox.x):
-                continue                 # no horizontal overlap
-            note_cy = bbox.y + bbox.h / 2
-            # a dash above the staff is owned by notes at or above it
-            # (y-down coordinates); intermediate dashes under a high note
-            # pass this too. Mirror rule below the staff.
-            if acc.ledger_dir == "above" and note_cy > dash_cy + bbox.h / 2:
-                continue
-            if acc.ledger_dir == "below" and note_cy < dash_cy - bbox.h / 2:
-                continue
-            candidates.append((onset, layer))
+        scope = (page, acc.measure, acc.staff)
+        candidates = (matching(notes_by_scope.get(scope, []), acc)
+                      or matching(rests_by_scope.get(scope, []), acc))
         if not candidates:
             raise ValueError(
                 f"page {page} m{acc.measure} staff {acc.staff}: ledger dash "
-                f"at x={acc.bbox.x:.0f} matches no notehead — attribution "
-                f"failed")
+                f"at x={acc.bbox.x:.0f} matches no notehead or rest — "
+                f"attribution failed")
         acc.owner_onset, acc.layer = min(candidates)
 
 
 # ---------------------------------------------------------------------------
 # Spanner continuation segments (Phase 5, spikes/spanner_split.py): a
 # system-broken spanner renders as its id-bearing <g> (start system) plus
-# one id-less <g> per continuation system. Each id-less segment is matched
-# to the source spanner it continues: same SVG class, source starts in an
-# earlier system, source's musical end lands in the segment's system or
-# later. Stacked same-kind candidates (several broken ties at once) are
-# disambiguated by vertical order — segments and candidate end anchors
-# are paired in y order, which is stable because a tie continuation hugs
-# the pitch height of its end note. Loud failure on count mismatch.
+# id-less continuation <g>s. Each id-less segment is matched to the
+# source spanner it continues — same SVG class, crossing-system
+# predicate per class: slurs/hairpins draw a segment in EVERY crossed
+# system (start < n <= end); ties draw continuation ink ONLY in their
+# END system (Phase 10 triage — the Phase 5 fixture had only 2-system
+# spanners, where the two rules coincide). Stacked same-kind candidates
+# (several broken ties at once) are disambiguated by vertical order —
+# segments and candidate end anchors are paired in y order, which is
+# stable because a tie continuation hugs the pitch height of its end
+# note. A count mismatch is tolerated: pairs are matched up to the
+# shorter list and the mismatch surfaces as a LoadWarning (ruling b),
+# never a silent absorption. Spanners the engraver dropped entirely
+# (id-bearing <g> with no ink — e.g. Verovio's "ties left open") are
+# detected structurally against the MEI and flagged the same way.
 # ---------------------------------------------------------------------------
 
 def _attribute_spanner_segments(
@@ -848,29 +1052,88 @@ def _attribute_spanner_segments(
             segments[(acc.svg_class, acc.system)].append(acc)
 
     for (cls, sys_n), segs in segments.items():
-        candidates = sorted(
-            (s for s in sources
-             if s[0] == cls and s[1] < sys_n <= s[2]),
-            key=lambda s: s[3])
+        if cls in ("tie", "lv"):
+            crossing = (s for s in sources
+                        if s[0] == cls and s[1] < sys_n and s[2] == sys_n)
+        else:
+            crossing = (s for s in sources
+                        if s[0] == cls and s[1] < sys_n <= s[2])
+        candidates = sorted(crossing, key=lambda s: s[3])
         if len(candidates) != len(segs):
-            raise ValueError(
+            st.warnings.append(LoadWarning(
+                "segment-count-mismatch",
                 f"system {sys_n}: {len(segs)} {cls} continuation "
-                f"segment(s) but {len(candidates)} crossing source "
-                f"spanner(s) — attribution failed")
+                f"segment(s), {len(candidates)} crossing source "
+                f"spanner(s) — pairing up to the shorter list"))
         segs.sort(key=lambda a: a.bbox.center.y)       # type: ignore[union-attr]
         for seg, (_, _, _, _, vid) in zip(segs, candidates):
             seg.source_vid = vid
 
     # Segment index per source, in system order (a spanner across 3+
     # systems has several continuation segments: seg1, seg2, ...).
+    # Unmatched segments (source_vid None) are skipped by
+    # _build_elements with an unattributed-continuation warning.
     by_source: dict[str, list[_ElementAccumulator]] = defaultdict(list)
     for _, acc in accumulators:
-        if acc.continuation:
-            by_source[acc.source_vid or ""].append(acc)
+        if acc.continuation and acc.source_vid:
+            by_source[acc.source_vid].append(acc)
     for segs in by_source.values():
         segs.sort(key=lambda a: a.system or 0)
         for k, seg in enumerate(segs, start=1):
             seg.seg_index = k
+
+    # Spanners the engraver dropped: the MEI records them but their
+    # id-bearing <g> carries no ink, so no accumulator exists (Verovio's
+    # "N ties left open" / "tie ignored" warnings, and testscore's 5
+    # open ties). Flag-and-continue (ruling b); timing is unaffected —
+    # tie chains come from the music21 ScoreModel, not drawn ties.
+    drawn = {acc.verovio_id for _, acc in accumulators if acc.verovio_id}
+    for vid, tag in sorted(st.mei.spanner_tags.items()):
+        if vid in drawn:
+            continue
+        start_id, _ = st.mei.spanners[vid]
+        start = st.mei.notes.get(start_id or "")
+        if start is not None:
+            info = st.prep.part_for_staff(start.staff)
+            where = (f"from {info.part_id} m{start.measure} "
+                     f"s{start.staff - info.first_staff + 1}")
+        else:
+            where = "with unresolved start"
+        st.warnings.append(LoadWarning(
+            "dropped-spanner",
+            f"{tag} {where} was not drawn by the engraver"))
+
+
+def _flag_implausible_ties(st: _LoadState) -> None:
+    """Verovio force-matches some ties it cannot close to DISTANT
+    same-pitch notes (video_test: e.g. a "tie" from m5 to m44, 148.5
+    quarters — the stacked curves drew as ovals around the destination
+    bar). A real tie connects adjacent notes: anything spanning more
+    than two of its start measure's durations is an engraving artifact.
+    Runs AFTER segment matching (the bogus sources must stay in the
+    candidate pool so the y-order pairing of the remaining segments is
+    right) and before element construction, which skips the suppressed
+    vids and their continuation segments. Flag-and-continue (ruling b):
+    one warning per suppressed tie, musical coordinates only."""
+    for vid, tag in sorted(st.mei.spanner_tags.items()):
+        if tag != "tie":         # lv has no end; slurs/hairpins can be long
+            continue
+        start_id, end_id = st.mei.spanners[vid]
+        start = st.onset_by_id.get(start_id or "")
+        end = st.onset_by_id.get(end_id or "")
+        note = st.mei.notes.get(start_id or "")
+        if start is None or end is None or note is None:
+            continue             # ink-less opens hit the dropped path
+        limit = 2.0 * st.measure_duration.get(note.measure, 4.0)
+        if end - start > limit:
+            st.suppressed_spanners.add(vid)
+            info = st.prep.part_for_staff(note.staff)
+            st.warnings.append(LoadWarning(
+                "implausible-tie",
+                f"tie from {info.part_id} m{note.measure} "
+                f"s{note.staff - info.first_staff + 1} spans "
+                f"{end - start:g} quarters (> 2 bars) — suppressed as "
+                f"an engraving artifact"))
 
 
 def _tstamp2_end_measure(start_measure: int, tstamp2: str | None) -> int:
@@ -923,6 +1186,8 @@ def _build_elements(
     for page, acc in accumulators:
         if acc.continuation:
             continue                     # second pass, after sources exist
+        if acc.verovio_id in st.suppressed_spanners:
+            continue                     # implausible tie: no element
         identity = _identity_for(acc, page, st, counters)
         if str(identity.element_id) in seen_ids:
             raise ValueError(f"duplicate ElementId {identity.element_id}")
@@ -986,11 +1251,17 @@ def _build_elements(
     for page, acc in accumulators:
         if not acc.continuation:
             continue
+        if acc.source_vid in st.suppressed_spanners:
+            continue    # its source tie is suppressed: drop the ink too
         source = identity_by_vid.get(acc.source_vid or "")
         if source is None or acc.bbox is None:
-            raise ValueError(
-                f"continuation {acc.svg_class} segment in system "
-                f"{acc.system} has no source element")
+            # unmatched continuation ink: skip, flagged (ruling b) —
+            # never silently absorbed into another element
+            st.warnings.append(LoadWarning(
+                "unattributed-continuation",
+                f"{acc.svg_class} continuation segment in system "
+                f"{acc.system} matched no source spanner — skipped"))
+            continue
         eid = f"{source.element_id}:seg{acc.seg_index}"
         if eid in seen_ids:
             raise ValueError(f"duplicate ElementId {eid}")
@@ -1069,6 +1340,22 @@ def _chord_group(mei_note: _MeiNote, st: _LoadState,
     return f"{part.part_id}:m{mei_note.measure}:v{mei_note.layer}:q{onset}"
 
 
+def _attach_onset(st: _LoadState, vid: str) -> Beats | None:
+    """Attach point of a measure-attached object: @startid's note onset
+    (a chord reference resolves through its first member), else @tstamp
+    arithmetic. None when the element carries neither."""
+    ref = st.mei.attach_startid.get(vid)
+    if ref:
+        if ref in st.onset_by_id:
+            return st.onset_by_id[ref]
+        member = next(iter(st.mei.chord_members.get(ref, ())), None)
+        if member and member in st.onset_by_id:
+            return st.onset_by_id[member]
+    if vid in st.mei.tstamps_by_id:
+        return _tstamp_extent(st.mei.tstamps_by_id[vid], st)[0]
+    return None
+
+
 def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
                   counters: dict[tuple, int]) -> ElementIdentity:
     prep = st.prep
@@ -1077,23 +1364,45 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
         kind_tag = "note"
 
     if acc.kind is ElementKind.GROUP_SYMBOL:
-        # One grpSym per group per system, emitted top-to-bottom, so the
-        # k-th in a system is the k-th injected group in first-part score
-        # order (st.groups is sorted; the two-group case is pinned by
-        # geometry in tests/test_adapter_groups.py). Part-span-keyed ids
-        # survive adding/removing OTHER groups; the ordinal fallback
-        # covers symbols we did not inject (a score with native
-        # part-groups) — deterministic, but not span-keyed.
-        scope = ("grpsym", acc.system)
-        seq = counters[scope]
-        counters[scope] += 1
-        if seq < len(st.groups):
-            g = st.groups[seq]
-            span = f"{g.parts[0]}-{g.parts[-1]}"
+        # Geometric identity (Phase 10, replacing the injected-slot
+        # ordinal): the symbol's bbox says which staves it spans, and
+        # part_for_staff turns that into a part span — self-identifying
+        # for injected groups AND native ones (a multi-staff part's
+        # brace, foreign part-groups). Slot bookkeeping cannot work:
+        # Verovio SUPPRESSES a native brace when an injected group
+        # overlaps its part (triage spike, section E). Injected groups
+        # keep their exact Phase 8 ids (score:sys{n}:grpsym:P1-P2); a
+        # multi-staff part's own brace mints its part id alone
+        # (score:sys{n}:grpsym:P5).
+        if acc.system is None or acc.bbox is None:
+            raise ValueError("group symbol without system/bbox")
+        centers = st.staff_centers_by_system.get(acc.system, {})
+        covered = sorted(n for n, cy in centers.items()
+                         if acc.bbox.y <= cy <= acc.bbox.y + acc.bbox.h)
+        if not covered or covered != list(range(covered[0],
+                                                covered[-1] + 1)):
+            raise ValueError(
+                f"group symbol in system {acc.system} spans staves "
+                f"{covered} — expected a contiguous non-empty range")
+        first = prep.part_for_staff(covered[0])
+        last = prep.part_for_staff(covered[-1])
+        if first is last and first.staff_count > 1:
+            span = first.part_id             # native grand-staff brace
         else:
-            span = f"x{seq}"
+            span = f"{first.part_id}-{last.part_id}"
         return ElementIdentity(
             element_id=ElementId(f"score:sys{acc.system}:grpsym:{span}"),
+            kind=acc.kind, part=None, part_name=None, staff=None,
+            voice=None, onset=None, extent=None,
+        )
+
+    if acc.kind is ElementKind.SYSTEM_DIVIDER:
+        scope = ("systemdivider", acc.system)
+        seq = counters[scope]
+        counters[scope] += 1
+        return ElementIdentity(
+            element_id=ElementId(
+                f"score:sys{acc.system}:systemdivider:{seq}"),
             kind=acc.kind, part=None, part_name=None, staff=None,
             voice=None, onset=None, extent=None,
         )
@@ -1103,7 +1412,8 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
     # note's staff and voice.
     staff_n = acc.staff or st.mei.staff_attr_by_id.get(acc.verovio_id)
     layer_n = acc.layer
-    if acc.verovio_id in st.mei.spanners:
+    is_spanner = acc.svg_class in _SPANNER_CLASSES
+    if is_spanner and acc.verovio_id in st.mei.spanners:
         start_id, _ = st.mei.spanners[acc.verovio_id]
         start_note = st.mei.notes.get(start_id or "")
         if start_note is not None:
@@ -1117,12 +1427,17 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
         part, part_name = info.part_id, info.name
         staff_local = staff_n - info.first_staff + 1
 
+    # Onset resolution is GATED BY svg_class so a note-owned fragment
+    # never picks up a spurious onset from its own id: under condensed
+    # layout Verovio reuses SVG group ids across element types, so a
+    # stem's id can collide with a distant note/spanner id. Only the
+    # element type the table is FOR may consult it (Phase 10R fix).
     onset: Beats | None = None
     extent: tuple[Beats, Beats] | None = None
     vid = acc.verovio_id
-    if vid in st.onset_by_id:
+    if acc.svg_class in _TIMEMAP_CLASSES and vid in st.onset_by_id:
         onset = st.onset_by_id[vid]
-    elif vid in st.mei.spanners:
+    elif is_spanner and vid in st.mei.spanners:
         start_id, end_id = st.mei.spanners[vid]
         start = st.onset_by_id.get(start_id or "")
         end = st.onset_by_id.get(end_id or "")
@@ -1133,7 +1448,7 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
             # timestamp-addressed spanner (hairpins carry @tstamp/@tstamp2
             # and @staff, no startid/endid — Phase 5 spike)
             onset, extent = _tstamp_extent(st.mei.tstamps_by_id[vid], st)
-    elif vid in st.mei.beam_note_ids:
+    elif acc.svg_class == "beam" and vid in st.mei.beam_note_ids:
         onsets = [st.onset_by_id[n] for n in st.mei.beam_note_ids[vid]
                   if n in st.onset_by_id]
         if onsets:
@@ -1141,19 +1456,19 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
             extent = (min(onsets), max(onsets))
     elif acc.owner_onset is not None:
         onset = acc.owner_onset          # stems, flags, accid, artic, dots
-    elif acc.kind is ElementKind.DYNAMIC and (
-            st.mei.dynam_startid.get(vid, "") in st.onset_by_id
-            or vid in st.mei.tstamps_by_id):
-        # a dynamic's onset is its attach point (ruling 2026-07-12) —
-        # @startid's note when present, else @tstamp arithmetic
-        start_ref = st.mei.dynam_startid.get(vid, "")
-        if start_ref in st.onset_by_id:
-            onset = st.onset_by_id[start_ref]
-        else:
-            onset, _ = _tstamp_extent(st.mei.tstamps_by_id[vid], st)
+    elif (attach := _attach_onset(st, vid)) is not None:
+        # a measure-attached object's onset is its attach point
+        # (dynamics: ruling 2026-07-12; fermatas, trills/ornaments,
+        # dirs, tempo, harm: Phase 10R)
+        onset = attach
     elif acc.kind in (ElementKind.DYNAMIC, ElementKind.TEXT,
-                      ElementKind.CHORD_SYMBOL, ElementKind.MREST) \
-            and acc.measure is not None:
+                      ElementKind.CHORD_SYMBOL, ElementKind.MREST,
+                      ElementKind.METER_SIG) \
+            and acc.measure is not None \
+            and acc.svg_class not in _STATIC_TEXT_CLASSES:
+        # measure-start fallback for attach-less objects; page furniture
+        # (labels, headers, measure numbers) stays onset-less = static
+        # by the schedule's onset gate (Phase 10R furniture ruling)
         onset = st.measure_start.get(acc.measure)
 
     # spanners for notes were handled; note extent stays None in v1

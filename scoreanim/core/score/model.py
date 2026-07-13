@@ -2,9 +2,16 @@
 (onset beats per note, slash regions, per-measure meter), independent of
 any engraving. Joined to layout ElementIds by core/score/join.py.
 
-music21 quirks this code is built around (spikes/NOTES.md, T0):
+music21 quirks this code is built around (spikes/NOTES.md, T0 and the
+Phase 10 triage spike):
 - Part.id gets replaced by the part *name* → parts are keyed by document
   order against PreparedScore.parts.
+- A multi-staff part (<staves>N</staves>) splits into N adjacent
+  PartStaff objects in the score-part's slot, ids
+  '<score-part-id>-Staff<k>' — the only parts whose original id
+  survives. Notes are filed into the PartStaff matching their MusicXML
+  <staff>, the same source as MEI @staff, so the part-local staff
+  number agrees with the adapter's by construction.
 - Slash measures parse as hidden full-measure Rests → slash regions come
   from PreparedScore, never from rest inspection.
 - Grace notes carry the principal's offset and quarterLength 0.
@@ -38,7 +45,7 @@ def _diatonic(step: str, octave: int) -> int:
 class ScoreNote:
     part: PartId
     measure: int
-    staff: int                   # part-local, 1-based (v1: single-staff parts)
+    staff: int                   # part-local, 1-based
     voice_label: str | None      # music21 Voice id; None when the measure
                                  # has a single implicit voice
     onset: Beats                 # global, quarter notes from score start
@@ -79,35 +86,52 @@ def build_score_model(source: Path | PreparedScore) -> ScoreModel:
     score.toSoundingPitch(inPlace=True)
 
     parts = list(score.parts)
-    if len(parts) != len(prep.parts):
+    expected = sum(p.staff_count for p in prep.parts)
+    if len(parts) != expected:
         raise ValueError(f"music21 sees {len(parts)} parts, "
-                         f"prep sees {len(prep.parts)}")
-    if any(isinstance(p, m21.stream.PartStaff) for p in parts):
-        raise NotImplementedError("multi-staff parts not supported in v1")
+                         f"prep expects {expected} "
+                         f"({len(prep.parts)} score-parts)")
 
     notes: list[ScoreNote] = []
-    for info, part in zip(prep.parts, parts):
-        for measure in part.getElementsByClass(m21.stream.Measure):
-            m_number = measure.number
-            m_offset = float(measure.offset)
-            streams: list = list(measure.voices) or [measure]
-            for stream in streams:
-                voice_label = (str(stream.id)
-                               if isinstance(stream, m21.stream.Voice) else None)
-                order = 0
-                for el in stream.notes:
-                    # ChordSymbol (from <harmony>) is a Chord subclass and
-                    # appears in .notes, but engraves as text, not noteheads
-                    if isinstance(el, m21.harmony.ChordSymbol):
-                        continue
-                    onset = m_offset + float(el.offset)
-                    grace = el.duration.isGrace
-                    for sub in _flatten_pitched(el):
-                        notes.append(ScoreNote(
-                            part=info.part_id, measure=m_number, staff=1,
-                            voice_label=voice_label, onset=onset, grace=grace,
-                            order=order, **sub))
-                        order += 1
+    consumed = 0
+    for info in prep.parts:
+        group = parts[consumed:consumed + info.staff_count]
+        consumed += info.staff_count
+        if info.staff_count > 1:
+            # Pin the music21 multi-staff contract (Phase 10 triage
+            # spike): positional order must be staff order.
+            for k, p in enumerate(group, start=1):
+                if (not isinstance(p, m21.stream.PartStaff)
+                        or str(p.id) != f"{info.part_id}-Staff{k}"):
+                    raise ValueError(
+                        f"multi-staff part {info.part_id}: expected "
+                        f"PartStaff '{info.part_id}-Staff{k}' at slot "
+                        f"{k}, got {type(p).__name__} {p.id!r}")
+        for staff_local, part in enumerate(group, start=1):
+            for measure in part.getElementsByClass(m21.stream.Measure):
+                m_number = measure.number
+                m_offset = float(measure.offset)
+                streams: list = list(measure.voices) or [measure]
+                for stream in streams:
+                    voice_label = (str(stream.id)
+                                   if isinstance(stream, m21.stream.Voice)
+                                   else None)
+                    order = 0
+                    for el in stream.notes:
+                        # ChordSymbol (from <harmony>) is a Chord subclass
+                        # and appears in .notes, but engraves as text, not
+                        # noteheads
+                        if isinstance(el, m21.harmony.ChordSymbol):
+                            continue
+                        onset = m_offset + float(el.offset)
+                        grace = el.duration.isGrace
+                        for sub in _flatten_pitched(el):
+                            notes.append(ScoreNote(
+                                part=info.part_id, measure=m_number,
+                                staff=staff_local, voice_label=voice_label,
+                                onset=onset, grace=grace,
+                                order=order, **sub))
+                            order += 1
 
     return ScoreModel(
         notes=tuple(notes),

@@ -41,9 +41,21 @@ of the current phase.
    new effect means adding data/preset definitions, not branching in the
    evaluator.
 
-7. **The user owns page layout.** We honor the MusicXML's encoded system
-   and page breaks (Verovio break-respect mode). We never reflow to fit
-   the window. Paged presentation; mismatched aspect is letterboxed.
+7. **The user owns page layout.** We honor the MusicXML's encoded
+   SYSTEM breaks always (Verovio break-respect mode). We never reflow
+   to fit the window. Paged presentation; mismatched aspect is
+   letterboxed. Two amendments, user-ruled 2026-07-13 (Phase 10R):
+   (a) encoded PAGE breaks are honored unless a system would overflow
+   its page (Dorico breaks are computed assuming hidden staves) — then
+   the adapter keeps the system breaks, re-derives page breaks at the
+   prep seam, and re-engraves once (`LoadWarning "repaginated"`;
+   page-scoped ids shift). **Ink is never clipped.** (b) staves empty
+   for a whole system may be hidden via the per-score **Hide Empty
+   Staves** option (Verovio `optimize` over an MEI round-trip; the
+   MusicXML itself carries no hidden-staff info) — default ON for new
+   documents, OFF for pre-v4 projects, undoable, an engraving input
+   like staff groups. Slash regions win over hiding (rule 10;
+   `LoadWarning "hide-unavailable"`).
    (Built in Phase 9: part-label edits re-engrave via the prep seam so
    the score shifts to fit — a re-engrave with changed inputs is not
    window reflow; title/tempo texts edit as stage overlay and never
@@ -90,7 +102,9 @@ scoreanim/
   app.py
 tests/                     # headless: core logic tested without any GUI
 testdata/                  # testscore.musicxml (Dorico export) + companion
-                           # PDF — primary fixture for spikes and tests
+                           # PDF — primary fixture for spikes and tests;
+                           # video_test.musicxml — production score with
+                           # a multi-staff piano (Phase 10 fixture)
 docs/
 ```
 

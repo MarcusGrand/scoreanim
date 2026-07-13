@@ -1,5 +1,89 @@
 # Spike & build notes
 
+## Phase 10R — review-fix spike (`spikes/phase10r_spike.py`, 2026-07-13)
+
+Marcus's Phase 10 exit review required four fixes (hidden empty staves,
+animate-everything, the m44 tie artifacts, page-frame systems mode +
+never-clip). Library facts the fixes stand on, verovio 6.2.1:
+
+- **Two-pass load is id- and timemap-transparent**: loadData(MusicXML)
+  → getMEI() → set `optimize="true"` on the first `<scoreDef>` → fresh
+  toolkit → loadData(MEI) preserves all 4959 xml:ids AND the exact
+  timemap (215 entries, qstamps/on/restsOn/measureOn identical);
+  `transposeToSoundingPitch` on pass 2 does NOT double-transpose
+  (pnames identical — the MEI is already sounding pitch and Verovio
+  re-transposing is a no-op). Cost: 0.12s → 0.24s on video_test.
+- **`optimize` is the hide-empty-staves switch Verovio actually honors**
+  (with `condense:"encoded"`); `staff-details print-object="no"` and
+  `staffDef@visible="false"` are both IGNORED for rendering; plain
+  `condense:"auto"` condenses only scores with 2+ top-level staffGrps.
+  video_test hide-ON staves/system: 8,2,2,4,2,2,5,4,5,4,4,4,4,4,4
+  (first system full — engraving convention). ALL Phase 10R page
+  overflow disappears under hiding (max system bottom 21416/29670).
+- **Condensed layouts draw systemDividers (8 on video hide-ON) unless
+  `systemDivider:"none"`** — adopted as a fixed option (Dorico's
+  default draws none); the Phase 10 SYSTEM_DIVIDER decomposer support
+  stays as defense. testscore + 2 injected groups + hide-ON: 7/3/6/3/5
+  staff rows, 0 dividers — optimize and injected groups compose.
+- **The native grand-staff brace follows staff visibility**: 3 grpSyms
+  on video hide-ON (only the piano-visible systems), including systems
+  where just ONE piano staff survives — the brace draws over one staff;
+  the geometric identity's `first is last and staff_count > 1` branch
+  covers it (span "P5").
+- **Slash regions vs hiding**: Verovio judges slash measures (MEI
+  `<space>`) empty. testscore hide-ON HIDES the drum staff across slash
+  measures mm5–8/13–16 → the adapter's fallback (redo without optimize
+  + LoadWarning "hide-unavailable") exists for exactly this;
+  video_test loses no slash staff (other content keeps staves 7/8
+  visible in its slash systems).
+- **`<print new-page="yes">` injection in PART 1 ONLY controls
+  pagination** (stripped encoded new-page + 7 injected breaks → exactly
+  8 pages). Verovio's own ids re-roll on the input change (4589/4959
+  common) — as always, OUR musical ids are the stable ones.
+- **Attach-onset census (video)**: fermata ×6 and trill ×1 carry
+  `@startid`; dir ×3, tempo ×1, harm ×9, dynam ×24 carry `@tstamp`;
+  nothing carries neither. The 15 other onset-less OTHER elements are
+  the per-system systemic-barline elements (scaffold, correctly
+  static); the 7 onset-less TEXTs are the page-1 part labels (ruled
+  static furniture).
+
+Phase 10R build finds (2026-07-13):
+
+- **A fermata's `@startid` may reference a CHORD id**, which is not in
+  the timemap — attach-onset resolution goes through
+  `chord_members[first]` (3 of video's 6 fermatas).
+- **Repagination drift**: the re-engraved layout placed one system
+  2 page units lower than the measured first pass predicted (greedy
+  plan said fit-by-11) — `plan_page_breaks` carries a 2% safety pad;
+  never-clip beats an occasional extra page.
+- **QGraphicsView clamps scrolling to the scene rect**: the page-sized
+  system frame extends past the page for systems near its top/bottom,
+  so `fitInView` silently re-centered on the page instead of the band —
+  StageView widens the VIEW's sceneRect to frame∪page (the overhang
+  renders as view background = letterbox, which is correct).
+- **Verovio's tie matching differs under condensed layout**: the P4 m41
+  open tie (dropped flat) DRAWS under optimize, producing a
+  continuation segment with no resolvable source in system 13 — the
+  tolerant pairing skips it with "unattributed-continuation"
+  (hide-ON warning census: 5 dropped + 13 implausible + 1 mismatch +
+  1 unattributed; flat: 6 dropped + 13 implausible + 1 repaginated).
+- **Condensed layout REUSES SVG group ids across element types** (the
+  page-jump bug, fixed 2026-07-13): an m1 stem's `<g>` and an m44
+  note's `<g>` can carry the same xml:id (e.g. `c1ax32bj`), so a naive
+  `onset_by_id[vid]` / spanner-table lookup on a note-owned fragment's
+  OWN id returned the distant note's late onset (145.5 for an m1 stem).
+  That poisoned the trigger schedule's page/system stamps (a bar-3
+  trigger stamped page 4 / system 10), which follow-mode read as a jump
+  to page 4 and back. 182 stray fragments on video hide-ON; 0 on flat
+  (no condense → no reuse). Fix: onset lookups in `_identity_for` are
+  GATED BY svg_class — only notes/rests consult `onset_by_id` by id,
+  only spanner classes the spanner table, only "beam" the beam table;
+  everything note-owned falls to `owner_onset`. A no-op on any load
+  without id reuse (flat unchanged), robust to Verovio's id hygiene.
+  The MEI xml:id SET is still round-trip-stable (spike A) — the reuse
+  is in the rendered SVG, not the MEI, so the set check didn't catch
+  it.
+
 ## Phase 9 — part-label overrides (`spikes/part_label.py`, 2026-07-12)
 
 Task 9.3's opening spike. Verovio 6.2.1 against
@@ -616,3 +700,93 @@ nests an inner `<svg>` element and QtSvg skips it → blank output. Chrome
 renders it fine. Phase 1/2 plan (decompose SVG into per-element QGraphicsItems
 via QPainterPath) is unaffected, but "just hand the whole SVG to QtSvg" is
 not a viable shortcut.
+
+## Phase 10 — triage spike (`spikes/video_test_triage.py`, 2026-07-13)
+
+Task 10.0: the proper freeze of the session triage below, with THREE
+mechanism corrections found while planning (verified against the real
+files; the spike pins all of them and reproduces the four failure points
+in order — section F). The fixes' shape follows these, not the earlier
+hypotheses:
+
+- **music21 PartStaff contract (10.1)**: a `<staves>2</staves>` part
+  splits into adjacent `PartStaff` objects, document order, in the
+  score-part's slot, ids `'<score-part-id>-Staff<k>'` — the ONLY parts
+  whose original id survives (plain Parts get their id replaced by the
+  part NAME). music21 also emits a `layout.StaffGroup(symbol='brace')`
+  over the pair. So `sum(prep staff_count) == len(score.parts)` and a
+  grouped positional zip reconciles 8-vs-7 by construction. The
+  note-empty `P5-Staff2` still carries all 45 Measure streams.
+- **The m12 "ledger dash matches no notehead" is a REST, not
+  cross-staff (10.2)**: staff 2 (Ten/Bari — not even the piano) has two
+  voices in m12; the voice-1 half rest is displaced off the staff and
+  Verovio draws a ledger dash through it. The (page, measure, staff)
+  scope key is already right; the candidate pool just lacks rests.
+  Score-wide: 351 dashes note-owned, 4 attributable only to a rest.
+- **Tie continuation ink is drawn ONLY in the tie's END system (10.3)**:
+  the Phase 5 spike only ever saw 2-system spanners, where end system ==
+  the only continuation system. On video_test the old
+  `start < n <= end` predicate over-counts pass-through ties (per-system
+  drawn/old/end-rule: sys4 6/9/6, sys7 4/9/4, sys11 10/17/10, sys12
+  9/18/9, sys13 14/25/14, sys15 11/11/11); the end-system rule closes
+  every count. Separately, **6 MEI ties produce NO ink** — all render as
+  id-bearing 0-path `<g>`s (the testscore open-tie shape, NOT absent
+  groups): 5 with no `@endid` ("5 ties left open") + 1 cross-staff tie
+  whose end precedes its start (m41 staff 3 → m38 staff 4, "tie
+  ignored... start does not occur temporally before end"). Detection is
+  structural (id-bearing spanner group with zero drawables), no log
+  parsing.
+- **The systemDivider root cause is Verovio's `condense` option,
+  default `"auto"` (10.4)**: at ≥2 staff-groups Verovio silently switches
+  to condensed layout — hides empty staves per system (testscore 2-group:
+  7/3/6/3/5 staff rows vs 7×5) and draws id-less `systemDivider` glyphs
+  (2 polygons, direct child of `system`). `condense: "encoded"` restores
+  the encoded layout: 2 groups → 10 grpSyms, ZERO dividers, and the
+  0-group and 1-group renders are byte-identical to `auto`. That makes
+  it a rule-7-reinforcing fixed adapter option (the
+  transposeToSoundingPitch shape). SYSTEM_DIVIDER stays mapped anyway
+  (ruling a) as defense.
+- **Native-brace suppression**: video_test's piano brace is ONE grpSym
+  per system (15 total); injecting a group that overlaps P5 (e.g.
+  P4–P5) SUPPRESSES the native brace — still 1 symbol/system. Slot
+  bookkeeping for grpSym identity would need suppression rules;
+  geometric identity (which staves the symbol's bbox spans) is
+  self-identifying (10.4).
+- `bracketSpan` (1) and `mSpace` (2) are id-bearing, EMPTY `<g>`s on
+  video_test — non-guard-fatal today; 10.4 registers them defensively.
+
+## Phase 10 — video_test.musicxml triage (2026-07-13)
+
+`testdata/video_test.musicxml` (real production score) does not load.
+Both open defects (multi-bracket + this file) are the SAME class of bug:
+the adapter was built against `testscore` and `broken_hairpin_and_slur_test`,
+neither of which exercises multi-staff parts, system dividers, or several
+notation classes. Root causes reproduced against the real files:
+
+- **Multi-staff part (load-bearing).** Piano is `<staves>2</staves>` — ONE
+  `<score-part id="P5">`, two staves. music21 splits it into `P5-Staff1` /
+  `P5-Staff2` (8 parts); prep counts 7 score-parts. This single fact cascades:
+  1. `build_score_model` raises `music21 sees 8 parts, prep sees 7`.
+  2. `_attribute_ledger_dashes` raises: `page 2 m12 staff 2: ledger dash at
+     x=674 matches no notehead` (attribution assumes single-staff geometry).
+  3. `_attribute_spanner_segments` raises: `system 4: 6 tie continuation
+     segment(s) but 9 crossing source spanner(s)`, then `_build_elements`
+     raises `continuation tie segment in system 4 has no source element`.
+     Verovio also warns "5 ties left open" / "tie ignored, start does not
+     occur temporally before end" — grand-staff tie matching.
+
+- **systemDivider (multi-bracket).** Injecting two disjoint part-groups into
+  `testscore` validates and produces correct part-list XML, but Verovio then
+  draws a `<g class="systemDivider">` (drawable) that the decomposer whitelist
+  rejects → `ValueError: page 2: unknown SVG class 'systemDivider'`. One group
+  never draws a divider. Reproduce: load testscore with two PartGroupSpecs.
+
+- **New SVG classes, non-blocking.** `bracketSpan` and `mSpace` appear but are
+  NON-drawable (don't hit the guard today); add to the container/ignore set
+  defensively. New notation present — trill/`wavy-line`, `fermata`,
+  `ornaments`, `strong-accent`, `ppp`, `wedge`, chord-symbol `bass` — maps to
+  classes already whitelisted; renders once the load succeeds (verify visually).
+
+Fixtures the prior two never exercised: multi-staff (grand-staff) parts;
+two+ part-groups in a system (systemDivider); `ppp` dynamics; `wedge`
+hairpins in this configuration; trill wavy-lines; chord-symbol bass notes.

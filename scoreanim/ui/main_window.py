@@ -11,6 +11,7 @@ diffs part tints — views never talk to each other.
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import replace as _dc_replace
 from pathlib import Path
@@ -29,10 +30,13 @@ from scoreanim.core.animation import (DEFAULT_EFFECT, FLOOR_OPACITY, PRESETS,
 from scoreanim.core.engraving.systems import system_bands
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
-from scoreanim.core.project import (DEFAULT_BPM, SUFFIX, ApplyTaps, FileRef,
+from scoreanim.core.project import (DEFAULT_BPM,
+                                    HIDE_EMPTY_STAVES_DEFAULT, SUFFIX,
+                                    ApplyTaps, FileRef,
                                     ImportTempoSetup, PresentationMode,
                                     ProjectDoc,
                                     SetFloorOpacity, SetGlobalSwing,
+                                    SetHideEmptyStaves,
                                     SetOffset, SetPartColor,
                                     SetPartEffect, SetPresentationMode,
                                     SetRevealMode,
@@ -89,6 +93,8 @@ class MainWindow(QMainWindow):
         self._applied_mode = PresentationMode.PAGED  # what the view shows
         self._applied_groups: tuple = ()   # staff groups the engrave used
         self._applied_text_overrides: dict = {}   # label overrides ditto
+        self._applied_hide_empty = False   # hide-empty-staves ditto
+        self._hide_staves_action: QAction | None = None
         self._applied_stage_texts: tuple = ()   # stage texts on the scenes
         self._applied_hidden: dict = {}    # ElementId → applied hidden flag
         self._parts: tuple = ()            # PartInfos of the loaded score
@@ -475,7 +481,8 @@ class MainWindow(QMainWindow):
         if (self._scenes is not None and doc.score is not None
                 and (doc.staff_groups != self._applied_groups
                      or dict(doc.text_overrides)
-                     != self._applied_text_overrides)):
+                     != self._applied_text_overrides
+                     or doc.hide_empty_staves != self._applied_hide_empty)):
             self._reengrave(doc)
         self.playback.set_timing_config(*self._timing_config(doc))
         self._sync_styles(doc)
@@ -499,6 +506,10 @@ class MainWindow(QMainWindow):
         self._systems_mode.setChecked(doc.stage.mode
                                       is PresentationMode.SYSTEM)
         self._systems_mode.blockSignals(False)
+        if self._hide_staves_action is not None:
+            self._hide_staves_action.blockSignals(True)
+            self._hide_staves_action.setChecked(doc.hide_empty_staves)
+            self._hide_staves_action.blockSignals(False)
         self._sync_presentation_mode(doc.stage.mode)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
@@ -620,6 +631,17 @@ class MainWindow(QMainWindow):
         names_action = QAction("Part Names…", self._parts_menu)
         names_action.triggered.connect(self._open_part_names_dialog)
         self._parts_menu.addAction(names_action)
+        # an engraving input like the two above (Phase 10R): toggling
+        # re-engraves via the _applied_hide_empty diff, one undo step
+        self._hide_staves_action = QAction("Hide Empty Staves",
+                                           self._parts_menu)
+        self._hide_staves_action.setCheckable(True)
+        self._hide_staves_action.setChecked(
+            self.app_state.doc.hide_empty_staves)
+        self._hide_staves_action.toggled.connect(
+            lambda checked: self.app_state.execute(
+                SetHideEmptyStaves(checked)))
+        self._parts_menu.addAction(self._hide_staves_action)
         self._parts_menu.addSeparator()
         for info in parts:
             pid = PartId(info.part_id)
@@ -771,12 +793,13 @@ class MainWindow(QMainWindow):
                 return
             warnings.append(score_warning)
 
-        # groups + label overrides engrave here once; the reset_document
-        # below finds the _applied_* caches already equal — no double
-        # engrave
+        # groups + label overrides + hide flag engrave here once; the
+        # reset_document below finds the _applied_* caches already equal
+        # — no double engrave
         self._load_score(Path(doc.score.path), doc.engraving,
                          stage=doc.stage, groups=doc.staff_groups,
-                         text_overrides=doc.text_overrides)
+                         text_overrides=doc.text_overrides,
+                         hide_empty_staves=doc.hide_empty_staves)
         self._project_path = path
         self._score_name = path.name
         self._tempo_path = None
@@ -799,29 +822,33 @@ class MainWindow(QMainWindow):
     def _load_score(self, path: Path, params: EngravingParams,
                     stage: StageConfig | None,
                     groups: tuple = (),
-                    text_overrides: dict | None = None) -> StageConfig:
+                    text_overrides: dict | None = None,
+                    hide_empty_staves: bool = HIDE_EMPTY_STAVES_DEFAULT
+                    ) -> StageConfig:
         """Fresh-load entry: engrave + wire, then reset to page 1."""
         stage = self._engrave_and_wire(path, params, stage, groups,
-                                       text_overrides or {})
+                                       text_overrides or {},
+                                       hide_empty_staves)
         self._page = 1
         self._system = 1
         return stage
 
     def _reengrave(self, doc: ProjectDoc) -> None:
-        """Re-derive the engraved world after a staff-group or
-        part-label change, preserving page/system/zoom (no view.fit, no
-        position reset). ~0.6 s on the GUI thread per call (engrave +
-        scene rebuild), so these commands must arrive via execute(),
-        never preview()."""
+        """Re-derive the engraved world after a staff-group, part-label,
+        or hide-empty-staves change, preserving page/system/zoom (no
+        view.fit, no position reset). ~0.6 s on the GUI thread per call
+        (engrave + scene rebuild), so these commands must arrive via
+        execute(), never preview()."""
         self._engrave_and_wire(Path(doc.score.path), doc.engraving,
                                doc.stage, doc.staff_groups,
-                               doc.text_overrides)
+                               doc.text_overrides, doc.hide_empty_staves)
         self._show_current()             # install the fresh scene
 
     def _engrave_and_wire(self, path: Path, params: EngravingParams,
                           stage: StageConfig | None,
                           groups: tuple = (),
-                          text_overrides: dict | None = None) -> StageConfig:
+                          text_overrides: dict | None = None,
+                          hide_empty_staves: bool = False) -> StageConfig:
         """Engrave + decompose + join + wire the animation. Returns the
         stage config used (seeded from the score's credits when None).
         `groups` is doc.staff_groups — injected as <part-group> at the
@@ -836,9 +863,8 @@ class MainWindow(QMainWindow):
                                         abbreviation=o.abbreviation)
                            for pid, o in sorted(text_overrides.items()))
         t0 = time.perf_counter()
-        engraved = VerovioEngravingProvider().load_detailed(path, params,
-                                                            specs,
-                                                            text_specs)
+        engraved = VerovioEngravingProvider().load_detailed(
+            path, params, specs, text_specs, hide_empty_staves)
         t1 = time.perf_counter()
         if stage is None:
             stage = default_stage_config(engraved.prepared,
@@ -861,6 +887,13 @@ class MainWindow(QMainWindow):
         if not report.is_complete:
             join_note = (f" · JOIN INCOMPLETE ({len(report.unmatched_score)}"
                          f"/{len(report.unmatched_layout)} unmatched)")
+        if engraved.warnings:
+            # flag-and-continue (Phase 10 ruling b): e.g. ties the
+            # engraver dropped — the score loads, the anomaly is visible
+            join_note += f" · {len(engraved.warnings)} load warning(s)"
+            for w in engraved.warnings:
+                print(f"load warning [{w.code}]: {w.message}",
+                      file=sys.stderr)
         schedule = build_trigger_schedule(engraved.layout, report.mapping,
                                           model.measures)
         score_end = max((m.start + m.quarter_length for m in model.measures),
@@ -889,6 +922,7 @@ class MainWindow(QMainWindow):
         self._build_parts_menu(engraved.prepared.parts)
         self._applied_groups = groups
         self._applied_text_overrides = text_overrides
+        self._applied_hide_empty = hide_empty_staves
 
         self.statusBar().showMessage(
             f"engrave+decompose {t1 - t0:.2f}s · scene build {t2 - t1:.2f}s · "

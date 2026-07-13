@@ -420,6 +420,22 @@ class SetPresentationMode(Command):
         return "set presentation mode"
 
 
+@dataclass(frozen=True)
+class SetHideEmptyStaves(Command):
+    """Hide staves that are empty for a whole system (Phase 10R).
+    Intent only — the hidden layout re-derives at the engraving seam,
+    like staff groups; the window re-engraves on the doc diff."""
+    value: bool
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not isinstance(self.value, bool):
+            raise CommandError(f"bad hide_empty_staves {self.value!r}")
+        return replace(doc, hide_empty_staves=self.value)
+
+    def describe(self) -> str:
+        return "hide empty staves" if self.value else "show empty staves"
+
+
 _TEXT_ANCHORS = frozenset({"start", "middle", "end"})
 
 

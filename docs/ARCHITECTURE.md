@@ -63,12 +63,16 @@ class ElementIdentity:
 # core/engraving/
 class EngravingProvider(ABC):
     def load(self, score_path: Path, params: EngravingParams,
-             groups: tuple[PartGroupSpec, ...] = ()) -> Layout: ...
+             groups: tuple[PartGroupSpec, ...] = (),
+             texts: tuple[PartTextSpec, ...] = (),
+             hide_empty_staves: bool = False) -> Layout: ...
     # `groups` (Phase 8): staff groups injected as <part-group> at the
     # prep seam — engraving INPUTS like the score file itself. A
     # separate argument, NOT an EngravingParams field, because params
     # are serialized in the project document and a groups field there
     # would duplicate doc.staff_groups (rule 5: one source of intent).
+    # `texts` (Phase 9.3) and `hide_empty_staves` (Phase 10R) follow
+    # the same reasoning (doc.text_overrides / doc.hide_empty_staves).
 
 # Verovio adapter obligations (Phase 0 rulings, 2026-07-10):
 #
@@ -130,6 +134,42 @@ class EngravingProvider(ABC):
 #    are static TEXT, never animation targets). Tempo/label/etc. TEXT
 #    sub-classing rides RenderedElement.text_class — presentation
 #    metadata; ElementIdentity and minted ids untouched.
+#
+# 7. Hide empty staves (Phase 10R, as built 2026-07-13, rule-7
+#    amendment b): Verovio honors hidden empty staves ONLY via MEI
+#    scoreDef@optimize + condense:"encoded" (staff-details
+#    print-object and staffDef@visible are ignored; MusicXML carries
+#    no hidden-staff info from Dorico). The adapter runs a TWO-PASS
+#    load when doc.hide_empty_staves is on: loadData(MusicXML) →
+#    getMEI() → set optimize="true" on the first scoreDef → fresh
+#    toolkit → loadData(MEI). The round-trip is id- and
+#    timemap-transparent (pinned; spikes/NOTES.md Phase 10R).
+#    systemDivider:"none" is a fixed option (condensed layouts draw
+#    dividers by default; Dorico's look has none — SYSTEM_DIVIDER
+#    decomposer support stays as defense). Slash regions WIN over
+#    hiding (rule 10): if a slash-region staff would vanish, the load
+#    redoes flat with LoadWarning "hide-unavailable".
+#
+# 8. Never-clip repagination (Phase 10R, as built 2026-07-13, rule-7
+#    amendment a): after every engrave the adapter measures system
+#    bands against the page height; on overflow it re-derives page
+#    breaks (greedy pack from measured heights + margins, 2% drift
+#    pad — core/engraving/systems.plan_page_breaks), strips encoded
+#    new-page attributes, injects <print new-page="yes"> at the chosen
+#    system starts (part 1 only) at the prep seam, and re-engraves
+#    once. Breaks are DERIVED data — recomputed every load, never
+#    stored (rule 5). Page-scoped ids (score:p{n}:…) shift; musical
+#    ids are pagination-independent. LoadWarning "repaginated".
+#
+# 9. Load warnings (Phase 10/10R, ruling b): non-fatal anomalies are
+#    NEVER silently absorbed — EngravedScore.warnings carries
+#    LoadWarning(code, message) in musical coordinates only (rule 4):
+#    dropped-spanner (engraver emitted no ink), implausible-tie (a tie
+#    force-matched to a distant note — extent > 2× its start measure —
+#    is suppressed with its continuation ink; the Phase 10R m44 fix),
+#    segment-count-mismatch / unattributed-continuation (tolerant
+#    continuation pairing), hide-unavailable, repaginated,
+#    system-overflow. The status bar shows the count; stderr the text.
 #
 # 5. Staff groups via prep injection (Phase 8, as built 2026-07-12):
 #    doc-stored groupings (staff_groups, user intent) become
@@ -260,20 +300,28 @@ reveal per segment (adapter emits `<source-id>:seg<k>` elements);
 segments in not-yet-reached systems sit at reveal = 0 with no page
 logic. Any cursor reads this same function.
 
-### Animated-ink taxonomy (revised 2026-07-12)
+### Animated-ink taxonomy (revised 2026-07-12; re-revised 2026-07-13, Phase 10R)
 
 Opacity-triggered (dim at floor, light at trigger): noteheads, slashes,
 stems, flags, beams, accidentals, articulations, dots, ledger dashes,
-**rests, whole-bar rests, dynamics** (ruling B — everything IN the
-staves animates; a dynamic's trigger is its attach point). **A rest is
+rests, whole-bar rests, dynamics — and, since the Phase 10R
+animate-everything ruling, **texts, chord symbols, lyrics, meter
+signatures, trills/ornaments, fermatas**: every object animates at its
+attach point (@startid note — chords resolve through their first
+member — else @tstamp arithmetic, else measure start). **A rest is
 retrospective ink** (ruling 2026-07-12, second session): it triggers
 when its silence resolves — at the next note in its part/voice or at
 the end of its own bar, whichever comes first, never on its own silent
 beat (a whole-bar rest completes at its barline). Reveal anchors follow
 the same triggers, so the edge never advances mid-silence.
 Clip-revealed (opacity pinned 1.0): slurs, ties, hairpins. Static:
-clefs, key/time signatures, barlines, staff lines, texts, lyrics,
-chord symbols.
+**barlines, clefs, key signatures ONLY** among notation (the Phase 10R
+ruling), plus the scaffold and page furniture — staff lines, group
+symbols, system dividers, part labels, page header/footer, measure
+numbers (the adapter mints furniture onset-less; the schedule's onset
+gate excludes it). The animated set ≠ the tinted set (ruling D stands:
+TINTED_KINDS unchanged) and ≠ reveal anchors (the new kinds are
+attachments, like dynamics).
 
 ### Styling
 
@@ -320,24 +368,30 @@ Project (saved file, versioned schema)
 │                        contiguous parts + symbol + joined-barlines flag
 │                        (bracket geometry re-derives via prep injection;
 │                        adapter ruling 5)
-└── text_overrides       consumed since Phase 9.3 (v3): per-part
-                         name/abbreviation edits, rewritten into the
-                         part-list at the prep seam (adapter ruling 6)
+├── text_overrides       consumed since Phase 9.3 (v3): per-part
+│                        name/abbreviation edits, rewritten into the
+│                        part-list at the prep seam (adapter ruling 6)
+└── hide_empty_staves    v4 (Phase 10R): per-score bool, default ON for
+                         new documents; the hidden layout re-derives
+                         via the MEI optimize round-trip (adapter
+                         ruling 7); rule-7 amendment b
 ```
 
 Schema versions (`core/project/serialize.py`, strict gate): **v1**
 (Phase 4) had `style.part_colors`; **v2** (Phase 5.3) is the StyleRules
 shape above; **v3** (Phase 7.1) added floor_opacity, presentation mode,
 staff_groups, and text_overrides in ONE bump — every planned v2-era
-field designed at once, no per-phase bumps. The reader accepts
-{1, 2, 3}: v1 `part_colors` folds into part color rules, v1/v2 files
-default every v3 field per-field (no migration code — they just lack
-the keys); the writer emits 3. The gate is strict-by-version ON
-PURPOSE: an older build REFUSES a newer file instead of tolerantly
-reading it, silently dropping fields, and destroying them on the next
-save. Effect names are stored intent — an unknown name fails soft to
-the default preset at animation time but round-trips untouched
-(rule 5).
+field designed at once, no per-phase bumps; **v4** (Phase 10R) added
+hide_empty_staves, VERSION-GATED on read: v≤3 files predate the option
+and load OFF so their look is unchanged, while new documents default
+ON. The reader accepts {1, 2, 3, 4}: v1 `part_colors` folds into part
+color rules, older files default newer fields per-field (no migration
+code — they just lack the keys); the writer emits 4. The gate is
+strict-by-version ON PURPOSE: an older build REFUSES a newer file
+instead of tolerantly reading it, silently dropping fields, and
+destroying them on the next save. Effect names are stored intent — an
+unknown name fails soft to the default preset at animation time but
+round-trips untouched (rule 5).
 
 Never persisted: Layout, timemaps, decomposed geometry — always re-derived.
 All mutations go through undoable commands (`core/project/commands.py`).

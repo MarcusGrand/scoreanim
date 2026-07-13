@@ -105,39 +105,23 @@ class ExportDialog(QDialog):
 
         geo = self._inputs.layout.pages[0]
         self._page_aspect = (geo.width, geo.height)
-        if self._mode is PresentationMode.SYSTEM:
-            # system mode (Phase 7.5, ruled): free-form canvas, default
-            # 1920×1080 — the band composites centered, scaled to fit
-            self._canvas_w = QSpinBox()
-            self._canvas_w.setRange(320, 7680)
-            self._canvas_w.setSingleStep(2)
-            self._canvas_w.setValue(1920)
-            self._canvas_h = QSpinBox()
-            self._canvas_h.setRange(240, 4320)
-            self._canvas_h.setSingleStep(2)
-            self._canvas_h.setValue(1080)
-            size_row = QHBoxLayout()
-            size_row.addWidget(self._canvas_w)
-            size_row.addWidget(QLabel("×"))
-            size_row.addWidget(self._canvas_h)
-            size_row.addWidget(QLabel("px canvas (system mode)"))
-            size_row.addStretch(1)
-            form.addRow("Size:", size_row)
-        else:
-            self._height = QSpinBox()
-            self._height.setRange(240, 4320)
-            self._height.setSingleStep(2)
-            self._height.setValue(2160)
-            self._height.setSuffix(" px high")
-            # aspect is the page's own and stays locked: width follows
-            # the height, the 🔗 makes the coupling visible
-            self._width_label = QLabel()
-            size_row = QHBoxLayout()
-            size_row.addWidget(self._height)
-            size_row.addWidget(QLabel("🔗"))
-            size_row.addWidget(self._width_label)
-            size_row.addStretch(1)
-            form.addRow("Size:", size_row)
+        # both modes share the page-aspect canvas (Phase 10R ruling:
+        # the frame never changes shape; system mode centers the single
+        # system vertically inside it)
+        self._height = QSpinBox()
+        self._height.setRange(240, 4320)
+        self._height.setSingleStep(2)
+        self._height.setValue(2160)
+        self._height.setSuffix(" px high")
+        # aspect is the page's own and stays locked: width follows
+        # the height, the 🔗 makes the coupling visible
+        self._width_label = QLabel()
+        size_row = QHBoxLayout()
+        size_row.addWidget(self._height)
+        size_row.addWidget(QLabel("🔗"))
+        size_row.addWidget(self._width_label)
+        size_row.addStretch(1)
+        form.addRow("Size:", size_row)
 
         self._whole = QRadioButton(
             f"Whole recording ({self._duration:.2f} s)")
@@ -199,16 +183,11 @@ class ExportDialog(QDialog):
         self._on_format_changed()
 
     def _size_widgets(self) -> tuple[QSpinBox, ...]:
-        if self._mode is PresentationMode.SYSTEM:
-            return (self._canvas_w, self._canvas_h)
         return (self._height,)
 
     def _output_size(self) -> tuple[int, int]:
         """Pixel size the current settings produce (evened, like the
-        renderer will)."""
-        if self._mode is PresentationMode.SYSTEM:
-            return (max(self._canvas_w.value() & ~1, 2),
-                    max(self._canvas_h.value() & ~1, 2))
+        renderer will) — page aspect in both modes (Phase 10R)."""
         return even_size(*self._page_aspect, self._height.value())
 
     def _on_span_toggled(self, span: bool) -> None:
@@ -254,8 +233,7 @@ class ExportDialog(QDialog):
 
     def _refresh_summary(self) -> None:
         w, h = self._output_size()
-        if self._mode is not PresentationMode.SYSTEM:
-            self._width_label.setText(f"{w} px wide")
+        self._width_label.setText(f"{w} px wide")
         try:
             start, end = self._range()
             frames = frame_count(start, end, self._fps.currentData())
@@ -272,27 +250,20 @@ class ExportDialog(QDialog):
         fmt = settings.get("format")
         if fmt is ExportFormat.PNG_SEQUENCE:
             self._format.setCurrentIndex(1)
-        if self._mode is PresentationMode.SYSTEM:
-            self._canvas_w.setValue(settings.get("canvas_w", 1920))
-            self._canvas_h.setValue(settings.get("canvas_h", 1080))
-        else:
-            self._height.setValue(settings.get("height", 2160))
+        # one height for both modes (Phase 10R: the frame keeps the page
+        # aspect everywhere); stale canvas_w/canvas_h session keys from
+        # the removed free-form system canvas are simply ignored
+        self._height.setValue(settings.get("height", 2160))
         if settings.get("path"):
             self._path.setText(settings["path"])
             self._path.setModified(True)
 
     def remembered(self) -> dict:
-        """Session memory only (R3) — the mode's own size keys update,
-        the other mode's remembered values pass through untouched."""
-        out = {"fps": self._fps.currentData(),
-               "format": self._chosen_format(),
-               "path": self._path.text() if self._path.isModified() else ""}
-        if self._mode is PresentationMode.SYSTEM:
-            out["canvas_w"] = self._canvas_w.value()
-            out["canvas_h"] = self._canvas_h.value()
-        else:
-            out["height"] = self._height.value()
-        return out
+        """Session memory only (R3)."""
+        return {"fps": self._fps.currentData(),
+                "format": self._chosen_format(),
+                "path": self._path.text() if self._path.isModified() else "",
+                "height": self._height.value()}
 
     # -- the run ----------------------------------------------------------------
 
@@ -303,18 +274,11 @@ class ExportDialog(QDialog):
         if not self._path.text().strip():
             self._status.setText("choose an output path")
             return
-        if self._mode is PresentationMode.SYSTEM:
-            spec = ExportSpec(fps=fps, height=self._canvas_h.value(),
-                              width=self._canvas_w.value(),
-                              mode=self._mode,
-                              start_seconds=start, end_seconds=end,
-                              offset_seconds=self._offset,
-                              format=self._chosen_format(), out_path=out)
-        else:
-            spec = ExportSpec(fps=fps, height=self._height.value(),
-                              start_seconds=start, end_seconds=end,
-                              offset_seconds=self._offset,
-                              format=self._chosen_format(), out_path=out)
+        spec = ExportSpec(fps=fps, height=self._height.value(),
+                          mode=self._mode,
+                          start_seconds=start, end_seconds=end,
+                          offset_seconds=self._offset,
+                          format=self._chosen_format(), out_path=out)
         self._status.setText("building scene…")
         self.repaint()
         self._renderer = FrameRenderer(self._inputs, self._style,

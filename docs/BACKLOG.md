@@ -25,6 +25,23 @@ See `spikes/NOTES.md` for the full investigation of each.
    (which also discharges item 5's "verify" note).
    **CLOSED 2026-07-12**: Phase 8 exit criteria passed (user's
    interactive run, accepted).
+   **RE-OPENED → Phase 10 (2026-07-13)**: only ONE group works; adding
+   a second makes Verovio draw a `systemDivider` glyph the decomposer's
+   SVG-class whitelist rejects (raises "unknown SVG class"). The
+   grouping logic itself is correct (two disjoint groups validate and
+   inject cleanly — verified); this is a decomposer-coverage gap, fixed
+   as Phase 10 task 10.4. N-group loading pinned by test at close.
+   **CLOSED 2026-07-13 (Phase 10.4)**: root cause was deeper than the
+   whitelist — Verovio's `condense:"auto"` default silently switches
+   to condensed layout at 2+ staff groups, HIDING empty staves per
+   system (testscore: 7/3/6/3/5 staff rows) and drawing the divider.
+   The adapter now pins `condense:"encoded"` (rule-7-reinforcing fixed
+   option, the transposeToSoundingPitch shape; 0/1-group renders
+   byte-identical — triage spike section E). Two groups → 10 span-keyed
+   grpSyms, zero dividers, all staves; `SYSTEM_DIVIDER` mapped
+   defensively anyway (static kind, synthetic-SVG test). N≥2 loading +
+   two-group id stability pinned in tests/test_adapter_groups.py;
+   in-app two-bracket add/undo verified in the Phase 10 exit run.
 2. **m. 19 guitar slash notehead renders wrong** (stack of strokes instead
    of a slash). Priority: medium, cosmetic.
 3. **"Swing ♩ = 120" renders with a tofu box** before the note glyph.

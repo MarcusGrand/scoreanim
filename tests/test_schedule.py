@@ -209,17 +209,17 @@ def test_all_tied_chord_inherits_stem() -> None:
 
 
 def test_animated_census(engraved) -> None:
-    """Three-way split, amended by the 2026-07-12 ruling: rests and
-    dynamics joined the opacity-animated ink (everything IN the staves
-    dims and reveals); statics shrink to clefs, signatures, barlines,
-    staff lines, texts; spanners (slurs, ties, hairpins) reveal by
-    clip-grow only — never opacity-triggered."""
+    """Three-way split, re-amended by the 2026-07-13 Phase 10R ruling:
+    ALL objects animate at their attach point except barlines, clefs,
+    key signatures, staff scaffold, and page furniture (which the
+    adapter mints onset-less, so the onset gate excludes it). Meter
+    sigs, texts, chord symbols, and lyrics JOINED the animated ink;
+    spanners (slurs, ties, hairpins) still reveal by clip-grow only."""
     from scoreanim.core.animation import REVEALED_KINDS, is_revealed
 
     static_kinds = {ElementKind.CLEF, ElementKind.KEY_SIG,
-                    ElementKind.METER_SIG, ElementKind.BARLINE,
-                    ElementKind.STAFF_LINES, ElementKind.TEXT,
-                    ElementKind.CHORD_SYMBOL, ElementKind.LYRIC}
+                    ElementKind.BARLINE, ElementKind.STAFF_LINES,
+                    ElementKind.GROUP_SYMBOL, ElementKind.SYSTEM_DIVIDER}
     assert REVEALED_KINDS == {ElementKind.SLUR, ElementKind.TIE,
                               ElementKind.HAIRPIN}
     for el in engraved.layout.elements:
@@ -232,8 +232,16 @@ def test_animated_census(engraved) -> None:
         if ident.kind in (ElementKind.NOTEHEAD, ElementKind.SLASH,
                           ElementKind.STEM, ElementKind.BEAM,
                           ElementKind.LEDGER_LINES, ElementKind.REST,
-                          ElementKind.MREST, ElementKind.DYNAMIC):
+                          ElementKind.MREST, ElementKind.DYNAMIC,
+                          ElementKind.METER_SIG,
+                          ElementKind.CHORD_SYMBOL):
             assert is_animated(ident), ident.element_id
+        if ident.kind is ElementKind.TEXT:
+            # furniture (labels, headers, measure numbers) is minted
+            # onset-less = static; every other text animates
+            furniture = el.text_class in ("label", "labelAbbr", "pgHead",
+                                          "pgFoot", "mNum")
+            assert is_animated(ident) == (not furniture), ident.element_id
 
 
 def test_dynamics_trigger_at_their_attach_point(schedule,

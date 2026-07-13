@@ -178,6 +178,27 @@ TRANSPOSE_TO_SOUNDING_PITCH: bool = True
 
 
 @dataclass(frozen=True)
+class LoadWarning:
+    """A non-fatal load anomaly, surfaced instead of silently absorbed
+    (Phase 10 ruling b). Messages use musical coordinates only —
+    provider ids never leak (CLAUDE.md rule 4).
+
+    Codes: "dropped-spanner" (the engraver emitted no ink for a spanner
+    in the source), "unattributed-continuation" (a continuation segment
+    matched no source and was skipped), "segment-count-mismatch"
+    (continuation segments vs crossing sources disagreed in a system),
+    "implausible-tie" (a tie force-matched to a distant note was
+    suppressed — Phase 10R), "hide-unavailable" (empty-staff hiding
+    skipped: it would hide a slash-region staff, rule 10),
+    "repaginated" (encoded page breaks replaced — systems overflowed;
+    page-scoped ids shift), "system-overflow" (defensive: a system
+    still overflows after repagination).
+    """
+    code: str
+    message: str
+
+
+@dataclass(frozen=True)
 class EngravingParams:
     # Fixed seed so provider-internal ids are stable across loads
     # (CLAUDE.md rule 4); not user-facing.

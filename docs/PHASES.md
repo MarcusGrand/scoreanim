@@ -676,10 +676,294 @@ rename re-engraves with the score shifting to fit; everything undoable
 and round-tripping — BACKLOG 5 resolved as split. **PASSED 2026-07-13**
 (user's interactive run on the build commit edb2d79: accepted).
 
+## Phase 10 — Robustness: multi-staff parts & decomposer coverage
+
+Build complete 2026-07-13 (387 headless tests green; 20/20 scripted
+exit checks on the real MainWindow offscreen; review artifact with
+rendered pages delivered). Rulings at plan review (2026-07-13):
+**(a)** `systemDivider` → its own `ElementKind.SYSTEM_DIVIDER`, static
+by construction; **(b)** ties Verovio drops → flag-and-continue as
+`LoadWarning`s, never silent, never fatal; **(c)** a multi-staff part
+is ONE PartId entry everywhere (colors, groups, reveal) — no
+schema/UI ripple.
+
+The design round CORRECTED three of the recorded triage mechanisms
+(verified against the real files; frozen in the 10.0 spike): the m12
+ledger dash belongs to a displaced two-voice REST, not cross-staff
+notation; tie continuation ink is drawn ONLY in a tie's END system
+(the old start<n<=end predicate over-counted pass-through ties), plus
+6 ties Verovio drops entirely (empty <g>s); and the systemDivider root
+cause is Verovio's `condense:"auto"` default silently condensing the
+layout (hiding empty staves!) at 2+ staff groups — fixed by pinning
+`condense:"encoded"`, a rule-7-reinforcing fixed adapter option (the
+transposeToSoundingPitch shape), 0/1-group renders byte-identical.
+
+Both defects are ONE class of bug (verified 2026-07-13, triage in
+`spikes/NOTES.md` "Phase 10"): the adapter was built against two
+fixtures that never exercised multi-staff parts, system dividers, or
+several notation classes, so decomposer whitelists and attribution
+passes assume things `testdata/video_test.musicxml` violates. NOT a
+grouping-logic bug and NOT a text-editing regression — a coverage gap.
+This phase makes the loader robust and adds `video_test.musicxml` to
+the permanent fixtures. Keep changes surgical; the load-bearing walls
+(rules 1–10) hold unchanged.
+
+Root causes established (reproduced against the real files):
+
+- **Multi-bracket (BACKLOG 1 follow-up).** Command layer, dialog, and
+  `_inject_part_groups` are all correct for N groups (two disjoint
+  groups validate and inject cleanly). When a system carries *two*
+  groups Verovio draws a **`systemDivider`** glyph; the decomposer
+  whitelist lacks that class, so the "unknown SVG class with drawable
+  content" guard raises. One group never draws a divider — which is
+  why one always worked. A decomposer-coverage fix, task 10.4.
+- **`video_test.musicxml` won't load.** One structural novelty cascades:
+  the **Piano is a multi-staff part** (`<staves>2</staves>` — one
+  `<score-part>`, two staves; neither prior fixture had one). It yields,
+  in order: `build_score_model` raises `music21 sees 8 parts, prep sees
+  7` (music21 splits the grand staff, prep counts score-parts);
+  `_attribute_ledger_dashes` raises (staff-2 dash matches no notehead);
+  `_attribute_spanner_segments` / `_build_elements` raise on grand-staff
+  tie continuations (Verovio also warns "5 ties left open / start does
+  not occur before end"). Fixed at the root by 10.1, with 10.2/10.3
+  as the fall-out.
+- **New but non-blocking.** `bracketSpan` and `mSpace` appear as
+  NON-drawable classes (don't raise today; add to the container/ignore
+  set so a future drawable one never does — 10.4). New notation
+  (trills/`wavy-line`, fermatas, ornaments, `ppp`, `wedge` hairpins,
+  chord-symbol bass notes) maps to classes already whitelisted — it
+  renders; 10.5 verifies it visually.
+
+Rulings to confirm at plan review, BEFORE building (flag-and-stop, do
+not guess): (a) `systemDivider` — its own `ElementKind.SYSTEM_DIVIDER`
+(static) or fold into `OTHER`; (b) the ties Verovio genuinely drops in
+this export — flag-and-continue vs. investigate the export; (c)
+multi-staff parts — one part color/group entry, or per-staff.
+
+- [x] **10.0 Triage spike** (`spikes/video_test_triage.py`, kept):
+      freeze the enumeration — unknown-SVG-class census, part/staff
+      structure, tie warnings — that established the root causes; write
+      "which features the prior two fixtures never exercised" into
+      `spikes/NOTES.md`. Verify: the script reproduces exactly the four
+      failure points above, in order.
+      As built (2026-07-13): six sections — A part/staff structure
+      (pins the music21 contract: a multi-staff part splits into
+      adjacent `PartStaff`s with ids `'<score-part-id>-Staff<k>'`, the
+      ONLY parts whose id survives), B SVG-class census, C ledger
+      census (the failing dash is REST ink), D tie-continuation table
+      (end-system rule closes every count; 6 ink-less MEI ties), E
+      condense demonstration (auto condenses at 2 groups; encoded
+      byte-identical at 0/1), F the four failures reproduced in order
+      (each reports "no longer raises" post-fix). Corrected root
+      causes recorded in `spikes/NOTES.md`.
+- [x] **10.1 Multi-staff part model**: teach prep / ScoreModel / adapter
+      that one `<score-part>` may own N staves; fix the part↔staff join
+      so an 8-vs-7 count is correct by construction, not an error.
+      Verify: `build_score_model(video_test)` succeeds; piano notes
+      carry the right part with staff 1/2; existing fixtures unchanged.
+      As built (2026-07-13): prep and the adapter identity chain were
+      ALREADY multi-staff-aware (`PartInfo.staff_count`/`first_staff`,
+      `part_for_staff`, part-local `staff_local` in ids) — the entire
+      fix lives in `build_score_model`: expected music21 part count =
+      `sum(staff_count)`; grouped consume (each PartInfo takes its next
+      `staff_count` music21 parts) with a loud PartStaff-id contract
+      check; per-note `staff` = the PartStaff's 1-based slot (music21
+      files notes by MusicXML `<staff>`, the same source as MEI
+      `@staff`, so both sides agree by construction — the video join is
+      a complete 1368/1368 bijection). `_measures(parts[0])` unchanged.
+      This chart's piano LH holds only rests/chord symbols, so staff-2
+      NOTES don't occur; staff-2 identity minting is pinned via its
+      MRESTs/scaffold (`P5:m*:s2:*`). Tests: tests/test_video_score.py.
+- [x] **10.2 Ledger-dash attribution across staves** — mechanism
+      corrected: the m12 dash belongs to a two-voice REST displaced off
+      the staff (staff 2 = Ten/Bari, not even the piano); the
+      (page, measure, staff) scope was already right, the candidate
+      pool lacked rests. As built: two-tier attribution in
+      `_attribute_ledger_dashes` — noteheads first, RESTS only when no
+      notehead matches (same overlap+side rule; onset from the
+      timemap's restsOn, layer from SVG nesting) — so testscore is
+      byte-identical by construction (its rest tier is never
+      consulted; the 90-dash pin untouched). Verified: the m12 dash
+      inherits the rest's (onset 42.0, voice 1); all 355 video dashes
+      carry onset+voice; STAFF_LINES exactly 5 paths on all 360 staves.
+- [x] **10.3 Grand-staff tie/spanner continuation** — mechanism
+      corrected: not grand-staff-specific; Verovio draws tie
+      continuation ink ONLY in the tie's END system, and drops 6 ties
+      outright. As built: class-aware crossing predicate in
+      `_attribute_spanner_segments` (ties/lv: end==n; slurs/hairpins:
+      start<n<=end, unchanged); count mismatches pair up to the
+      shorter list + `LoadWarning("segment-count-mismatch")` instead
+      of raising; `_build_elements` skips unmatched continuations with
+      `LoadWarning("unattributed-continuation")`. Dropped spanners
+      detected STRUCTURALLY (MEI spanner with no inked accumulator —
+      empty <g>s; no log parsing) → `LoadWarning("dropped-spanner")`
+      with musical coordinates only (rule 4). Warning seam:
+      `LoadWarning` (types.py) + `EngravedScore.warnings` (appended
+      field); `load()` still returns bare Layout; the status bar shows
+      the count. Pinned: video = exactly 6 dropped-spanner warnings, 0
+      mismatches, sys-4's six `:seg1`s at extent q29.5→q30.0;
+      testscore's 5 known open ties (Phase 0) and the spanner
+      fixture's 3 (Phase 5) now flag the same way — no longer silent.
+- [x] **10.4 Decomposer class coverage**: two staff groups load on
+      `testscore`; `video_test`'s new classes never reach the guard;
+      N≥2 pinned by test. As built (2026-07-13): root fix is
+      `condense:"encoded"` in the fixed toolkit options — auto-condense
+      HID EMPTY STAVES at 2+ groups (7/3/6/3/5 staff rows) besides
+      drawing the divider; encoded keeps 7×5 rows, 10 span-keyed
+      grpSyms, ZERO dividers, byte-identical 0/1-group renders.
+      `ElementKind.SYSTEM_DIVIDER` still added defensively (ruling a):
+      id-less `_walk` branch + `score:sys{n}:systemdivider:{seq}` ids,
+      covered by a synthetic-SVG unit test since no fixture draws one
+      anymore. `bracketSpan` → OTHER, `mSpace` → containers. grpSym
+      identity became GEOMETRIC (which staves the symbol's bbox spans →
+      part span via `part_for_staff`), replacing injected-slot
+      ordinals: Verovio SUPPRESSES a native brace when an injected
+      group overlaps its part, so slot bookkeeping can't work. Phase 8
+      ids reproduce verbatim (`score:sys{n}:grpsym:P1-P2`); a native
+      grand-staff brace mints its part id alone
+      (`score:sys{n}:grpsym:P5` × 15 on video); the `x{seq}` fallback
+      is gone. Tests: tests/test_adapter_groups.py (two-group load,
+      N=2 id stability, divider statics + synthetic decomposition).
+- [x] **10.5 End-to-end + fixture promotion**: `video_test.musicxml`
+      promoted to the permanent fixtures (`VIDEO_SCORE` +
+      `engraved_video`/`video_score_model`/`video_join_mapping`
+      session fixtures); tests/test_video_score.py pins the census
+      (4661 elements, 7 pages, 1368 note records, complete join), new
+      notation kinds, reload determinism, and grouped-id stability
+      WITH a native brace in play (adding P1–P2 adds exactly its 15
+      grpSym ids). Scripted exit run 20/20 on the offscreen
+      MainWindow: opens (join complete, 6 warnings in the status bar),
+      animates (4038 crossings, stateless scrub), exports (transparent
+      PNG frame with ink), two brackets added live — 30 then 45
+      grpSyms — undoable to zero with the native brace intact and
+      musical ids stable across every re-engrave. Review artifact with
+      all 7 fully-lit pages + the two-bracket render delivered.
+
+**Exit criteria**: `video_test.musicxml` loads, plays, and exports
+cleanly; two or more staff-group brackets can be added in-app,
+undoable, with stable ElementIds; `pytest` green with the new fixture
+in the suite. Build complete 2026-07-13 — 387 tests green incl.
+`test_no_qt_in_core.py`, 20/20 scripted exit checks. The user's review
+of the rendered output REQUIRED FOUR FIXES (hidden staves, animate
+everything, the m44 artifacts, systems-mode framing/never-clip) —
+**superseded by Phase 10R below**; acceptance rides its exit.
+
+## Phase 10R — Review fixes (2026-07-13)
+
+The Phase 10 exit review required four fixes. Build complete
+2026-07-13 (405 headless tests green; 16/16 scripted exit checks on
+the real MainWindow offscreen; updated review artifact with the
+hidden-layout pages, the m44 before/after, and a systems-mode frame).
+Rulings at plan review (2026-07-13): hide-empty-staves is a per-score
+toggle DEFAULT ON for new documents (v≤3 projects load OFF — look
+unchanged); meter signatures ANIMATE (literal reading: only barlines +
+clef/key stay static among notation); page furniture (part labels,
+labelAbbr, pgHead/pgFoot, measure numbers) stays static; **rule 7
+amended as the user directed** ("we must allow for page breaks
+ourselves") — never clip, repaginate when encoded pages can't hold
+their systems, hide-empty-staves as an engraving input. Spike facts in
+`spikes/NOTES.md` "Phase 10R" (`spikes/phase10r_spike.py`, kept).
+
+- [x] **10R.0 Spike**: the two-pass MEI-optimize load is id- AND
+      timemap-transparent (4959 ids, 215 timemap entries identical; no
+      double-transpose; +0.12 s); `optimize` is the ONLY hidden-staff
+      switch Verovio honors; condensed layouts draw systemDividers
+      unless `systemDivider:"none"` (adopted — Dorico's look); the
+      native brace follows staff visibility (3 grpSyms on video
+      hide-ON, incl. one-staff braces); testscore hide-ON would hide
+      its drum staff mid-slash-region (the fallback exists for this),
+      video loses no slash staff; `<print new-page>` injection in part
+      1 alone controls pagination; attach-onset census (fermata/trill
+      = @startid, dir/tempo/harm/dynam = @tstamp, nothing bare).
+- [x] **10R.1 Hide empty staves**: two-pass load in the adapter
+      (`_make_toolkit` + `_set_scoredef_optimize`;
+      `load_detailed(..., hide_empty_staves=)` — a separate arg like
+      groups/texts, rule-5 reasoning); slash contingency AS REFINED at
+      plan review: only when a slash-region staff actually vanishes
+      does the load redo flat (+"hide-unavailable") — video (which HAS
+      slash regions) keeps hiding, testscore degrades safely. Schema
+      v4 (`hide_empty_staves`, version-gated read); `SetHideEmptyStaves`
+      command; Parts-menu checkable action riding the Phase 8
+      re-engrave diff-guard (`_applied_hide_empty`). Pinned:
+      tests/test_hide_empty_staves.py (staves/system
+      8,2,2,4,2,2,5,4,5,4×6; note_records identical to flat; zero
+      overflow; grpSym P5×3; determinism; the testscore fallback),
+      serialize v4 tests, command test.
+- [x] **10R.2 Animate everything**: ANIMATED_KINDS += TEXT,
+      CHORD_SYMBOL, LYRIC, METER_SIG — `is_animated`'s onset gate does
+      the rest; the adapter mints page furniture onset-less
+      (`_STATIC_TEXT_CLASSES` guard on the measure-start fallback) and
+      resolves attach onsets for fermata/trill/mordent/turn/dir/tempo/
+      reh/harm (`attach_startid` + `_attach_onset`; a chord @startid
+      resolves through its first member — build find). dir/harm gained
+      exact @tstamp attach. TINTED/ANCHOR/REVEALED sets unchanged
+      (attachments, ruling D stands). Pinned: schedule census rewrite +
+      video attach-onset pins.
+- [x] **10R.3 Implausible-tie suppression (the m44 fix)**: Verovio
+      force-matches 13 unclosable ties to distant same-pitch notes
+      (10.5–148.5 quarters; real ties ≤4) whose stacked curves drew as
+      ovals around m44. `_flag_implausible_ties` (after segment
+      matching — bogus sources stay in the pairing pool — before
+      element construction): extent > 2× start-measure duration →
+      source AND continuation ink suppressed, one "implausible-tie"
+      warning each. Pinned: no surviving tie exceeds the threshold,
+      the q17.5→q166 id gone, seg-counter re-derived (system 15's ink
+      was entirely bogus), testscore/spanner zero-suppressed.
+- [x] **10R.4 Systems framing + never-clip**: the frame KEEPS the
+      page's aspect in BOTH live and export — StageView fits a
+      page-sized window centered on the band (view sceneRect widened so
+      near-edge systems center instead of clamping — build find);
+      FrameRenderer sizes system mode exactly like paged
+      (`even_size(page, height)`), renders the page-wide window, clips
+      to the band's projected strip; ExportSpec.width and the system
+      W×H dialog controls REMOVED (one height field, both modes).
+      Never-clip: `plan_page_breaks` (pure greedy planner, measured
+      margins, 2% drift pad — the re-engrave placed one system 2 units
+      lower than measured) + `_repaginate` at the prep seam (strip
+      encoded new-page, inject at planned system starts, part 1 only)
+      + the measure-verify-retry loop in `load_detailed`
+      ("repaginated" warning; defensive "system-overflow" post-check).
+      video FLAT: 8/15 systems used to overflow (worst y 6071/2967) →
+      now 15 pages, zero clipped. Pinned: tests/test_repagination.py,
+      re-shaped export tests, stage page-frame test.
+- [x] **10R.5 Docs + fixtures + exit**: rule-7 amendment (CLAUDE.md;
+      ARCHITECTURE adapter rulings 7/8/9 + taxonomy + schema v4);
+      fixture strategy — testscore family and `engraved_video` stay
+      hide-OFF (the flat fixture now exercises suppression AND
+      repagination in one load), `engraved_video_hidden` pins the
+      new-document default. Scripted exit run 16/16 offscreen: default
+      hidden layout (7 pages, no overflow), m44 clean, animate-all
+      census, toggle-off → 15-page repagination → undo, page-shaped
+      systems frame live + export (transparent outside the band).
+
+**Exit criteria**: video_test opens on the hidden-staff layout with
+nothing clipped in either layout; m44 reads clean; texts/trills/
+chords/meters animate while barlines/clefs/keys/furniture stay static;
+systems mode keeps the page frame with the system centered, live and
+exported. Build complete 2026-07-13 — 405 tests green incl.
+`test_no_qt_in_core.py`.
+
+Post-review fixes (2026-07-13, from the user's run): a page-follow jump
+(bar 3 → page 4 and back) traced to Verovio REUSING SVG group ids
+across element types under condensed layout — a note-owned fragment's
+own id collided with a distant note's, so `_identity_for` picked up a
+late onset and the schedule stamped a stray page/system on that beat.
+Fix: onset lookups are gated by svg_class (only notes/rests read
+onset_by_id by id; spanner classes the spanner table; "beam" the beam
+table; note-owned fragments use owner_onset) — corrects BOTH paged
+page-follow and systems-mode system-follow (the same stray stamps).
+The systems-mode "canvas changes size" report was the same bug's
+visible face in system mode (a wrong-system jump); the frame itself was
+already page-constant since 10R.4 — now pinned end-to-end (identical
+export pixels across the walk; identical live zoom across systems).
+409 tests green. **PASSED pending the user's visual review** (review
+artifact updated in place).
+
 ## Later (explicitly not now)
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-
 score auto-alignment provider; custom engraving provider; MIDI input;
 richer effect editor; arbitrary-exporter MusicXML robustness.
 (In-app score-text editing graduated to Phase 9; brackets/grouping to
-Phase 8 — 2026-07-12.)
+Phase 8 — 2026-07-12. Multi-staff-part & decomposer-coverage robustness
+to Phase 10 — 2026-07-13.)
