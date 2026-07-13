@@ -131,3 +131,67 @@ def test_stage_title_is_centered_near_top(scenes, engraved) -> None:
     rect = title.mapRectToScene(title.childrenBoundingRect())
     assert rect.center().x() == pytest.approx(geo.width / 2, rel=0.05)
     assert 0 < rect.top() < 0.15 * geo.height
+
+
+# -- set_stage_texts (Phase 9.1) ---------------------------------------------
+
+def test_set_stage_texts_swaps_only_stage_items(qapp, engraved) -> None:
+    from dataclasses import replace
+
+    from scoreanim.core.score.identity import ElementId
+    stage = _stage(engraved)
+    fresh = ScoreScenes(engraved.layout, stage)
+    note_id = next(el.identity.element_id for el in engraved.layout.elements
+                   if el.identity.kind is ElementKind.NOTEHEAD)
+    note_item = fresh.items[note_id]
+    old_title = fresh.items[ElementId("stage:title")]
+
+    edited = tuple(replace(t, content="New Title")
+                   if t.element_id == "stage:title" else t
+                   for t in stage.texts)
+    fresh.set_stage_texts(edited)
+
+    assert fresh.items[note_id] is note_item          # engraved untouched
+    new_title = fresh.items[ElementId("stage:title")]
+    assert new_title is not old_title                 # stage layer rebuilt
+    assert set(fresh.items) == {el.identity.element_id
+                                for el in engraved.layout.elements} | \
+        {t.element_id for t in edited}
+    assert old_title.scene() is None                  # removed from the scene
+    assert new_title.scene() is fresh.scene_for_page(1)
+
+
+def test_set_stage_texts_repositions(qapp, engraved) -> None:
+    from dataclasses import replace
+
+    from scoreanim.core.score.identity import ElementId
+    stage = _stage(engraved)
+    fresh = ScoreScenes(engraved.layout, stage)
+    title = next(t for t in stage.texts if t.element_id == "stage:title")
+    moved = replace(title, x=title.x + 100.0, font_size=title.font_size * 2)
+    fresh.set_stage_texts(tuple(moved if t.element_id == "stage:title" else t
+                                for t in stage.texts))
+    item = fresh.items[ElementId("stage:title")]
+    rect = item.mapRectToScene(item.childrenBoundingRect())
+    assert rect.center().x() == pytest.approx(moved.x, abs=rect.width() / 2)
+    assert rect.height() == pytest.approx(2 * moved.font_size, rel=0.5)
+
+
+# -- hidden overrides (Phase 9.2) ---------------------------------------------
+
+def test_hidden_override_hides_exactly_that_item(qapp, engraved) -> None:
+    from scoreanim.core.score.identity import ElementId
+    fresh = ScoreScenes(engraved.layout, _stage(engraved))
+    (tempo,) = [el for el in engraved.layout.elements
+                if el.text_class == "tempo"]
+    eid = tempo.identity.element_id
+    other_text = next(el.identity.element_id
+                      for el in engraved.layout.elements
+                      if el.text_class == "reh")
+
+    fresh.set_element_hidden(eid, True)
+    assert not fresh.items[eid].isVisible()
+    assert fresh.items[other_text].isVisible()
+    fresh.set_element_hidden(ElementId("no:such:element"), True)   # no-op
+    fresh.set_element_hidden(eid, False)
+    assert fresh.items[eid].isVisible()

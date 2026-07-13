@@ -150,6 +150,13 @@ class RenderedElement:
     # page), not musical identity — reveal_x (Phase 5) is per system.
     # None for elements outside any system (e.g. page-header texts).
     system: int | None = None
+    # TEXT sub-class from the engraved SVG ("tempo"/"dir"/"reh"/"label"/
+    # "labelAbbr"/"pgHead"/"pgFoot"/"mNum"); None for non-TEXT elements.
+    # Presentation metadata like page/system — ElementIdentity and the
+    # minted ids are UNTOUCHED (Phase 9 ruling 2026-07-12: a finer kind
+    # would re-roll the kind tag inside every text ElementId). The
+    # tempo-mark overlay (Phase 9.2) filters on text_class == "tempo".
+    text_class: str | None = None
 
 
 @dataclass(frozen=True)

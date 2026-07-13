@@ -513,3 +513,34 @@ def test_prores_sink_bad_ffmpeg_surfaces_error(qapp, tmp_path) -> None:
         finally:
             sink.abort()
     assert not out.exists()
+
+
+# -- hidden overrides in export scenes (Phase 9.2) ------------------------------
+
+def test_export_scenes_apply_hidden_overrides(qapp, inputs, engraved,
+                                              tempo_map, tempo_setup) -> None:
+    """The private export scenes honor doc.layout_overrides.hidden AND
+    materialize overlay stage texts — export follows the doc with no
+    live-scene contact."""
+    from dataclasses import replace
+
+    from scoreanim.core.project import LayoutOverride
+    from scoreanim.core.project.stage_config import seed_overlay_text
+    from scoreanim.core.score.identity import ElementId
+
+    (tempo,) = [el for el in engraved.layout.elements
+                if el.text_class == "tempo"]
+    eid = tempo.identity.element_id
+    overlay = seed_overlay_text(tempo)
+    overlaid_inputs = replace(
+        inputs, stage=replace(inputs.stage,
+                              texts=inputs.stage.texts + (overlay,)))
+    spec = ExportSpec(fps=FPS, height=HEIGHT, start_seconds=0.0,
+                      end_seconds=0.1,
+                      offset_seconds=tempo_setup.offset_seconds,
+                      format=ExportFormat.PNG_SEQUENCE,
+                      out_path=Path("unused"))
+    renderer = FrameRenderer(overlaid_inputs, StyleRules(), tempo_map, (),
+                             spec, overrides={eid: LayoutOverride(hidden=True)})
+    assert not renderer._scenes.items[eid].isVisible()
+    assert renderer._scenes.items[ElementId(overlay.element_id)].isVisible()

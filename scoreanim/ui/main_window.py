@@ -12,6 +12,7 @@ diffs part tints — views never talk to each other.
 from __future__ import annotations
 
 import time
+from dataclasses import replace as _dc_replace
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
@@ -41,7 +42,7 @@ from scoreanim.core.project import (DEFAULT_BPM, SUFFIX, ApplyTaps, FileRef,
 from scoreanim.core.project import save_project as write_project_file
 from scoreanim.core.score.identity import PartId
 from scoreanim.core.score.join import join_notes
-from scoreanim.core.score.musicxml_prep import PartGroupSpec
+from scoreanim.core.score.musicxml_prep import PartGroupSpec, PartTextSpec
 from scoreanim.core.score.model import build_score_model
 from scoreanim.core.timing import (TempoEvent, TempoMap, parse_tempo_file,
                                    resolve_seconds)
@@ -54,8 +55,10 @@ from scoreanim.ui.app_state import AppState
 from scoreanim.ui.export_dialog import ExportDialog
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
+from scoreanim.ui.part_names_dialog import PartNamesDialog
 from scoreanim.ui.staff_groups_dialog import StaffGroupsDialog
 from scoreanim.ui.stage_view import StageView
+from scoreanim.ui.texts_dialog import TextsDialog
 from scoreanim.ui.taps import TapRecorder
 from scoreanim.ui.tempo_lane import TempoLaneView
 from scoreanim.ui.waveform import WaveformView
@@ -85,6 +88,9 @@ class MainWindow(QMainWindow):
         self._band_by_system: dict = {}              # derived, never saved
         self._applied_mode = PresentationMode.PAGED  # what the view shows
         self._applied_groups: tuple = ()   # staff groups the engrave used
+        self._applied_text_overrides: dict = {}   # label overrides ditto
+        self._applied_stage_texts: tuple = ()   # stage texts on the scenes
+        self._applied_hidden: dict = {}    # ElementId → applied hidden flag
         self._parts: tuple = ()            # PartInfos of the loaded score
         self._score_name: str | None = None
         self._project_path: Path | None = None
@@ -213,9 +219,15 @@ class MainWindow(QMainWindow):
         file_menu.addAction(save_as_action)
         file_menu.addSeparator()
         file_menu.addAction(self._export_action)
+        self._texts_action = QAction("Texts…", self)
+        self._texts_action.setEnabled(False)         # needs a loaded score
+        self._texts_action.triggered.connect(self._open_texts_dialog)
+
         edit_menu = menubar.addMenu("&Edit")
         edit_menu.addAction(self._undo)
         edit_menu.addAction(self._redo)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self._texts_action)
         view_menu = menubar.addMenu("&View")
         view_menu.addAction(fit)
         view_menu.addAction(self._prev)
@@ -454,16 +466,21 @@ class MainWindow(QMainWindow):
 
     def _on_document_changed(self) -> None:
         doc = self.app_state.doc
-        # staff groups are engraving inputs: a change (execute, undo, OR
-        # redo — all arrive here) re-derives the engraved world FIRST,
-        # so the sync below re-pushes timing/tints/floor onto the fresh
-        # scenes in the same pass. The diff keeps every other command at
-        # its current cost.
+        # staff groups and part-label overrides are engraving inputs: a
+        # change (execute, undo, OR redo — all arrive here) re-derives
+        # the engraved world FIRST, so the sync below re-pushes
+        # timing/tints/floor/stage/hidden onto the fresh scenes in the
+        # same pass. The diff keeps every other command at its current
+        # cost.
         if (self._scenes is not None and doc.score is not None
-                and doc.staff_groups != self._applied_groups):
+                and (doc.staff_groups != self._applied_groups
+                     or dict(doc.text_overrides)
+                     != self._applied_text_overrides)):
             self._reengrave(doc)
         self.playback.set_timing_config(*self._timing_config(doc))
         self._sync_styles(doc)
+        self._sync_stage(doc)
+        self._sync_hidden(doc)
         self.playback.set_style(doc.style)
         self._sweep.blockSignals(True)
         self._sweep.setChecked(doc.style.reveal_mode
@@ -490,6 +507,38 @@ class MainWindow(QMainWindow):
         self._redo.setEnabled(self.app_state.can_redo)
         self._redo.setText(f"Redo {redo_text}" if redo_text else "Redo")
         self._sync_title()
+
+    def _sync_stage(self, doc: ProjectDoc) -> None:
+        """Diff the document's stage texts onto the scene (Phase 9.1).
+        A text edit rebuilds just the stage-text layer — never a
+        re-engrave — and refreshes the retained AnimationInputs so
+        export follows the edit (inputs.stage is otherwise a load-time
+        snapshot, the Phase 7 staleness gotcha)."""
+        if self._scenes is None \
+                or doc.stage.texts == self._applied_stage_texts:
+            return
+        self._scenes.set_stage_texts(doc.stage.texts)
+        self._applied_stage_texts = doc.stage.texts
+        if self._animation_inputs is not None:
+            self._animation_inputs = _dc_replace(self._animation_inputs,
+                                                 stage=doc.stage)
+
+    def _sync_hidden(self, doc: ProjectDoc) -> None:
+        """Diff LayoutOverride.hidden onto the scene (Phase 9.2: tempo
+        overlays hide the engraved mark). Execute, undo, and redo all
+        arrive here — hide and un-hide ride the same pass."""
+        if self._scenes is None:
+            return
+        hidden = {eid: True for eid, o in doc.layout_overrides.items()
+                  if o.hidden}
+        for eid in list(self._applied_hidden):
+            if eid not in hidden:
+                self._scenes.set_element_hidden(eid, False)
+                del self._applied_hidden[eid]
+        for eid in hidden:
+            if eid not in self._applied_hidden:
+                self._scenes.set_element_hidden(eid, True)
+                self._applied_hidden[eid] = True
 
     def _sync_styles(self, doc: ProjectDoc) -> None:
         """Diff the document's StyleRules onto the scene: part tints,
@@ -568,6 +617,9 @@ class MainWindow(QMainWindow):
         groups_action = QAction("Staff Groups…", self._parts_menu)
         groups_action.triggered.connect(self._open_staff_groups_dialog)
         self._parts_menu.addAction(groups_action)
+        names_action = QAction("Part Names…", self._parts_menu)
+        names_action.triggered.connect(self._open_part_names_dialog)
+        self._parts_menu.addAction(names_action)
         self._parts_menu.addSeparator()
         for info in parts:
             pid = PartId(info.part_id)
@@ -719,10 +771,12 @@ class MainWindow(QMainWindow):
                 return
             warnings.append(score_warning)
 
-        # groups engrave here once; the reset_document below finds
-        # _applied_groups already equal — no double engrave
+        # groups + label overrides engrave here once; the reset_document
+        # below finds the _applied_* caches already equal — no double
+        # engrave
         self._load_score(Path(doc.score.path), doc.engraving,
-                         stage=doc.stage, groups=doc.staff_groups)
+                         stage=doc.stage, groups=doc.staff_groups,
+                         text_overrides=doc.text_overrides)
         self._project_path = path
         self._score_name = path.name
         self._tempo_path = None
@@ -744,35 +798,47 @@ class MainWindow(QMainWindow):
 
     def _load_score(self, path: Path, params: EngravingParams,
                     stage: StageConfig | None,
-                    groups: tuple = ()) -> StageConfig:
+                    groups: tuple = (),
+                    text_overrides: dict | None = None) -> StageConfig:
         """Fresh-load entry: engrave + wire, then reset to page 1."""
-        stage = self._engrave_and_wire(path, params, stage, groups)
+        stage = self._engrave_and_wire(path, params, stage, groups,
+                                       text_overrides or {})
         self._page = 1
         self._system = 1
         return stage
 
     def _reengrave(self, doc: ProjectDoc) -> None:
-        """Re-derive the engraved world after a staff-group change,
-        preserving page/system/zoom (no view.fit, no position reset).
-        ~0.6 s on the GUI thread per call (engrave + scene rebuild), so
-        group commands must arrive via execute(), never preview()."""
+        """Re-derive the engraved world after a staff-group or
+        part-label change, preserving page/system/zoom (no view.fit, no
+        position reset). ~0.6 s on the GUI thread per call (engrave +
+        scene rebuild), so these commands must arrive via execute(),
+        never preview()."""
         self._engrave_and_wire(Path(doc.score.path), doc.engraving,
-                               doc.stage, doc.staff_groups)
+                               doc.stage, doc.staff_groups,
+                               doc.text_overrides)
         self._show_current()             # install the fresh scene
 
     def _engrave_and_wire(self, path: Path, params: EngravingParams,
                           stage: StageConfig | None,
-                          groups: tuple = ()) -> StageConfig:
+                          groups: tuple = (),
+                          text_overrides: dict | None = None) -> StageConfig:
         """Engrave + decompose + join + wire the animation. Returns the
         stage config used (seeded from the score's credits when None).
         `groups` is doc.staff_groups — injected as <part-group> at the
-        prep seam; geometry re-derives, ids survive (rule 5, Phase 8)."""
+        prep seam; `text_overrides` is doc.text_overrides — part labels
+        rewritten there (Phase 9.3); geometry re-derives, ids survive
+        (rule 5, Phases 8/9)."""
+        text_overrides = dict(text_overrides or {})
         specs = tuple(PartGroupSpec(parts=g.parts, symbol=g.symbol,
                                     join_barlines=g.join_barlines)
                       for g in groups)
+        text_specs = tuple(PartTextSpec(part=pid, name=o.name,
+                                        abbreviation=o.abbreviation)
+                           for pid, o in sorted(text_overrides.items()))
         t0 = time.perf_counter()
         engraved = VerovioEngravingProvider().load_detailed(path, params,
-                                                            specs)
+                                                            specs,
+                                                            text_specs)
         t1 = time.perf_counter()
         if stage is None:
             stage = default_stage_config(engraved.prepared,
@@ -784,6 +850,9 @@ class MainWindow(QMainWindow):
         self._scenes = ScoreScenes(engraved.layout, stage,
                                    ghost_opacity=FLOOR_OPACITY)
         self._applied_floor = FLOOR_OPACITY
+        self._applied_stage_texts = stage.texts
+        self._applied_hidden = {}    # fresh scenes: the post-engrave sync
+                                     # pass re-applies doc hidden flags
         t2 = time.perf_counter()
 
         model = build_score_model(engraved.prepared)
@@ -803,6 +872,7 @@ class MainWindow(QMainWindow):
         self._animation_inputs = AnimationInputs(
             engraved.layout, stage, schedule, tuple(reveal_tracks))
         self._export_action.setEnabled(True)
+        self._texts_action.setEnabled(True)
         applier = AnimationApplier(self._scenes.items, schedule,
                                    TempoMap([TempoEvent(0.0, DEFAULT_BPM)]),
                                    self.app_state.doc.style, reveal_tracks)
@@ -818,6 +888,7 @@ class MainWindow(QMainWindow):
         self._parts = engraved.prepared.parts
         self._build_parts_menu(engraved.prepared.parts)
         self._applied_groups = groups
+        self._applied_text_overrides = text_overrides
 
         self.statusBar().showMessage(
             f"engrave+decompose {t1 - t0:.2f}s · scene build {t2 - t1:.2f}s · "
@@ -832,6 +903,30 @@ class MainWindow(QMainWindow):
         if not self._parts:
             return
         StaffGroupsDialog(self.app_state, self._parts, parent=self).exec()
+
+    def _open_part_names_dialog(self) -> None:
+        if not self._parts:
+            return
+        # a PROVIDER, not a snapshot: each rename re-engraves and
+        # refreshes self._parts with the effective names — the dialog's
+        # rebuild must show them
+        PartNamesDialog(self.app_state, parts_provider=lambda: self._parts,
+                        parent=self).exec()
+
+    # -- texts ---------------------------------------------------------------------
+
+    def _open_texts_dialog(self) -> None:
+        if self._animation_inputs is None:
+            return
+        # band = the free space above the top staff, re-derived from the
+        # CURRENT engraved layout (runtime data for the header refit —
+        # the doc stores intent only)
+        layout = self._animation_inputs.layout
+        band = page_content_top(layout)
+        tempo_elements = tuple(el for el in layout.elements
+                               if el.text_class == "tempo")
+        TextsDialog(self.app_state, band=band,
+                    tempo_elements=tempo_elements, parent=self).exec()
 
     # -- export --------------------------------------------------------------------
 
@@ -851,7 +946,8 @@ class MainWindow(QMainWindow):
                               swing, self.app_state.measures, offset,
                               duration, self._score_name or "score",
                               mode=doc.stage.mode,   # live doc, not the
-                              settings=self._export_settings,  # snapshot
+                              overrides=dict(doc.layout_overrides),  # ditto
+                              settings=self._export_settings,
                               parent=self)
         dialog.exec()
         self._export_settings = {**(self._export_settings or {}),

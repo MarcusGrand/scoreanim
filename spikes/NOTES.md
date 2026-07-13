@@ -1,5 +1,39 @@
 # Spike & build notes
 
+## Phase 9 — part-label overrides (`spikes/part_label.py`, 2026-07-12)
+
+Task 9.3's opening spike. Verovio 6.2.1 against
+`testdata/testscore.musicxml` (every part has BOTH plain and -display
+label elements; P1/P2 abbreviations empty with print-object="no"),
+production adapter options. Id-set comparisons run through the REAL
+adapter (`load_detailed` on a mutated temp file), not a parallel path.
+
+- **Verovio reads `<part-name-display>`/`<part-abbreviation-display>`
+  and IGNORES the plain elements when a display twin exists**: renaming
+  only `<part-name>` changed nothing; renaming only the display did.
+  `_apply_text_overrides` therefore writes BOTH — display for Verovio,
+  plain because `_parts` (PartInfo extraction) reads it.
+- **`print-object="no"` suppresses even a non-empty abbreviation**:
+  giving P1 an abbreviation renders labelAbbr on systems 2+ ONLY after
+  clearing the attribute (from the plain AND display elements).
+  Overrides with non-blank text clear it; None leaves it alone.
+- **An empty-string name suppresses the label entirely** (P4 blanked →
+  6 labels on page 1, no empty element) — "" is a usable "no label"
+  intent, not an error.
+- **Id stability (production adapter): a rename keeps the id set
+  IDENTICAL** (labels are page-scoped ordinal `score:p{n}:text:{seq}`;
+  renames change no element counts). Adding a FIRST P1 abbreviation
+  **appends** ids (`score:p2:text:10`/`:11`, `score:p3:text:10`/`:11`)
+  with zero shift of existing ids on this fixture — the new labelAbbr
+  land after the existing texts in traversal order. The general caveat
+  stands (an insertion earlier in traversal order would renumber later
+  seqs), but label TEXTs are static scaffold, never animation targets;
+  override staleness is accepted (ARCHITECTURE §4).
+- **The score shifts to fit**: page-1 staff min-x 3045 → 5920 page
+  units when P4's name grows to 30 chars — the label column re-derives
+  from the longest name exactly as BACKLOG 5 predicted (rule 7's
+  "re-engrave with changed inputs", observable).
+
 ## Phase 8 — part-group injection (`spikes/part_group.py`, 2026-07-12)
 
 The proper re-do of the v2 scoping probe (task 8.1). Measured on verovio

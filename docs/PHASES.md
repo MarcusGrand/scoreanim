@@ -578,17 +578,67 @@ from the longest name — overlay edits collide with the staff) take the
 prep-seam re-engrave path, riding Phase 8's infrastructure. **Depends
 on Phase 8.**
 
-- [ ] **9.1 Stage text editing**: edit content/position/style of stage
+Build complete 2026-07-12 (368 headless tests green; 12/17/16 scripted
+exit checks per task on the real MainWindow offscreen). Rulings at plan
+review (2026-07-12): tempo marks identified by threading the SVG class
+onto RenderedElement as `text_class` — ids untouched (a finer
+ElementKind would re-roll the kind tag inside every text id); UI is
+TWO dialogs (Edit → Texts… for stage texts + tempo marks; Parts → Part
+Names… beside Staff Groups…, since it re-engraves), per-action apply,
+Close-only; band-fit on edit re-fits the WHOLE header block in-command
+(band as runtime data, one undo step), DOWN-ONLY — the natural-1.0
+layout isn't stored (rule 5), so nothing scales back up.
+
+- [x] **9.1 Stage text editing**: edit content/position/style of stage
       texts (title/composer/lyricist) via undoable commands + minimal
       UI; re-run band-fit scaling on edit. Full stage click-to-select
       stays BACKLOG 9. Verify: edit the title, moves/restyles never
       re-engrave, round-trips, undo works.
-- [ ] **9.2 Tempo-mark overlay**: hidden layout-override on the
+      As built (2026-07-12): ONE command, `EditStageText(element_id,
+      replacement, band)` — `band` is runtime data (the part_order
+      idiom: page_content_top on the current layout, supplied by the
+      window). Its apply re-fits the WHOLE header block via the shared
+      `fit_texts` (extracted from the seed; _lay_out is linear in
+      scale, so the affine refit is the seed's fit exactly). Refit is
+      DOWN-ONLY by ruling — the natural-1.0 layout isn't stored (rule
+      5), so nothing scales back up; sizes are directly editable.
+      Overlay texts (stage:overlay:*, 9.2) and pages 2+ are excluded
+      via `is_header_text`. Render: `ScoreScenes.set_stage_texts`
+      swaps just the stage-text layer; `_sync_stage` diffs
+      `_applied_stage_texts` AND refreshes `AnimationInputs.stage`
+      (the Phase 7 staleness gotcha — export follows edits with no
+      FrameRenderer change). UI: Edit → Texts… manager (per-action
+      apply, Close-only, staff-groups idiom). Scripted exit check
+      12/12 on the offscreen MainWindow: live update with the SAME
+      ScoreScenes + engraved item objects (no re-engrave), sibling
+      rescale in one undo step, save/reload round-trip.
+- [x] **9.2 Tempo-mark overlay**: hidden layout-override on the
       engraved TEXT element + a replacement stage text seeded at its
       engraved position/size; edits never re-engrave. Verify: edited
       tempo text shows in place, engraved original hidden, round-trip +
       undo.
-- [ ] **9.3 Part-label edits via the prep seam**: part-name/abbreviation
+      As built (2026-07-12): tempo marks identified by a new
+      `RenderedElement.text_class` presentation field (the engraved SVG
+      class: tempo/reh/dir/label/labelAbbr/pgHead/pgFoot/mNum) —
+      ElementIdentity and minted ids UNTOUCHED by ruling (a finer kind
+      would re-roll every text id). The fixture's one tempo mark is
+      `P1:m1:s1:v0:text:0` (it carries @staff, so it minted
+      part-scoped). `AddTempoOverlay` = hide + replace in ONE undo
+      step (first consumer of LayoutOverride.hidden; dx/dy still
+      unconsumed); `RemoveTempoOverlay` restores and drops the entry
+      when back at default (sparse-doc idiom); editing an existing
+      overlay is plain EditStageText on `stage:overlay:<engraved-id>`
+      (excluded from the header refit). Seeding collapses Verovio's
+      doubled metronome codepoint ACROSS run boundaries (BACKLOG 3's
+      tofu lives in the 405px text run) and maps SMuFL→text ("Swing
+      ♩ = 120"); fidelity caveat: the replacement renders in the stage
+      serif, not Bravura. Render: ScoreScenes.set_element_hidden +
+      _sync_hidden diff (undo/redo ride the same pass); export:
+      FrameRenderer takes doc.layout_overrides via
+      apply_hidden_overrides, passed from the live doc at dialog open
+      (the 7.5 mode precedent). Scripted exit check 17/17 offscreen,
+      including an export frame with the overlay.
+- [x] **9.3 Part-label edits via the prep seam**: part-name/abbreviation
       overrides in the doc (v3 text_overrides field) applied to the
       part-list at prep → re-engrave; the label column re-derives so
       the score shifts to fit (a re-engrave with changed inputs is not
@@ -596,6 +646,30 @@ on Phase 8.**
       systems update from the same override. ID stability pinned as in
       8.3. Verify: rename a part in-app → all systems' labels update,
       score shifts, undo restores, ids stable.
+      As built (2026-07-12): spike first (spikes/part_label.py, NOTES
+      "Phase 9") — Verovio reads the -display twins and IGNORES the
+      plain elements, so `_apply_text_overrides` writes BOTH (plain
+      because `_parts` reads it); non-blank overrides clear
+      print-object="no" (it suppresses even non-empty text); "" is an
+      explicit no-label. `PartTextSpec` is the neutral prep-seam twin
+      of PartTextOverride (the PartGroupSpec precedent); overrides
+      apply BEFORE `_parts`, so PartInfo (which gained `abbreviation`)
+      carries effective values and identities/menus update free —
+      part_id never changes, so nothing else moves. Threaded as a
+      separate `texts` arg on load/load_detailed (params serialize in
+      the doc — Phase 8 reasoning verbatim). ID pin:
+      tests/test_adapter_part_texts.py::
+      test_element_ids_stable_under_part_rename (rename = IDENTICAL id
+      set; a FIRST P1/P2 abbreviation appends `score:p{n}:text:{seq}`
+      ids — no shift on the fixture, spike Q3 — accepted limit, labels
+      are never animation targets). One `SetPartText` command
+      (wholesale entry, None+None clears, known_parts runtime data);
+      re-engrave guard extended to diff `_applied_text_overrides`;
+      Parts → Part Names… dialog takes a parts PROVIDER (each rename
+      refreshes effective names). Scripted exit check 16/16 offscreen:
+      all-system label update, staff min-x shift, page preserved, one
+      undo, and an earlier tempo overlay + part tint SURVIVING the
+      re-engrave.
 
 **Exit criteria**: title and tempo-mark edits are pure overlay; a part
 rename re-engraves with the score shifting to fit; everything undoable

@@ -23,7 +23,7 @@ import math
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
@@ -32,12 +32,15 @@ from scoreanim.core.animation import (StyleRules, SystemRevealTrack,
                                       TriggerSchedule)
 from scoreanim.core.engraving.systems import centered_fit, system_bands
 from scoreanim.core.engraving.types import Layout
+from scoreanim.core.project.document import LayoutOverride
 from scoreanim.core.project.stage_config import PresentationMode, StageConfig
+from scoreanim.core.score.identity import ElementId
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.timing import (FrameClock, SwingRegion, TempoMap,
                                    resolve_seconds)
 from scoreanim.render.animate import AnimationApplier
-from scoreanim.render.scene import ScoreScenes, apply_style_colors
+from scoreanim.render.scene import (ScoreScenes, apply_hidden_overrides,
+                                    apply_style_colors)
 
 
 class ExportFormat(Enum):
@@ -132,7 +135,9 @@ class FrameRenderer:
 
     def __init__(self, inputs: AnimationInputs, style: StyleRules,
                  tempo_map: TempoMap, swing: Sequence[SwingRegion],
-                 spec: ExportSpec) -> None:
+                 spec: ExportSpec,
+                 overrides: Mapping[ElementId, LayoutOverride] | None = None
+                 ) -> None:
         self._spec = spec
         self._clock = FrameClock(spec.fps)
         self._frames = frame_count(spec.start_seconds, spec.end_seconds,
@@ -143,6 +148,9 @@ class FrameRenderer:
                                    ghost_opacity=style.floor_opacity)
         self._scenes.set_page_background_visible(False)
         apply_style_colors(self._scenes, style)
+        # doc intent rides in like `style` does (Phase 9.2: a hidden
+        # tempo mark stays hidden behind its overlay in the export)
+        apply_hidden_overrides(self._scenes, overrides or {})
         self._applier = AnimationApplier(self._scenes.items, inputs.schedule,
                                          tempo_map, style,
                                          inputs.reveal_tracks)

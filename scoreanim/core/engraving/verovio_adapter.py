@@ -29,7 +29,8 @@ from scoreanim.core.engraving.types import (TRANSPOSE_TO_SOUNDING_PITCH,
 from scoreanim.core.score.identity import (Beats, ElementId, ElementIdentity,
                                            ElementKind, PartId)
 from scoreanim.core.score.musicxml_prep import (PartGroupSpec, PartInfo,
-                                                PreparedScore, prepare)
+                                                PartTextSpec, PreparedScore,
+                                                prepare)
 
 _MEI_NS = "{http://www.music-encoding.org/ns/mei}"
 _SVG_NS = "{http://www.w3.org/2000/svg}"
@@ -650,12 +651,14 @@ class VerovioEngravingProvider(EngravingProvider):
     at concert pitch (octave-only transpositions neutralized in prep)."""
 
     def load(self, score_path: Path, params: EngravingParams,
-             groups: tuple[PartGroupSpec, ...] = ()) -> Layout:
-        return self.load_detailed(score_path, params, groups).layout
+             groups: tuple[PartGroupSpec, ...] = (),
+             texts: tuple[PartTextSpec, ...] = ()) -> Layout:
+        return self.load_detailed(score_path, params, groups, texts).layout
 
     def load_detailed(self, score_path: Path, params: EngravingParams,
-                      groups: tuple[PartGroupSpec, ...] = ()) -> EngravedScore:
-        prep = prepare(score_path, groups)
+                      groups: tuple[PartGroupSpec, ...] = (),
+                      texts: tuple[PartTextSpec, ...] = ()) -> EngravedScore:
+        prep = prepare(score_path, groups, texts)
         tk = verovio.toolkit()
         tk.setOptions({
             "breaks": "encoded",
@@ -940,6 +943,8 @@ def _build_elements(
             glyph=RenderPrimitive(paths=tuple(acc.paths),
                                   texts=tuple(acc.texts)),
             system=acc.system,
+            text_class=(acc.svg_class
+                        if acc.kind is ElementKind.TEXT else None),
         ))
 
         if (identity.kind is ElementKind.STAFF_LINES

@@ -12,9 +12,9 @@ first editing command (rule 8) arrives with the styling UI, not in Phase 2.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from scoreanim.core.engraving.types import Layout
+from scoreanim.core.engraving.types import Layout, RenderedElement
 from scoreanim.core.score.identity import ElementKind
 from scoreanim.core.score.musicxml_prep import CreditText, PreparedScore
 
@@ -55,6 +55,19 @@ class StageTextElement:
     italic: bool = False
 
 
+# Tempo-overlay replacement texts (Phase 9.2) carry the engraved element's
+# id behind this prefix ("stage:overlay:P1:m1:s1:v0:text:0") so the link
+# to the hidden original is recoverable and round-trips.
+OVERLAY_PREFIX = "stage:overlay:"
+
+
+def is_header_text(text: StageTextElement) -> bool:
+    """The band-fitted title block: page-1 stage texts that are not
+    tempo-overlay replacements (overlays sit at their engraved position
+    and must never rescale with the header)."""
+    return text.page == 1 and not text.element_id.startswith(OVERLAY_PREFIX)
+
+
 class PresentationMode(enum.Enum):
     """What the stage frames: whole pages (v1 behavior, default) or one
     system band at a time (Phase 7.4). Presentation intent only — the
@@ -83,6 +96,79 @@ def page_content_top(layout: Layout, page: int = 1) -> float:
     return min(tops) if tops else 0.0
 
 
+# SMuFL metronome glyphs → text equivalents for the overlay replacement
+# (Phase 9.2). Fidelity caveat, accepted at scoping: the replacement
+# renders in the stage-text face (a serif), not Bravura — ♩ instead of
+# the engraved metronome glyph. Unknown music codepoints fall back to ♩.
+_SMUFL_TEXT = {
+    "\ueca3": "\U0001d15e",     # metNoteHalfUp
+    "\ueca5": "\u2669",         # metNoteQuarterUp
+    "\ueca7": "\u266a",         # metNote8thUp
+    "\ueca9": ".",              # metAugmentationDot
+}
+_SMUFL_RANGE = range(0xE000, 0xF900)             # SMuFL private use area
+
+
+def _runs_text(runs) -> str:
+    """Text equivalent of a run sequence. Consecutive duplicate MUSIC
+    codepoints collapse across run boundaries first: Verovio's tofu on
+    the fixture leaves the metronome codepoint in the 405px text run AND
+    the Bravura run (BACKLOG 3) — the overlay must not read ♩♩."""
+    raw = "".join(r.content for r in runs)
+    kept: list[str] = []
+    for ch in raw:
+        if ord(ch) in _SMUFL_RANGE and kept and kept[-1] == ch:
+            continue
+        kept.append(ch)
+    return "".join(
+        _SMUFL_TEXT.get(ch, "♩" if ord(ch) in _SMUFL_RANGE else ch)
+        for ch in kept).replace("\xa0", " ")
+
+
+def seed_overlay_text(element: RenderedElement) -> StageTextElement:
+    """Replacement stage text for an engraved text element (Phase 9.2),
+    seeded at its engraved position/size. element_id = OVERLAY_PREFIX +
+    the engraved id, so the link to the hidden original is recoverable
+    and round-trips. Content joins the runs with music glyphs mapped to
+    text equivalents (♩)."""
+    prim = element.glyph.texts[0]
+    x, y = prim.transform.apply(prim.x, prim.y)
+    text_runs = [r for r in prim.runs if r.font_family != "Bravura"]
+    lead = text_runs[0] if text_runs else prim.runs[0]
+    # axis-aligned scale: font size maps through |d| (the y scale)
+    font_size = lead.font_size * abs(prim.transform.d)
+    content = _runs_text(prim.runs).strip()
+    return StageTextElement(
+        element_id=OVERLAY_PREFIX + str(element.identity.element_id),
+        content=content,
+        page=element.page,
+        x=x,
+        y=y,
+        anchor=prim.anchor,
+        font_size=font_size,
+        bold=lead.font_weight == "bold",
+        italic=lead.font_style == "italic",
+    )
+
+
+def fit_texts(texts: tuple[StageTextElement, ...], band: float,
+              top: float = _TOP_MARGIN) -> tuple[StageTextElement, ...]:
+    """Uniform scale-down of a text block to fit above `band` (the free
+    space page_content_top reports), about y=top: y' = top + (y-top)*s,
+    font' = font*s. Down-only — a block that already fits comes back
+    unchanged (the same tuple), and nothing ever scales back up: the
+    natural-1.0 layout is not stored (rule 5), so there is no baseline
+    to grow toward. Never shrinks below _MIN_SCALE."""
+    bottom = max((t.y + _DESCENT * t.font_size for t in texts), default=0.0)
+    if not bottom > _BAND_FILL * band > top:
+        return texts
+    scale = max((_BAND_FILL * band - top) / (bottom - top), _MIN_SCALE)
+    return tuple(replace(t,
+                         y=top + (t.y - top) * scale,
+                         font_size=t.font_size * scale)
+                 for t in texts)
+
+
 def default_stage_config(prepared: PreparedScore,
                          content_top: float | None = None) -> StageConfig:
     """Seed stage texts from the score's credits: front-matter credits
@@ -92,18 +178,14 @@ def default_stage_config(prepared: PreparedScore,
     left- and right-anchored credits then stack in independent columns
     below the centered block. If the block is taller than the free band
     above the music (content_top, from page_content_top), all font sizes
-    scale down uniformly to fit."""
+    scale down uniformly to fit (fit_texts — _lay_out is linear in
+    scale, so the affine refit equals a re-lay-out at that scale)."""
     front = [c for c in prepared.credits
              if c.page == 1 and c.credit_type != "page number"]
     band = content_top if content_top is not None \
         else _FALLBACK_BAND_FRAC * prepared.page_height
-    top = _TOP_MARGIN
-    texts = _lay_out(front, prepared, scale=1.0, top=top)
-    bottom = max((t.y + _DESCENT * t.font_size for t in texts), default=0.0)
-    if bottom > _BAND_FILL * band > top:
-        scale = max((_BAND_FILL * band - top) / (bottom - top), _MIN_SCALE)
-        texts = _lay_out(front, prepared, top=top, scale=scale)
-    return StageConfig(texts=texts)
+    texts = _lay_out(front, prepared, scale=1.0, top=_TOP_MARGIN)
+    return StageConfig(texts=fit_texts(texts, band))
 
 
 def _lay_out(front: list[CreditText], prepared: PreparedScore,

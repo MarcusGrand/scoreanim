@@ -295,6 +295,259 @@ def test_floor_opacity_undo_round_trip(doc) -> None:
     assert stack.undo_text() == "set floor opacity"
 
 
+# -- stage texts (Phase 9.1) --------------------------------------------------
+
+def _stext(element_id: str, y: float = 60.0, font_size: float = 40.0,
+           page: int = 1, content: str | None = None,
+           **kw) -> "StageTextElement":
+    from scoreanim.core.project import StageTextElement
+    return StageTextElement(element_id=element_id,
+                            content=content or element_id, page=page,
+                            x=100.0, y=y, anchor="start",
+                            font_size=font_size, **kw)
+
+
+@pytest.fixture
+def stage_doc() -> ProjectDoc:
+    from scoreanim.core.project import StageConfig
+    return ProjectDoc(stage=StageConfig(texts=(
+        _stext("stage:title", y=115.0, font_size=100.0),
+        _stext("stage:composer", y=215.0, font_size=50.0),
+    )))
+
+
+def test_edit_stage_text_replaces_content_position_style(stage_doc) -> None:
+    from scoreanim.core.project import EditStageText
+    new = _stext("stage:title", y=90.0, font_size=80.0, content="New Title",
+                 bold=True, color="#336699")
+    out = EditStageText("stage:title", new).apply(stage_doc)
+    assert out.stage.texts == (new, stage_doc.stage.texts[1])
+    assert stage_doc.stage.texts[0].content == "stage:title"   # before untouched
+
+
+def test_edit_stage_text_validation(stage_doc) -> None:
+    from dataclasses import replace as rep
+
+    from scoreanim.core.project import EditStageText
+    ok = _stext("stage:title")
+    with pytest.raises(CommandError, match="no stage text"):
+        EditStageText("stage:nope", _stext("stage:nope")).apply(stage_doc)
+    with pytest.raises(CommandError, match="id cannot change"):
+        EditStageText("stage:title", _stext("stage:renamed")).apply(stage_doc)
+    with pytest.raises(CommandError, match="page cannot change"):
+        EditStageText("stage:title", rep(ok, page=2)).apply(stage_doc)
+    with pytest.raises(CommandError, match="blank"):
+        EditStageText("stage:title", rep(ok, content="  ")).apply(stage_doc)
+    with pytest.raises(CommandError, match="bad anchor"):
+        EditStageText("stage:title", rep(ok, anchor="left")).apply(stage_doc)
+    with pytest.raises(CommandError, match="bad font size"):
+        EditStageText("stage:title", rep(ok, font_size=0.0)).apply(stage_doc)
+    with pytest.raises(CommandError, match="bad color"):
+        EditStageText("stage:title", rep(ok, color="red")).apply(stage_doc)
+    with pytest.raises(CommandError, match="not finite"):
+        EditStageText("stage:title",
+                      rep(ok, y=float("nan"))).apply(stage_doc)
+    with pytest.raises(CommandError, match="bad band"):
+        EditStageText("stage:title", ok, band=float("inf")).apply(stage_doc)
+
+
+def test_edit_stage_text_refits_whole_header_block(stage_doc) -> None:
+    from scoreanim.core.project import EditStageText
+    # dragging the title down past the band re-fits BOTH header texts in
+    # the same resulting doc — one command, one undo step
+    edited = _stext("stage:title", y=400.0, font_size=100.0)
+    out = EditStageText("stage:title", edited, band=300.0).apply(stage_doc)
+    title, composer = out.stage.texts
+    s = (0.9 * 300.0 - 15.0) / ((400.0 + 0.25 * 100.0) - 15.0)
+    assert title.y == pytest.approx(15.0 + (400.0 - 15.0) * s)
+    assert title.font_size == pytest.approx(100.0 * s)
+    assert composer.y == pytest.approx(15.0 + (215.0 - 15.0) * s)
+    assert composer.font_size == pytest.approx(50.0 * s)
+    assert stage_doc.stage.texts[1].font_size == 50.0    # before untouched
+
+
+def test_edit_stage_text_skips_overlay_texts_in_refit(stage_doc) -> None:
+    from dataclasses import replace as rep
+
+    from scoreanim.core.project import OVERLAY_PREFIX, EditStageText
+    overlay = _stext(OVERLAY_PREFIX + "P1:m1:s1:v0:text:0",
+                     y=500.0, font_size=40.0)
+    doc = rep(stage_doc, stage=rep(stage_doc.stage,
+                                   texts=stage_doc.stage.texts + (overlay,)))
+    edited = _stext("stage:title", y=400.0, font_size=100.0)
+    out = EditStageText("stage:title", edited, band=300.0).apply(doc)
+    assert out.stage.texts[2] == overlay     # untouched, position and all
+    assert out.stage.texts[1].font_size < 50.0   # header sibling refitted
+
+
+def test_edit_stage_text_no_refit_without_band(stage_doc) -> None:
+    from scoreanim.core.project import EditStageText
+    edited = _stext("stage:title", y=400.0, font_size=100.0)
+    out = EditStageText("stage:title", edited).apply(stage_doc)
+    assert out.stage.texts == (edited, stage_doc.stage.texts[1])
+    big = EditStageText("stage:title", edited, band=5000.0).apply(stage_doc)
+    assert big.stage.texts == (edited, stage_doc.stage.texts[1])
+
+
+def test_edit_stage_text_undo_round_trip(stage_doc) -> None:
+    from scoreanim.core.project import EditStageText
+    stack = UndoStack()
+    cmd = EditStageText("stage:title",
+                        _stext("stage:title", y=400.0, font_size=100.0),
+                        band=300.0)
+    d1 = stack.execute(cmd, stage_doc)
+    assert stack.undo_text() == "edit stage text"
+    assert stack.undo() == stage_doc
+    assert stack.redo() == d1
+
+
+# -- tempo overlay (Phase 9.2) ------------------------------------------------
+
+TEMPO_EID = "P1:m1:s1:v0:text:0"        # the fixture's tempo mark
+
+
+def _overlay_text(content: str = "Swing ♩ = 126",
+                  **kw) -> "StageTextElement":
+    from scoreanim.core.project import OVERLAY_PREFIX
+    return _stext(OVERLAY_PREFIX + TEMPO_EID, y=99.6, font_size=40.5,
+                  content=content, **kw)
+
+
+def test_add_tempo_overlay_hides_and_adds_in_one_apply(stage_doc) -> None:
+    from scoreanim.core.project import AddTempoOverlay
+    from scoreanim.core.score.identity import ElementId
+    text = _overlay_text()
+    out = AddTempoOverlay(ElementId(TEMPO_EID), text).apply(stage_doc)
+    assert out.layout_overrides[ElementId(TEMPO_EID)].hidden is True
+    assert out.stage.texts == stage_doc.stage.texts + (text,)
+    assert stage_doc.layout_overrides == {}          # before untouched
+    assert len(stage_doc.stage.texts) == 2
+
+
+def test_add_tempo_overlay_preserves_existing_dx_dy(stage_doc) -> None:
+    from dataclasses import replace as rep
+
+    from scoreanim.core.project import AddTempoOverlay, LayoutOverride
+    from scoreanim.core.score.identity import ElementId
+    eid = ElementId(TEMPO_EID)
+    doc = rep(stage_doc,
+              layout_overrides={eid: LayoutOverride(dx=3.0, dy=-2.0)})
+    out = AddTempoOverlay(eid, _overlay_text()).apply(doc)
+    assert out.layout_overrides[eid] == LayoutOverride(dx=3.0, dy=-2.0,
+                                                       hidden=True)
+
+
+def test_add_tempo_overlay_validation(stage_doc) -> None:
+    from scoreanim.core.project import AddTempoOverlay
+    from scoreanim.core.score.identity import ElementId
+    eid = ElementId(TEMPO_EID)
+    with pytest.raises(CommandError, match="must be"):
+        AddTempoOverlay(eid, _stext("stage:overlay:wrong")).apply(stage_doc)
+    with pytest.raises(CommandError, match="blank"):
+        AddTempoOverlay(eid, _overlay_text(content=" ")).apply(stage_doc)
+    once = AddTempoOverlay(eid, _overlay_text()).apply(stage_doc)
+    with pytest.raises(CommandError, match="already overlaid"):
+        AddTempoOverlay(eid, _overlay_text()).apply(once)
+
+
+def test_remove_tempo_overlay_restores_and_drops_empty_entry(stage_doc) -> None:
+    from dataclasses import replace as rep
+
+    from scoreanim.core.project import (AddTempoOverlay, LayoutOverride,
+                                        RemoveTempoOverlay)
+    from scoreanim.core.score.identity import ElementId
+    eid = ElementId(TEMPO_EID)
+    overlaid = AddTempoOverlay(eid, _overlay_text()).apply(stage_doc)
+    out = RemoveTempoOverlay(eid).apply(overlaid)
+    assert out == stage_doc                  # default entry dropped entirely
+
+    with_delta = rep(stage_doc,
+                     layout_overrides={eid: LayoutOverride(dx=3.0)})
+    overlaid = AddTempoOverlay(eid, _overlay_text()).apply(with_delta)
+    out = RemoveTempoOverlay(eid).apply(overlaid)
+    assert out.layout_overrides[eid] == LayoutOverride(dx=3.0)   # dx kept
+
+    with pytest.raises(CommandError, match="not overlaid"):
+        RemoveTempoOverlay(eid).apply(stage_doc)
+
+
+def test_tempo_overlay_undo_is_one_step(stage_doc) -> None:
+    from scoreanim.core.project import AddTempoOverlay
+    from scoreanim.core.score.identity import ElementId
+    stack = UndoStack()
+    d1 = stack.execute(AddTempoOverlay(ElementId(TEMPO_EID),
+                                       _overlay_text()), stage_doc)
+    assert stack.undo_text() == "replace tempo mark"
+    restored = stack.undo()                  # ONE undo restores BOTH halves
+    assert restored == stage_doc
+    assert restored.layout_overrides == {}
+    assert stack.redo() == d1
+
+
+def test_edit_overlay_text_never_refits_header(stage_doc) -> None:
+    from dataclasses import replace as rep
+
+    from scoreanim.core.project import AddTempoOverlay, EditStageText
+    from scoreanim.core.score.identity import ElementId
+    overlaid = AddTempoOverlay(ElementId(TEMPO_EID),
+                               _overlay_text()).apply(stage_doc)
+    moved = rep(_overlay_text(), y=5000.0)   # far past any band
+    out = EditStageText(moved.element_id, moved, band=300.0).apply(overlaid)
+    assert out.stage.texts[:2] == overlaid.stage.texts[:2]   # header intact
+    assert out.stage.texts[2].y == 5000.0
+
+
+# -- part texts (Phase 9.3) ---------------------------------------------------
+
+def test_set_part_text_sets_and_replaces(doc) -> None:
+    from scoreanim.core.project import PartTextOverride, SetPartText
+    order = tuple(PartId(f"P{i}") for i in range(1, 8))
+    out = SetPartText(PartId("P4"), "Trombones", "Trb.", order).apply(doc)
+    assert out.text_overrides == {
+        PartId("P4"): PartTextOverride(name="Trombones",
+                                       abbreviation="Trb.")}
+    assert doc.text_overrides == {}                    # before untouched
+    again = SetPartText(PartId("P4"), "Bones", None, order).apply(out)
+    assert again.text_overrides[PartId("P4")] == \
+        PartTextOverride(name="Bones", abbreviation=None)
+
+
+def test_set_part_text_none_none_drops_entry(doc) -> None:
+    from scoreanim.core.project import SetPartText
+    order = (PartId("P1"), PartId("P2"))
+    once = SetPartText(PartId("P1"), "Saxes", None, order).apply(doc)
+    cleared = SetPartText(PartId("P1"), None, None, order).apply(once)
+    assert cleared.text_overrides == {}                # sparse again
+    # clearing an absent entry is a no-op, not an error
+    assert SetPartText(PartId("P2"), None, None,
+                       order).apply(doc).text_overrides == {}
+
+
+def test_set_part_text_unknown_part_raises(doc) -> None:
+    from scoreanim.core.project import SetPartText
+    with pytest.raises(CommandError, match="unknown part"):
+        SetPartText(PartId("P99"), "X", None,
+                    (PartId("P1"),)).apply(doc)
+
+
+def test_set_part_text_empty_string_survives(doc) -> None:
+    """"" is an explicit blank (suppresses the label), not a clear."""
+    from scoreanim.core.project import PartTextOverride, SetPartText
+    out = SetPartText(PartId("P1"), "", None, (PartId("P1"),)).apply(doc)
+    assert out.text_overrides[PartId("P1")] == \
+        PartTextOverride(name="", abbreviation=None)
+
+
+def test_set_part_text_undo_round_trip(doc) -> None:
+    from scoreanim.core.project import SetPartText
+    stack = UndoStack()
+    d1 = stack.execute(SetPartText(PartId("P4"), "Trombones", "Trb.",
+                                   (PartId("P4"),)), doc)
+    assert stack.undo_text() == "set part name"
+    assert stack.undo() == doc
+    assert stack.redo() == d1
+
+
 # -- staff groups (Phase 8) ---------------------------------------------------
 
 PART_ORDER = tuple(PartId(f"P{i}") for i in range(1, 8))   # the fixture's 7

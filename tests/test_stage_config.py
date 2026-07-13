@@ -1,11 +1,15 @@
 """default_stage_config maps the fixture's credits to stage text elements
 and fits the title block into the band the encoded layout leaves free
-above the music (165 page units on the fixture's page 1)."""
+above the music (165 page units on the fixture's page 1). fit_texts is
+the shared refit (seed + the Phase 9 EditStageText command)."""
 
 import pytest
 
-from scoreanim.core.project.stage_config import (PT_TO_PAGE_UNITS,
+from scoreanim.core.project.stage_config import (OVERLAY_PREFIX,
+                                                 PT_TO_PAGE_UNITS,
+                                                 StageTextElement,
                                                  default_stage_config,
+                                                 fit_texts, is_header_text,
                                                  page_content_top)
 
 
@@ -91,3 +95,49 @@ def test_lyricist_keeps_gray(stage) -> None:
     assert lyricist.content == "Project Lyricist"
     assert lyricist.color == "#C0C0C0"
     assert lyricist.anchor == "start"
+
+
+# -- fit_texts (the shared refit) -------------------------------------------
+
+def _text(element_id: str, y: float, font_size: float,
+          page: int = 1) -> StageTextElement:
+    return StageTextElement(element_id=element_id, content=element_id,
+                            page=page, x=100.0, y=y, anchor="start",
+                            font_size=font_size)
+
+
+def test_fit_texts_noop_when_block_fits() -> None:
+    texts = (_text("stage:title", y=60.0, font_size=40.0),
+             _text("stage:composer", y=110.0, font_size=20.0))
+    assert fit_texts(texts, band=1500.0) is texts
+
+
+def test_fit_texts_scales_uniformly_about_top() -> None:
+    top = 15.0
+    texts = (_text("stage:title", y=115.0, font_size=100.0),
+             _text("stage:composer", y=215.0, font_size=50.0))
+    band = 200.0                             # block bottom 227.5 > 0.9*200
+    fitted = fit_texts(texts, band, top=top)
+    s = fitted[0].font_size / texts[0].font_size
+    assert s < 1.0
+    for before, after in zip(texts, fitted):
+        assert after.font_size == pytest.approx(before.font_size * s)
+        assert after.y - top == pytest.approx((before.y - top) * s)
+        assert (after.x, after.anchor, after.content) == \
+            (before.x, before.anchor, before.content)
+    bottom = max(t.y + 0.25 * t.font_size for t in fitted)
+    assert bottom == pytest.approx(0.9 * band)
+
+
+def test_fit_texts_floors_at_min_scale() -> None:
+    texts = (_text("stage:title", y=515.0, font_size=500.0),)
+    fitted = fit_texts(texts, band=30.0, top=15.0)
+    assert fitted[0].font_size == pytest.approx(500.0 * 0.4)
+
+
+def test_is_header_text_excludes_overlays_and_later_pages() -> None:
+    assert is_header_text(_text("stage:title", y=60.0, font_size=40.0))
+    assert not is_header_text(
+        _text(OVERLAY_PREFIX + "P1:m1:s1:v0:text:0", y=60.0, font_size=40.0))
+    assert not is_header_text(
+        _text("stage:title", y=60.0, font_size=40.0, page=2))

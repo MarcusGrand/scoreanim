@@ -58,6 +58,13 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
                                  page=1, x=1900.0, y=150.0, anchor="end",
                                  font_size=35.0, color="#C0C0C0",
                                  italic=True),
+                # a tempo-overlay replacement (Phase 9.2): just a stage
+                # text whose id carries the engraved element's id
+                StageTextElement(element_id="stage:overlay:"
+                                            "P1:m1:s1:v0:text:0",
+                                 content="Swing ♩ = 126",
+                                 page=1, x=471.4, y=99.6, anchor="start",
+                                 font_size=40.5, bold=True),
             ),
         ),
         staff_groups=(StaffGroup(parts=(PartId("P1"), PartId("P2"),
@@ -165,6 +172,12 @@ def test_v3_fields_round_trip() -> None:
         PartId("P1"): PartTextOverride(name="Flute")})
     assert to_dict(sparse)["text_overrides"] == {"P1": {"name": "Flute"}}
     assert from_dict(to_dict(sparse)) == sparse
+    # "" is an explicit blank, not a missing field: the writer's
+    # `is not None` and the reader's `.get` keep falsy strings intact
+    blank = ProjectDoc(text_overrides={
+        PartId("P1"): PartTextOverride(abbreviation="")})
+    assert to_dict(blank)["text_overrides"] == {"P1": {"abbreviation": ""}}
+    assert from_dict(to_dict(blank)) == blank
 
 
 def test_version_guard() -> None:

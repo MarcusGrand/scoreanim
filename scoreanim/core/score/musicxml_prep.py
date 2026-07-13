@@ -50,12 +50,27 @@ class PartGroupSpec:
 
 
 @dataclass(frozen=True)
+class PartTextSpec:
+    """Prep-seam input for one part's label override (Phase 9.3).
+
+    Neutral twin of the document's PartTextOverride intent (core/project
+    may import core/score, never the reverse — the PartGroupSpec
+    precedent); the UI converts at the seam. None fields keep the
+    score's own text; "" is an explicit blank (Verovio suppresses the
+    label — spike finding, spikes/NOTES.md "Phase 9")."""
+    part: PartId
+    name: str | None = None
+    abbreviation: str | None = None
+
+
+@dataclass(frozen=True)
 class PartInfo:
     index: int                   # 0-based document order (music21 parts order)
     part_id: PartId              # MusicXML id, e.g. "P1"
     name: str
     staff_count: int
     first_staff: int             # 1-based global staff number (Verovio/MEI @n)
+    abbreviation: str = ""       # <part-abbreviation> (Phase 9.3)
 
 
 @dataclass(frozen=True)
@@ -153,6 +168,58 @@ def _inject_part_groups(root: ET.Element,
         part_list.insert(first, start)
 
 
+def _apply_text_overrides(root: ET.Element,
+                          texts: tuple[PartTextSpec, ...]) -> None:
+    """Rewrite part labels in the <part-list> (Phase 9.3). Runs BEFORE
+    _parts so PartInfo carries the effective names — part_id never
+    changes, so ids, the join, and every keying are untouched."""
+    if not texts:
+        return
+    part_list = root.find("part-list")
+    if part_list is None:
+        raise ValueError("MusicXML has no <part-list>")
+    by_id = {sp.get("id", ""): sp for sp in part_list.findall("score-part")}
+    for spec in texts:
+        sp = by_id.get(str(spec.part))
+        if sp is None:
+            raise ValueError(f"part text override names unknown part "
+                             f"{spec.part!r}")
+        if spec.name is not None:
+            _set_part_text(sp, "part-name", "part-name-display", spec.name)
+        if spec.abbreviation is not None:
+            _set_part_text(sp, "part-abbreviation",
+                           "part-abbreviation-display", spec.abbreviation)
+
+
+def _set_part_text(sp: ET.Element, plain_tag: str, display_tag: str,
+                   value: str) -> None:
+    """Write BOTH the plain element and its -display twin: Verovio reads
+    the display when present and ignores the plain; _parts reads the
+    plain (spike findings, spikes/NOTES.md "Phase 9"). Non-blank values
+    clear print-object="no" from both — it suppresses even non-empty
+    text. "" stays an explicit blank (Verovio drops the label)."""
+    plain = sp.find(plain_tag)
+    if plain is None:
+        # childless Elements are falsy — `find(a) or find(b)` would skip
+        # an existing empty display element, so test None explicitly
+        anchor = sp.find("part-name-display")
+        if anchor is None:
+            anchor = sp.find("part-name")
+        index = list(sp).index(anchor) + 1 if anchor is not None else 0
+        plain = ET.Element(plain_tag)
+        sp.insert(index, plain)
+    plain.text = value
+    display = sp.find(display_tag)
+    if value:
+        plain.attrib.pop("print-object", None)
+        if display is not None:
+            display.attrib.pop("print-object", None)
+    if display is not None:
+        for dt in list(display.findall("display-text")):
+            display.remove(dt)
+        ET.SubElement(display, "display-text").text = value
+
+
 def _page_size(root: ET.Element) -> tuple[float, float, float]:
     """(width, height, units_per_tenth) in 1/10 mm from <defaults>
     (as spikes/fidelity.py)."""
@@ -208,9 +275,11 @@ def _parts(root: ET.Element) -> tuple[PartInfo, ...]:
     for index, sp in enumerate(root.findall("./part-list/score-part")):
         pid = sp.get("id", "")
         name = (sp.findtext("part-name") or "").strip()
+        abbreviation = (sp.findtext("part-abbreviation") or "").strip()
         count = staff_counts.get(pid, 1)
         infos.append(PartInfo(index=index, part_id=PartId(pid), name=name,
-                              staff_count=count, first_staff=next_staff))
+                              staff_count=count, first_staff=next_staff,
+                              abbreviation=abbreviation))
         next_staff += count
     return tuple(infos)
 
@@ -251,11 +320,14 @@ def _slash_regions(root: ET.Element) -> tuple[SlashRegion, ...]:
 
 
 def prepare(score_path: Path,
-            groups: tuple[PartGroupSpec, ...] = ()) -> PreparedScore:
+            groups: tuple[PartGroupSpec, ...] = (),
+            texts: tuple[PartTextSpec, ...] = ()) -> PreparedScore:
     root = ET.fromstring(score_path.read_bytes())
     if root.tag != "score-partwise":
         raise ValueError(f"expected score-partwise MusicXML, got <{root.tag}>")
 
+    _apply_text_overrides(root, texts)   # before _parts: PartInfo carries
+                                         # the EFFECTIVE names (Phase 9.3)
     parts = _parts(root)
     slash_regions = _slash_regions(root)
     credits = _credits(root)

@@ -47,6 +47,7 @@ class ExportDialog(QDialog):
                  offset_seconds: float, duration_seconds: float,
                  score_name: str,
                  mode: PresentationMode = PresentationMode.PAGED,
+                 overrides: dict | None = None,
                  settings: dict | None = None,
                  parent=None) -> None:
         super().__init__(parent)
@@ -57,6 +58,9 @@ class ExportDialog(QDialog):
         # from inputs.stage — that is a load-time snapshot and goes
         # stale after a SetPresentationMode command)
         self._mode = mode
+        # doc.layout_overrides, same live-at-open reasoning (Phase 9.2:
+        # hidden tempo marks stay hidden in the export)
+        self._overrides = dict(overrides or {})
         self._tempo_map = tempo_map
         self._swing = swing
         self._measures = tuple(measures)
@@ -314,7 +318,8 @@ class ExportDialog(QDialog):
         self._status.setText("building scene…")
         self.repaint()
         self._renderer = FrameRenderer(self._inputs, self._style,
-                                       self._tempo_map, self._swing, spec)
+                                       self._tempo_map, self._swing, spec,
+                                       overrides=self._overrides)
         w, h = self._renderer.size
         try:
             if spec.format is ExportFormat.PRORES_4444:

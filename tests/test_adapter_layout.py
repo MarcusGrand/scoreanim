@@ -225,3 +225,20 @@ def test_load_is_deterministic(engraved) -> None:
                   for e in second.layout.elements]
     assert first_sig == second_sig
     assert engraved.note_records == second.note_records
+
+
+def test_text_class_census(engraved) -> None:
+    """text_class (Phase 9.2 ruling): the TEXT sub-class rides on
+    RenderedElement as presentation metadata — ids untouched. Exactly
+    one tempo mark on the fixture; the overlay UI filters on it."""
+    census = Counter(el.text_class for el in engraved.layout.elements
+                     if el.identity.kind is ElementKind.TEXT)
+    assert census == {"tempo": 1, "reh": 2, "dir": 5,
+                      "label": 7, "labelAbbr": 20, "mNum": 4}
+    (tempo,) = [el for el in engraved.layout.elements
+                if el.text_class == "tempo"]
+    assert str(tempo.identity.element_id) == "P1:m1:s1:v0:text:0"
+    assert tempo.page == 1
+    assert tempo.identity.onset == 0.0
+    assert all(el.text_class is None for el in engraved.layout.elements
+               if el.identity.kind is not ElementKind.TEXT)

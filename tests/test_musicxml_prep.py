@@ -117,3 +117,65 @@ def test_inject_rejects_noncontiguous_parts() -> None:
         prepare(TESTSCORE, (PartGroupSpec(parts=("P1", "P3")),))
     with pytest.raises(ValueError, match="contiguous"):
         prepare(TESTSCORE, (PartGroupSpec(parts=("P2", "P1")),))
+
+
+# -- part-text overrides (Phase 9.3, spikes/NOTES.md "Phase 9") ----------------
+
+def _score_part(prep, part_id: str) -> ET.Element:
+    root = ET.fromstring(prep.canonical_xml)
+    return next(sp for sp in root.find("part-list").iter("score-part")
+                if sp.get("id") == part_id)
+
+
+def test_part_text_override_rewrites_name_and_display() -> None:
+    from scoreanim.core.score.musicxml_prep import PartTextSpec
+    prep = prepare(TESTSCORE, texts=(PartTextSpec("P4", name="Trombones"),))
+    sp = _score_part(prep, "P4")
+    assert sp.findtext("part-name") == "Trombones"
+    # Verovio reads the display twin and ignores the plain element —
+    # both must carry the override (spike Q1)
+    (dt,) = sp.find("part-name-display").findall("display-text")
+    assert dt.text == "Trombones"
+    # abbreviation untouched (None keeps the score's text)
+    assert sp.findtext("part-abbreviation") == "Tbn."
+
+
+def test_part_text_override_sets_abbreviation_and_clears_print_object() -> None:
+    from scoreanim.core.score.musicxml_prep import PartTextSpec
+    prep = prepare(TESTSCORE,
+                   texts=(PartTextSpec("P1", abbreviation="S.A.T. 1"),))
+    sp = _score_part(prep, "P1")
+    ab = sp.find("part-abbreviation")
+    assert ab.text == "S.A.T. 1"
+    # print-object="no" suppresses even non-empty text (spike Q2)
+    assert ab.get("print-object") is None
+    disp = sp.find("part-abbreviation-display")
+    assert disp.get("print-object") is None
+    (dt,) = disp.findall("display-text")
+    assert dt.text == "S.A.T. 1"
+
+
+def test_part_text_override_unknown_part_raises() -> None:
+    from scoreanim.core.score.musicxml_prep import PartTextSpec
+    with pytest.raises(ValueError, match="unknown part"):
+        prepare(TESTSCORE, texts=(PartTextSpec("P99", name="X"),))
+
+
+def test_partinfo_reflects_overrides(engraved) -> None:
+    from scoreanim.core.score.musicxml_prep import PartTextSpec
+    prep = prepare(TESTSCORE, texts=(
+        PartTextSpec("P4", name="Trombones", abbreviation="Trb."),))
+    p4 = next(p for p in prep.parts if p.part_id == "P4")
+    base = next(p for p in engraved.prepared.parts if p.part_id == "P4")
+    assert (p4.name, p4.abbreviation) == ("Trombones", "Trb.")
+    assert (p4.part_id, p4.first_staff, p4.staff_count) == \
+        (base.part_id, base.first_staff, base.staff_count)
+    # every other part untouched
+    assert [p for p in prep.parts if p.part_id != "P4"] == \
+        [p for p in engraved.prepared.parts if p.part_id != "P4"]
+
+
+def test_partinfo_reads_abbreviation(engraved) -> None:
+    by_id = {p.part_id: p for p in engraved.prepared.parts}
+    assert by_id["P4"].abbreviation == "Tbn."
+    assert by_id["P1"].abbreviation == ""      # empty in the fixture

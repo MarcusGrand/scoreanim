@@ -103,11 +103,33 @@ class EngravingProvider(ABC):
 #    reproduces whatever Verovio emits — encoded header included —
 #    faithfully; suppression is a rendering option, not a decomposition
 #    exemption.
-#    Planned revision (ruling 2026-07-11, BACKLOG item 5): score-anchored
-#    texts (part labels, tempo marks, possibly the title) are to become
-#    editable in-app with the engraved score shifting to fit — i.e. text
-#    edits feed back into the engraving inputs and re-engrave.
-#    Scheduled as Phase 9, riding Phase 8's prep-injection seam.
+#    Revision AS BUILT (Phase 9, 2026-07-12, resolving BACKLOG item 5):
+#    the split is by TEXT CLASS. Stage texts (title/composer/lyricist)
+#    edit in place via EditStageText — never re-engrave; the header
+#    block re-fits its band in-command (down-only, band supplied by the
+#    UI as runtime data). Tempo marks edit as OVERLAY: AddTempoOverlay
+#    hides the engraved TEXT element (the first consumer of
+#    LayoutOverride.hidden) and adds a replacement stage text
+#    (id "stage:overlay:<engraved-id>", seeded from the engraved
+#    geometry, SMuFL→♩ substitution) — one undo step; RemoveTempoOverlay
+#    restores. Part labels take the prep seam (ruling 6). Only dx/dy of
+#    LayoutOverride remain unconsumed.
+#
+# 6. Part-label overrides via prep rewrite (Phase 9.3, as built
+#    2026-07-12): doc-stored text_overrides (user intent) become
+#    PartTextSpec at the prep seam and rewrite the part-list BEFORE
+#    part extraction — Verovio reads <part-name-display>/-abbreviation-
+#    display and ignores the plain elements when twins exist, so the
+#    rewrite touches BOTH (plain feeds PartInfo); non-blank overrides
+#    clear print-object="no" (it suppresses even non-empty text); ""
+#    is an explicit no-label. The label column re-derives so the score
+#    shifts to fit — a re-engrave with changed inputs, not window
+#    reflow (rule 7). A rename keeps the id set IDENTICAL (pinned:
+#    tests/test_adapter_part_texts.py); adding a FIRST abbreviation to
+#    a part that had none appends label ids (accepted limit — labels
+#    are static TEXT, never animation targets). Tempo/label/etc. TEXT
+#    sub-classing rides RenderedElement.text_class — presentation
+#    metadata; ElementIdentity and minted ids untouched.
 #
 # 5. Staff groups via prep injection (Phase 8, as built 2026-07-12):
 #    doc-stored groupings (staff_groups, user intent) become
@@ -135,6 +157,9 @@ class RenderedElement:
     system: int | None           # score-wide system index (Phase 5) —
                                  # engraving-derived like page; reveal
                                  # tracks are per (system, part)
+    text_class: str | None       # TEXT sub-class ("tempo"/"reh"/"label"/…,
+                                 # Phase 9) — presentation metadata; ids
+                                 # untouched. None for non-TEXT elements.
 
 @dataclass(frozen=True)
 class Layout:
@@ -280,19 +305,24 @@ Project (saved file, versioned schema)
 ├── score_ref            path + content hash of MusicXML
 ├── audio_ref            path + content hash of wav/mp3
 ├── engraving_params     scale etc. (page geometry comes from the score)
-├── layout_overrides     {ElementId → dx, dy, hidden}
+├── layout_overrides     {ElementId → dx, dy, hidden} — hidden consumed
+│                        since Phase 9.2 (tempo overlays); dx/dy still
+│                        unconsumed schema slots
 ├── tempo_map            events, swing regions, raw taps (kept for re-derive)
 ├── style_rules          reveal mode, floor opacity (v3), per-part
 │                        {color, effect-name} rules, per-element overrides
 ├── stage_config         presentation mode (paged | system, v3), header
 │                        text elements (title/composer/lyricist —
 │                        stage-level text, not engraved; adapter ruling 4)
+│                        plus tempo-overlay replacements
+│                        (stage:overlay:<engraved-id>, Phase 9.2)
 ├── staff_groups         consumed since Phase 8 (v3): ordered groups of
 │                        contiguous parts + symbol + joined-barlines flag
 │                        (bracket geometry re-derives via prep injection;
 │                        adapter ruling 5)
-└── text_overrides       v3 slot, consumed from Phase 9: per-part
-                         name/abbreviation edits (applied at the prep seam)
+└── text_overrides       consumed since Phase 9.3 (v3): per-part
+                         name/abbreviation edits, rewritten into the
+                         part-list at the prep seam (adapter ruling 6)
 ```
 
 Schema versions (`core/project/serialize.py`, strict gate): **v1**

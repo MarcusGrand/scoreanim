@@ -15,6 +15,8 @@ stroke "currentColor" → element color, pen width stroke_width or 1
 
 from __future__ import annotations
 
+from typing import Mapping
+
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen
 from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsRectItem,
@@ -23,12 +25,26 @@ from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsRectItem,
 from scoreanim.core.animation.reveal import REVEALED_KINDS
 from scoreanim.core.animation.style import StyleRules, takes_part_color
 from scoreanim.core.engraving.types import Layout, PathPrimitive
-from scoreanim.core.project.stage_config import StageConfig
+from scoreanim.core.project.document import LayoutOverride
+from scoreanim.core.project.stage_config import StageConfig, StageTextElement
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.render.items import (DEFAULT_COLOR, ElementItem,
                                     RevealPathItem, svg_pen)
 from scoreanim.render.qpath import to_qpainter_path, to_qtransform
 from scoreanim.render.text import add_stage_text, add_text_rows
+
+
+def apply_hidden_overrides(scenes: "ScoreScenes",
+                           overrides: Mapping[ElementId, LayoutOverride]
+                           ) -> None:
+    """One-shot application of LayoutOverride.hidden onto FRESH scenes
+    (export's analog of the main window's diff-based _sync_hidden).
+    Consumes ONLY .hidden — dx/dy remain unconsumed schema slots.
+    Unknown ids are skipped: override staleness is accepted
+    (ARCHITECTURE §4)."""
+    for eid, override in overrides.items():
+        if override.hidden:
+            scenes.set_element_hidden(eid, True)
 
 
 def apply_style_colors(scenes: "ScoreScenes", style: StyleRules) -> None:
@@ -96,11 +112,30 @@ class ScoreScenes:
                 raise ValueError(f"duplicate id {el.identity.element_id}")
             self.items[el.identity.element_id] = item
 
-        for text in stage.texts:
+        # Stage-text items are tracked (id, page) so set_stage_texts can
+        # swap just this layer — the engraved items never rebuild short
+        # of a re-engrave.
+        self._stage_text_pages: dict[ElementId, int] = {}
+        self._add_stage_texts(stage.texts)
+
+    def _add_stage_texts(self,
+                         texts: tuple[StageTextElement, ...]) -> None:
+        for text in texts:
             item = ElementItem(identity=None)
             add_stage_text(item, text)
             self.scenes[text.page - 1].addItem(item)
             self.items[ElementId(text.element_id)] = item
+            self._stage_text_pages[ElementId(text.element_id)] = text.page
+
+    def set_stage_texts(self, texts: tuple[StageTextElement, ...]) -> None:
+        """Replace all stage-text items (remove + re-add) — stage edits
+        touch a handful of texts, so wholesale rebuild of just this
+        layer; engraved items are untouched (never re-engraves)."""
+        for eid, page in self._stage_text_pages.items():
+            item = self.items.pop(eid)
+            self.scenes[page - 1].removeItem(item)
+        self._stage_text_pages = {}
+        self._add_stage_texts(texts)
 
     def scene_for_page(self, page: int) -> QGraphicsScene:
         return self.scenes[page - 1]
@@ -122,6 +157,17 @@ class ScoreScenes:
         self._ghost_opacity = value
         for child in self._ghost_items:
             child.setOpacity(value)
+
+    def set_element_hidden(self, element_id: ElementId,
+                           hidden: bool) -> None:
+        """Show/hide one element (Phase 9.2 tempo overlays: the engraved
+        mark hides behind its replacement stage text). Plain item
+        visibility on the group parent — TEXT is neither animated nor
+        tinted, so nothing else touches these items. Unknown id = no-op
+        (override staleness accepted)."""
+        item = self.items.get(element_id)
+        if item is not None:
+            item.setVisible(not hidden)
 
     def set_part_color(self, part: PartId, color: QColor | None) -> None:
         """Tint a part's playing ink (None restores black). Scope is

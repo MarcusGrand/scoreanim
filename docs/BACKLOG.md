@@ -28,7 +28,11 @@ See `spikes/NOTES.md` for the full investigation of each.
 2. **m. 19 guitar slash notehead renders wrong** (stack of strokes instead
    of a slash). Priority: medium, cosmetic.
 3. **"Swing ♩ = 120" renders with a tofu box** before the note glyph.
-   Priority: low, cosmetic.
+   Priority: low, cosmetic. (Upstream: Verovio duplicates the metronome
+   codepoint into the 405px text run, where the text face has no glyph.)
+   User-side workaround since Phase 9.2: the tempo overlay replaces the
+   whole mark with plain text — the seed collapses the doubled
+   codepoint, so the replacement reads "Swing ♩ = 120", no tofu.
 4. **Dorico title block simplified** to Verovio's one-line running header
    (all credit texts present, size/placement differ). Priority: low,
    accepted as-is.
@@ -62,6 +66,14 @@ See `spikes/NOTES.md` for the full investigation of each.
    collide with the staff). Phase 9 rides Phase 8's prep-injection
    infrastructure; the id-stability "verify" above is pinned by test in
    Phase 8 (task 8.3).
+   **RESOLVED as split, BUILT 2026-07-12 (Phase 9)**: stage texts edit
+   via EditStageText + band refit (9.1); tempo marks via
+   AddTempoOverlay — hidden layout-override + replacement stage text,
+   one undo step (9.2); part labels via text_overrides rewritten into
+   the part-list at the prep seam → re-engrave, score shifts to fit,
+   rename keeps the id set identical (pinned, 9.3). Editing UI: Edit →
+   Texts… and Parts → Part Names… dialogs (stage click-to-select
+   remains item 9). Closes with the Phase 9 exit-criteria run.
 
 ## Animation fixes required (user rulings)
 
@@ -123,7 +135,9 @@ See `spikes/NOTES.md` for the full investigation of each.
    the editing UI waits on stage click-to-select (which layout
    overrides also need). On a spanner broken across systems an override
    targets ONE segment (`…:seg<k>` ids) — decide whether the UI should
-   fan out to all segments of a source when it lands.
+   fan out to all segments of a source when it lands. (Phase 9's Texts…
+   dialog is list-based on purpose — text editing did not wait for
+   click-to-select; this item is about the general per-element case.)
 
 10. **Per-voice reveal granularity** (accepted limit at the Phase 5
     reveal re-plan, ruling A): reveal edges are per (system, part), not
