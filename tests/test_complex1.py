@@ -4,6 +4,27 @@ grace-note join gap, notation coverage). Grows across tasks 11.2/11.3/11.5.
 """
 
 from scoreanim.core.score.identity import ElementKind
+from scoreanim.core.score.join import join_notes
+
+
+# The 22 layout notes the join cannot match: the PRINCIPAL notes carrying
+# complex1's grace notes. Verovio's timemap delays each principal by the
+# grace duration (+0.0957 q) while music21 keeps the notated beat, so the
+# exact-onset key misses. Fixed by the Phase 12.1 order-based join rewrite
+# — pinned here so that fix (or any regression) moves a known number. The
+# graces THEMSELVES all match via join.py's onset-excluded grace tier.
+_GRACE_DELAYED_PRINCIPALS = frozenset({
+    "P1:m8:s1:v1:note:1",
+    "P2:m8:s1:v2:note:1", "P2:m9:s1:v2:note:1", "P2:m10:s1:v2:note:1",
+    "P3:m8:s1:v1:note:1", "P3:m9:s1:v1:note:1", "P3:m10:s1:v1:note:1",
+    "P4:m8:s1:v1:note:1", "P4:m9:s1:v1:note:1", "P4:m10:s1:v1:note:1",
+    "P7:m8:s1:v1:note:2", "P7:m8:s1:v1:note:3",
+    "P7:m9:s1:v1:note:2", "P7:m9:s1:v1:note:3",
+    "P7:m10:s1:v1:note:2", "P7:m10:s1:v1:note:3",
+    "P10:m14:s1:v1:note:1", "P10:m14:s1:v2:note:1",
+    "P11:m14:s1:v1:note:1", "P11:m14:s1:v2:note:1",
+    "P12:m14:s1:v1:note:1", "P12:m14:s1:v2:note:1",
+})
 
 
 # --- 11.2 mRest ledger tier ------------------------------------------------
@@ -27,3 +48,46 @@ def test_complex1_staff_lines_are_exactly_five_paths(engraved_complex1):
     for e in engraved_complex1.layout.elements:
         if e.identity.kind is ElementKind.STAFF_LINES:
             assert len(e.glyph.paths) == 5
+
+
+# --- 11.3 join gap pinned (not fixed — Phase 12.1) -------------------------
+
+def test_join_is_899_of_921(engraved_complex1, complex1_score_model):
+    report = join_notes(complex1_score_model, engraved_complex1.note_records)
+    assert len(complex1_score_model.notes) == 921
+    assert len(engraved_complex1.note_records) == 921
+    assert len(report.matched) == 899
+    assert len(report.unmatched_score) == 22
+    assert len(report.unmatched_layout) == 22
+
+
+def test_every_grace_note_matches(engraved_complex1, complex1_score_model):
+    """The 26 graces themselves all join (the onset-excluded grace tier);
+    the gap is the principals, not the graces (spike correction)."""
+    graces = [n for n in complex1_score_model.notes if n.grace]
+    assert len(graces) == 26
+    report = join_notes(complex1_score_model, engraved_complex1.note_records)
+    matched_graces = sum(1 for _, n in report.matched if n.grace)
+    assert matched_graces == 26
+    # nothing unmatched is itself a grace
+    assert not any(n.grace for n in report.unmatched_score)
+    assert not any(r.grace for r in report.unmatched_layout)
+
+
+def test_unmatched_are_exactly_the_grace_delayed_principals(
+        engraved_complex1, complex1_score_model):
+    report = join_notes(complex1_score_model, engraved_complex1.note_records)
+    unmatched_ids = {str(r.element_id) for r in report.unmatched_layout}
+    assert unmatched_ids == _GRACE_DELAYED_PRINCIPALS
+
+    # each unmatched pair (paired by part/measure/document order) is the
+    # same pitch off by exactly one grace step (+0.0957 q)
+    s_un = sorted(report.unmatched_score,
+                  key=lambda n: (str(n.part), n.measure, n.order))
+    l_un = sorted(report.unmatched_layout,
+                  key=lambda r: (str(r.part), r.measure, r.order_in_voice))
+    deltas = set()
+    for n, r in zip(s_un, l_un):
+        assert (n.pitch_step, n.octave) == (r.pitch_step, r.octave)
+        deltas.add(round(r.onset - n.onset, 4))
+    assert deltas == {0.0957}
