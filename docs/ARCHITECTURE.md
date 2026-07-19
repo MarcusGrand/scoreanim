@@ -169,7 +169,32 @@ class EngravingProvider(ABC):
 #    is suppressed with its continuation ink; the Phase 10R m44 fix),
 #    segment-count-mismatch / unattributed-continuation (tolerant
 #    continuation pairing), hide-unavailable, repaginated,
-#    system-overflow. The status bar shows the count; stderr the text.
+#    system-overflow, unknown-class (a drawable SVG class the decomposer
+#    does not know, rendered as a static element — Phase 11.4, app path
+#    only). The status bar shows the count; stderr the text.
+#
+# 10. Dorico-robustness decomposer coverage (Phase 11, as built
+#    2026-07-19): three notation classes and one geometry gap that the
+#    prior fixtures never exercised. (a) TREMOLO — a bowed/measured
+#    tremolo's stroke <use> is a DIRECT child of the id-bearing
+#    <g class="bTrem|fTrem">, so the class EMITS its own element (a
+#    container would fold the stroke into the static staff scaffold, the
+#    BACKLOG-6 shape); the element inherits its child note's onset
+#    (chord-member style) and animates untinted (ruling a), the nested
+#    note keeping its own timemap onset. fTrem is defensive (neither
+#    fixture draws one — all tremolos are bTrem). (b) beamSpan → BEAM
+#    with onset/extent from MEI @startid/@endid (a measure-level beam is
+#    not in the layer-beam table). (c) rotate transforms: Verovio DOES
+#    rotate (vertical text carries rotate(-90 …)), so svg_geom parses
+#    rotate into the affine matrix and Affine.apply_rect maps by four
+#    corners (exact for 90-degree multiples, reduces to the old
+#    two-corner result when axis-aligned). (d) the ledger rest tier
+#    (Phase 10.2) also claims displaced mRests. Graceful degradation
+#    (ruling, Marcus 2026-07-15): in the app path an unknown drawable
+#    class no longer fails the open — it mints a static OTHER element +
+#    unknown-class warning; strict loads (pytest / doctor --strict)
+#    still raise so coverage gaps stay loud. The score-doctor
+#    (scoreanim.tools.check_score) is the triage engine.
 #
 # 5. Staff groups via prep injection (Phase 8, as built 2026-07-12):
 #    doc-stored groupings (staff_groups, user intent) become
@@ -303,7 +328,8 @@ logic. Any cursor reads this same function.
 ### Animated-ink taxonomy (revised 2026-07-12; re-revised 2026-07-13, Phase 10R)
 
 Opacity-triggered (dim at floor, light at trigger): noteheads, slashes,
-stems, flags, beams, accidentals, articulations, dots, ledger dashes,
+stems, flags, beams, accidentals, articulations, tremolo strokes
+(Phase 11 — untinted, inherits its note's onset), dots, ledger dashes,
 rests, whole-bar rests, dynamics — and, since the Phase 10R
 animate-everything ruling, **texts, chord symbols, lyrics, meter
 signatures, trills/ornaments, fermatas**: every object animates at its

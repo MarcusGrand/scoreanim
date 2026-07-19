@@ -1,5 +1,45 @@
 # Spike & build notes
 
+## Phase 11 — Dorico robustness (`spikes/complex1_triage.py`, 2026-07-19)
+
+Triage spike verified the PHASE11_BRIEF diagnosis against the real
+`complex1`/`complex2` files and corrected four brief details; the plan
+built on the corrected mechanisms. Findings, verovio 6.2.x:
+
+- **bTrem is NOT a clean container.** The tremolo stroke glyph (SMuFL
+  E222) is a DIRECT `<use>` child of the id-bearing `<g class="bTrem">`
+  (which also wraps the id-bearing note). Treating bTrem as a
+  transparent container loads but the stroke folds into the enclosing
+  STAFF_LINES scaffold (complex1 P9 m7 gains a 6th primitive — the
+  BACKLOG-6 shape). So bTrem must EMIT (ElementKind.TREMOLO); ruling (a)
+  is a real choice, not free. The nested note keeps its own timemap
+  onset; the tremolo inherits the note's onset (chord-member style).
+- **fTrem occurs in NEITHER file** — all 85 complex2 tremolos render as
+  bTrem. fTrem coverage is defensive (synthetic unit test only).
+- **beamSpan** is id-bearing with direct `<polygon>` children (the beam
+  quads); MEI `beamSpan` carries @startid/@endid but is NOT in the
+  layer-beam table, so onset/extent come from those note ids. complex2
+  has one, on raw-render page 5.
+- **Verovio DOES rotate.** complex2 pages 8 & 16 (raw encoded-breaks
+  render) carry `rotate(-90 cx cy)` on measure `<g>`s (vertical text) —
+  the brief's "page 5" was a different pagination. All are exactly −90°,
+  so corner-mapped `apply_rect` is exact. The "Verovio never rotates"
+  svg_geom assumption is dropped.
+- **The 22 unmatched joins are the grace-carrying PRINCIPALS, not the
+  graces.** All 26 graces match via join.py's onset-excluded grace tier;
+  the principals miss because Verovio's timemap delays each by the grace
+  duration (+0.0957 q exactly, both sides grace=False) while music21
+  keeps the notated beat. Same appoggiatura semantics as complex2's
+  1882/9546 collapse — one order-based join rewrite (Phase 12.1) fixes
+  both; Phase 11 only PINS the gap.
+- Census under the real (emitting) fix: complex1 = **3491** elements
+  (not the brief's shimmed 3490 — the bTrem element is new). complex2 =
+  **42,615** (42,530 + 85 real tremolos), 20 pages, 20 system-overflow.
+
+Build note: the offscreen `MainWindow` hangs in headless runs (no event
+loop), so the scripted exit drives `ScoreScenes` + `FrameRenderer`
+directly (the render_page_png idiom) — open/animate/export, 13/13.
+
 ## Phase 10R — review-fix spike (`spikes/phase10r_spike.py`, 2026-07-13)
 
 Marcus's Phase 10 exit review required four fixes (hidden empty staves,

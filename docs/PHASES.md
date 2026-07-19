@@ -1029,7 +1029,21 @@ spike corrections above accepted — the plan builds on the corrected
 mechanisms (census pin 3491; fTrem defensive-only; join gap pinned as
 the grace-delayed principals; beamSpan onset from @startid/@endid).
 
-- [ ] **11.0 Score-doctor CLI**
+Build complete 2026-07-19 (430 headless tests green incl.
+`test_no_qt_in_core.py`; 13/13 scripted exit checks on the offscreen
+render pipeline; review artifact with complex1's three rendered pages
+delivered). **Exit criteria PASSED 2026-07-19** — full pytest green,
+score-doctor PASS on all four permanent fixtures, complex2 loads
+through decomposition (42,615 elements, 20 pages, 20 system-overflow
+warnings — layout is Phase 12), complex1 opens/animates/exports a
+transparent frame with ink. Build facts: the offscreen `MainWindow`
+hangs in headless runs (no event loop), so the scripted exit drives
+`ScoreScenes` + `FrameRenderer` directly (the render_page_png idiom);
+one bTrem in complex1 (P9 m7, onset 24.0) — the census is 3491, not
+the brief's shimmed 3490, because the stroke stops folding into the
+staff.
+
+- [x] **11.0 Score-doctor CLI**
       (`python -m scoreanim.tools.check_score <file-or-dir>`): headless
       load of any MusicXML; prints PASS (element/page/note counts,
       warning census, join completeness) or the exact failure point;
@@ -1040,7 +1054,14 @@ the grace-delayed principals; beamSpan onset from @startid/@endid).
       testscore, the spanner fixture, and video_test; on complex1 it
       reports the bTrem failure point (pre-11.1) instead of a
       traceback.
-- [ ] **11.1 Decomposer/geometry coverage**: `bTrem` (and `fTrem`
+      As built (2026-07-19): `scoreanim/tools/check_score.py` — a total
+      triage function `check(path, *, strict)` returning a `_Report`
+      (PASS census or a named failure STAGE, never a traceback), a CLI
+      with batch-a-folder and `--strict` (non-strict is the default,
+      the app path), non-zero exit on any FAIL. Threads a `strict` load
+      param through `load_detailed`/`_engrave_prepared`/`_LoadState`
+      (inert until 11.4). Tests: tests/test_check_score.py.
+- [x] **11.1 Decomposer/geometry coverage**: `bTrem` (and `fTrem`
       defensively) as EMITTING kinds per ruling (a) — the stroke ink
       is claimed by the tremolo element, never the staff scaffold;
       `beamSpan` → BEAM with onset/extent from MEI @startid/@endid
@@ -1051,27 +1072,53 @@ the grace-delayed principals; beamSpan onset from @startid/@endid).
       synthetic-SVG unit tests per class; complex1 decomposes past
       page 2; complex2 decomposes end-to-end; existing fixtures
       byte-identical.
-- [ ] **11.2 mRest ledger tier**: whole-bar rests join the Phase 10.2
+      As built (2026-07-19): `ElementKind.TREMOLO` (added to
+      ANIMATED_KINDS only — tint scope unchanged); bTrem/fTrem in
+      `_KIND_BY_CLASS`, onset propagated in the walk from
+      `_MeiIndex.tremolo_note_ids` (chord-member style). `beamSpan` →
+      BEAM with `_MeiIndex.beamspan_ends` (@startid/@endid) in a new
+      `_identity_for` branch. `svg_geom.parse_transform` grew a
+      `rotate(a[,cx,cy])` case; the `matrix` case dropped its
+      is_axis_aligned raise; `Affine.apply_rect` corner-maps (reduces
+      to the old two-corner result when axis-aligned). complex2 loads
+      end-to-end (42,615 = 42,530 + 85 real tremolos). Tests:
+      tests/test_adapter_coverage.py, updated
+      test_svg_geom/test_core_types.
+- [x] **11.2 mRest ledger tier**: whole-bar rests join the Phase 10.2
       rest tier in `_attribute_ledger_dashes` (same geometry rule —
       complex1 p3 m13 staff 8's two-voice measure displaces its mRest
       onto a ledger dash). Verify: complex1 loads past page 3, the
       x=1277 dash carries the mRest's (onset, voice); testscore and
       video_test byte-identical by construction (the tier is consulted
       only on a notehead miss).
-- [ ] **11.3 Join gap pinned, not fixed**: complex1 joins 899/921; a
+      As built (2026-07-19): one-line change —
+      `elif acc.svg_class in ("rest", "mRest"):` in the rests_by_scope
+      pass. complex1 loads fully (3491 elements, 899/921). Adds the
+      engraved_complex1/complex1_score_model conftest fixtures. Tests:
+      tests/test_complex1.py.
+- [x] **11.3 Join gap pinned, not fixed**: complex1 joins 899/921; a
       fixture test pins the 22 unmatched as EXACTLY the grace-delayed
       principal set from the triage spike (ids pinned; all 26 graces
       matched; every unmatched pair off by exactly the +0.0957 grace
       delta) so any regression — or the Phase 12.1 fix — moves a
       pinned number. Verify: headless test against the promoted
       fixture.
-- [ ] **11.4 Graceful degradation** (ruled, above): unknown drawable
+      As built (2026-07-19): tests/test_complex1.py pins the 22
+      unmatched-layout ids (`_GRACE_DELAYED_PRINCIPALS`), all 26 graces
+      matched, nothing unmatched is itself a grace, and every pair the
+      same pitch off by +0.0957 q.
+- [x] **11.4 Graceful degradation** (ruled, above): unknown drawable
       SVG class → static OTHER element + `LoadWarning("unknown-class")`
       in the app path; strict mode (pytest default, doctor `--strict`)
       keeps today's raise. Verify: synthetic unknown-class SVG
       degrades with the warning in app mode and raises in strict;
       no known fixture triggers it after 11.1.
-- [ ] **11.5 Fixture promotion + exit**: complex1 joins the permanent
+      As built (2026-07-19): the decomposer's unknown-class guard is
+      gated on `st.strict` — strict raises; non-strict mints a static
+      OTHER accumulator claiming the drawables, appends the warning,
+      names the class on stderr. main_window's load/reload passes
+      `strict=False`. Tests: tests/test_adapter_coverage.py.
+- [x] **11.5 Fixture promotion + exit**: complex1 joins the permanent
       fixtures with census pins (3491 elements, 3 pages, 921 note
       records, join 899/921 with the pinned grace-principal set, 3
       dropped-spanner warnings); scripted exit run on the offscreen
@@ -1081,6 +1128,14 @@ the grace-delayed principals; beamSpan onset from @startid/@endid).
       LoadWarning code list, BACKLOG.md robustness note). Verify: full
       pytest; doctor PASS on all four fixtures AND "loads with 20
       system-overflow warnings" for complex2.
+      As built (2026-07-19): census + notation-coverage pins
+      (tremolo element animates untinted, unpitched percussion, reload
+      determinism) in tests/test_complex1.py. Scripted exit 13/13 on
+      the offscreen render pipeline (MainWindow hangs headless — no
+      event loop — so it drives ScoreScenes + FrameRenderer, the
+      render_page_png idiom). complex2 stays OUT of the pytest suite
+      (~20 s/load); the score-doctor is its check. Docs closed out per
+      the checklist.
 
 **Exit criteria**: complex1 loads, plays, and exports cleanly (join
 gap = exactly the pinned grace-principal set); the score-doctor
@@ -1092,7 +1147,10 @@ green including `test_no_qt_in_core.py`.
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-
 score auto-alignment provider; custom engraving provider; MIDI input;
-richer effect editor; arbitrary-exporter MusicXML robustness.
+richer effect editor; arbitrary-exporter MusicXML robustness (Dorico
+robustness advanced in Phase 11 — the score-doctor loop + graceful
+degradation; other exporters remain future work).
 (In-app score-text editing graduated to Phase 9; brackets/grouping to
 Phase 8 — 2026-07-12. Multi-staff-part & decomposer-coverage robustness
-to Phase 10 — 2026-07-13.)
+to Phase 10 — 2026-07-13. Dorico robustness / complex1 to Phase 11 —
+2026-07-19; orchestral complex2 layout + order-based join is Phase 12.)

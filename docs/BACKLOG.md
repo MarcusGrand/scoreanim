@@ -188,9 +188,33 @@ See `spikes/NOTES.md` for the full investigation of each.
     frames/s at 1526×2160 on the fixture), so this is a perf option,
     not a need. Revisit for long scores or 4K-height exports.
 
+## Dorico robustness (Phase 11 progress, 2026-07-19)
+
+Phase 11 made the loader robust to arbitrary Dorico exports, using
+`testdata/complex1.musicxml` (14 parts, 921 notes) as the milestone:
+
+- The **score-doctor** (`python -m scoreanim.tools.check_score`) is the
+  standing triage tool — one command loads any MusicXML and prints PASS
+  with a census or the exact failure stage. The routine loop for a new
+  export is doctor → smallest fix → fixture.
+- **Graceful degradation**: an unknown drawable SVG class degrades to a
+  warned static element in the app path (`unknown-class`); strict loads
+  (pytest / doctor `--strict`) still raise (CLAUDE.md rule 4).
+- Decomposer/geometry coverage landed: tremolo strokes (bTrem/fTrem —
+  animate untinted, ruling a), beamSpan, rotate transforms, and the
+  mRest ledger tier.
+- **complex2** (orchestral, `docs/PHASE12_BRIEF.md`) loads through
+  decomposition (42,615 elements) but overflows every system — its
+  layout, and the order-based grace/appoggiatura join rewrite (which
+  fixes complex1's pinned 899/921 gap too), are **Phase 12 (task 12.1)**.
+- Tremolo animation polish (the stroke dims/lights with its note but
+  stays black — untinted per ruling a): if a tinted-stroke look is ever
+  wanted, it is a one-line TINTED_KINDS add, parked here.
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score
 auto-alignment provider; custom engraving provider; MIDI input; richer
-effect editor; arbitrary-exporter MusicXML robustness. (In-app editable
-score texts — item 5 — graduated to Phase 9, 2026-07-12.)
+effect editor; arbitrary-exporter MusicXML robustness (Dorico robustness
+advanced in Phase 11 — see above). (In-app editable score texts — item
+5 — graduated to Phase 9, 2026-07-12.)

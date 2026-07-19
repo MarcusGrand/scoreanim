@@ -3,8 +3,15 @@ and pins the Dorico-robustness features (tremolo, mRest ledger tier, the
 grace-note join gap, notation coverage). Grows across tasks 11.2/11.3/11.5.
 """
 
+from collections import Counter
+
+from scoreanim.core.animation import TINTED_KINDS, is_animated
+from scoreanim.core.engraving.types import EngravingParams
+from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
 from scoreanim.core.score.identity import ElementKind
 from scoreanim.core.score.join import join_notes
+
+from .conftest import COMPLEX1_SCORE
 
 
 # The 22 layout notes the join cannot match: the PRINCIPAL notes carrying
@@ -91,3 +98,42 @@ def test_unmatched_are_exactly_the_grace_delayed_principals(
         assert (n.pitch_step, n.octave) == (r.pitch_step, r.octave)
         deltas.add(round(r.onset - n.onset, 4))
     assert deltas == {0.0957}
+
+
+# --- 11.5 census + notation coverage ---------------------------------------
+
+def test_complex1_census(engraved_complex1):
+    assert len(engraved_complex1.layout.elements) == 3491
+    assert len(engraved_complex1.layout.pages) == 3
+    assert len(engraved_complex1.note_records) == 921
+    assert Counter(w.code for w in engraved_complex1.warnings) == \
+        {"dropped-spanner": 3}
+
+
+def test_complex1_tremolo_element_animates_untinted(engraved_complex1):
+    """The one bowed tremolo emits a TREMOLO element carrying its note's
+    onset (ruling a): it animates but does not tint."""
+    trem = [e for e in engraved_complex1.layout.elements
+            if e.identity.kind is ElementKind.TREMOLO]
+    assert len(trem) == 1
+    (t,) = trem
+    assert t.identity.onset == 24.0
+    assert is_animated(t.identity)
+    assert ElementKind.TREMOLO not in TINTED_KINDS
+
+
+def test_complex1_has_unpitched_percussion(engraved_complex1):
+    # unpitched notes join by staff position, not pitch
+    unpitched = [r for r in engraved_complex1.note_records
+                 if r.pitch_step is None]
+    assert unpitched
+    assert all(r.staff_loc is not None for r in unpitched)
+
+
+def test_complex1_reload_is_deterministic(engraved_complex1):
+    again = VerovioEngravingProvider().load_detailed(COMPLEX1_SCORE,
+                                                     EngravingParams())
+    ids_a = [str(e.identity.element_id)
+             for e in engraved_complex1.layout.elements]
+    ids_b = [str(e.identity.element_id) for e in again.layout.elements]
+    assert ids_a == ids_b

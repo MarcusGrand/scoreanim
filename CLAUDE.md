@@ -30,6 +30,14 @@ of the current phase.
    `ElementId` and neutral `Layout` types. The adapter always sets a fixed
    `xmlIdSeed` so Verovio IDs are deterministic across loads — overrides,
    style rules, and tests depend on stable `ElementId`s.
+   Amendment, Phase 11 (2026-07-15 ruling): an unknown drawable SVG
+   class no longer fails the load in the app path — it degrades to a
+   warned static OTHER element (`LoadWarning "unknown-class"`; the
+   status bar counts it, stderr names the class). Tests stay strict:
+   `load_detailed(..., strict=True)` (the default, and the
+   score-doctor's `--strict`) still raises, so coverage gaps surface
+   loudly in development. The doctor (`python -m
+   scoreanim.tools.check_score`) is the triage engine for new exports.
 
 5. **The project document stores user intent only, never derived data.**
    Layouts, timemaps, and decomposed elements are always re-derived from
@@ -104,7 +112,11 @@ tests/                     # headless: core logic tested without any GUI
 testdata/                  # testscore.musicxml (Dorico export) + companion
                            # PDF — primary fixture for spikes and tests;
                            # video_test.musicxml — production score with
-                           # a multi-staff piano (Phase 10 fixture)
+                           # a multi-staff piano (Phase 10 fixture);
+                           # complex1.musicxml — 14-part Dorico robustness
+                           # fixture (Phase 11: tremolo, mRest ledger,
+                           # grace-join gap); complex2.musicxml — orchestral,
+                           # loads through decomposition (Phase 12 layout)
 docs/
 ```
 
