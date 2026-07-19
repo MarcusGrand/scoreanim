@@ -993,7 +993,10 @@ def _attribute_ledger_dashes(
                 continue                 # _build_elements raises for these
             notes_by_scope[(page, acc.measure, acc.staff)].append(
                 (acc.bbox, onset, mei_note.layer))
-        elif acc.svg_class == "rest":
+        elif acc.svg_class in ("rest", "mRest"):
+            # whole-bar rests join the rest tier (Phase 11): a two-voice
+            # measure displaces an mRest off the staff onto a ledger dash
+            # exactly like an ordinary rest (complex1 p3 m13 staff 8)
             onset = st.onset_by_id.get(acc.verovio_id)
             if onset is None:
                 continue                 # not in the timemap: no trigger

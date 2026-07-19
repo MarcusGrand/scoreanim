@@ -21,6 +21,14 @@ SPANNER_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
 # fermatas, ppp, wedges, chord-symbol bass notes.
 VIDEO_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
     "video_test.musicxml"
+# Dorico robustness fixture (Phase 11): 14 single-staff parts, 3 pages,
+# 921 notes. Exercises a bowed tremolo (bTrem), a two-voice measure that
+# displaces an mRest onto a ledger dash, 26 grace notes (the appoggiatura
+# join gap, Phase 12.1), 26 tuplets, unpitched percussion, and 6
+# transposed parts. Loaded strict (pytest default) — it must decompose
+# cleanly with no unknown-class degradation.
+COMPLEX1_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
+    "complex1.musicxml"
 
 
 @pytest.fixture(scope="session")
@@ -62,6 +70,18 @@ def engraved_video_hidden() -> EngravedScore:
     # hidden per system, as the score's encoded page layout assumes.
     return VerovioEngravingProvider().load_detailed(
         VIDEO_SCORE, EngravingParams(), hide_empty_staves=True)
+
+
+@pytest.fixture(scope="session")
+def engraved_complex1() -> EngravedScore:
+    return VerovioEngravingProvider().load_detailed(COMPLEX1_SCORE,
+                                                    EngravingParams())
+
+
+@pytest.fixture(scope="session")
+def complex1_score_model():
+    from scoreanim.core.score.model import build_score_model
+    return build_score_model(COMPLEX1_SCORE)
 
 
 @pytest.fixture(scope="session")
