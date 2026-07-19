@@ -959,6 +959,135 @@ export pixels across the walk; identical live zoom across systems).
 409 tests green. **PASSED pending the user's visual review** (review
 artifact updated in place).
 
+## Phase 11 — Dorico robustness: any export loads (complex1)
+
+Planned 2026-07-19 from `docs/PHASE11_BRIEF.md` (Cowork planning
+session, 2026-07-15). The brief's diagnosis was re-verified against the
+real files by the triage spike (`spikes/complex1_triage.py`, kept)
+before planning — the failure chain, censuses, and shim results all
+reproduce, and the spike corrected four brief details (below).
+Milestone: `testdata/complex1.musicxml` (14 single-staff parts, 3
+pages, 921 notes) loads, animates, and exports. **Stepping stone to
+Phase 12** (orchestral complex2, `docs/PHASE12_BRIEF.md`): the
+decomposer/geometry fixes here are exactly what complex2 needs to get
+through decomposition at all — Phase 11's exit only requires complex2
+to *load* (with its 20 system-overflow warnings); laying it out is
+Phase 12's problem.
+
+Rulings already made — recorded here, not re-opened:
+
+- **Graceful degradation (Marcus, 2026-07-15, Cowork session):** an
+  unknown drawable SVG class in the app path no longer fails the load —
+  it mints a static OTHER element plus `LoadWarning("unknown-class")`,
+  never a silent skip and never a crash (the status bar counts it,
+  stderr names the class). Tests stay strict: a fail-fast flag,
+  default on under pytest and the doctor's `--strict`, preserves the
+  Phase 10 discipline so coverage gaps keep surfacing loudly in
+  development.
+- **The grace/appoggiatura join fix is Phase 12 task 12.1, NOT this
+  phase** (2026-07-15): complex2 showed the join needs an order-based
+  rewrite, not a grace tolerance — one fix covers both files. Phase 11
+  only PINS complex1's join gap so regressions surface.
+
+Spike corrections to the brief (2026-07-19, all frozen in
+`spikes/complex1_triage.py`):
+
+- **The container treatment of bTrem is not clean.** The tremolo
+  stroke glyph (SMuFL E222) is a DIRECT child of the id-bearing
+  `<g class="bTrem">`, not nested inside the note/stem groups. A
+  container shim loads, but the stroke silently folds into the
+  enclosing static STAFF_LINES scaffold (complex1's P9 m7 staff gains
+  a 6th primitive) — the BACKLOG-6 ledger-line bug shape. bTrem must
+  EMIT its own element; ruling (a) below is therefore a real choice,
+  not something that falls out for free.
+- **fTrem occurs in NEITHER file** — all 85 complex2 tremolos are
+  bTrem. fTrem coverage lands defensively via a synthetic-SVG unit
+  test only (the SYSTEM_DIVIDER precedent).
+- **The 22 unmatched joins are NOT the grace notes.** All 26 graces
+  match via join.py's existing onset-excluded grace tier. The
+  unmatched are the PRINCIPAL notes carrying the graces: Verovio's
+  timemap delays each principal by the grace duration (+0.0957 q,
+  exactly, on every pair; both sides flag grace=False) while music21
+  keeps the notated beat, so the exact-onset key misses. Identical
+  appoggiatura semantics to complex2's 1882/9546 collapse, at
+  acciaccatura scale — confirming the one-rewrite-in-12.1 call.
+- Minor: complex2's beamSpan raises on page 5, BEFORE its rotates
+  (pages 8 and 16 in the raw render — the brief said page 5; all are
+  exactly −90°). MEI `beamSpan` carries @startid/@endid but is not in
+  the layer-beam table, so a bare kind-mapping yields an onset-less
+  beam — 11.1 resolves its onset/extent from startid/endid. And
+  because the stroke ink stops folding into the staff, complex1's
+  element census becomes **3491, not the brief's shimmed 3490** (the
+  bTrem element is new); 11.5 pins the as-built number.
+
+Rulings at plan review (Marcus, 2026-07-19): **(a)** tremolo stroke
+ink ANIMATES with the owning note — the bTrem element carries its
+child note's onset (chord-member style) and joins the
+opacity-triggered set; it is playing ink under the Phase 10R
+animate-everything taxonomy (tint scope unchanged). **(b)** all four
+spike corrections above accepted — the plan builds on the corrected
+mechanisms (census pin 3491; fTrem defensive-only; join gap pinned as
+the grace-delayed principals; beamSpan onset from @startid/@endid).
+
+- [ ] **11.0 Score-doctor CLI**
+      (`python -m scoreanim.tools.check_score <file-or-dir>`): headless
+      load of any MusicXML; prints PASS (element/page/note counts,
+      warning census, join completeness) or the exact failure point;
+      batch mode over a folder; `--strict` fail-fast (the 11.4 flag).
+      This is the engine of the "any Dorico file" goal: every new
+      score becomes one-command triage, and the loop (doctor →
+      smallest fix → fixture) becomes routine. Verify: doctor PASSes
+      testscore, the spanner fixture, and video_test; on complex1 it
+      reports the bTrem failure point (pre-11.1) instead of a
+      traceback.
+- [ ] **11.1 Decomposer/geometry coverage**: `bTrem` (and `fTrem`
+      defensively) as EMITTING kinds per ruling (a) — the stroke ink
+      is claimed by the tremolo element, never the staff scaffold;
+      `beamSpan` → BEAM with onset/extent from MEI @startid/@endid
+      (the layer-beam table cannot serve it); rotate transforms parsed
+      into the Affine matrix + `apply_rect` rewritten to map all four
+      corners (exact for 90° multiples, conservative otherwise), the
+      "Verovio never rotates" docstring assumption dropped. Verify:
+      synthetic-SVG unit tests per class; complex1 decomposes past
+      page 2; complex2 decomposes end-to-end; existing fixtures
+      byte-identical.
+- [ ] **11.2 mRest ledger tier**: whole-bar rests join the Phase 10.2
+      rest tier in `_attribute_ledger_dashes` (same geometry rule —
+      complex1 p3 m13 staff 8's two-voice measure displaces its mRest
+      onto a ledger dash). Verify: complex1 loads past page 3, the
+      x=1277 dash carries the mRest's (onset, voice); testscore and
+      video_test byte-identical by construction (the tier is consulted
+      only on a notehead miss).
+- [ ] **11.3 Join gap pinned, not fixed**: complex1 joins 899/921; a
+      fixture test pins the 22 unmatched as EXACTLY the grace-delayed
+      principal set from the triage spike (ids pinned; all 26 graces
+      matched; every unmatched pair off by exactly the +0.0957 grace
+      delta) so any regression — or the Phase 12.1 fix — moves a
+      pinned number. Verify: headless test against the promoted
+      fixture.
+- [ ] **11.4 Graceful degradation** (ruled, above): unknown drawable
+      SVG class → static OTHER element + `LoadWarning("unknown-class")`
+      in the app path; strict mode (pytest default, doctor `--strict`)
+      keeps today's raise. Verify: synthetic unknown-class SVG
+      degrades with the warning in app mode and raises in strict;
+      no known fixture triggers it after 11.1.
+- [ ] **11.5 Fixture promotion + exit**: complex1 joins the permanent
+      fixtures with census pins (3491 elements, 3 pages, 921 note
+      records, join 899/921 with the pinned grace-principal set, 3
+      dropped-spanner warnings); scripted exit run on the offscreen
+      MainWindow: open, animate, export a frame. Docs close out the
+      established way (CLAUDE.md testdata note + unknown-class rule
+      text, ARCHITECTURE.md §3 tremolo/beamSpan/rotate rulings +
+      LoadWarning code list, BACKLOG.md robustness note). Verify: full
+      pytest; doctor PASS on all four fixtures AND "loads with 20
+      system-overflow warnings" for complex2.
+
+**Exit criteria**: complex1 loads, plays, and exports cleanly (join
+gap = exactly the pinned grace-principal set); the score-doctor
+reports PASS for the four permanent fixtures and complex2 loads
+through decomposition with only overflow-class warnings; `pytest`
+green including `test_no_qt_in_core.py`.
+
 ## Later (explicitly not now)
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-

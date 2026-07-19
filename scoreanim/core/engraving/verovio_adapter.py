@@ -690,6 +690,9 @@ class _LoadState:
     system_count: int = 0                    # score-wide, across pages
     system_of_measure: dict[int, int] = field(default_factory=dict)
     warnings: list[LoadWarning] = field(default_factory=list)
+    # Strict loads raise on an unknown drawable SVG class; app loads
+    # degrade it to a static OTHER element with a warning (Phase 11.4).
+    strict: bool = True
     # ties suppressed as engraving artifacts (Phase 10R): neither the
     # source element nor its continuation segments are emitted
     suppressed_spanners: set[str] = field(default_factory=set)
@@ -711,19 +714,25 @@ class VerovioEngravingProvider(EngravingProvider):
     def load(self, score_path: Path, params: EngravingParams,
              groups: tuple[PartGroupSpec, ...] = (),
              texts: tuple[PartTextSpec, ...] = (),
-             hide_empty_staves: bool = False) -> Layout:
+             hide_empty_staves: bool = False,
+             strict: bool = True) -> Layout:
         return self.load_detailed(score_path, params, groups, texts,
-                                  hide_empty_staves).layout
+                                  hide_empty_staves, strict).layout
 
     def load_detailed(self, score_path: Path, params: EngravingParams,
                       groups: tuple[PartGroupSpec, ...] = (),
                       texts: tuple[PartTextSpec, ...] = (),
-                      hide_empty_staves: bool = False) -> EngravedScore:
+                      hide_empty_staves: bool = False,
+                      strict: bool = True) -> EngravedScore:
+        # strict (Phase 11.4): when False (the app path) an unknown
+        # drawable SVG class degrades to a static OTHER element plus a
+        # "unknown-class" warning instead of raising; True (the default,
+        # and pytest / the doctor's --strict) keeps coverage gaps loud.
         prep = prepare(score_path, groups, texts)
         extra: list[LoadWarning] = []
         effective_hide = hide_empty_staves
         engraved, first_measure = self._engrave_prepared(
-            score_path, prep, params, effective_hide)
+            score_path, prep, params, effective_hide, strict)
         if engraved is None:
             # Hiding made a slash-region staff vanish (Verovio judges
             # slash measures empty — MEI <space>). Slash regions are
@@ -735,7 +744,7 @@ class VerovioEngravingProvider(EngravingProvider):
                 "a slash-region staff would be hidden; empty-staff "
                 "hiding skipped for this score"))
             engraved, first_measure = self._engrave_prepared(
-                score_path, prep, params, effective_hide)
+                score_path, prep, params, effective_hide, strict)
             assert engraved is not None
 
         # Never-clip guard (Phase 10R, rule-7 amendment): when the
@@ -752,7 +761,7 @@ class VerovioEngravingProvider(EngravingProvider):
                 prep = prepare(score_path, groups, texts,
                                page_break_measures=breaks)
                 engraved, _ = self._engrave_prepared(
-                    score_path, prep, params, effective_hide)
+                    score_path, prep, params, effective_hide, strict)
                 assert engraved is not None    # same flag that succeeded
                 extra.append(LoadWarning(
                     "repaginated",
@@ -807,7 +816,8 @@ class VerovioEngravingProvider(EngravingProvider):
 
     def _engrave_prepared(self, score_path: Path, prep: PreparedScore,
                           params: EngravingParams,
-                          hide_empty_staves: bool
+                          hide_empty_staves: bool,
+                          strict: bool = True
                           ) -> tuple[EngravedScore | None, dict[int, int]]:
         """One full engrave+decompose; also returns the first measure
         of every system (for the repagination planner). The score is
@@ -854,7 +864,7 @@ class VerovioEngravingProvider(EngravingProvider):
             prep=prep, mei=mei, onset_by_id=onset_by_id,
             measure_start=measure_start, measure_duration=measure_duration,
             staff_n_by_id={vid: n.staff for vid, n in mei.notes.items()},
-            layer_n_by_id={},
+            layer_n_by_id={}, strict=strict,
         )
         # staff/layer container ids appear in both MEI and SVG; index them
         state.staff_n_by_id.update(_container_ns(tk.getMEI(), "staff"))
