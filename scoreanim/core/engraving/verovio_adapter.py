@@ -9,6 +9,7 @@ the timemap ↔ SVG ↔ MEI cross-referencing inside a load.
 
 from __future__ import annotations
 
+import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
@@ -518,8 +519,32 @@ class _PageDecomposer:
                     continue
                 if cls and cls not in _CONTAINER_CLASSES and cls not in _KIND_BY_CLASS \
                         and self._has_drawables(child):
-                    raise ValueError(f"page {self.page}: unknown SVG class "
-                                     f"{cls!r} with drawable content")
+                    if st.strict:
+                        raise ValueError(f"page {self.page}: unknown SVG "
+                                         f"class {cls!r} with drawable content")
+                    # Graceful degradation (Phase 11.4, app path): an
+                    # unknown drawable class no longer fails the load — it
+                    # mints a STATIC OTHER element that claims its drawables
+                    # (nothing is lost or orphaned) and warns loudly. Strict
+                    # loads (pytest / doctor --strict) still raise, so
+                    # coverage gaps stay visible in development.
+                    print(f"scoreanim: unknown SVG class {cls!r} on page "
+                          f"{self.page} — rendered as a static element",
+                          file=sys.stderr)
+                    st.warnings.append(LoadWarning(
+                        "unknown-class",
+                        f"unknown SVG class {cls!r} with drawable content "
+                        f"(page {self.page}) — rendered as a static element"))
+                    acc = _ElementAccumulator(
+                        verovio_id=cid or "", svg_class=cls,
+                        kind=ElementKind.OTHER,
+                        measure=new_measure, staff=new_staff, layer=new_layer,
+                        owner_onset=None, system=new_system)
+                    self._walk(child, child_ctm, acc, new_measure, new_staff,
+                               new_layer, new_owner_onset, new_system)
+                    if acc.paths or acc.texts:
+                        self.done.append(acc)
+                    continue
                 self._walk(child, child_ctm, new_owner, new_measure, new_staff,
                            new_layer, new_owner_onset, new_system)
             elif tag in ("use", "path", "rect", "line", "polygon", "polyline",

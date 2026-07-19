@@ -196,7 +196,10 @@ class LoadWarning:
     skipped: it would hide a slash-region staff, rule 10),
     "repaginated" (encoded page breaks replaced — systems overflowed;
     page-scoped ids shift), "system-overflow" (defensive: a system
-    still overflows after repagination).
+    still overflows after repagination), "unknown-class" (a drawable SVG
+    class the decomposer does not know was rendered as a static element
+    instead of failing the load — app path only, Phase 11.4; strict
+    loads still raise).
     """
     code: str
     message: str

@@ -7,6 +7,8 @@ not depend on which fixture happens to draw the shape."""
 
 from collections import defaultdict
 
+import pytest
+
 from scoreanim.core.animation import ANIMATED_KINDS, TINTED_KINDS, is_animated
 from scoreanim.core.engraving.verovio_adapter import (_LoadState, _MeiIndex,
                                                       _PageDecomposer,
@@ -136,3 +138,44 @@ def test_rotate_transform_flows_through_the_walk():
     assert acc.bbox is not None
     # the 1000x100 rect rotated -90 becomes 100x1000 (taller than wide)
     assert acc.bbox.h > acc.bbox.w
+
+
+# --- 11.4 graceful degradation ---------------------------------------------
+
+def _unknown_class_page() -> str:
+    return _page(
+        '<g class="mysteryGlyph" xml:id="u1">'
+        '<path d="M0 0 L100 0 L100 40 L0 40 Z"/></g>')
+
+
+def test_unknown_class_raises_in_strict_mode():
+    st = _LoadState(prep=None, mei=_MeiIndex(measure_by_id={"m1": 1}),
+                    onset_by_id={}, measure_start={1: 0.0},
+                    measure_duration={1: 4.0}, staff_n_by_id={},
+                    layer_n_by_id={}, strict=True)
+    with pytest.raises(ValueError, match="unknown SVG class 'mysteryGlyph'"):
+        _PageDecomposer(_unknown_class_page(), page=1, adapter=st).run()
+
+
+def test_unknown_class_degrades_to_static_other_in_app_mode():
+    st = _LoadState(prep=None, mei=_MeiIndex(measure_by_id={"m1": 1}),
+                    onset_by_id={}, measure_start={1: 0.0},
+                    measure_duration={1: 4.0}, staff_n_by_id={},
+                    layer_n_by_id={}, strict=False)
+    accs = _PageDecomposer(_unknown_class_page(), page=1, adapter=st).run()
+    (acc,) = accs
+    assert acc.kind is ElementKind.OTHER
+    assert len(acc.paths) == 1                          # drawable claimed
+    ident = _identity_for(acc, page=1, st=st, counters=defaultdict(int))
+    assert ident.onset is None                          # static
+    assert not is_animated(ident)
+    assert [w.code for w in st.warnings] == ["unknown-class"]
+    assert "mysteryGlyph" in st.warnings[0].message
+
+
+def test_no_known_fixture_degrades(engraved, engraved_spanners,
+                                   engraved_video, engraved_complex1):
+    # after 11.1 no permanent fixture carries an unknown drawable class
+    for score in (engraved, engraved_spanners, engraved_video,
+                  engraved_complex1):
+        assert not [w for w in score.warnings if w.code == "unknown-class"]

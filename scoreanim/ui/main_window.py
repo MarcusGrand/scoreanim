@@ -863,8 +863,11 @@ class MainWindow(QMainWindow):
                                         abbreviation=o.abbreviation)
                            for pid, o in sorted(text_overrides.items()))
         t0 = time.perf_counter()
+        # strict=False (app path, Phase 11.4): an unknown drawable SVG
+        # class degrades to a warned static element instead of failing the
+        # open. The status bar shows the warning count.
         engraved = VerovioEngravingProvider().load_detailed(
-            path, params, specs, text_specs, hide_empty_staves)
+            path, params, specs, text_specs, hide_empty_staves, strict=False)
         t1 = time.perf_counter()
         if stage is None:
             stage = default_stage_config(engraved.prepared,
