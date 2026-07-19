@@ -79,7 +79,7 @@ def quantize_beats(beats: Beats) -> int:
 ANIMATED_KINDS = frozenset({
     ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.STEM,
     ElementKind.FLAG, ElementKind.BEAM, ElementKind.ACCIDENTAL,
-    ElementKind.ARTICULATION, ElementKind.LEDGER_LINES,
+    ElementKind.ARTICULATION, ElementKind.TREMOLO, ElementKind.LEDGER_LINES,
     ElementKind.REST, ElementKind.MREST, ElementKind.DYNAMIC,
     ElementKind.TEXT, ElementKind.CHORD_SYMBOL, ElementKind.LYRIC,
     ElementKind.METER_SIG,

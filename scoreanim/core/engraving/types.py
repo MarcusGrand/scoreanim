@@ -82,12 +82,16 @@ class Affine:
         return self.b == 0.0 and self.c == 0.0
 
     def apply_rect(self, r: Rect) -> Rect:
-        """Exact for axis-aligned transforms (the only kind Verovio emits)."""
-        if not self.is_axis_aligned:
-            raise ValueError(f"non-axis-aligned transform: {self}")
-        x1, y1 = self.apply(r.x, r.y)
-        x2, y2 = self.apply(r.x2, r.y2)
-        return Rect(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
+        """Axis-aligned bbox of the transformed rectangle, mapped by its
+        four corners: exact for axis-aligned and 90-degree-multiple
+        rotations (Verovio's vertical text — Phase 11), conservative for
+        arbitrary rotation/skew. Reduces to the old two-corner result
+        when the transform is axis-aligned."""
+        pts = [self.apply(r.x, r.y), self.apply(r.x2, r.y),
+               self.apply(r.x, r.y2), self.apply(r.x2, r.y2)]
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return Rect(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
 
 
 @dataclass(frozen=True)

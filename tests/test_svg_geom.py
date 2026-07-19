@@ -20,9 +20,19 @@ def test_parse_scale_single_arg_is_uniform() -> None:
     assert m.apply(100, 100) == (54, 54)
 
 
-def test_parse_rejects_rotate() -> None:
-    with pytest.raises(ValueError):
-        parse_transform("rotate(45)")
+def test_parse_rotate_about_origin() -> None:
+    # rotate(-90) maps (x, y) -> (y, -x): the +x axis swings to +y
+    # (Phase 11 — Verovio's vertical text)
+    m = parse_transform("rotate(-90)")
+    x, y = m.apply(10, 0)
+    assert (round(x, 6), round(y, 6)) == (0.0, -10.0)
+
+
+def test_parse_rotate_about_point() -> None:
+    # rotate(-90 5 5) leaves the pivot (5, 5) fixed
+    m = parse_transform("rotate(-90 5 5)")
+    x, y = m.apply(5, 5)
+    assert (round(x, 6), round(y, 6)) == (5.0, 5.0)
 
 
 def test_parse_rejects_garbage() -> None:

@@ -30,6 +30,9 @@ class ElementKind(enum.Enum):
     HAIRPIN = enum.auto()
     ACCIDENTAL = enum.auto()
     ARTICULATION = enum.auto()
+    TREMOLO = enum.auto()                # tremolo stroke ink (Phase 11);
+                                         # animates with its owning note
+                                         # (ruling a), untinted
     DYNAMIC = enum.auto()
     REST = enum.auto()
     MREST = enum.auto()                  # whole-measure rest

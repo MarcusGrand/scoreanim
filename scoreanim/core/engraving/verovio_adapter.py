@@ -54,6 +54,17 @@ _KIND_BY_CLASS: dict[str, ElementKind] = {
     "hairpin": ElementKind.HAIRPIN,
     "accid": ElementKind.ACCIDENTAL,
     "artic": ElementKind.ARTICULATION,
+    # tremolo stroke groups (Phase 11): id-bearing, the stroke <use>
+    # (SMuFL E22x) is a DIRECT child, so bTrem/fTrem must EMIT their own
+    # element or the stroke folds into the static staff scaffold (the
+    # BACKLOG-6 shape). Carries its child note's onset, animates untinted
+    # (ruling a). fTrem never occurs in either fixture — defensive.
+    "bTrem": ElementKind.TREMOLO,
+    "fTrem": ElementKind.TREMOLO,
+    # cross-measure/cross-staff beam (Phase 11): id-bearing with direct
+    # polygon children; onset/extent come from its MEI @startid/@endid,
+    # NOT the layer-beam table (beamSpan is a measure-level spanner)
+    "beamSpan": ElementKind.BEAM,
     "dynam": ElementKind.DYNAMIC,
     "clef": ElementKind.CLEF,
     "keySig": ElementKind.KEY_SIG,
@@ -168,6 +179,13 @@ class _MeiIndex:
     notes: dict[str, _MeiNote] = field(default_factory=dict)
     chord_members: dict[str, tuple[str, ...]] = field(default_factory=dict)
     beam_note_ids: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # tremolo group id → its contained note ids, for onset propagation
+    # (chord-member style; Phase 11 ruling a)
+    tremolo_note_ids: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # beamSpan id → (startid, endid) note ids, its onset/extent source
+    # (Phase 11 — not in the layer-beam table)
+    beamspan_ends: dict[str, tuple[str | None, str | None]] = \
+        field(default_factory=dict)
     spanners: dict[str, tuple[str | None, str | None]] = field(default_factory=dict)
     spanner_tags: dict[str, str] = field(default_factory=dict)
     measure_by_id: dict[str, int] = field(default_factory=dict)
@@ -255,6 +273,9 @@ def _parse_mei(mei_xml: str) -> _MeiIndex:
                 if sp.get("tstamp"):
                     index.tstamps_by_id[sp_id] = (
                         m_n, sp.get("tstamp", "1"), sp.get("tstamp2"))
+            elif tag == "beamSpan":
+                index.beamspan_ends[sp_id] = (ref(sp.get("startid")),
+                                              ref(sp.get("endid")))
             if sp.get("staff"):
                 index.staff_attr_by_id[sp_id] = _int_or(
                     sp.get("staff", "").split()[0], 0)
@@ -297,6 +318,8 @@ def _walk_layer(layer: ET.Element, index: _MeiIndex,
             index.chord_members[node_id] = tuple(collected)
         if tag == "beam" and node_id:
             index.beam_note_ids[node_id] = tuple(collected)
+        if tag in ("bTrem", "fTrem") and node_id:
+            index.tremolo_note_ids[node_id] = tuple(collected)
         return collected
 
     for child in layer:
@@ -437,6 +460,15 @@ class _PageDecomposer:
                         onset = st.onset_by_id.get(member) if member else None
                     if onset is not None:
                         new_owner_onset = onset
+                if cls in ("bTrem", "fTrem") and cid:
+                    # the tremolo element inherits its child note's onset
+                    # (ruling a) — the stroke ink lights with the note it
+                    # decorates; the nested note keeps its own timemap onset
+                    onsets = [st.onset_by_id[n]
+                              for n in st.mei.tremolo_note_ids.get(cid, ())
+                              if n in st.onset_by_id]
+                    if onsets:
+                        new_owner_onset = min(onsets)
                 if cls == "ledgerLines":
                     self._add_ledger_dashes(child, child_ctm,
                                             new_measure, new_staff,
@@ -1464,6 +1496,15 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
         if onsets:
             onset = min(onsets)
             extent = (min(onsets), max(onsets))
+    elif acc.svg_class == "beamSpan" and vid in st.mei.beamspan_ends:
+        # a beamSpan is a measure-level beam: its onset/extent come from
+        # its @startid/@endid note onsets, not the layer-beam table
+        start_id, end_id = st.mei.beamspan_ends[vid]
+        ends = [st.onset_by_id[n] for n in (start_id, end_id)
+                if n and n in st.onset_by_id]
+        if ends:
+            onset = min(ends)
+            extent = (min(ends), max(ends))
     elif acc.owner_onset is not None:
         onset = acc.owner_onset          # stems, flags, accid, artic, dots
     elif (attach := _attach_onset(st, vid)) is not None:

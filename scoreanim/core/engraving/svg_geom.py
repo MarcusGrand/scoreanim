@@ -1,9 +1,11 @@
 """SVG geometry math for the Verovio adapter (plan D3).
 
-Pure functions: transform-attribute parsing (translate/scale/matrix only —
-Verovio emits nothing else; anything rotating is a hard error), path-data
-parsing into neutral segments, and exact path bounding boxes via
-cubic/quadratic bézier extrema.
+Pure functions: transform-attribute parsing (translate/scale/rotate/
+matrix), path-data parsing into neutral segments, and exact path
+bounding boxes via cubic/quadratic bézier extrema. Verovio DOES rotate —
+vertical text carries rotate(-90 …) (complex2, Phase 11) — so rotation
+goes into the affine matrix and bboxes are corner-mapped (exact for
+90-degree multiples, conservative otherwise).
 
 `path_segments` is the single parser for SVG path data: relative
 coordinates, H/V shorthands, and S/T reflections are resolved to absolute
@@ -42,10 +44,20 @@ def parse_transform(value: str | None) -> Affine:
             sx = args[0]
             sy = args[1] if len(args) > 1 else sx
             step = Affine(a=sx, d=sy)
+        elif name == "rotate" and args:
+            # rotate(a) about the origin, or rotate(a, cx, cy) about a
+            # point. Verovio emits rotate(-90 cx cy) for vertical text
+            # (complex2, Phase 11); the rotation lands in the matrix and
+            # apply_rect maps it by corners.
+            rad = math.radians(args[0])
+            cos, sin = math.cos(rad), math.sin(rad)
+            step = Affine(a=cos, b=sin, c=-sin, d=cos)
+            if len(args) >= 3:
+                cx, cy = args[1], args[2]
+                step = Affine(e=cx, f=cy).compose(step).compose(
+                    Affine(e=-cx, f=-cy))
         elif name == "matrix" and len(args) == 6:
             step = Affine(*args)
-            if not step.is_axis_aligned:
-                raise ValueError(f"rotating/skewing matrix unsupported: {value!r}")
         else:
             raise ValueError(f"unsupported transform {name!r} in {value!r}")
         result = result.compose(step)
