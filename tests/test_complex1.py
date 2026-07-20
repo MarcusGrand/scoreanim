@@ -130,6 +130,53 @@ def test_complex1_has_unpitched_percussion(engraved_complex1):
     assert all(r.staff_loc is not None for r in unpitched)
 
 
+# --- animation-timing fixes (2026-07-20): decorations light with their note
+
+def test_tuplet_bracket_lights_with_its_first_note_not_the_downbeat(
+        engraved_complex1):
+    """A tuplet bracket/number decorates the notes under it, so it must
+    carry the tuplet's FIRST note onset — not the measure start (the
+    animate-everything measure-start fallback would fire it at the
+    downbeat, before the triplet). P11 m7's triplet starts at beat 26.0
+    in a bar that begins at 24.0."""
+    tuplet_other = [e for e in engraved_complex1.layout.elements
+                    if e.identity.part == "P11"
+                    and ":m7:" in str(e.identity.element_id)
+                    and e.identity.kind is ElementKind.OTHER]
+    assert tuplet_other                          # tupletNum + tupletBracket
+    for e in tuplet_other:
+        assert e.identity.onset == 26.0          # the first triplet note
+        assert e.identity.onset != 24.0          # NOT the measure downbeat
+
+
+def test_no_tuplet_decoration_falls_to_the_measure_start(engraved_complex1):
+    """Across the whole score, every tuplet decoration (OTHER) shares an
+    onset with a real note in its measure — never a bare measure start
+    with no note there."""
+    # collect note onsets per measure token
+    note_onsets = {}
+    for e in engraved_complex1.layout.elements:
+        if e.identity.kind is ElementKind.NOTEHEAD and e.identity.onset is not None:
+            eid = str(e.identity.element_id)
+            token = eid.split(":note:")[0]       # part:mN:sN:vN
+            note_onsets.setdefault(token, set()).add(e.identity.onset)
+    for e in engraved_complex1.layout.elements:
+        if e.identity.kind is ElementKind.OTHER and e.identity.onset is not None:
+            token = str(e.identity.element_id).rsplit(":other:", 1)[0]
+            onsets = note_onsets.get(token, set())
+            assert e.identity.onset in onsets, str(e.identity.element_id)
+
+
+def test_no_spanner_got_a_measure_start_fallback_onset(engraved_complex1):
+    """A slur/tie/hairpin's timing is its start note or nothing — it must
+    never fall to the measure-start fallback (which would animate it at a
+    spurious downbeat). Signature of the bug: onset set but extent None."""
+    from scoreanim.core.animation import REVEALED_KINDS
+    for e in engraved_complex1.layout.elements:
+        if e.identity.kind in REVEALED_KINDS and e.identity.onset is not None:
+            assert e.identity.extent is not None, str(e.identity.element_id)
+
+
 def test_complex1_reload_is_deterministic(engraved_complex1):
     again = VerovioEngravingProvider().load_detailed(COMPLEX1_SCORE,
                                                      EngravingParams())

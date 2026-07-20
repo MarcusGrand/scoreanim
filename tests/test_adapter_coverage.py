@@ -91,6 +91,38 @@ def test_ftrem_maps_to_tremolo_defensively():
     assert ident.onset == 2.5
 
 
+# --- tuplet onset propagation (bug fix 2026-07-20) -------------------------
+
+def test_tuplet_bracket_and_number_inherit_the_first_note_onset():
+    """The tuplet <g> wraps its bracket, number, AND notes; the bracket
+    and number must light with the tuplet's FIRST note, not the measure
+    start. Here the measure begins at 0.0 but the triplet notes are at
+    2.0 — the decorations must resolve 2.0, not 0.0."""
+    svg = _page(
+        '<g class="tuplet" xml:id="t1">'
+        '<g class="tupletNum" xml:id="tn1">'
+        '<path d="M0 0 L10 0 L10 10 L0 10 Z"/></g>'
+        '<g class="tupletBracket" xml:id="tb1">'
+        '<path d="M0 20 L300 20"/></g>'
+        '<g class="note" xml:id="n1"><path d="M0 40 L8 40 L8 48 L0 48 Z"/></g>'
+        '<g class="note" xml:id="n2"><path d="M20 40 L28 40 L28 48 L20 48 Z"/></g>'
+        '</g>')
+    st = _LoadState(prep=None,
+                    mei=_MeiIndex(measure_by_id={"m1": 1},
+                                  tuplet_note_ids={"t1": ("n1", "n2")}),
+                    onset_by_id={"n1": 2.0, "n2": 2.5},
+                    measure_start={1: 0.0}, measure_duration={1: 4.0},
+                    staff_n_by_id={}, layer_n_by_id={})
+    accs = _PageDecomposer(svg, page=1, adapter=st).run()
+    others = [a for a in accs if a.kind is ElementKind.OTHER]
+    assert len(others) == 2                      # number + bracket (not notes)
+    counters = defaultdict(int)
+    for a in others:
+        ident = _identity_for(a, page=1, st=st, counters=counters)
+        assert ident.onset == 2.0                # first note, NOT 0.0
+        assert is_animated(ident)
+
+
 # --- beamSpan --------------------------------------------------------------
 
 def test_beamspan_emits_beam_with_onset_from_start_end():

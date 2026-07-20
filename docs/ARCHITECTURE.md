@@ -352,9 +352,16 @@ ruling; tuplet brackets/numbers, ornaments, and degraded `OTHER` ink
 beams, accidentals, articulations, tremolo strokes, dots, ledger
 dashes, rests, whole-bar rests, dynamics, texts, chord symbols, lyrics,
 meter signatures, clefs, key signatures, tuplets, ornaments/fermatas —
-every object at its onset (@startid note — chords resolve through their
-first member — else @tstamp arithmetic, else **measure start**, the
-fallback that now covers clefs/keysigs/tuplets). **A rest is
+every object at its onset. Resolution order: owner note (stems/flags/
+accidentals — and **tuplet brackets/numbers and tremolo strokes, which
+inherit their notes' first onset so they light WITH the tuplet/tremolo,
+not at the downbeat**; bug fix 2026-07-20) → @startid note (chords via
+their first member) → @tstamp arithmetic → **measure start** (the last
+resort, for genuine bar-level objects: clefs, key signatures, meter
+changes, and measure-attached texts/dynamics). Note-region decorations
+never use the measure-start fallback, and spanners (slurs/ties/hairpins)
+are excluded from it entirely — a spanner's timing is its start note or
+nothing. **A rest is
 retrospective ink** (ruling 2026-07-12, second session): it triggers
 when its silence resolves — at the next note in its part/voice or the
 end of its own bar, whichever comes first, never on its own silent beat

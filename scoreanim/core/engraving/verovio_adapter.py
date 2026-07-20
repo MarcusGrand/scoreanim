@@ -17,7 +17,7 @@ from pathlib import Path
 
 import verovio
 
-from scoreanim.core.animation.schedule import STATIC_KINDS
+from scoreanim.core.animation.schedule import REVEALED_KINDS, STATIC_KINDS
 from scoreanim.core.engraving.provider import EngravingProvider
 from scoreanim.core.engraving.systems import plan_page_breaks, system_bands
 from scoreanim.core.engraving.svg_geom import (ellipse_path, line_path,
@@ -187,6 +187,10 @@ class _MeiIndex:
     # tremolo group id → its contained note ids, for onset propagation
     # (chord-member style; Phase 11 ruling a)
     tremolo_note_ids: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # tuplet group id → its contained note ids: the tuplet bracket/number
+    # decorate those notes, so they light with the tuplet's first note,
+    # NOT the measure start (bug fix 2026-07-20)
+    tuplet_note_ids: dict[str, tuple[str, ...]] = field(default_factory=dict)
     # beamSpan id → (startid, endid) note ids, its onset/extent source
     # (Phase 11 — not in the layer-beam table)
     beamspan_ends: dict[str, tuple[str | None, str | None]] = \
@@ -325,6 +329,8 @@ def _walk_layer(layer: ET.Element, index: _MeiIndex,
             index.beam_note_ids[node_id] = tuple(collected)
         if tag in ("bTrem", "fTrem") and node_id:
             index.tremolo_note_ids[node_id] = tuple(collected)
+        if tag == "tuplet" and node_id:
+            index.tuplet_note_ids[node_id] = tuple(collected)
         return collected
 
     for child in layer:
@@ -471,6 +477,17 @@ class _PageDecomposer:
                     # decorates; the nested note keeps its own timemap onset
                     onsets = [st.onset_by_id[n]
                               for n in st.mei.tremolo_note_ids.get(cid, ())
+                              if n in st.onset_by_id]
+                    if onsets:
+                        new_owner_onset = min(onsets)
+                if cls == "tuplet" and cid:
+                    # the tuplet bracket/number decorate the notes under
+                    # them, so they light with the tuplet's FIRST note, not
+                    # the measure start (the measure-start fallback would
+                    # fire them at the downbeat — bug fix 2026-07-20). The
+                    # nested notes keep their own timemap onsets.
+                    onsets = [st.onset_by_id[n]
+                              for n in st.mei.tuplet_note_ids.get(cid, ())
                               if n in st.onset_by_id]
                     if onsets:
                         new_owner_onset = min(onsets)
@@ -1549,15 +1566,20 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
         onset = attach
     elif acc.measure is not None \
             and acc.kind not in STATIC_KINDS \
+            and acc.kind not in REVEALED_KINDS \
             and acc.svg_class not in _STATIC_TEXT_CLASSES:
-        # Measure-start fallback for every attach-less object that is not
-        # scaffold (animate-everything ruling 2026-07-20): clefs, key
-        # signatures, tuplet brackets/numbers, ornaments, and degraded
-        # OTHER all light when their measure begins. The scaffold
-        # (STATIC_KINDS — staff lines, barlines; group symbols/dividers
-        # already returned early) and page furniture (labels, headers,
-        # measure numbers via _STATIC_TEXT_CLASSES) stay onset-less, so
-        # the schedule's onset gate keeps them static.
+        # Measure-start fallback for an attach-less, non-scaffold object
+        # (animate-everything ruling 2026-07-20): clefs, key signatures,
+        # meter changes, and measure-attached texts/dynamics light when
+        # their measure begins. NOTE-REGION decorations do NOT reach here
+        # — tuplets/tremolos inherit their notes' onset via owner_onset
+        # (else this fallback would fire them at the downbeat, before
+        # their first note — the 2026-07-20 tuplet bug). Spanners
+        # (REVEALED_KINDS) are excluded too: a slur/tie/hairpin's timing
+        # is its start note or nothing, never a spurious downbeat — if
+        # its start is unresolved it stays onset-less (its reveal is
+        # edge-driven regardless). Scaffold (STATIC_KINDS) and page
+        # furniture (_STATIC_TEXT_CLASSES) stay onset-less = static.
         onset = st.measure_start.get(acc.measure)
 
     # spanners for notes were handled; note extent stays None in v1
