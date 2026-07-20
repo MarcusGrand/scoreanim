@@ -18,11 +18,17 @@ of the current phase.
 2. **Time is never accumulated.** No `t += dt` anywhere. Animation state is
    a pure function `state(t)`. `t` comes from an injected `Clock`:
    `AudioClock` (audio playhead position) for live playback, `FrameClock`
-   (`t = n / fps`) for deterministic export. The animation layer never
-   reads a timer itself.
+   (`t = n / fps`) for deterministic export, `WallClock` (perf_counter
+   since play-anchor, no-audio playback — FIX 2). The animation layer
+   never reads a timer itself.
 
 3. **The audio playhead is the master clock during live playback.** The
-   animation reads it; never the reverse.
+   animation reads it; never the reverse. Amendment (FIX 2, 2026-07-20):
+   when NO recording is loaded the score still plays, driven by
+   `WallClock` (`ui/wall_clock.py`) — a wall-anchored, re-anchored-on-
+   seek/pause pure function (rule 2 holds; no `t += dt`), paced by the
+   tempo map with offset 0. AudioClock remains master whenever audio IS
+   loaded; the controller picks the clock by `transport.has_media()`.
 
 4. **Engraving is behind the `EngravingProvider` interface.** Verovio types,
    Verovio element IDs, and Verovio SVG never leak past the adapter in

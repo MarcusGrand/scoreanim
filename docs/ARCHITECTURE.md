@@ -460,6 +460,22 @@ re-touching. "Clear overrides on selection" must be cheap.
   paused, re-anchored on seek. Not accumulation: a pure function of
   (recent authoritative audio positions, wall time), error bounded by
   the anchor cadence — the audio playhead stays master (rules 2/3).
+- `WallClock` (ui/wall_clock.py, FIX 2 as built 2026-07-20): the live
+  clock for **no-audio playback**. `now = anchor_position +
+  (perf_counter() − anchor_wall)` — anchored on play, frozen on pause,
+  re-anchored on seek; a pure function of the wall source, no `t += dt`
+  (rule 2). Qt-free (headless-testable via an injected `now`). The
+  `PlaybackController` reads it instead of the AudioClock whenever
+  `transport.has_media()` is false, with the audio offset simply 0 and
+  the tempo map (default 120 bpm, sidecar, taps, or the transport BPM
+  spinbox — all the existing tempo-map machinery) setting the pace; the
+  no-audio timeline length is the score's own duration through the same
+  `resolve_seconds` seam as triggers. The controller is the single
+  bridge, so its `playing_changed`/`duration_changed`/`time_changed`
+  signals are identical across both clock sources. **AudioClock remains
+  master whenever audio is loaded** (rule 3). Export is unchanged and
+  already audio-independent (FrameClock below): a no-audio export uses
+  offset 0 and the score-length duration, verified not rebuilt.
 - `FrameClock` (core/timing/clock.py, Phase 6 as built): `now =
   frame_index / fps` — a fresh division per query, never `t += 1/fps`,
   so drift in export is impossible by construction and out-of-order

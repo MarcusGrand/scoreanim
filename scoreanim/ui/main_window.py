@@ -33,7 +33,8 @@ from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
 from scoreanim.core.project import (DEFAULT_BPM,
                                     HIDE_EMPTY_STAVES_DEFAULT, SUFFIX,
                                     ApplyTaps, FileRef,
-                                    ImportTempoSetup, PresentationMode,
+                                    ImportTempoSetup, MoveTempoEvent,
+                                    PresentationMode,
                                     ProjectDoc,
                                     SetFloorOpacity, SetGlobalSwing,
                                     SetHideEmptyStaves,
@@ -143,8 +144,10 @@ class MainWindow(QMainWindow):
         self.playback.status_message.connect(
             lambda msg: self.statusBar().showMessage(msg))
         self.playback.time_changed.connect(self._on_time)
-        self.playback.transport.playing_changed.connect(self._on_playing)
-        self.playback.transport.duration_changed.connect(
+        # play-state and duration come from the CONTROLLER, not the audio
+        # wrapper, so no-audio playback (FIX 2) drives the same UI paths
+        self.playback.playing_changed.connect(self._on_playing)
+        self.playback.duration_changed.connect(
             self.app_state.axis.set_duration)
 
         self.app_state.seek_requested.connect(self.playback.seek)
@@ -305,6 +308,20 @@ class MainWindow(QMainWindow):
         self._slider.valueChanged.connect(self._on_slider_value)
         self._time_label = QLabel(" 0:00.0 / 0:00.0 ")
 
+        # initial tempo (FIX 2): edits the beat-0 tempo event through the
+        # existing tempo-map machinery (MoveTempoEvent) — not a parallel
+        # path. With no audio it sets the no-audio playback pace; the
+        # offset is simply 0 then.
+        self._bpm_spin = QDoubleSpinBox()
+        self._bpm_spin.setPrefix("bpm ")
+        self._bpm_spin.setDecimals(1)
+        self._bpm_spin.setSingleStep(1.0)
+        self._bpm_spin.setRange(20.0, 400.0)
+        self._bpm_spin.setKeyboardTracking(False)
+        self._bpm_spin.setToolTip("Initial tempo — drives no-audio "
+                                  "playback and the tempo map")
+        self._bpm_spin.editingFinished.connect(self._commit_bpm)
+
         self._offset_spin = QDoubleSpinBox()
         self._offset_spin.setPrefix("offset ")
         self._offset_spin.setSuffix(" s")
@@ -341,6 +358,7 @@ class MainWindow(QMainWindow):
         bar.addAction(self._play)
         bar.addWidget(self._slider)
         bar.addWidget(self._time_label)
+        bar.addWidget(self._bpm_spin)
         bar.addWidget(self._offset_spin)
         bar.addWidget(self._swing_spin)
         bar.addWidget(self._floor_spin)
@@ -496,6 +514,11 @@ class MainWindow(QMainWindow):
         self._offset_spin.blockSignals(True)
         self._offset_spin.setValue(doc.timing.offset_seconds)
         self._offset_spin.blockSignals(False)
+        first_tempo = self._initial_tempo_event(doc)
+        self._bpm_spin.blockSignals(True)
+        self._bpm_spin.setValue(first_tempo.bpm if first_tempo
+                                else DEFAULT_BPM)
+        self._bpm_spin.blockSignals(False)
         self._swing_spin.blockSignals(True)
         self._swing_spin.setValue(self._global_swing_ratio(doc))
         self._swing_spin.blockSignals(False)
@@ -724,6 +747,22 @@ class MainWindow(QMainWindow):
         value = self._offset_spin.value()
         if abs(value - self.app_state.doc.timing.offset_seconds) > 1e-9:
             self.app_state.execute(SetOffset(value))
+
+    @staticmethod
+    def _initial_tempo_event(doc: ProjectDoc):
+        events = doc.timing.tempo_events
+        return min(events, key=lambda e: e.position) if events else None
+
+    def _commit_bpm(self) -> None:
+        """Set the initial (beat-0) tempo through the existing tempo-map
+        machinery — MoveTempoEvent on the first event, so a tempo curve's
+        later events survive. Drives no-audio playback (FIX 2)."""
+        first = self._initial_tempo_event(self.app_state.doc)
+        value = self._bpm_spin.value()
+        if first is None or abs(value - first.bpm) < 1e-9:
+            return
+        self.app_state.execute(
+            MoveTempoEvent(first.position, first.position, value))
 
     @staticmethod
     def _global_swing_ratio(doc: ProjectDoc) -> float:
@@ -970,7 +1009,7 @@ class MainWindow(QMainWindow):
     def _open_export_dialog(self) -> None:
         if self._animation_inputs is None:
             return
-        self.playback.transport.pause()      # no live tick under the modal
+        self.playback.pause()                # no live tick under the modal
         doc = self.app_state.doc
         offset, tempo_map, swing = self._timing_config(doc)
         duration = self.playback.transport.duration_seconds()
