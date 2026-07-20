@@ -157,7 +157,7 @@ def test_unknown_class_raises_in_strict_mode():
         _PageDecomposer(_unknown_class_page(), page=1, adapter=st).run()
 
 
-def test_unknown_class_degrades_to_static_other_in_app_mode():
+def test_unknown_class_degrades_to_other_element_in_app_mode():
     st = _LoadState(prep=None, mei=_MeiIndex(measure_by_id={"m1": 1}),
                     onset_by_id={}, measure_start={1: 0.0},
                     measure_duration={1: 4.0}, staff_n_by_id={},
@@ -167,8 +167,10 @@ def test_unknown_class_degrades_to_static_other_in_app_mode():
     assert acc.kind is ElementKind.OTHER
     assert len(acc.paths) == 1                          # drawable claimed
     ident = _identity_for(acc, page=1, st=st, counters=defaultdict(int))
-    assert ident.onset is None                          # static
-    assert not is_animated(ident)
+    # animate-everything (ruling 2026-07-20): the degraded element is not
+    # scaffold, so it resolves a measure-start onset and animates
+    assert ident.onset == 0.0
+    assert is_animated(ident)
     assert [w.code for w in st.warnings] == ["unknown-class"]
     assert "mysteryGlyph" in st.warnings[0].message
 

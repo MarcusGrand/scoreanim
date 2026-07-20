@@ -325,29 +325,47 @@ reveal per segment (adapter emits `<source-id>:seg<k>` elements);
 segments in not-yet-reached systems sit at reveal = 0 with no page
 logic. Any cursor reads this same function.
 
-### Animated-ink taxonomy (revised 2026-07-12; re-revised 2026-07-13, Phase 10R)
+### Animated-ink taxonomy — a DENYLIST (revised 2026-07-12; Phase 10R 2026-07-13; inverted 2026-07-20)
 
-Opacity-triggered (dim at floor, light at trigger): noteheads, slashes,
-stems, flags, beams, accidentals, articulations, tremolo strokes
-(Phase 11 — untinted, inherits its note's onset), dots, ledger dashes,
-rests, whole-bar rests, dynamics — and, since the Phase 10R
-animate-everything ruling, **texts, chord symbols, lyrics, meter
-signatures, trills/ornaments, fermatas**: every object animates at its
-attach point (@startid note — chords resolve through their first
-member — else @tstamp arithmetic, else measure start). **A rest is
+**Animation is a denylist, not an allowlist** (ruling 2026-07-20).
+EVERY object on the page animates with the appear/effect system EXCEPT
+the true scaffold; a new `ElementKind` is animated *by default*. The
+allowlist that preceded this shipped every new kind static-until-someone-
+remembered — the exact mechanism behind the recurring coverage gaps —
+so the default is inverted. `schedule.STATIC_KINDS` is the single
+authority; `ANIMATED_KINDS` is derived (`all kinds − STATIC_KINDS −
+REVEALED_KINDS`) and the adapter imports `STATIC_KINDS` to decide which
+kinds to mint onset-less.
+
+The **scaffold** (static, onset-less) is exactly: **staff lines,
+barlines** (including the system-left barline joining a system's
+staves — reclassified from OTHER), **group symbols/brackets, and
+between-system dividers** — plus **page furniture** (part labels,
+page header/footer, measure numbers), which the adapter mints
+onset-less via `_STATIC_TEXT_CLASSES` so the onset gate excludes it
+without a distinct kind. Everything else is animated ink.
+
+**Clefs and key signatures MOVED from static to animated** with this
+ruling; tuplet brackets/numbers, ornaments, and degraded `OTHER` ink
+(the Phase 11 graceful-degradation path) animate too. Opacity-triggered
+(dim at floor, light at trigger): noteheads, slashes, stems, flags,
+beams, accidentals, articulations, tremolo strokes, dots, ledger
+dashes, rests, whole-bar rests, dynamics, texts, chord symbols, lyrics,
+meter signatures, clefs, key signatures, tuplets, ornaments/fermatas —
+every object at its onset (@startid note — chords resolve through their
+first member — else @tstamp arithmetic, else **measure start**, the
+fallback that now covers clefs/keysigs/tuplets). **A rest is
 retrospective ink** (ruling 2026-07-12, second session): it triggers
-when its silence resolves — at the next note in its part/voice or at
-the end of its own bar, whichever comes first, never on its own silent
-beat (a whole-bar rest completes at its barline). Reveal anchors follow
-the same triggers, so the edge never advances mid-silence.
-Clip-revealed (opacity pinned 1.0): slurs, ties, hairpins. Static:
-**barlines, clefs, key signatures ONLY** among notation (the Phase 10R
-ruling), plus the scaffold and page furniture — staff lines, group
-symbols, system dividers, part labels, page header/footer, measure
-numbers (the adapter mints furniture onset-less; the schedule's onset
-gate excludes it). The animated set ≠ the tinted set (ruling D stands:
-TINTED_KINDS unchanged) and ≠ reveal anchors (the new kinds are
-attachments, like dynamics).
+when its silence resolves — at the next note in its part/voice or the
+end of its own bar, whichever comes first, never on its own silent beat
+(a whole-bar rest completes at its barline). Reveal anchors follow the
+same triggers, so the edge never advances mid-silence.
+
+Clip-revealed (opacity pinned 1.0, animated by the reveal EDGE not the
+opacity trigger — so `is_animated` excludes them): slurs, ties,
+hairpins. **Animation scope ≠ color scope** (ruling D stands): this
+ruling widened what animates, not what tints — `TINTED_KINDS` is
+unchanged, so clefs and key signatures animate but stay black.
 
 ### Styling
 

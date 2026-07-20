@@ -64,37 +64,48 @@ def quantize_beats(beats: Beats) -> int:
     return round(beats * _Q)
 
 
-# Ink that dims and lights via opacity triggers. SLUR/TIE left this set
-# in Phase 5.2: spanners (with HAIRPIN) reveal by clip-grow at reveal_x
-# instead (REVEALED_KINDS in core/animation/reveal.py) — their opacity
-# stays 1.0 and they carry no trigger. REST/MREST/DYNAMIC joined
-# (ruling 2026-07-12); TEXT/CHORD_SYMBOL/LYRIC/METER_SIG joined (ruling
-# 2026-07-13, Phase 10R): ALL objects animate at their attach point —
-# texts above staves, chord symbols, lyrics, trills, fermatas, even
-# mid-piece meter changes. Statics remain: barlines, clefs, key sigs,
-# staff lines, group symbols/dividers, and page furniture (part labels,
-# pgHead/pgFoot, measure numbers — the adapter mints those onset-less,
-# so the onset gate below excludes them). Note ANIMATED ≠ TINTED
-# (ruling D) and ≠ reveal anchors: the new kinds are attachments.
-ANIMATED_KINDS = frozenset({
-    ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.STEM,
-    ElementKind.FLAG, ElementKind.BEAM, ElementKind.ACCIDENTAL,
-    ElementKind.ARTICULATION, ElementKind.TREMOLO, ElementKind.LEDGER_LINES,
-    ElementKind.REST, ElementKind.MREST, ElementKind.DYNAMIC,
-    ElementKind.TEXT, ElementKind.CHORD_SYMBOL, ElementKind.LYRIC,
-    ElementKind.METER_SIG,
+# Animation is a DENYLIST, not an allowlist (ruling 2026-07-20, revising
+# the Phase 10R taxonomy). EVERY object on the page animates with the
+# appear/effect system EXCEPT the true scaffold below; clefs, key
+# signatures, tuplet brackets/numbers, ornaments — anything with an
+# onset — are animated ink. An allowlist shipped every new kind
+# static-until-remembered, which is exactly how coverage gaps kept
+# appearing; the denylist inverts the default so new kinds animate for
+# free. The scaffold is: staff lines, barlines, group symbols/brackets,
+# and between-system dividers — plus page furniture (part labels,
+# pgHead/pgFoot, measure numbers), which the adapter mints onset-less so
+# the onset gate excludes it. Clip-revealed spanners (REVEALED_KINDS)
+# are animated ink too, but via the reveal EDGE, not the opacity
+# trigger, so is_animated excludes them here. Note ANIMATED ≠ TINTED
+# (ruling D — TINTED_KINDS unchanged, clefs/keysigs stay black).
+STATIC_KINDS = frozenset({
+    ElementKind.STAFF_LINES, ElementKind.BARLINE,
+    ElementKind.GROUP_SYMBOL, ElementKind.SYSTEM_DIVIDER,
 })
+
+# Spanner kinds revealed by clip-grow (opacity pinned 1.0). Defined here,
+# the base animation module, so is_animated can exclude them from the
+# opacity path; reveal.py re-exports it (its clip machinery is the
+# authority on HOW they reveal).
+REVEALED_KINDS = frozenset({ElementKind.SLUR, ElementKind.TIE,
+                            ElementKind.HAIRPIN})
+
+# Opacity-animated kinds = everything that is neither scaffold nor a
+# clip-revealed spanner. DERIVED from the denylist (introspection and
+# back-compat); the denylist is the authority, so a new ElementKind
+# joins this set automatically.
+ANIMATED_KINDS = frozenset(
+    k for k in ElementKind
+    if k not in STATIC_KINDS and k not in REVEALED_KINDS)
 
 
 def is_animated(identity: ElementIdentity) -> bool:
-    """Note-owned ink dims and lights; scaffold stays at full opacity.
-
-    OTHER-with-onset covers augmentation dots (and any future note-owned
-    fragment the adapter classifies as OTHER but stamps with an onset).
-    """
-    if identity.kind in ANIMATED_KINDS:
-        return identity.onset is not None
-    return identity.kind is ElementKind.OTHER and identity.onset is not None
+    """Opacity-animated = not scaffold, not a clip-revealed spanner, and
+    carries an onset. Onset-less scaffold and page furniture (the adapter
+    mints those onset-less) stay static through the onset gate."""
+    return (identity.kind not in STATIC_KINDS
+            and identity.kind not in REVEALED_KINDS
+            and identity.onset is not None)
 
 
 @dataclass(frozen=True)

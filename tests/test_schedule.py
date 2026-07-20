@@ -208,40 +208,78 @@ def test_all_tied_chord_inherits_stem() -> None:
     assert sched.beats_by_element["s1"] == 0.0     # all tied: stem inherits
 
 
-def test_animated_census(engraved) -> None:
-    """Three-way split, re-amended by the 2026-07-13 Phase 10R ruling:
-    ALL objects animate at their attach point except barlines, clefs,
-    key signatures, staff scaffold, and page furniture (which the
-    adapter mints onset-less, so the onset gate excludes it). Meter
-    sigs, texts, chord symbols, and lyrics JOINED the animated ink;
-    spanners (slurs, ties, hairpins) still reveal by clip-grow only."""
-    from scoreanim.core.animation import REVEALED_KINDS, is_revealed
+# Page furniture — TEXT sub-classes the adapter mints onset-less; the
+# only static ink outside STATIC_KINDS (ruling 2026-07-20).
+_FURNITURE = ("label", "labelAbbr", "pgHead", "pgFoot", "mNum")
 
-    static_kinds = {ElementKind.CLEF, ElementKind.KEY_SIG,
-                    ElementKind.BARLINE, ElementKind.STAFF_LINES,
-                    ElementKind.GROUP_SYMBOL, ElementKind.SYSTEM_DIVIDER}
+
+def test_animated_census(engraved) -> None:
+    """Inverted taxonomy (ruling 2026-07-20): animation is a DENYLIST.
+    Everything animates EXCEPT the scaffold (STATIC_KINDS — staff lines,
+    barlines, group symbols, system dividers) and page furniture (labels,
+    headers, measure numbers, minted onset-less). Clefs and key
+    signatures MOVED to animated. Clip-revealed spanners (slur/tie/
+    hairpin) animate by growth, not opacity, so is_animated excludes
+    them. TINTED_KINDS is unchanged (color scope is untouched)."""
+    from scoreanim.core.animation import (REVEALED_KINDS, STATIC_KINDS,
+                                          is_revealed)
+
+    assert STATIC_KINDS == {ElementKind.STAFF_LINES, ElementKind.BARLINE,
+                            ElementKind.GROUP_SYMBOL,
+                            ElementKind.SYSTEM_DIVIDER}
     assert REVEALED_KINDS == {ElementKind.SLUR, ElementKind.TIE,
                               ElementKind.HAIRPIN}
+    # clefs and key signatures now animate (the ruling's headline change)
+    clefs = [e for e in engraved.layout.elements
+             if e.identity.kind in (ElementKind.CLEF, ElementKind.KEY_SIG)]
+    assert clefs and all(is_animated(e.identity) for e in clefs)
+
     for el in engraved.layout.elements:
         ident = el.identity
-        if ident.kind in static_kinds:
+        if ident.kind in STATIC_KINDS:
             assert not is_animated(ident), ident.element_id
             assert not is_revealed(ident.kind), ident.element_id
-        if ident.kind in REVEALED_KINDS:
-            assert not is_animated(ident), ident.element_id
-        if ident.kind in (ElementKind.NOTEHEAD, ElementKind.SLASH,
-                          ElementKind.STEM, ElementKind.BEAM,
-                          ElementKind.LEDGER_LINES, ElementKind.REST,
-                          ElementKind.MREST, ElementKind.DYNAMIC,
-                          ElementKind.METER_SIG,
-                          ElementKind.CHORD_SYMBOL):
-            assert is_animated(ident), ident.element_id
-        if ident.kind is ElementKind.TEXT:
-            # furniture (labels, headers, measure numbers) is minted
-            # onset-less = static; every other text animates
-            furniture = el.text_class in ("label", "labelAbbr", "pgHead",
-                                          "pgFoot", "mNum")
+        elif ident.kind in REVEALED_KINDS:
+            assert not is_animated(ident), ident.element_id     # clip-grown
+        else:
+            # everything else is animated ink UNLESS it is page furniture
+            furniture = (ident.kind is ElementKind.TEXT
+                         and el.text_class in _FURNITURE)
             assert is_animated(ident) == (not furniture), ident.element_id
+
+
+def test_no_kind_outside_the_denylist_sits_static(engraved, engraved_video,
+                                                   engraved_complex1) -> None:
+    """The census invariant across three real fixtures: an element is
+    static ONLY if it is scaffold (STATIC_KINDS) or page furniture; every
+    other element carries an onset and animates. This is what makes the
+    denylist correct — no kind ships static-by-omission (ruling
+    2026-07-20)."""
+    from scoreanim.core.animation import REVEALED_KINDS, STATIC_KINDS
+    for score in (engraved, engraved_video, engraved_complex1):
+        for el in score.layout.elements:
+            ident = el.identity
+            if ident.kind in REVEALED_KINDS or is_animated(ident):
+                continue
+            # the only permitted static ink:
+            allowed = (ident.kind in STATIC_KINDS
+                       or (ident.kind is ElementKind.TEXT
+                           and el.text_class in _FURNITURE))
+            assert allowed, (ident.element_id, ident.kind, el.text_class)
+
+
+def test_tinted_kinds_unchanged_by_the_animate_everything_ruling() -> None:
+    """Animation scope widened; COLOR scope did not (ruling 2026-07-20).
+    Clefs/keysigs animate but stay black; TINTED_KINDS is exactly the
+    Phase 5 playing ink plus the clip-revealed spanners."""
+    from scoreanim.core.animation import TINTED_KINDS
+    assert TINTED_KINDS == {
+        ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.STEM,
+        ElementKind.FLAG, ElementKind.BEAM, ElementKind.ACCIDENTAL,
+        ElementKind.ARTICULATION, ElementKind.LEDGER_LINES,
+        ElementKind.SLUR, ElementKind.TIE, ElementKind.HAIRPIN}
+    assert ElementKind.CLEF not in TINTED_KINDS
+    assert ElementKind.KEY_SIG not in TINTED_KINDS
 
 
 def test_dynamics_trigger_at_their_attach_point(schedule,

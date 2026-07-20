@@ -47,7 +47,16 @@ of the current phase.
 6. **Effects are data, not code.** An effect is a named bundle of
    `(property, Envelope)` tracks evaluated at `t_rel` to onset. Adding a
    new effect means adding data/preset definitions, not branching in the
-   evaluator.
+   evaluator. **Animation is a DENYLIST** (user-ruled 2026-07-20):
+   every object on the page animates with the appear/effect system
+   EXCEPT the true scaffold — staff lines, barlines, group
+   symbols/brackets, system dividers (`schedule.STATIC_KINDS`) — plus
+   page furniture (part labels, header/footer, measure numbers, minted
+   onset-less). A new `ElementKind` animates by default; the adapter
+   resolves an onset for it (10R.2 attach mechanism, else measure
+   start). This ruling changes ANIMATION scope only — color scope
+   (`TINTED_KINDS`) is unchanged, so clefs and key signatures animate
+   but stay black. See ARCHITECTURE.md §3 "Animated-ink taxonomy".
 
 7. **The user owns page layout.** We honor the MusicXML's encoded
    SYSTEM breaks always (Verovio break-respect mode). We never reflow

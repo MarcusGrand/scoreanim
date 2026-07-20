@@ -43,7 +43,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
-from scoreanim.core.animation.schedule import (TriggerSchedule,
+from scoreanim.core.animation.schedule import (REVEALED_KINDS, TriggerSchedule,
                                                quantize_beats)
 from scoreanim.core.engraving.types import Layout
 from scoreanim.core.score.identity import (Beats, ElementKind, PartId)
@@ -60,9 +60,8 @@ ANCHOR_KINDS = frozenset({ElementKind.NOTEHEAD, ElementKind.SLASH,
 # ruling: grow REPLACES the Phase 3 step-appear for SLUR/TIE and newly
 # covers HAIRPIN per the 5.2 task text; the dynamic letters animate via
 # opacity instead — ruling B). Spanner opacity stays 1.0 — the clip
-# does all revealing.
-REVEALED_KINDS = frozenset({ElementKind.SLUR, ElementKind.TIE,
-                            ElementKind.HAIRPIN})
+# does all revealing. Defined in schedule.py (so is_animated can exclude
+# it) and re-exported here.
 
 
 def is_revealed(kind: ElementKind) -> bool:

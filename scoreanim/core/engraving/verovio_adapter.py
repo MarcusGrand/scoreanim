@@ -17,6 +17,7 @@ from pathlib import Path
 
 import verovio
 
+from scoreanim.core.animation.schedule import STATIC_KINDS
 from scoreanim.core.engraving.provider import EngravingProvider
 from scoreanim.core.engraving.systems import plan_page_breaks, system_bands
 from scoreanim.core.engraving.svg_geom import (ellipse_path, line_path,
@@ -93,7 +94,10 @@ _KIND_BY_CLASS: dict[str, ElementKind] = {
     "turn": ElementKind.OTHER,
     "octave": ElementKind.OTHER,
     "breath": ElementKind.OTHER,
-    "system": ElementKind.OTHER,        # owns only the systemic barline path
+    # the system-left vertical line joining a system's staves IS a
+    # barline — scaffold, static by the denylist (ruling 2026-07-20).
+    # It owns only that path; measures/staves nest as their own elements.
+    "system": ElementKind.BARLINE,
     "grpSym": ElementKind.GROUP_SYMBOL,  # staff-group bracket/brace (Phase 8);
                                          # joined-barline connector paths land
                                          # inside the ordinary barLine groups
@@ -524,22 +528,25 @@ class _PageDecomposer:
                                          f"class {cls!r} with drawable content")
                     # Graceful degradation (Phase 11.4, app path): an
                     # unknown drawable class no longer fails the load — it
-                    # mints a STATIC OTHER element that claims its drawables
-                    # (nothing is lost or orphaned) and warns loudly. Strict
-                    # loads (pytest / doctor --strict) still raise, so
-                    # coverage gaps stay visible in development.
+                    # mints an OTHER element that claims its drawables
+                    # (nothing is lost or orphaned) and warns loudly. It
+                    # animates like any OTHER ink when it resolves an onset
+                    # (owner note, else measure start — animate-everything
+                    # ruling 2026-07-20). Strict loads (pytest / doctor
+                    # --strict) still raise, so coverage gaps stay visible
+                    # in development.
                     print(f"scoreanim: unknown SVG class {cls!r} on page "
-                          f"{self.page} — rendered as a static element",
+                          f"{self.page} — rendered as a degraded element",
                           file=sys.stderr)
                     st.warnings.append(LoadWarning(
                         "unknown-class",
                         f"unknown SVG class {cls!r} with drawable content "
-                        f"(page {self.page}) — rendered as a static element"))
+                        f"(page {self.page}) — rendered as a degraded element"))
                     acc = _ElementAccumulator(
                         verovio_id=cid or "", svg_class=cls,
                         kind=ElementKind.OTHER,
                         measure=new_measure, staff=new_staff, layer=new_layer,
-                        owner_onset=None, system=new_system)
+                        owner_onset=new_owner_onset, system=new_system)
                     self._walk(child, child_ctm, acc, new_measure, new_staff,
                                new_layer, new_owner_onset, new_system)
                     if acc.paths or acc.texts:
@@ -1540,14 +1547,17 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
         # (dynamics: ruling 2026-07-12; fermatas, trills/ornaments,
         # dirs, tempo, harm: Phase 10R)
         onset = attach
-    elif acc.kind in (ElementKind.DYNAMIC, ElementKind.TEXT,
-                      ElementKind.CHORD_SYMBOL, ElementKind.MREST,
-                      ElementKind.METER_SIG) \
-            and acc.measure is not None \
+    elif acc.measure is not None \
+            and acc.kind not in STATIC_KINDS \
             and acc.svg_class not in _STATIC_TEXT_CLASSES:
-        # measure-start fallback for attach-less objects; page furniture
-        # (labels, headers, measure numbers) stays onset-less = static
-        # by the schedule's onset gate (Phase 10R furniture ruling)
+        # Measure-start fallback for every attach-less object that is not
+        # scaffold (animate-everything ruling 2026-07-20): clefs, key
+        # signatures, tuplet brackets/numbers, ornaments, and degraded
+        # OTHER all light when their measure begins. The scaffold
+        # (STATIC_KINDS — staff lines, barlines; group symbols/dividers
+        # already returned early) and page furniture (labels, headers,
+        # measure numbers via _STATIC_TEXT_CLASSES) stay onset-less, so
+        # the schedule's onset gate keeps them static.
         onset = st.measure_start.get(acc.measure)
 
     # spanners for notes were handled; note extent stays None in v1
