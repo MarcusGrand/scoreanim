@@ -211,6 +211,29 @@ Phase 11 made the loader robust to arbitrary Dorico exports, using
   stays black — untinted per ruling a): if a tinted-stroke look is ever
   wanted, it is a one-line TINTED_KINDS add, parked here.
 
+## Phase 12 (orchestral robustness) — deferrals
+
+Built 2026-07-21: complex2 lays out (order-based join, bar-repeat
+synthesis, prep-seam condensing + schema v5, Score Setup dialog, auto
+scale-to-fit). Parked:
+
+- **Condensing sophistication.** v1 is naive (shared staff, one voice per
+  player). No **a2 unison collapse** (a unison passage draws doubled
+  noteheads/stems), no **divisi** logic, no per-passage condensing (a
+  group is condensed for the whole piece or not at all). These are the
+  Dorico-condensing features that would make the merged look match the
+  PDF; v1's target is "usable and clean", and the user picks sane pairs.
+- **Hide-empty-staves is a no-op on scores with percussion slash/repeat
+  regions.** Those staves import as `<space>`, so Verovio's `optimize`
+  would hide them → the rule-10 fallback disables hiding globally
+  (`hide-unavailable`). Scale-to-fit (rule-7 amendment c) now guarantees
+  the layout regardless, so hiding is a readability nicety here, not the
+  overflow fix. A proper fix (keep slash/repeat staves visible under
+  optimize by filling their region measures with invisible rests so
+  hiding can thin the genuinely-empty staves) is parked.
+- **Condensing multi-staff parts** (e.g. two grand-staff keyboards) is
+  rejected in v1 (raises); needs a per-staff merge design.
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

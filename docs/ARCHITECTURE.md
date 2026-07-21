@@ -210,6 +210,31 @@ class EngravingProvider(ABC):
 #    (tests/test_adapter_groups.py) even though every VEROVIO id
 #    re-rolls on any input change despite the fixed seed — which is
 #    exactly why identity is minted from musical position, not ids.
+#
+# 10 (Phase 12). Orchestral robustness (complex2). Four pieces:
+#    (a) ORDER-BASED JOIN (12.1): the model↔layout match keys plain notes
+#    on PITCH only and pairs by document order within (part, measure,
+#    staff, voice) — onset is NOT in the key, because Verovio's timemap
+#    delays a note after an appoggiatura by the grace's duration while
+#    music21 keeps the notated beat. Triggers keep the Verovio qstamp
+#    (performance time — the note lights when it sounds; ruling a). A
+#    bounded cross-staff fallback re-matches leftovers within (part,
+#    measure) across staves for multi-staff parts (complex2's Synth).
+#    (b) BAR-REPEAT SYNTHESIS (12.2): Verovio draws nothing for
+#    <measure-repeat> (empty <space>), so the adapter synthesizes one
+#    ElementKind.BAR_REPEAT % symbol per repeated bar (onset on the
+#    downbeat), the slash-region shape (rule 10). (c) CONDENSING (12.3):
+#    doc-stored condense_groups (PartCondenseSpec at the seam) merge
+#    contiguous like parts onto one staff, one voice per player, behind a
+#    <backup> — a canonical rewrite BEFORE Verovio (rule 11); v1 naive,
+#    no a2/divisi. ElementIds shift (part identity is an engraving input).
+#    (d) SCALE-TO-FIT (12.5): when a single system is taller than its page
+#    after repagination (Dorico sized the page for its condensed score),
+#    the adapter scales the engraving down uniformly (Verovio `scale`
+#    option) so the tallest fits — the never-clip completion, rule-7
+#    amendment c (`LoadWarning "scaled-to-fit"`). complex2 renders at 54%,
+#    zero overflow. The Score Setup dialog (§7) gathers condense/bracket/
+#    hide as ONE undoable batch (ApplyScoreSetup).
 
 @dataclass(frozen=True)
 class RenderedElement:
@@ -348,11 +373,12 @@ without a distinct kind. Everything else is animated ink.
 **Clefs and key signatures MOVED from static to animated** with this
 ruling; tuplet brackets/numbers, ornaments, and degraded `OTHER` ink
 (the Phase 11 graceful-degradation path) animate too. Opacity-triggered
-(dim at floor, light at trigger): noteheads, slashes, stems, flags,
-beams, accidentals, articulations, tremolo strokes, dots, ledger
-dashes, rests, whole-bar rests, dynamics, texts, chord symbols, lyrics,
-meter signatures, clefs, key signatures, tuplets, ornaments/fermatas —
-every object at its onset. Resolution order: owner note (stems/flags/
+(dim at floor, light at trigger): noteheads, slashes, **synthesized
+bar-repeat `%` symbols (Phase 12.2, one per repeated bar, tinted like
+slashes)**, stems, flags, beams, accidentals, articulations, tremolo
+strokes, dots, ledger dashes, rests, whole-bar rests, dynamics, texts,
+chord symbols, lyrics, meter signatures, clefs, key signatures, tuplets,
+ornaments/fermatas — every object at its onset. Resolution order: owner note (stems/flags/
 accidentals — and **tuplet brackets/numbers and tremolo strokes, which
 inherit their notes' first onset so they light WITH the tuplet/tremolo,
 not at the downbeat**; bug fix 2026-07-20) → @startid note (chords via
@@ -422,10 +448,14 @@ Project (saved file, versioned schema)
 ├── text_overrides       consumed since Phase 9.3 (v3): per-part
 │                        name/abbreviation edits, rewritten into the
 │                        part-list at the prep seam (adapter ruling 6)
-└── hide_empty_staves    v4 (Phase 10R): per-score bool, default ON for
-                         new documents; the hidden layout re-derives
-                         via the MEI optimize round-trip (adapter
-                         ruling 7); rule-7 amendment b
+├── hide_empty_staves    v4 (Phase 10R): per-score bool, default ON for
+│                        new documents; the hidden layout re-derives
+│                        via the MEI optimize round-trip (adapter
+│                        ruling 7); rule-7 amendment b
+└── condense_groups      v5 (Phase 12.3): contiguous like parts merged
+                         onto one staff (one voice per player, combined
+                         label); the merged part-list re-derives at the
+                         prep seam (adapter ruling 10); CLAUDE.md rule 11
 ```
 
 Schema versions (`core/project/serialize.py`, strict gate): **v1**
@@ -435,9 +465,11 @@ staff_groups, and text_overrides in ONE bump — every planned v2-era
 field designed at once, no per-phase bumps; **v4** (Phase 10R) added
 hide_empty_staves, VERSION-GATED on read: v≤3 files predate the option
 and load OFF so their look is unchanged, while new documents default
-ON. The reader accepts {1, 2, 3, 4}: v1 `part_colors` folds into part
+ON; **v5** (Phase 12.3) added condense_groups (no read gate needed — a
+missing key defaults to (), the correct look for older files). The
+reader accepts {1, 2, 3, 4, 5}: v1 `part_colors` folds into part
 color rules, older files default newer fields per-field (no migration
-code — they just lack the keys); the writer emits 4. The gate is
+code — they just lack the keys); the writer emits 5. The gate is
 strict-by-version ON PURPOSE: an older build REFUSES a newer file
 instead of tolerantly reading it, silently dropping fields, and
 destroying them on the next save. Effect names are stored intent — an

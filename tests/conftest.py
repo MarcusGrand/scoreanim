@@ -40,6 +40,11 @@ BAR_REPEAT_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
 # merges them onto one staff as voices 1 and 2 ("Flute 1.2").
 CONDENSE_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
     "condense_min.musicxml"
+# 25 staves on a single 2-measure system (from complex2): taller than its
+# page and unpaginatable, so the never-clip path scales the engraving to
+# fit (Phase 12.5).
+TALL_SYSTEM_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
+    "tall_system_min.musicxml"
 
 
 @pytest.fixture(scope="session")

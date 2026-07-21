@@ -67,7 +67,8 @@ of the current phase.
 7. **The user owns page layout.** We honor the MusicXML's encoded
    SYSTEM breaks always (Verovio break-respect mode). We never reflow
    to fit the window. Paged presentation; mismatched aspect is
-   letterboxed. Two amendments, user-ruled 2026-07-13 (Phase 10R):
+   letterboxed. Three amendments (Phase 10R 2026-07-13; (c) Phase 12.5
+   2026-07-21):
    (a) encoded PAGE breaks are honored unless a system would overflow
    its page (Dorico breaks are computed assuming hidden staves) — then
    the adapter keeps the system breaks, re-derives page breaks at the
@@ -78,7 +79,14 @@ of the current phase.
    MusicXML itself carries no hidden-staff info) — default ON for new
    documents, OFF for pre-v4 projects, undoable, an engraving input
    like staff groups. Slash regions win over hiding (rule 10;
-   `LoadWarning "hide-unavailable"`).
+   `LoadWarning "hide-unavailable"`). (c) When a single system is still
+   taller than its page after (a)/(b) and condensing — pagination cannot
+   split one system — the adapter **scales the whole engraving down
+   uniformly so the tallest system fits** (`LoadWarning "scaled-to-fit"`;
+   a rastral-size reduction, derived every load, not window reflow). This
+   completes never-clip: any orchestral score renders without clipped
+   ink. Condensing (rule 11) is the readability lever; scale-to-fit is
+   the guarantee.
    (Built in Phase 9: part-label edits re-engrave via the prep seam so
    the score shifts to fit — a re-engrave with changed inputs is not
    window reflow; title/tempo texts edit as stage overlay and never
@@ -95,10 +103,30 @@ of the current phase.
    transpositions are rendered at concert pitch. All fidelity comparisons
    and test expectations are against concert-pitch renders.
 
-10. **Slash regions are first-class.** Dorico exports slash regions as
-    `<measure-style><slash/>` with no notes; the adapter must synthesize
-    slash elements (one per beat, `kind = SLASH`, onsets on the beats) so
-    they render and animate like notes. See docs/ARCHITECTURE.md §3.
+10. **Slash AND bar-repeat regions are first-class.** Dorico exports
+    slash regions as `<measure-style><slash/>` and measure repeats as
+    `<measure-repeat>`, both with no notes; Verovio draws NOTHING for
+    either (they import as empty `<space>` — verified Phase 12). The
+    adapter synthesizes them: slash elements one per beat
+    (`kind = SLASH`), and one `%` bar-repeat symbol per repeated measure
+    (`kind = BAR_REPEAT`, onset on the downbeat — Phase 12.2), so both
+    render and animate like notes. See docs/ARCHITECTURE.md §3.
+
+11. **Condensing is a prep-seam engraving input; the document stores
+    condense groups only.** Dorico's condensing is layout-time and does
+    NOT export, so a condensed look is reconstructed in-app: contiguous
+    like parts merge onto one staff (one voice per source player,
+    combined label) by rewriting the part-list BEFORE Verovio (Phase
+    12.3, the Phase 8/9 prep-seam pattern). The doc stores `condense_
+    groups` (user intent, schema v5); the merged part-list, geometry, and
+    shifted ElementIds all re-derive (rule 5). v1 is naive (Marcus,
+    2026-07-21): shared staff, one voice per player, NO a2 unison
+    collapse and NO divisi logic (BACKLOG). Load-time layout choices
+    (condense, bracket, hide) are gathered in the **Score Setup dialog**
+    and applied as ONE undoable step. When a single system is still
+    taller than its page after these choices (and repagination), the
+    adapter **scales the engraving down uniformly to fit** — the
+    never-clip completion (rule 7 amendment c).
 
 ## Stack (do not substitute without discussion)
 
@@ -130,8 +158,12 @@ testdata/                  # testscore.musicxml (Dorico export) + companion
                            # a multi-staff piano (Phase 10 fixture);
                            # complex1.musicxml — 14-part Dorico robustness
                            # fixture (Phase 11: tremolo, mRest ledger,
-                           # grace-join gap); complex2.musicxml — orchestral,
-                           # loads through decomposition (Phase 12 layout)
+                           # grace-join gap); complex2.musicxml — orchestral
+                           # (36 parts/37 staves, bar repeats, appoggiaturas),
+                           # lays out via Phase 12 (order-based join,
+                           # condensing, bar-repeat synthesis, scale-to-fit);
+                           # bar_repeat_min / condense_min / tall_system_min —
+                           # small Phase 12 fixtures extracted from complex2
 docs/
 ```
 

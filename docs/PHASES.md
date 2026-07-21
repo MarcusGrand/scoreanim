@@ -1219,14 +1219,35 @@ Spike corrections to the brief (2026-07-21, `spikes/NOTES.md` Phase 12):
   `_note_key` embedding `round(onset*4096)` for non-graces. Dropping
   that term is the whole fix; the grace tier already works this way.
 
-- [ ] **12.0 Spikes** (kept — findings in `spikes/NOTES.md`): (a)
+Build complete 2026-07-21 (475 headless tests green incl.
+`test_no_qt_in_core.py`; scripted offscreen exit on complex2 passes).
+**Exit criteria PASSED 2026-07-21.** One plan deviation, ruled during
+the exit (Marcus, 2026-07-21): **condense + hide could NOT clear
+complex2's overflow** — hide-empty-staves is a no-op on complex2 (its
+percussion slash/repeat staves import as `<space>`, so Verovio's
+`optimize` would hide them → the rule-10 fallback disables hiding
+globally, `hide-unavailable`), and v1 contiguous condensing only reaches
+~26 staves while the tutti needs far fewer to fit the Dorico-condensed
+page. The real lever is **engraving SCALE**: the adapter rendered at
+Verovio's default 100%, giving 7302-tall systems on a 4195 page (the
+source of the 20 overflow warnings since Phase 11). The fix is **auto
+scale-to-fit as the never-clip completion (rule 7)**: when a system still
+overflows after repagination, scale the engraving down uniformly so the
+tallest fits (a rastral-size reduction, not window reflow). complex2 now
+renders at 54% with ZERO overflow, nothing clipped; condense/hide became
+readability tools, not the overflow fix. As-built exit: complex2
+condensed (wind/brass/choir pairs → 25 staves) + auto scale-to-fit = 20
+pages, 0 overflow, join 9546/9546, 33,320 animated elements; load
+~25 s + 1.8 s scene build (one-time; no optimization needed).
+
+- [x] **12.0 Spikes** (kept — findings in `spikes/NOTES.md`): (a)
       condense-merge prep rewrite (`spikes/condense_prep.py`) — Flute
       1/2 → one staff two voices, rendered before/after, viability
       confirmed (ruling d); (b) measure-repeat census — Verovio draws
       nothing, 3 `[start,stop)` regions / ~32 bars; (c) appoggiatura
       timemap semantics — principal delayed +grace-dur, order-based
       `(pitch, order)` join handles chord-graces. DONE during planning.
-- [ ] **12.1 Order-based join**: rewrite `_note_key` so plain notes key
+- [x] **12.1 Order-based join**: rewrite `_note_key` so plain notes key
       on `pitch_key` only (drop the `round(onset*4096)` term) — pairing
       falls to `(pitch, document order)` within `(part, measure, staff,
       voice)`, onset as tiebreak, the shape the grace tier already uses.
@@ -1236,7 +1257,7 @@ Spike corrections to the brief (2026-07-21, `spikes/NOTES.md` Phase 12):
       (`_GRACE_DELAYED_PRINCIPALS` → complete bijection) and the
       `tools/check_score.py` counts. Trigger stays the qstamp (ruling a
       — no retiming; the fix only closes the match).
-- [ ] **12.2 Bar-repeat synthesis**: `ElementKind.BAR_REPEAT` (animates
+- [x] **12.2 Bar-repeat synthesis**: `ElementKind.BAR_REPEAT` (animates
       by default under the denylist; tinted like SLASH). Detect
       `<measure-repeat>` regions at the prep seam (`_repeat_regions`, a
       `[start, stop)` twin of `_slash_regions`; `RepeatRegion` on
@@ -1247,7 +1268,7 @@ Spike corrections to the brief (2026-07-21, `spikes/NOTES.md` Phase 12):
       hide-retry guard so a repeat staff is not hidden out. Verify:
       complex2's 3 regions (~32 bars) light on the downbeat; existing
       fixtures byte-identical (no measure-repeats there).
-- [ ] **12.3 Prep-seam condensing + schema v5**: `PartCondenseSpec`
+- [x] **12.3 Prep-seam condensing + schema v5**: `PartCondenseSpec`
       (neutral prep-seam twin beside `PartGroupSpec`) — contiguous like
       parts to merge + combined label ("Flute 1.2"). `_apply_condense`
       in `musicxml_prep`: merge N contiguous `<score-part>` + `<part>`
@@ -1267,7 +1288,7 @@ Spike corrections to the brief (2026-07-21, `spikes/NOTES.md` Phase 12):
       engraving input, like renames) — overrides re-derive; pin id
       behavior. Verify: merged part loads through the adapter + join;
       undo restores; round-trip.
-- [ ] **12.4 Score Setup dialog**: triggered at LOAD when the flat
+- [x] **12.4 Score Setup dialog**: triggered at LOAD when the flat
       render overflows (inspect `engraved.warnings` for
       `code == "system-overflow"` after `load_detailed` in the load path
       — `open_score`/`open_project`/`_load_score`, NOT on every
@@ -1278,7 +1299,7 @@ Spike corrections to the brief (2026-07-21, `spikes/NOTES.md` Phase 12):
       (ruling c). Verify: complex2 opens → dialog offered; the no-audio
       transport survives the re-engrave (WallClock reconciliation);
       undoable.
-- [ ] **12.5 Scale + fixture promotion + exit**: perf numbers recorded
+- [x] **12.5 Scale + fixture promotion + exit**: perf numbers recorded
       (load, scene build, tick cost on a dense page — no optimization
       unless targets miss). complex2 promoted to the permanent fixtures
       with censuses pinned (kept OUT of the ~20 s pytest path per the
@@ -1296,9 +1317,10 @@ Spike corrections to the brief (2026-07-21, `spikes/NOTES.md` Phase 12):
       PDF-identical — the user's condense choices differ from Dorico's).
 
 **Exit criteria**: complex2 opens with the Setup dialog and, with
-reasonable choices, renders with zero system-overflow warnings,
-animates in sync, and exports; join complete on all six fixtures;
-`pytest` green including `test_no_qt_in_core.py`.
+reasonable choices, renders with zero system-overflow (auto scale-to-fit
+completes never-clip when condensing/pagination cannot), animates in
+sync, and exports; join complete on all six fixtures; `pytest` green
+including `test_no_qt_in_core.py`. **PASSED 2026-07-21.**
 
 ## Later (explicitly not now)
 

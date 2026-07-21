@@ -141,6 +141,13 @@ _SPANNER_CLASSES = {"slur", "tie", "hairpin", "lv"}
 # onset=None, which is what the schedule's onset gate excludes.
 _STATIC_TEXT_CLASSES = {"label", "labelAbbr", "pgHead", "pgFoot", "mNum"}
 
+# Scale-to-fit (Phase 12.5): Verovio's default scale is 100; a system
+# taller than its page is shrunk to `100 · page_h / bottom · _FIT_MARGIN`
+# so nothing is clipped (rule 7). The margin absorbs the small part of the
+# layout — top/bottom page margins — that does not scale perfectly linearly.
+_DEFAULT_SCALE = 100
+_FIT_MARGIN = 0.96
+
 # SVG classes whose Verovio id is genuinely a timemap key (notes and
 # rests). Note-owned fragments (stems, flags, accidentals, beams, …)
 # derive their onset from their owner, NOT their own id — and MUST NOT
@@ -839,6 +846,7 @@ class VerovioEngravingProvider(EngravingProvider):
         # are pagination-independent.
         page_h = engraved.layout.pages[0].height
         bands = system_bands(engraved.layout)
+        breaks: tuple[int, ...] = ()
         if any(b.rect.y + b.rect.h > page_h for b in bands):
             breaks = plan_page_breaks(bands, page_h, first_measure)
             if breaks:
@@ -853,12 +861,32 @@ class VerovioEngravingProvider(EngravingProvider):
                     f"{len(breaks)} page break(s) re-derived "
                     f"(before measures "
                     f"{', '.join(str(m) for m in breaks)})"))
+
+            # A single system taller than its page cannot be paginated
+            # away (Dorico sized the page for its condensed score). Scale
+            # the engraving down uniformly so the tallest system fits —
+            # the never-clip completion (Phase 12.5, rule 7). Derived
+            # every load from the measured overflow, never stored (rule 5).
+            bands = system_bands(engraved.layout)
+            bottom = max((b.rect.y + b.rect.h for b in bands), default=0.0)
+            if bottom > page_h:
+                fit = max(1, int(_DEFAULT_SCALE * page_h / bottom * _FIT_MARGIN))
+                prep = prepare(score_path, groups, texts, condense,
+                               page_break_measures=breaks)
+                engraved, _ = self._engrave_prepared(
+                    score_path, prep, params, effective_hide, strict,
+                    scale=fit)
+                assert engraved is not None
+                extra.append(LoadWarning(
+                    "scaled-to-fit",
+                    f"the tallest system exceeded the page height; the "
+                    f"engraving was scaled to {fit}% so nothing is clipped"))
                 for b in system_bands(engraved.layout):
                     if b.rect.y + b.rect.h > page_h:
                         extra.append(LoadWarning(
                             "system-overflow",
                             f"system {b.system} still overflows page "
-                            f"{b.page} after repagination"))
+                            f"{b.page} after scale-to-fit"))
         if extra:
             engraved = replace(engraved,
                                warnings=engraved.warnings + tuple(extra))
@@ -866,7 +894,8 @@ class VerovioEngravingProvider(EngravingProvider):
 
     @staticmethod
     def _make_toolkit(prep: PreparedScore,
-                      params: EngravingParams) -> "verovio.toolkit":
+                      params: EngravingParams,
+                      scale: int | None = None) -> "verovio.toolkit":
         tk = verovio.toolkit()
         tk.setOptions({
             "breaks": "encoded",
@@ -896,18 +925,26 @@ class VerovioEngravingProvider(EngravingProvider):
             # SYSTEM_DIVIDER decomposer support stays as defense.
             "systemDivider": "none",
         })
+        # Scale-to-fit (Phase 12.5, never-clip completion): a uniform
+        # staff-size reduction so a system taller than the page fits
+        # (rule 7 — an engraving input like Dorico's rastral size, not
+        # window reflow). None keeps Verovio's default (100).
+        if scale is not None:
+            tk.setOptions({"scale": scale})
         return tk
 
     def _engrave_prepared(self, score_path: Path, prep: PreparedScore,
                           params: EngravingParams,
                           hide_empty_staves: bool,
-                          strict: bool = True
+                          strict: bool = True,
+                          scale: int | None = None
                           ) -> tuple[EngravedScore | None, dict[int, int]]:
         """One full engrave+decompose; also returns the first measure
         of every system (for the repagination planner). The score is
         None only when hide_empty_staves hid a slash-region staff (the
-        caller retries flat)."""
-        tk = self._make_toolkit(prep, params)
+        caller retries flat). `scale` (Phase 12.5) shrinks the engraving
+        uniformly so a too-tall system fits the page (never-clip)."""
+        tk = self._make_toolkit(prep, params, scale)
         if not tk.loadData(prep.canonical_xml):
             raise ValueError(f"Verovio failed to load {score_path}")
         if hide_empty_staves:
@@ -916,7 +953,7 @@ class VerovioEngravingProvider(EngravingProvider):
             # staffDef@visible are ignored). The round-trip is id- and
             # timemap-transparent (Phase 10R spike, section A).
             mei_text = _set_scoredef_optimize(tk.getMEI())
-            tk = self._make_toolkit(prep, params)
+            tk = self._make_toolkit(prep, params, scale)
             if not tk.loadData(mei_text):
                 raise ValueError(
                     f"Verovio failed to reload optimized MEI for "

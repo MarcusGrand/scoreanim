@@ -195,11 +195,13 @@ class LoadWarning:
     suppressed — Phase 10R), "hide-unavailable" (empty-staff hiding
     skipped: it would hide a slash-region staff, rule 10),
     "repaginated" (encoded page breaks replaced — systems overflowed;
-    page-scoped ids shift), "system-overflow" (defensive: a system
-    still overflows after repagination), "unknown-class" (a drawable SVG
-    class the decomposer does not know was rendered as a static element
-    instead of failing the load — app path only, Phase 11.4; strict
-    loads still raise).
+    page-scoped ids shift), "scaled-to-fit" (a system taller than its
+    page could not be paginated away, so the engraving was scaled down
+    uniformly so nothing is clipped — Phase 12.5, never-clip completion),
+    "system-overflow" (defensive: a system still overflows after
+    scale-to-fit), "unknown-class" (a drawable SVG class the decomposer
+    does not know was rendered as a static element instead of failing the
+    load — app path only, Phase 11.4; strict loads still raise).
     """
     code: str
     message: str
