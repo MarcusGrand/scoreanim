@@ -92,7 +92,7 @@ def test_fresh_capture_is_byte_identical(engraved_pickup) -> None:
     """Determinism pin: a second independent load serializes to the same
     bytes (fixed xmlIdSeed — the property the whole suite rests on)."""
     from scoreanim.core.engraving.types import EngravingParams
-    from scoreanim.core.engraving.verovio_adapter import \
+    from scoreanim.core.engraving.verovio import \
         VerovioEngravingProvider
     from .conftest import PICKUP_SCORE
     again = VerovioEngravingProvider().load_detailed(PICKUP_SCORE,

@@ -18,10 +18,11 @@ from scoreanim.core.animation.schedule import ANIMATED_KINDS
 from scoreanim.core.animation.style import TINTED_KINDS
 from scoreanim.core.engraving.svg_geom import path_bbox
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import (_identity_for,
-                                                      _LoadState, _MeiIndex,
-                                                      _PageDecomposer,
-                                                      VerovioEngravingProvider)
+from scoreanim.core.engraving.verovio import VerovioEngravingProvider
+from scoreanim.core.engraving.verovio.decompose import _PageDecomposer
+from scoreanim.core.engraving.verovio.identity import _identity_for
+from scoreanim.core.engraving.verovio.mei_index import _MeiIndex
+from scoreanim.core.engraving.verovio.records import _LoadState
 from scoreanim.core.score.identity import ElementKind
 from scoreanim.core.score.musicxml_prep import PartGroupSpec
 from tests.conftest import TESTSCORE

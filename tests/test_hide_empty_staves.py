@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 
 from scoreanim.core.engraving.systems import system_bands
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
+from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.score.identity import ElementKind
 
 from .conftest import TESTSCORE, VIDEO_SCORE

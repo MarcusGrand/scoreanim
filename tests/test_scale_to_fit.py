@@ -8,7 +8,7 @@ every load from the measured overflow, never stored.
 
 from scoreanim.core.engraving.systems import system_bands
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
+from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 
 from .conftest import TALL_SYSTEM_SCORE, TESTSCORE
 

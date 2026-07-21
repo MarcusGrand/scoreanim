@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import (EngravedScore,
-                                                      VerovioEngravingProvider)
+from scoreanim.core.engraving.verovio import (EngravedScore,
+                                              VerovioEngravingProvider)
 
 TESTSCORE = Path(__file__).resolve().parent.parent / "testdata" / "testscore.musicxml"
 # Dorico export with a hairpin broken across the m4→m5 system break, a slur

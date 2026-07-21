@@ -121,7 +121,7 @@ def adapter_ids(mutate) -> set[str]:
     import sys
     sys.path.insert(0, str(ROOT))
     from scoreanim.core.engraving.types import EngravingParams
-    from scoreanim.core.engraving.verovio_adapter import \
+    from scoreanim.core.engraving.verovio import \
         VerovioEngravingProvider
 
     root = ET.fromstring(SCORE.read_bytes())

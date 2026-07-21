@@ -12,7 +12,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 
 from scoreanim.core.engraving.types import Affine, EngravingParams, Layout
-from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
+from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 
 _KIND_COLOR = {
     "NOTEHEAD": "#e6194b", "STEM": "#3cb44b", "BEAM": "#ffe119",

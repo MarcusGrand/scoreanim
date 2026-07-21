@@ -51,12 +51,13 @@ sys.path.insert(0, str(ROOT))
 
 import verovio                                                # noqa: E402
 
-from scoreanim.core.engraving import verovio_adapter          # noqa: E402
 from scoreanim.core.engraving.svg_geom import parse_transform  # noqa: E402
 from scoreanim.core.engraving.types import (                  # noqa: E402
     Affine, EngravingParams, Rect)
-from scoreanim.core.engraving.verovio_adapter import (        # noqa: E402
-    _CONTAINER_CLASSES, _KIND_BY_CLASS, VerovioEngravingProvider)
+from scoreanim.core.engraving.verovio import (         # noqa: E402
+    VerovioEngravingProvider)
+from scoreanim.core.engraving.verovio.kinds import (          # noqa: E402
+    _CONTAINER_CLASSES, _KIND_BY_CLASS)
 from scoreanim.core.score.identity import Beats, ElementKind  # noqa: E402
 from scoreanim.core.score.join import (                       # noqa: E402
     _align_voices, _note_key, _pitch_key, join_notes)

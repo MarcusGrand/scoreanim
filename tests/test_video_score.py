@@ -233,7 +233,7 @@ def test_new_notation_classes_render(engraved_video):
 
 def test_element_ids_deterministic_across_reloads(engraved_video):
     from scoreanim.core.engraving.types import EngravingParams
-    from scoreanim.core.engraving.verovio_adapter import \
+    from scoreanim.core.engraving.verovio import \
         VerovioEngravingProvider
     again = VerovioEngravingProvider().load_detailed(VIDEO_SCORE,
                                                      EngravingParams())
@@ -246,7 +246,7 @@ def test_element_ids_stable_under_grouping_on_video(engraved_video):
     # injecting a group must add exactly its grpSym ids and move nothing
     # (the native P5 brace ids included)
     from scoreanim.core.engraving.types import EngravingParams
-    from scoreanim.core.engraving.verovio_adapter import \
+    from scoreanim.core.engraving.verovio import \
         VerovioEngravingProvider
     from scoreanim.core.score.musicxml_prep import PartGroupSpec
     grouped = VerovioEngravingProvider().load_detailed(

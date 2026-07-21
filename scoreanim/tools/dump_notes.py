@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
+from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.score.identity import ElementKind
 
 

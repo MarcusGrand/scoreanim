@@ -29,7 +29,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
-from scoreanim.core.engraving.verovio_adapter import AdapterNoteRecord
+from scoreanim.core.engraving.verovio import AdapterNoteRecord
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.score.model import ScoreModel, ScoreNote
 

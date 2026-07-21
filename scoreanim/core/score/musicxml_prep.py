@@ -165,7 +165,7 @@ def _repaginate(root: ET.Element, break_measures: tuple[int, ...]) -> None:
                 del pr.attrib["new-page"]
     wanted = set(break_measures)
     # Measure identity is the 1-based document-order ordinal everywhere (see
-    # verovio_adapter._parse_mei): `break_measures` come from the adapter's
+    # verovio.mei_index._parse_mei): `break_measures` come from the adapter's
     # ordinal-keyed system_of_measure, so match by ordinal here — the printed
     # `number` is neither unique nor consistent (Dorico's "X0"/"X1" bars).
     for ordinal, measure in enumerate(parts[0].findall("measure"), start=1):

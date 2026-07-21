@@ -7,7 +7,7 @@ from collections import Counter
 
 from scoreanim.core.animation import TINTED_KINDS, is_animated
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
+from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.score.identity import ElementKind
 from scoreanim.core.score.join import join_notes
 

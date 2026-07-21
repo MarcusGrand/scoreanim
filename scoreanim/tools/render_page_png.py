@@ -20,7 +20,7 @@ from PySide6.QtGui import QColor, QImage, QPainter  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from scoreanim.core.engraving.types import EngravingParams  # noqa: E402
-from scoreanim.core.engraving.verovio_adapter import (  # noqa: E402
+from scoreanim.core.engraving.verovio import (  # noqa: E402
     VerovioEngravingProvider)
 from scoreanim.core.project.stage_config import (  # noqa: E402
     default_stage_config, page_content_top)

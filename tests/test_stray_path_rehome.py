@@ -10,7 +10,7 @@ down in the later system (a solid-black "tie" appearing many bars ahead
 of the playhead once the ghost floor is 0).
 
 The adapter now re-homes any path whose geometry lands in a different
-system than its element (verovio_adapter._rehome_stray_paths): the ink
+system than its element (verovio.attribution._rehome_stray_paths): the ink
 becomes its own element attributed by geometry to the system it occupies,
 so it animates in place and never leaks. These tests pin both the core
 invariant (no element's ink crosses a system band) and the observable

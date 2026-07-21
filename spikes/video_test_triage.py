@@ -37,10 +37,11 @@ import verovio
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from scoreanim.core.engraving import verovio_adapter          # noqa: E402
 from scoreanim.core.engraving.types import EngravingParams    # noqa: E402
-from scoreanim.core.engraving.verovio_adapter import (        # noqa: E402
-    _CONTAINER_CLASSES, _KIND_BY_CLASS, VerovioEngravingProvider)
+from scoreanim.core.engraving.verovio import (         # noqa: E402
+    VerovioEngravingProvider)
+from scoreanim.core.engraving.verovio.kinds import (          # noqa: E402
+    _CONTAINER_CLASSES, _KIND_BY_CLASS)
 from scoreanim.core.score.model import build_score_model      # noqa: E402
 from scoreanim.core.score.musicxml_prep import (              # noqa: E402
     PartGroupSpec, prepare)

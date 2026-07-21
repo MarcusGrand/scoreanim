@@ -9,7 +9,7 @@ is naive (ruling d): shared staff, one voice per player, no a2/divisi.
 import pytest
 
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
+from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.project import (AddCondenseGroup, ApplyScoreSetup,
                                     CommandError, CondenseGroup,
                                     EditCondenseGroup, ProjectDoc,

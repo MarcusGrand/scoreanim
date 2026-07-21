@@ -10,9 +10,10 @@ from collections import defaultdict
 import pytest
 
 from scoreanim.core.animation import ANIMATED_KINDS, TINTED_KINDS, is_animated
-from scoreanim.core.engraving.verovio_adapter import (_LoadState, _MeiIndex,
-                                                      _PageDecomposer,
-                                                      _identity_for)
+from scoreanim.core.engraving.verovio.decompose import _PageDecomposer
+from scoreanim.core.engraving.verovio.identity import _identity_for
+from scoreanim.core.engraving.verovio.mei_index import _MeiIndex
+from scoreanim.core.engraving.verovio.records import _LoadState
 from scoreanim.core.score.identity import ElementKind
 
 

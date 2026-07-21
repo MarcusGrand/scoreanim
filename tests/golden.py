@@ -25,8 +25,8 @@ import hashlib
 import json
 
 from scoreanim.core.engraving.types import RenderedElement, RenderPrimitive
-from scoreanim.core.engraving.verovio_adapter import (AdapterNoteRecord,
-                                                      EngravedScore)
+from scoreanim.core.engraving.verovio import (AdapterNoteRecord,
+                                              EngravedScore)
 
 
 def _glyph_sha256(glyph: RenderPrimitive) -> str:

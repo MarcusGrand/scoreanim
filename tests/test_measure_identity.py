@@ -12,7 +12,7 @@ fix: identity is [1,2,3] on both sides, display stays [0,1,2]."""
 from pathlib import Path
 
 from scoreanim.core.engraving.provider import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
+from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.score.join import join_notes
 from scoreanim.core.score.model import build_score_model
 
