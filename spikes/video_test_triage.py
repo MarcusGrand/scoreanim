@@ -450,14 +450,16 @@ def section_f():
             lambda: provider.load_detailed(VIDEO, params))
 
     # F3 sits behind F2 in the load pipeline; neutralize ledger
-    # attribution for this one probe so the spanner pass is reached.
-    original = verovio_adapter._attribute_ledger_dashes
-    verovio_adapter._attribute_ledger_dashes = lambda accs, st: None
+    # attribution for this one probe so the spanner pass is reached
+    # (patched on the attribution stage module since the Phase R split).
+    from scoreanim.core.engraving.verovio import attribution
+    original = attribution._attribute_ledger_dashes
+    attribution._attribute_ledger_dashes = lambda accs, st: None
     try:
         attempt("F3 tie continuation mismatch (ledger pass stubbed)",
                 lambda: provider.load_detailed(VIDEO, params))
     finally:
-        verovio_adapter._attribute_ledger_dashes = original
+        attribution._attribute_ledger_dashes = original
 
     attempt("F4 two-group systemDivider guard",
             lambda: provider.load_detailed(

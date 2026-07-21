@@ -336,13 +336,16 @@ def _attribute_ledger_dashes_with_mrest(accumulators, st):
 
 @contextmanager
 def shim_mrest_ledger():
-    orig = verovio_adapter._attribute_ledger_dashes
-    verovio_adapter._attribute_ledger_dashes = \
+    # patched where the pipeline looks the pass up (the attribution stage
+    # module since the Phase R package split)
+    from scoreanim.core.engraving.verovio import attribution
+    orig = attribution._attribute_ledger_dashes
+    attribution._attribute_ledger_dashes = \
         _attribute_ledger_dashes_with_mrest
     try:
         yield
     finally:
-        verovio_adapter._attribute_ledger_dashes = orig
+        attribution._attribute_ledger_dashes = orig
 
 
 def try_load(score: Path, *shims):
