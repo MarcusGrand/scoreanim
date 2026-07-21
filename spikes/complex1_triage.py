@@ -268,15 +268,17 @@ def _apply_rect_corners(self: Affine, r: Rect) -> Rect:
 @contextmanager
 def shim_rotate():
     """Brief item 1c: rotate-capable transform parse + corner-mapped
-    apply_rect, patched where the decomposer looks them up."""
-    orig_parse = verovio_adapter.parse_transform
+    apply_rect, patched where the decomposer looks them up (the decompose
+    stage module since the Phase R package split)."""
+    from scoreanim.core.engraving.verovio import decompose
+    orig_parse = decompose.parse_transform
     orig_apply = Affine.apply_rect
-    verovio_adapter.parse_transform = _parse_transform_with_rotate
+    decompose.parse_transform = _parse_transform_with_rotate
     Affine.apply_rect = _apply_rect_corners
     try:
         yield
     finally:
-        verovio_adapter.parse_transform = orig_parse
+        decompose.parse_transform = orig_parse
         Affine.apply_rect = orig_apply
 
 
