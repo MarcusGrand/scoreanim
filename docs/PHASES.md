@@ -1357,6 +1357,199 @@ fails without it.
       group). 478 headless green; score-doctor 8/9 (bigband1 --strict
       FAILs only on a pre-existing unknown `gliss` class — separate gap).
 
+## Phase R — Refactor: verovio_adapter → pipeline-stage package
+
+Planned 2026-07-22 from `docs/REFACTOR_BRIEF.md` (Cowork planning
+session, 2026-07-21). The brief's map was re-verified against the
+working tree before planning: the adapter is unchanged since the brief
+(1823 lines; every claimed line band holds), and the import graph
+confirmed with one addition (`spikes/part_label.py` imports the
+provider, function-local). Goal: split
+`core/engraving/verovio_adapter.py` into `core/engraving/verovio/` —
+one module per pipeline stage behind the same public API — with a
+golden-snapshot safety net captured and committed BEFORE the first
+move, then surface and fix latent defects under the behavior-change
+policy. Rule 4 unchanged: Verovio types/ids/SVG never leak past the
+adapter PACKAGE. Out of scope: the live-playback spanner early-reveal
+bug (render/applier path, verified 2026-07-21 — its own session),
+provider-seam redesign, any new abstraction beyond the module
+boundaries themselves (no strategy patterns, no pipeline framework),
+`_LoadState` narrowing and the `_identity_for` onset-chain table
+(BACKLOG).
+
+Behavior-change policy (ruled by Marcus 2026-07-21 — recorded, not
+re-opened): (1) mechanical moves are byte-identical to the goldens,
+full pytest green, per commit, no exceptions — a move that "needs" a
+tweak isn't a move; the tweak is logged as a finding. (2) Hardening
+with no output change (messages, invariants, defensive checks) is
+free in its OWN commits — the goldens prove the claim. (3) Behavior
+fixes (any fixture's output differs) are LOGGED to
+`docs/REFACTOR_FINDINGS.md` during R.1–R.3, never fixed inline; fixed
+in R.4 one per commit with (i) the golden before/after diff, (ii) a
+test pinning the new behavior, (iii) the baseline re-captured in the
+same commit. Fixes changing animation semantics or rendered output
+flag-and-stop for Marcus's ruling; pure crash/robustness fixes
+proceed and report their diffs at stage end. A move and a fix never
+share a commit.
+
+Rulings at plan review (Marcus, 2026-07-22):
+
+- **(a) Import sites — update all and delete.** Temporary shim during
+  R.1 only; R.3 repoints every import site (app, four tools, join.py,
+  conftest + 12 test modules, spikes/part_label.py) to
+  `core/engraving/verovio/` and DELETES `verovio_adapter.py`. No
+  permanent shim — it would freeze the old structure in place.
+- **(b) Triage spikes — update their patch lines**, in the same
+  commit as the move that breaks each seam: move (4) repoints
+  complex1_triage's patch to `verovio.decompose.parse_transform`;
+  move (7) repoints both spikes' ledger-dash patches to
+  `verovio.attribution._attribute_ledger_dashes`. Both spikes stay
+  runnable throughout.
+- **(c) Module split — nine modules, approved as proposed:**
+  `kinds.py` (~150: namespace constants, _KIND_BY_CLASS,
+  _CONTAINER_CLASSES, _ID_TAG, _SPANNER_CLASSES,
+  _STATIC_TEXT_CLASSES, _DEFAULT_SCALE/_FIT_MARGIN,
+  _TIMEMAP_CLASSES, _BOLD/_ITALIC_TEXT_CLASSES, _ACCID_TO_ALTER —
+  tables only, no logic); `mei_index.py` (~230: _MeiNote, _MeiIndex,
+  _int_or, _parse_mei, _walk_layer, plus the two pure-XML helpers the
+  brief left unplaced, _set_scoredef_optimize and _container_ns);
+  `records.py` (~75: AdapterNoteRecord, EngravedScore, _LoadState +
+  glyph_bbox); `decompose.py` (~395: _ElementAccumulator,
+  _PageDecomposer, _RunAttrs); `attribution.py` (~390:
+  _attribute_ledger_dashes, _attribute_spanner_segments,
+  _rehome_stray_paths, _flag_implausible_ties, _tstamp2_end_measure,
+  _tstamp_extent); `identity.py` (~310: _build_elements,
+  _chord_group, _attach_onset, _identity_for); `synthesis.py` (~110:
+  _SLASH_D, _synthesize_slashes, _REPEAT_D, _synthesize_repeats);
+  `provider.py` (~265: VerovioEngravingProvider with load /
+  load_detailed retry loops / _make_toolkit, and _engrave_prepared);
+  `__init__.py` (package docstring carrying the current file-head
+  contract — identity minted from musical position, fixed xmlIdSeed,
+  rule-4 boundary — plus the public re-exports).
+
+Facts the plan builds on (verified this session): the pipeline order
+lives in `_engrave_prepared` (toolkit → loadData → optional
+hide-empty MEI round-trip → `_parse_mei` → timemap → onset/measure
+tables → `_LoadState` → `_container_ns` → per-page `_PageDecomposer`
+→ staff_centers_by_system → REHOME STRAYS → LEDGER DASHES → SPANNER
+SEGMENTS → IMPLAUSIBLE TIES → `_build_elements` → hide-vanish guard
+→ synthesize slashes → repeats), while the hide/repagination/
+scale-to-fit retry loops live in the CALLER, `load_detailed` — one
+function up from where the brief placed them. File definition order
+≠ call order (rehome is defined third among the post-passes but runs
+first). The proposed module graph is ACYCLIC (kinds ← mei_index ←
+records ← decompose ← attribution ← identity; synthesis → records;
+provider → all) with three runtime cross-module deps that must be
+real imports, never TYPE_CHECKING-only: attribution constructs
+`_ElementAccumulator` (rehome's split-out elements), identity calls
+`_tstamp_extent`, decompose calls `_int_or`. The spikes' monkeypatch
+seams break at specific move commits — the decompose move breaks
+complex1_triage's `parse_transform` patch LOUDLY (unpatched rotate
+raises); the provider move breaks both `_attribute_ledger_dashes`
+patches SILENTLY (the real function runs, no error) — handled per
+ruling (b) in those same commits. The package name `verovio` does
+not shadow the pip `import verovio` (absolute imports), and
+`verovio/provider.py` must import the base seam absolutely
+(`scoreanim.core.engraving.provider`), never `from .provider`.
+
+- [ ] **R.0 Golden harness + baselines**: `tests/golden.py` (pure
+      serializer: EngravedScore → JSON) + `tests/test_golden_layouts.py`
+      + committed `tests/goldens/<name>.json`. Per element, in LAYOUT
+      ORDER (deterministic — accumulator order over membership-only
+      sets; stricter than the brief's "sorted", and order is
+      downstream-visible): element_id, kind.name, page, system, part,
+      part_name, staff, voice, onset, extent, text_class, x, y, bbox,
+      anchor (exact float reprs), path/text counts, and a sha256 glyph
+      hash over exact reprs of every PathPrimitive (d, transform,
+      fill, stroke, stroke_width) and TextPrimitive/TextRun (content,
+      position, styling) — counts alone would let the styling branches
+      the split moves (fill-opacity→none, currentColor defaults,
+      bold/italic mapping, `_RunAttrs` inheritance) regress
+      undetected. Plus all AdapterNoteRecord fields, all
+      (code, message) warning pairs, page geometries, and a sha256 of
+      `prepared.canonical_xml`. Baseline fixtures (12 loads, reusing
+      the session fixtures; complex2 stays OUT — ~20 s, the doctor is
+      its check): testscore, broken_hairpin_and_slur_test, video_test
+      flat + hidden, complex1, bigband1 hidden (strict=False),
+      complex3 hidden (test_phantom_slur's module fixture promoted to
+      a session conftest fixture, skip-if-absent kept), pickup_min,
+      bar_repeat_min, condense_min flat + one-condense-group variant,
+      tall_system_min (the scale-to-fit path). Verify: baselines
+      committed; a comparator unit test proves a removed element, a
+      mutated float, and a changed glyph hash each FAIL; a second
+      fresh capture is byte-identical; full pytest green.
+- [ ] **R.1 Mechanical split — seven move commits, zero logic edits**:
+      create `core/engraving/verovio/` with `__init__.py`;
+      `verovio_adapter.py` becomes a thin shim DURING the split,
+      re-exporting the external surface by EXPLICIT name (star-import
+      skips underscore names): `_LoadState`, `_MeiIndex`,
+      `_PageDecomposer`, `_identity_for`, `_CONTAINER_CLASSES`,
+      `_KIND_BY_CLASS`, `_attribute_ledger_dashes`, `parse_transform`,
+      VerovioEngravingProvider, EngravedScore, AdapterNoteRecord.
+      Move order (one commit each): (1) kinds.py; (2) mei_index.py
+      incl. `_set_scoredef_optimize` + `_container_ns`;
+      (3) records.py; (4) decompose.py — repoint complex1_triage's
+      `parse_transform` patch per ruling (b) in this commit;
+      (5) attribution.py; (6) identity.py + synthesis.py;
+      (7) provider.py, importing stage modules AS MODULES
+      (`attribution._attribute_ledger_dashes(...)`) so the pipeline
+      reads module-qualified and monkeypatching stays possible —
+      repoint both spikes' ledger-dash patches per ruling (b) in this
+      commit. Verify EVERY commit: full pytest green +
+      test_golden_layouts byte-identical. After (7):
+      verovio_adapter.py contains only the shim.
+- [ ] **R.2 Seams made explicit, minimally**: `_engrave_prepared` IS
+      the pipeline function — keep it; add the WHY-order comment
+      block (staff_centers built before rehome because rehome and
+      identity read them; rehome BEFORE ledger/spanner attribution so
+      re-homed ink is never claimed by them; implausible-ties AFTER
+      segment matching so bogus sources stay in the pairing pool;
+      build before synthesis so synthesized elements never enter the
+      post-passes) and module docstrings stating each stage's
+      inputs/outputs and which `_LoadState` fields it reads/writes.
+      No signature changes beyond what the moves forced. Verify:
+      comment/docstring-only diff; pytest green; goldens
+      byte-identical.
+- [ ] **R.3 Tooling migration** (per rulings a/b): repoint
+      ui/main_window.py, the four tools (check_score, dump_notes,
+      render_page_png, bbox_overlay), core/score/join.py, conftest +
+      the 12 adapter-importing test modules (incl. the private imports
+      in test_adapter_coverage/test_adapter_groups), and
+      spikes/part_label.py to the package; DELETE the shim (ruling a).
+      Verify: `grep -rn verovio_adapter scoreanim/ tests/ spikes/`
+      shows only comment-text remnants; pytest green; goldens
+      byte-identical; both triage spikes RUN end-to-end.
+- [ ] **R.4 Findings pass**: work `docs/REFACTOR_FINDINGS.md` under
+      the policy — category-2 hardening freely in its own commits
+      (goldens prove no output change); category-3 fixes one per
+      commit with golden before/after diff + pinning test + baseline
+      re-capture in the same commit; flag-and-stop on anything that
+      changes animation semantics or rendered output; out-of-scope or
+      too-large findings → BACKLOG.md with a one-line rationale.
+      Verify: every finding dispositioned (fixed / backlogged /
+      ruled-out); each fix commit contains its golden diff and test.
+- [ ] **R.5 Docs close-out + exit**: CLAUDE.md (rule 4 path → the
+      package; package-layout tree lists the modules one line each);
+      ARCHITECTURE.md §3 module map + pipeline order + one line on
+      why the order is fixed; BACKLOG.md (deferred: `_LoadState`
+      narrowing, `_identity_for` onset table, perf; goldens noted as
+      the standing regression net); spikes/NOTES.md package-split
+      note; PHASES.md as-built incl. the findings list and each
+      finding's fate. Exit run: full pytest; the golden suite; the
+      score-doctor over all testdata fixtures; a scripted offscreen
+      open+animate+export-frame run on bigband1 and complex1
+      (ScoreScenes + FrameRenderer idiom). Report per-module line
+      counts and every behavior change that landed, with its golden
+      diff. Verify: all green; no file under scoreanim/ imports
+      verovio_adapter.
+
+**Exit criteria**: the package is in place; full pytest green;
+goldens byte-identical to the R.0 baselines except where an R.4 fix
+commit deliberately re-captured them; score-doctor passes across
+testdata as before; the findings list is fully dispositioned; docs
+closed out. The goldens remain in the suite permanently as the
+standing regression net for adapter work.
+
 ## Later (explicitly not now)
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-
