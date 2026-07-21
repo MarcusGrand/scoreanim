@@ -1,5 +1,50 @@
 # Spike & build notes
 
+## Phase 12 — Orchestral robustness planning (2026-07-21)
+
+Verified the PHASE12_BRIEF diagnosis against the real files during
+planning; **the brief was corrected on two points.** Verovio 6.2.x.
+
+- **Verovio draws NOTHING for `<measure-repeat>`** (census, read-only).
+  Its MusicXML importer has no measure-repeat support: the repeat bars
+  import as invisible `<space>` (Bongos staff 25, m2: two `<space
+  dur=2>`), and there are ZERO `mRpt`/`beatRpt` glyphs in the MEI or the
+  rendered SVG (`mRest`/`space`/`mSpace` only). The brief's "Verovio
+  draws the mRpt symbol but produces no animated elements" is WRONG —
+  it draws nothing. → 12.2 must FULLY SYNTHESIZE the % symbol (SMuFL
+  `repeat1Bar` U+E500) in the slash-region shape, not map a drawn glyph.
+- **3 regions / ~32 bars, not "6 regions."** The 6 `<measure-repeat>`
+  tags are 3 `[start, stop)` spans: Bongos mm.2–12 & mm.14–24, Drum Set
+  mm.98–107 — the same half-open convention `_slash_regions` uses.
+  (`type="start">1` = single-bar repeat, spanning to the matching stop.)
+- **Appoggiatura join is surgical.** `join.py::_match_voice` already
+  sorts+zips both sides by document order (`ScoreNote.order` /
+  `AdapterNoteRecord.order_in_voice`) within a pitch bucket; the ONLY
+  onset dependence is `_note_key` embedding `round(onset*4096)` for
+  non-graces. Verovio delays the appoggiatura's principal by the grace
+  duration (+0.0957 q, complex1) while music21 keeps the notated beat →
+  the quantized onsets differ → the principal misses. Dropping the onset
+  term (12.1) is the whole fix; the grace tier already works this way.
+  Chord-graces fall out for free (distinct pitch + order per member).
+  Ruling: trigger stays the Verovio qstamp (performance time); the join
+  fix only closes the match, no retiming.
+
+- **Condensing is viable as designed** (`spikes/condense_prep.py`,
+  kept). Naive prep-seam merge of Flute 1 (P1) + Flute 2 (P2) into one
+  staff as two voices — append P2's voice flow behind a `<backup>` of
+  the measure's voice cursor, relabel voice → +1, force `<staff>1`,
+  combine the label to "Flute 1.2". Verified: merged part = 159
+  measures, 642 real notes (= 321+321), m64 balances (v1=80, v2=80);
+  renders cleanly (Verovio auto-assigns v1 stems up / v2 down; separate
+  beams/rests; ties/trills/graces survive) with NO collisions on both
+  unison (mm.84–92, collapses to one doubled line) and divergent
+  (mm.60–63 staccato) passages. Only cost: doubled noteheads in unison
+  (a2-collapse deferred to BACKLOG). Merging the two flutes took that
+  staff 5 pages → 3. Build note: the spike also folds P2's `<direction>`
+  (dynamics) in — harmless on unison, doubles on divergent bars; 12.3
+  decides (primary-only vs accept). SVG→PNG for review via `qlmanage`
+  (only rasterizer on the box; no cairosvg/rsvg/resvg).
+
 ## Phase 11 — Dorico robustness (`spikes/complex1_triage.py`, 2026-07-19)
 
 Triage spike verified the PHASE11_BRIEF diagnosis against the real

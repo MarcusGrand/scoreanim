@@ -1143,6 +1143,163 @@ reports PASS for the four permanent fixtures and complex2 loads
 through decomposition with only overflow-class warnings; `pytest`
 green including `test_no_qt_in_core.py`.
 
+## Phase 12 — Orchestral robustness: complex2 loads usably
+
+Planned 2026-07-21 from `docs/PHASE12_BRIEF.md` (Cowork planning
+session, 2026-07-15). **Phase 11 was the stepping stone and is closed.**
+The brief's diagnosis was re-verified against the real files during
+planning (join pipeline read against `core/score/join.py`; two
+read-only complex2 censuses; the condense-render spike
+`spikes/condense_prep.py`, kept) — and **corrected the brief on two
+points** (below). Milestone: `testdata/complex2.musicxml` (36 parts /
+37 staves, 159 measures, 5.7 MB, 11 transposed parts, Dorico-condensed
+in the PDF, bar repeats; companion `complex2.pdf`) **loads, renders
+usably via load-time user choices, animates, and exports.** complex2
+already loads through decomposition (Phase 11: 42,615 elements, 20
+pages) but is structurally unusable — every one of the 20 systems
+overflows its page (a 37-staff system is taller than one page;
+repagination cannot fix a single over-tall system). The user must be
+able to reduce staff count at load time (condense / hide / bracket).
+
+Reconciliation with rulings that post-date the brief (now in CLAUDE.md):
+
+- **Animation is a DENYLIST** (`schedule.STATIC_KINDS`; `ANIMATED_KINDS`
+  is derived). A new `ElementKind` animates by default, so 12.2's
+  synthesized `BAR_REPEAT` elements enter the animated set with ZERO
+  allowlist edits — the adapter only mints them with an onset and keeps
+  them out of `STATIC_KINDS`. The brief's "the kind census has no repeat
+  kind" is a non-issue. Tint scope unchanged (repeat symbols tint like
+  slashes — playing ink).
+- **No-audio playback (WallClock) exists.** The Score Setup dialog
+  re-engraves via the existing `_reengrave` diff-guard (preserves
+  page/system/zoom); 12.4/12.5 must verify it does NOT reset the
+  no-audio transport/WallClock anchoring (the controller picks the clock
+  by `transport.has_media()`). A "don't break it" check, not new work.
+
+Rulings at plan review (Marcus, 2026-07-21):
+
+- **(a) Trigger timing for notes after appoggiaturas — Verovio
+  performance qstamp**, not the notated beat. The principal lights when
+  it actually sounds (Verovio delays it by the grace duration),
+  consistent with how graces already fire (Phase 3.3) and the sync
+  contract (ink lands on the audible onset). 12.1's order-based join
+  keeps both onsets derivable, so the choice is reversible.
+- **(b) Bar-repeat granularity — per measure.** One synthesized repeat
+  symbol (SMuFL `repeat1Bar` U+E500) per repeated bar, onset at the
+  bar's downbeat. (Verovio draws no glyph at all — full synthesis; a
+  measure-repeat is one symbol per bar, so per-beat has no ink to draw.)
+- **(c) Score Setup dialog — batch on OK.** The dialog gathers all
+  choices; OK applies ONE command (the "fat apply" idiom — there is no
+  generic macro command) = one undo step + exactly one re-engrave.
+  Chosen because complex2 re-engraves in ~20 s (vs 0.6 s on the
+  fixtures), so the existing per-action live-re-engrave dialog model
+  (Staff Groups) would stall repeatedly. The Setup dialog is therefore a
+  BATCH editor (deferred apply), unlike the per-action Parts dialogs.
+- **(d) Condense scope — v1 as designed** (naive shared-staff two-voice
+  merge; one voice per player; combined label; NO a2 unison collapse, NO
+  divisi logic). Confirmed by the render spike: the naive Flute 1.2
+  merge renders cleanly (correct stem/rest/beam separation, no
+  collisions) on both unison and divergent passages; the only cost is
+  doubled noteheads in unison (a2-collapse deferred to BACKLOG). Merging
+  two flutes took that staff 5 pages → 3.
+
+Spike corrections to the brief (2026-07-21, `spikes/NOTES.md` Phase 12):
+
+- **Verovio draws NOTHING for `<measure-repeat>`.** Its MusicXML
+  importer has no measure-repeat support — repeat bars import as
+  invisible `<space>`; there are ZERO `mRpt`/`beatRpt` glyphs in the MEI
+  or the SVG. The brief's "Verovio draws the mRpt symbol" is wrong. →
+  12.2 FULLY SYNTHESIZES the % symbol (the slash-region shape), not
+  "map the glyph."
+- **3 regions / ~32 bars, not "6 regions."** The 6 `<measure-repeat>`
+  tags are 3 `[start, stop)` spans (Bongos mm.2–12 & mm.14–24, Drum Set
+  mm.98–107) — the same half-open convention `_slash_regions` uses.
+- **12.1 join is surgical.** `_match_voice` already sorts+zips both
+  sides by document order within a bucket; the ONLY onset dependence is
+  `_note_key` embedding `round(onset*4096)` for non-graces. Dropping
+  that term is the whole fix; the grace tier already works this way.
+
+- [ ] **12.0 Spikes** (kept — findings in `spikes/NOTES.md`): (a)
+      condense-merge prep rewrite (`spikes/condense_prep.py`) — Flute
+      1/2 → one staff two voices, rendered before/after, viability
+      confirmed (ruling d); (b) measure-repeat census — Verovio draws
+      nothing, 3 `[start,stop)` regions / ~32 bars; (c) appoggiatura
+      timemap semantics — principal delayed +grace-dur, order-based
+      `(pitch, order)` join handles chord-graces. DONE during planning.
+- [ ] **12.1 Order-based join**: rewrite `_note_key` so plain notes key
+      on `pitch_key` only (drop the `round(onset*4096)` term) — pairing
+      falls to `(pitch, document order)` within `(part, measure, staff,
+      voice)`, onset as tiebreak, the shape the grace tier already uses.
+      Verify: complex1 joins 921/921 (the 22 grace-delayed principals
+      now match); complex2's join completes; testscore + video_test
+      mappings BYTE-IDENTICAL (re-pin). Update `tests/test_complex1.py`
+      (`_GRACE_DELAYED_PRINCIPALS` → complete bijection) and the
+      `tools/check_score.py` counts. Trigger stays the qstamp (ruling a
+      — no retiming; the fix only closes the match).
+- [ ] **12.2 Bar-repeat synthesis**: `ElementKind.BAR_REPEAT` (animates
+      by default under the denylist; tinted like SLASH). Detect
+      `<measure-repeat>` regions at the prep seam (`_repeat_regions`, a
+      `[start, stop)` twin of `_slash_regions`; `RepeatRegion` on
+      `PreparedScore`). Synthesize in the adapter (`_synthesize_repeats`,
+      a twin of `_synthesize_slashes`): one `repeat1Bar` symbol centered
+      per repeated bar, positioned from `staff_geo`, onset =
+      `measure_start[m]` (per-measure, ruling b). Extend the slash
+      hide-retry guard so a repeat staff is not hidden out. Verify:
+      complex2's 3 regions (~32 bars) light on the downbeat; existing
+      fixtures byte-identical (no measure-repeats there).
+- [ ] **12.3 Prep-seam condensing + schema v5**: `PartCondenseSpec`
+      (neutral prep-seam twin beside `PartGroupSpec`) — contiguous like
+      parts to merge + combined label ("Flute 1.2"). `_apply_condense`
+      in `musicxml_prep`: merge N contiguous `<score-part>` + `<part>`
+      bodies into one part, one `<voice>` per player on a shared staff
+      (append behind a `<backup>` of the measure's voice cursor, relabel
+      voices, force `<staff>1`), combined `<part-name>`/-display; keep
+      `PartInfo.staff_count`/`part_for_staff` consistent. v1 naive
+      (ruling d): NO a2-collapse, NO divisi → BACKLOG. Decide the
+      absorbed-part `<direction>` handling (take primary only vs accept
+      doubling on divergent bars). Doc: `condense_groups` field +
+      Add/Edit/RemoveCondenseGroup commands (the StaffGroup triad).
+      **Schema v5** (one bump; `_READABLE_VERSIONS = 1..5`, writer emits
+      5, version-gated read). Thread `condense_groups` through
+      `provider.load`/`load_detailed`/`prepare` + the main_window
+      conversion + a fourth `_applied_condense` diff-guard clause.
+      ElementIds shift when condensing changes (part identity is an
+      engraving input, like renames) — overrides re-derive; pin id
+      behavior. Verify: merged part loads through the adapter + join;
+      undo restores; round-trip.
+- [ ] **12.4 Score Setup dialog**: triggered at LOAD when the flat
+      render overflows (inspect `engraved.warnings` for
+      `code == "system-overflow"` after `load_detailed` in the load path
+      — `open_score`/`open_project`/`_load_score`, NOT on every
+      `_reengrave`) and on demand via **Parts → Score Setup…**. A
+      per-part list with three controls: condense-group, staff-group
+      (existing), hide-empty-staves (existing). BATCH editor: OK applies
+      one command = one undo step + one re-engrave via the diff-guard
+      (ruling c). Verify: complex2 opens → dialog offered; the no-audio
+      transport survives the re-engrave (WallClock reconciliation);
+      undoable.
+- [ ] **12.5 Scale + fixture promotion + exit**: perf numbers recorded
+      (load, scene build, tick cost on a dense page — no optimization
+      unless targets miss). complex2 promoted to the permanent fixtures
+      with censuses pinned (kept OUT of the ~20 s pytest path per the
+      Phase 11 precedent — the score-doctor is its check). Scripted
+      offscreen exit (ScoreScenes + FrameRenderer idiom — the offscreen
+      MainWindow hangs headless): open complex2 → Setup choices (condense
+      wind/brass pairs + hide empty) until zero system-overflow →
+      animate → export frames. Docs close-out the established way
+      (CLAUDE.md rule-10 family + testdata note + a condensing rule;
+      ARCHITECTURE §3 mRpt synthesis + appoggiatura semantics, §4 schema
+      v5, §7 Setup dialog, §8 orchestral-scale risk; BACKLOG divisi/a2 +
+      per-passage condensing). Review artifact: rendered complex2 pages
+      next to `complex2.pdf` pages, plus the bar-repeat and appoggiatura
+      measures up close (fidelity target "usable and clean", not
+      PDF-identical — the user's condense choices differ from Dorico's).
+
+**Exit criteria**: complex2 opens with the Setup dialog and, with
+reasonable choices, renders with zero system-overflow warnings,
+animates in sync, and exports; join complete on all six fixtures;
+`pytest` green including `test_no_qt_in_core.py`.
+
 ## Later (explicitly not now)
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-
@@ -1153,4 +1310,5 @@ degradation; other exporters remain future work).
 (In-app score-text editing graduated to Phase 9; brackets/grouping to
 Phase 8 — 2026-07-12. Multi-staff-part & decomposer-coverage robustness
 to Phase 10 — 2026-07-13. Dorico robustness / complex1 to Phase 11 —
-2026-07-19; orchestral complex2 layout + order-based join is Phase 12.)
+2026-07-19; orchestral complex2 layout + order-based join planned as
+Phase 12 — 2026-07-21, rulings recorded, spikes done, ready to build.)
