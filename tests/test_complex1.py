@@ -14,12 +14,12 @@ from scoreanim.core.score.join import join_notes
 from .conftest import COMPLEX1_SCORE
 
 
-# The 22 layout notes the join cannot match: the PRINCIPAL notes carrying
-# complex1's grace notes. Verovio's timemap delays each principal by the
-# grace duration (+0.0957 q) while music21 keeps the notated beat, so the
-# exact-onset key misses. Fixed by the Phase 12.1 order-based join rewrite
-# — pinned here so that fix (or any regression) moves a known number. The
-# graces THEMSELVES all match via join.py's onset-excluded grace tier.
+# The 22 PRINCIPAL notes carrying complex1's grace notes. Verovio's timemap
+# delays each principal by the grace duration (+0.0957 q) while music21 keeps
+# the notated beat, so the OLD exact-onset key missed them (the Phase 11.3
+# join gap). The Phase 12.1 order-based join matches them anyway (document
+# order, not onset); these ids are kept as a regression guard — each must
+# still join, each to a same-pitch score note despite the onset delta.
 _GRACE_DELAYED_PRINCIPALS = frozenset({
     "P1:m8:s1:v1:note:1",
     "P2:m8:s1:v2:note:1", "P2:m9:s1:v2:note:1", "P2:m10:s1:v2:note:1",
@@ -57,15 +57,18 @@ def test_complex1_staff_lines_are_exactly_five_paths(engraved_complex1):
             assert len(e.glyph.paths) == 5
 
 
-# --- 11.3 join gap pinned (not fixed — Phase 12.1) -------------------------
+# --- 12.1 order-based join (complete bijection) ----------------------------
 
-def test_join_is_899_of_921(engraved_complex1, complex1_score_model):
+def test_join_is_a_complete_bijection(engraved_complex1, complex1_score_model):
+    """Phase 12.1: the order-based join matches every note — the 22
+    grace-delayed principals now join, nothing is left unmatched."""
     report = join_notes(complex1_score_model, engraved_complex1.note_records)
     assert len(complex1_score_model.notes) == 921
     assert len(engraved_complex1.note_records) == 921
-    assert len(report.matched) == 899
-    assert len(report.unmatched_score) == 22
-    assert len(report.unmatched_layout) == 22
+    assert len(report.matched) == 921
+    assert report.is_complete
+    assert not report.unmatched_score and not report.unmatched_layout
+    assert len({eid for eid, _ in report.matched}) == 921    # distinct ids
 
 
 def test_every_grace_note_matches(engraved_complex1, complex1_score_model):
@@ -81,20 +84,19 @@ def test_every_grace_note_matches(engraved_complex1, complex1_score_model):
     assert not any(r.grace for r in report.unmatched_layout)
 
 
-def test_unmatched_are_exactly_the_grace_delayed_principals(
+def test_grace_delayed_principals_now_match(
         engraved_complex1, complex1_score_model):
+    """Regression guard on the 12.1 fix: each of the 22 principals that
+    the old exact-onset key missed now joins, each to a same-pitch score
+    note whose onset differs from the layout qstamp by one grace step
+    (+0.0957 q) — proving the match survives the timemap delay."""
     report = join_notes(complex1_score_model, engraved_complex1.note_records)
-    unmatched_ids = {str(r.element_id) for r in report.unmatched_layout}
-    assert unmatched_ids == _GRACE_DELAYED_PRINCIPALS
-
-    # each unmatched pair (paired by part/measure/document order) is the
-    # same pitch off by exactly one grace step (+0.0957 q)
-    s_un = sorted(report.unmatched_score,
-                  key=lambda n: (str(n.part), n.measure, n.order))
-    l_un = sorted(report.unmatched_layout,
-                  key=lambda r: (str(r.part), r.measure, r.order_in_voice))
+    mapping = report.mapping
+    recs = {str(r.element_id): r for r in engraved_complex1.note_records}
     deltas = set()
-    for n, r in zip(s_un, l_un):
+    for eid in _GRACE_DELAYED_PRINCIPALS:
+        assert eid in mapping                       # now joined (was unmatched)
+        r, n = recs[eid], mapping[eid]
         assert (n.pitch_step, n.octave) == (r.pitch_step, r.octave)
         deltas.add(round(r.onset - n.onset, 4))
     assert deltas == {0.0957}
