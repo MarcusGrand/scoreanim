@@ -31,7 +31,8 @@ from scoreanim.core.engraving.types import (TRANSPOSE_TO_SOUNDING_PITCH,
                                             TextPrimitive, TextRun)
 from scoreanim.core.score.identity import (Beats, ElementId, ElementIdentity,
                                            ElementKind, PartId)
-from scoreanim.core.score.musicxml_prep import (PartGroupSpec, PartInfo,
+from scoreanim.core.score.musicxml_prep import (PartCondenseSpec,
+                                                PartGroupSpec, PartInfo,
                                                 PartTextSpec, PreparedScore,
                                                 prepare)
 
@@ -796,20 +797,22 @@ class VerovioEngravingProvider(EngravingProvider):
              groups: tuple[PartGroupSpec, ...] = (),
              texts: tuple[PartTextSpec, ...] = (),
              hide_empty_staves: bool = False,
+             condense: tuple[PartCondenseSpec, ...] = (),
              strict: bool = True) -> Layout:
         return self.load_detailed(score_path, params, groups, texts,
-                                  hide_empty_staves, strict).layout
+                                  hide_empty_staves, condense, strict).layout
 
     def load_detailed(self, score_path: Path, params: EngravingParams,
                       groups: tuple[PartGroupSpec, ...] = (),
                       texts: tuple[PartTextSpec, ...] = (),
                       hide_empty_staves: bool = False,
+                      condense: tuple[PartCondenseSpec, ...] = (),
                       strict: bool = True) -> EngravedScore:
         # strict (Phase 11.4): when False (the app path) an unknown
         # drawable SVG class degrades to a static OTHER element plus a
         # "unknown-class" warning instead of raising; True (the default,
         # and pytest / the doctor's --strict) keeps coverage gaps loud.
-        prep = prepare(score_path, groups, texts)
+        prep = prepare(score_path, groups, texts, condense)
         extra: list[LoadWarning] = []
         effective_hide = hide_empty_staves
         engraved, first_measure = self._engrave_prepared(
@@ -839,7 +842,7 @@ class VerovioEngravingProvider(EngravingProvider):
         if any(b.rect.y + b.rect.h > page_h for b in bands):
             breaks = plan_page_breaks(bands, page_h, first_measure)
             if breaks:
-                prep = prepare(score_path, groups, texts,
+                prep = prepare(score_path, groups, texts, condense,
                                page_break_measures=breaks)
                 engraved, _ = self._engrave_prepared(
                     score_path, prep, params, effective_hide, strict)

@@ -35,6 +35,11 @@ COMPLEX1_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
 # five BAR_REPEAT symbols (one per bar, onset on the downbeat).
 BAR_REPEAT_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
     "bar_repeat_min.musicxml"
+# Two like parts for condensing (Phase 12.3): Flute 1 (P1) + Flute 2 (P2)
+# extracted from complex2 (a busy divergent passage, mm.60-68). Condensing
+# merges them onto one staff as voices 1 and 2 ("Flute 1.2").
+CONDENSE_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
+    "condense_min.musicxml"
 
 
 @pytest.fixture(scope="session")

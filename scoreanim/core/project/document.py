@@ -75,6 +75,20 @@ class PartTextOverride:
     abbreviation: str | None = None
 
 
+@dataclass(frozen=True)
+class CondenseGroup:
+    """Contiguous like parts merged onto one staff, one voice per source
+    player (schema v5 slot; consumed from Phase 12.3). Intent only: the
+    document stores WHICH parts merge and the combined label; the merge
+    is re-derived by rewriting the part-list at the prep seam and
+    re-engraving (rule 5). ElementIds shift when condensing changes —
+    part identity is an engraving input, like a rename."""
+    parts: tuple[PartId, ...]        # >= 2, contiguous, in score order
+    name: str = ""                   # combined part-name (e.g. "Flute 1.2");
+                                     # "" → derived from the sources at the seam
+    abbreviation: str = ""           # combined abbreviation (e.g. "Fl. 1.2")
+
+
 # New documents hide empty staves (Phase 10R ruling: the layouts our
 # scores encode assume Dorico's hide-empty-staves). Projects saved at
 # schema <= 3 load with it OFF so their look is unchanged (serialize.py).
@@ -97,6 +111,9 @@ class ProjectDoc:
     # Intent only (rule 5): whether staves empty for a whole system are
     # hidden; the hidden layout is re-derived at every engrave.
     hide_empty_staves: bool = HIDE_EMPTY_STAVES_DEFAULT
+    # Contiguous like parts merged onto one staff (schema v5, consumed
+    # Phase 12.3); the merged part-list is re-derived at the prep seam.
+    condense_groups: tuple[CondenseGroup, ...] = ()
 
 
 __all__ = ["DEFAULT_BPM", "FileRef", "HIDE_EMPTY_STAVES_DEFAULT",

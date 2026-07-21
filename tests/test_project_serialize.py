@@ -121,7 +121,7 @@ def test_reveal_mode_round_trip_and_legacy_default() -> None:
 
 def test_v1_part_colors_fold_into_style_rules() -> None:
     """A Phase 4 project file (version 1, style.part_colors) loads with
-    its tints intact as part color rules; version 5 is refused."""
+    its tints intact as part color rules; version 6 is refused."""
     legacy = from_dict({"version": 1,
                         "style": {"part_colors": {"P1": "#cc2222",
                                                   "P4": "#1c4fd6"}}})
@@ -131,10 +131,10 @@ def test_v1_part_colors_fold_into_style_rules() -> None:
     }
     assert legacy.style.reveal_mode is RevealMode.STEPPED
     assert legacy.style.elements == {}
-    # new files declare version 4; a build from the future is refused
-    assert to_dict(ProjectDoc())["version"] == 4
+    # new files declare version 5; a build from the future is refused
+    assert to_dict(ProjectDoc())["version"] == 5
     with pytest.raises(ValueError, match="version"):
-        from_dict({"version": 5})
+        from_dict({"version": 6})
 
 
 def test_v4_hide_empty_staves() -> None:
@@ -236,4 +236,4 @@ def test_never_persists_derived_data() -> None:
     assert set(payload) == {"version", "score", "audio", "engraving",
                             "layout_overrides", "timing", "style", "stage",
                             "staff_groups", "text_overrides",
-                            "hide_empty_staves"}
+                            "hide_empty_staves", "condense_groups"}

@@ -23,6 +23,7 @@ plus facts extracted from the raw XML that neither library exposes:
 
 from __future__ import annotations
 
+import copy
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,6 +62,26 @@ class PartTextSpec:
     part: PartId
     name: str | None = None
     abbreviation: str | None = None
+
+
+@dataclass(frozen=True)
+class PartCondenseSpec:
+    """Prep-seam input to merge contiguous like parts onto ONE staff as one
+    voice per source player (Phase 12.3). Neutral twin of the document's
+    CondenseGroup intent (core/project may import core/score, never the
+    reverse — the PartGroupSpec precedent); the UI converts at the seam.
+
+    Verovio cannot condense from MusicXML, so condensing is a canonical
+    rewrite BEFORE engraving: the first part is kept, each later part's
+    voice flow is appended behind a <backup> and relabelled to its own
+    voice, and the label becomes the combined name. v1 is deliberately
+    naive (ruling d): shared staff, one voice per player, NO a2 unison
+    collapse and NO divisi logic (BACKLOG). Parts must be contiguous in
+    score order and single-staff — validated here as defense behind the
+    Add/Edit/RemoveCondenseGroup commands."""
+    parts: tuple[PartId, ...]    # >= 2, contiguous; parts[0] is kept
+    name: str                    # combined part-name, e.g. "Flute 1.2"
+    abbreviation: str = ""       # combined abbreviation, e.g. "Fl. 1.2"
 
 
 @dataclass(frozen=True)
@@ -389,14 +410,101 @@ def _repeat_regions(root: ET.Element) -> tuple[RepeatRegion, ...]:
     return tuple(regions)
 
 
+def _voice_cursor(measure: ET.Element) -> int:
+    """Net time-cursor advance of a measure's voice-1 flow, in divisions
+    (chord members and graces carry no duration; backup rewinds)."""
+    cur = 0
+    for el in measure:
+        if el.tag == "note":
+            if el.find("chord") is not None or el.find("grace") is not None:
+                continue
+            cur += int(el.findtext("duration") or 0)
+        elif el.tag == "forward":
+            cur += int(el.findtext("duration") or 0)
+        elif el.tag == "backup":
+            cur -= int(el.findtext("duration") or 0)
+    return cur
+
+
+def _apply_condense(root: ET.Element,
+                    specs: tuple[PartCondenseSpec, ...]) -> None:
+    """Merge each spec's contiguous parts onto the first part's staff, one
+    voice per source player (Phase 12.3). Runs FIRST in prepare so every
+    downstream pass (labels, _parts, slash/repeat scans, groups) sees the
+    condensed part-list. The rewrite mirrors spikes/condense_prep.py, which
+    verified the naive two-voice merge renders cleanly."""
+    if not specs:
+        return
+    part_list = root.find("part-list")
+    if part_list is None:
+        raise ValueError("MusicXML has no <part-list>")
+
+    for spec in specs:
+        if len(spec.parts) < 2:
+            raise ValueError(f"condense group needs >= 2 parts, got {spec.parts}")
+        parts_by_id = {p.get("id", ""): p for p in root.findall("part")}
+        sp_by_id = {sp.get("id", ""): sp
+                    for sp in part_list.findall("score-part")}
+        score_part_ids = [sp.get("id", "")
+                          for sp in part_list.findall("score-part")]
+        for pid in spec.parts:
+            if pid not in score_part_ids:
+                raise ValueError(f"condense group names unknown part {pid!r}")
+            staves = [int(s.text) for s in parts_by_id[pid].iter("staves")
+                      if s.text]
+            if staves and max(staves) > 1:
+                raise ValueError(f"condense of multi-staff part {pid!r} is "
+                                 "not supported in v1")
+        indices = [score_part_ids.index(pid) for pid in spec.parts]
+        if indices != list(range(min(indices), min(indices) + len(indices))):
+            raise ValueError("condense group parts must be contiguous in "
+                             f"score order, got {spec.parts}")
+
+        keep = str(spec.parts[0])
+        keep_part = parts_by_id[keep]
+        keep_measures = keep_part.findall("measure")
+        if spec.name:        # "" keeps the first part's own label
+            _set_part_text(sp_by_id[keep], "part-name", "part-name-display",
+                           spec.name)
+        if spec.abbreviation:
+            _set_part_text(sp_by_id[keep], "part-abbreviation",
+                           "part-abbreviation-display", spec.abbreviation)
+
+        for offset, absorb in enumerate(spec.parts[1:], start=1):
+            absorb_part = parts_by_id[str(absorb)]
+            for km, am in zip(keep_measures, absorb_part.findall("measure")):
+                cursor = _voice_cursor(km)     # measure start (stays == dur:
+                                               # each appended player nets 0)
+                if cursor > 0:
+                    bk = ET.SubElement(km, "backup")
+                    ET.SubElement(bk, "duration").text = str(cursor)
+                for el in am:
+                    if el.tag not in ("note", "backup", "forward", "direction"):
+                        continue          # skip attributes/print/barline
+                    e = copy.deepcopy(el)
+                    v = e.find("voice")
+                    if v is not None and v.text and v.text.isdigit():
+                        v.text = str(int(v.text) + offset)
+                    st = e.find("staff")
+                    if st is not None:
+                        st.text = "1"     # shared staff
+                    km.append(e)
+            root.remove(absorb_part)
+            part_list.remove(sp_by_id[str(absorb)])
+
+
 def prepare(score_path: Path,
             groups: tuple[PartGroupSpec, ...] = (),
             texts: tuple[PartTextSpec, ...] = (),
+            condense: tuple[PartCondenseSpec, ...] = (),
             page_break_measures: tuple[int, ...] = ()) -> PreparedScore:
     root = ET.fromstring(score_path.read_bytes())
     if root.tag != "score-partwise":
         raise ValueError(f"expected score-partwise MusicXML, got <{root.tag}>")
 
+    _apply_condense(root, condense)      # FIRST: rewrite the part-list so
+                                         # every downstream pass sees the
+                                         # condensed structure (Phase 12.3)
     _apply_text_overrides(root, texts)   # before _parts: PartInfo carries
                                          # the EFFECTIVE names (Phase 9.3)
     parts = _parts(root)

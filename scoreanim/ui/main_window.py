@@ -47,7 +47,8 @@ from scoreanim.core.project import (DEFAULT_BPM,
 from scoreanim.core.project import save_project as write_project_file
 from scoreanim.core.score.identity import PartId
 from scoreanim.core.score.join import join_notes
-from scoreanim.core.score.musicxml_prep import PartGroupSpec, PartTextSpec
+from scoreanim.core.score.musicxml_prep import (PartCondenseSpec,
+                                                PartGroupSpec, PartTextSpec)
 from scoreanim.core.score.model import build_score_model
 from scoreanim.core.timing import (TempoEvent, TempoMap, parse_tempo_file,
                                    resolve_seconds)
@@ -95,6 +96,7 @@ class MainWindow(QMainWindow):
         self._applied_groups: tuple = ()   # staff groups the engrave used
         self._applied_text_overrides: dict = {}   # label overrides ditto
         self._applied_hide_empty = False   # hide-empty-staves ditto
+        self._applied_condense: tuple = ()   # condense groups ditto
         self._hide_staves_action: QAction | None = None
         self._applied_stage_texts: tuple = ()   # stage texts on the scenes
         self._applied_hidden: dict = {}    # ElementId → applied hidden flag
@@ -500,7 +502,8 @@ class MainWindow(QMainWindow):
                 and (doc.staff_groups != self._applied_groups
                      or dict(doc.text_overrides)
                      != self._applied_text_overrides
-                     or doc.hide_empty_staves != self._applied_hide_empty)):
+                     or doc.hide_empty_staves != self._applied_hide_empty
+                     or doc.condense_groups != self._applied_condense)):
             self._reengrave(doc)
         self.playback.set_timing_config(*self._timing_config(doc))
         self._sync_styles(doc)
@@ -838,7 +841,8 @@ class MainWindow(QMainWindow):
         self._load_score(Path(doc.score.path), doc.engraving,
                          stage=doc.stage, groups=doc.staff_groups,
                          text_overrides=doc.text_overrides,
-                         hide_empty_staves=doc.hide_empty_staves)
+                         hide_empty_staves=doc.hide_empty_staves,
+                         condense_groups=doc.condense_groups)
         self._project_path = path
         self._score_name = path.name
         self._tempo_path = None
@@ -862,12 +866,13 @@ class MainWindow(QMainWindow):
                     stage: StageConfig | None,
                     groups: tuple = (),
                     text_overrides: dict | None = None,
-                    hide_empty_staves: bool = HIDE_EMPTY_STAVES_DEFAULT
+                    hide_empty_staves: bool = HIDE_EMPTY_STAVES_DEFAULT,
+                    condense_groups: tuple = ()
                     ) -> StageConfig:
         """Fresh-load entry: engrave + wire, then reset to page 1."""
         stage = self._engrave_and_wire(path, params, stage, groups,
                                        text_overrides or {},
-                                       hide_empty_staves)
+                                       hide_empty_staves, condense_groups)
         self._page = 1
         self._system = 1
         return stage
@@ -880,20 +885,24 @@ class MainWindow(QMainWindow):
         execute(), never preview()."""
         self._engrave_and_wire(Path(doc.score.path), doc.engraving,
                                doc.stage, doc.staff_groups,
-                               doc.text_overrides, doc.hide_empty_staves)
+                               doc.text_overrides, doc.hide_empty_staves,
+                               doc.condense_groups)
         self._show_current()             # install the fresh scene
 
     def _engrave_and_wire(self, path: Path, params: EngravingParams,
                           stage: StageConfig | None,
                           groups: tuple = (),
                           text_overrides: dict | None = None,
-                          hide_empty_staves: bool = False) -> StageConfig:
+                          hide_empty_staves: bool = False,
+                          condense_groups: tuple = ()) -> StageConfig:
         """Engrave + decompose + join + wire the animation. Returns the
         stage config used (seeded from the score's credits when None).
         `groups` is doc.staff_groups — injected as <part-group> at the
         prep seam; `text_overrides` is doc.text_overrides — part labels
-        rewritten there (Phase 9.3); geometry re-derives, ids survive
-        (rule 5, Phases 8/9)."""
+        rewritten there (Phase 9.3); `condense_groups` is
+        doc.condense_groups — contiguous like parts merged onto one staff
+        there (Phase 12.3); geometry re-derives, musical ids survive
+        (rule 5, Phases 8/9/12)."""
         text_overrides = dict(text_overrides or {})
         specs = tuple(PartGroupSpec(parts=g.parts, symbol=g.symbol,
                                     join_barlines=g.join_barlines)
@@ -901,12 +910,17 @@ class MainWindow(QMainWindow):
         text_specs = tuple(PartTextSpec(part=pid, name=o.name,
                                         abbreviation=o.abbreviation)
                            for pid, o in sorted(text_overrides.items()))
+        condense_specs = tuple(
+            PartCondenseSpec(parts=g.parts, name=g.name,
+                             abbreviation=g.abbreviation)
+            for g in condense_groups)
         t0 = time.perf_counter()
         # strict=False (app path, Phase 11.4): an unknown drawable SVG
         # class degrades to a warned static element instead of failing the
         # open. The status bar shows the warning count.
         engraved = VerovioEngravingProvider().load_detailed(
-            path, params, specs, text_specs, hide_empty_staves, strict=False)
+            path, params, specs, text_specs, hide_empty_staves,
+            condense_specs, strict=False)
         t1 = time.perf_counter()
         if stage is None:
             stage = default_stage_config(engraved.prepared,
@@ -965,6 +979,7 @@ class MainWindow(QMainWindow):
         self._applied_groups = groups
         self._applied_text_overrides = text_overrides
         self._applied_hide_empty = hide_empty_staves
+        self._applied_condense = condense_groups
 
         self.statusBar().showMessage(
             f"engrave+decompose {t1 - t0:.2f}s · scene build {t2 - t1:.2f}s · "
