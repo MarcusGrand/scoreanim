@@ -171,7 +171,8 @@ class EngravingProvider(ABC):
 #    continuation pairing), hide-unavailable, repaginated,
 #    system-overflow, unknown-class (a drawable SVG class the decomposer
 #    does not know, rendered as a static element — Phase 11.4, app path
-#    only). The status bar shows the count; stderr the text.
+#    only), stray-path (a path re-homed out of a cross-system element —
+#    item 11 below). The status bar shows the count; stderr the text.
 #
 # 10. Dorico-robustness decomposer coverage (Phase 11, as built
 #    2026-07-19): three notation classes and one geometry gap that the
@@ -235,6 +236,32 @@ class EngravingProvider(ABC):
 #    amendment c (`LoadWarning "scaled-to-fit"`). complex2 renders at 54%,
 #    zero overflow. The Score Setup dialog (§7) gathers condense/bracket/
 #    hide as ONE undoable batch (ApplyScoreSetup).
+#
+# 11. Cross-system stray-path re-homing (as built 2026-07-21, bigband1).
+#    The per-(system, part) reveal edge assumes an element's ink lies
+#    within its attributed system. Under hide-empty-staves the
+#    scoreDef@optimize round-trip makes Verovio REUSE one xml:id across
+#    element types and emit a LATER system's tie/slur/artic curve as a
+#    bare <path> INSIDE an EARLIER note's <g class="stem|flag|artic">
+#    whose id collides — the deeper manifestation of the Phase 10R
+#    id-reuse hazard (which _identity_for already gates for ONSET). The
+#    decomposer used to absorb that path into the early element, so at
+#    its reveal time the curve painted down in the later system (a
+#    solid-black "tie" bars ahead of the playhead once the ghost floor
+#    is 0). _rehome_stray_paths (post-decompose, before ledger/spanner
+#    attribution) partitions each page into per-system vertical strips
+#    (staff bands split at inter-system-gap midpoints) and, for any
+#    element whose bbox straddles a boundary, splits each foreign-system
+#    path into its OWN element attributed by GEOMETRY to the system it
+#    occupies. Re-homed as a reveal-clip TIE (onset-less, edge-driven)
+#    when a staff/part underlies the ink — so it grows in with the
+#    playhead sweep at its own x, never popping at the system downbeat —
+#    else a measure-start OTHER (no reveal curve to ride; still cannot
+#    leak). No ink dropped (rule 7); LoadWarning "stray-path" per
+#    re-homed element (ruling b). A no-op on well-formed scores (only a
+#    straddling bbox is examined); across testdata only bigband1 and
+#    video_test (a system-14 hairpin path in the id-colliding system-13
+#    group) fire.
 
 @dataclass(frozen=True)
 class RenderedElement:

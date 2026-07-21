@@ -1322,6 +1322,41 @@ completes never-clip when condensing/pagination cannot), animates in
 sync, and exports; join complete on all six fixtures; `pytest` green
 including `test_no_qt_in_core.py`. **PASSED 2026-07-21.**
 
+## Field fixes (post-Phase 12)
+
+Robustness fixes found by using the app on real charts, on the
+`phase-10-robustness` branch. Each is a smallest root-cause fix behind
+the `EngravingProvider` boundary (rule 4), with a regression test that
+fails without it.
+
+- [x] **Cross-system stray-path leak (2026-07-21, bigband1)**. In LIVE
+      playback, tie/slur curves from a later system appeared solid-black
+      bars ahead of the playhead (most visible at ghost floor 0). Root
+      cause: under hide-empty-staves (default ON) Verovio's
+      scoreDef@optimize round-trip REUSES one xml:id across element types
+      and emits a later system's spanner `<path>` INSIDE an earlier
+      note's `<g class="stem|flag|artic">` whose id collides; the
+      decomposer absorbed that path into the early element, which reveals
+      with its (early) system while its ink sits a system down — breaking
+      the per-(system, part) reveal invariant. NOT a reveal/applier bug:
+      the leaking ink is not a spanner element at all (so slur/tie/hairpin
+      attribution checks miss it) and its owning element's onset is
+      on-time by its own (wrong) attribution. Fix: `_rehome_stray_paths`
+      partitions each page into per-system vertical strips and splits any
+      path drawn in a foreign system into its own element attributed by
+      GEOMETRY — a reveal-clip TIE (onset-less, grows in with the sweep
+      at its own x; a first cut re-homed to a measure-start OTHER that
+      still popped at the downbeat, moving the leak from m21 to m26 —
+      corrected to reveal-clip) when a staff/part underlies it, else a
+      measure-start OTHER. No ink dropped (rule 7); `LoadWarning
+      "stray-path"` per re-homed element. ARCHITECTURE §3 item 11.
+      Tests: `tests/test_stray_path_rehome.py` (invariant + re-homing +
+      live-applier symptom by geometry, all three fail without the fix);
+      `bigband1.musicxml` fixture; `video_test` hidden census +1
+      stray-path (a system-14 hairpin path in the id-colliding system-13
+      group). 478 headless green; score-doctor 8/9 (bigband1 --strict
+      FAILs only on a pre-existing unknown `gliss` class — separate gap).
+
 ## Later (explicitly not now)
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-

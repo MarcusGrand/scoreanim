@@ -163,7 +163,11 @@ testdata/                  # testscore.musicxml (Dorico export) + companion
                            # lays out via Phase 12 (order-based join,
                            # condensing, bar-repeat synthesis, scale-to-fit);
                            # bar_repeat_min / condense_min / tall_system_min —
-                           # small Phase 12 fixtures extracted from complex2
+                           # small Phase 12 fixtures extracted from complex2;
+                           # bigband1.musicxml — 4-part big-band chart whose
+                           # hide-empty-staves load exposed the cross-system
+                           # stray-path leak (ARCHITECTURE §3 item 11, fixed
+                           # 2026-07-21)
 docs/
 ```
 
