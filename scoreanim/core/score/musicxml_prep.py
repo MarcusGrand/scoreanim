@@ -83,6 +83,21 @@ class SlashRegion:
 
 
 @dataclass(frozen=True)
+class RepeatRegion:
+    """A <measure-repeat> span. Verovio's MusicXML importer has no
+    measure-repeat support — the repeat bars import as empty <space>
+    (verified, spikes/NOTES.md Phase 12) — so like slash regions they are
+    scanned here and the % symbol is synthesized in the adapter. [start,
+    stop): a measure carrying <measure-repeat type="stop"> is a real fill,
+    NOT a repeat. v1 handles single-bar repeats (Dorico's `<measure-repeat
+    type="start">1`); `bar_span` records the pattern width for defense."""
+    part: PartId
+    start_measure: int           # inclusive
+    stop_measure: int            # exclusive
+    bar_span: int = 1            # measures per repeat pattern (1 = single-bar)
+
+
+@dataclass(frozen=True)
 class CreditText:
     credit_type: str | None      # "title", "composer", …; None if untyped
     text: str
@@ -99,6 +114,7 @@ class PreparedScore:
     canonical_xml: str
     parts: tuple[PartInfo, ...]
     slash_regions: tuple[SlashRegion, ...]
+    repeat_regions: tuple[RepeatRegion, ...]
     credits: tuple[CreditText, ...]
     page_width: float            # page units (1/10 mm)
     page_height: float
@@ -344,6 +360,35 @@ def _slash_regions(root: ET.Element) -> tuple[SlashRegion, ...]:
     return tuple(regions)
 
 
+def _repeat_regions(root: ET.Element) -> tuple[RepeatRegion, ...]:
+    """Scan <measure-repeat> spans (twin of _slash_regions). [start, stop)
+    with stop-before-start within a measure, so a bar carrying both closes
+    the old region and opens a new one."""
+    regions: list[RepeatRegion] = []
+    for part in root.findall("part"):
+        pid = PartId(part.get("id", ""))
+        open_start: int | None = None
+        open_span = 1
+        last_n = 0
+        for ordinal, measure in enumerate(part.findall("measure"), start=1):
+            n = _measure_number(measure, ordinal)
+            last_n = n
+            for mr in measure.iter("measure-repeat"):
+                if mr.get("type") == "stop" and open_start is not None:
+                    regions.append(RepeatRegion(pid, open_start, n, open_span))
+                    open_start = None
+            for mr in measure.iter("measure-repeat"):
+                if mr.get("type") == "start":
+                    open_start = n
+                    try:
+                        open_span = max(1, int((mr.text or "1").strip()))
+                    except ValueError:
+                        open_span = 1
+        if open_start is not None:
+            regions.append(RepeatRegion(pid, open_start, last_n + 1, open_span))
+    return tuple(regions)
+
+
 def prepare(score_path: Path,
             groups: tuple[PartGroupSpec, ...] = (),
             texts: tuple[PartTextSpec, ...] = (),
@@ -356,6 +401,7 @@ def prepare(score_path: Path,
                                          # the EFFECTIVE names (Phase 9.3)
     parts = _parts(root)
     slash_regions = _slash_regions(root)
+    repeat_regions = _repeat_regions(root)
     credits = _credits(root)
     width, height, units_per_tenth = _page_size(root)
     _neutralize_octave_only_transposes(root)
@@ -367,6 +413,7 @@ def prepare(score_path: Path,
         canonical_xml=ET.tostring(root, encoding="unicode"),
         parts=parts,
         slash_regions=slash_regions,
+        repeat_regions=repeat_regions,
         credits=credits,
         page_width=width,
         page_height=height,

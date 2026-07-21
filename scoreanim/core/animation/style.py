@@ -25,7 +25,8 @@ from scoreanim.core.score.identity import (ElementId, ElementIdentity,
 # ANIMATED_KINDS/REVEALED_KINDS: the animated set and the tinted set
 # diverge.
 TINTED_KINDS = frozenset({
-    ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.STEM,
+    ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.BAR_REPEAT,
+    ElementKind.STEM,
     ElementKind.FLAG, ElementKind.BEAM, ElementKind.ACCIDENTAL,
     ElementKind.ARTICULATION, ElementKind.LEDGER_LINES,
     ElementKind.SLUR, ElementKind.TIE, ElementKind.HAIRPIN,

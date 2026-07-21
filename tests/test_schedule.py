@@ -271,12 +271,14 @@ def test_no_kind_outside_the_denylist_sits_static(engraved, engraved_video,
 def test_tinted_kinds_unchanged_by_the_animate_everything_ruling() -> None:
     """Animation scope widened; COLOR scope did not (ruling 2026-07-20).
     Clefs/keysigs animate but stay black; TINTED_KINDS is exactly the
-    Phase 5 playing ink plus the clip-revealed spanners."""
+    Phase 5 playing ink plus the clip-revealed spanners — and BAR_REPEAT,
+    which is synthesized playing ink and tints like SLASH (Phase 12.2)."""
     from scoreanim.core.animation import TINTED_KINDS
     assert TINTED_KINDS == {
-        ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.STEM,
-        ElementKind.FLAG, ElementKind.BEAM, ElementKind.ACCIDENTAL,
-        ElementKind.ARTICULATION, ElementKind.LEDGER_LINES,
+        ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.BAR_REPEAT,
+        ElementKind.STEM, ElementKind.FLAG, ElementKind.BEAM,
+        ElementKind.ACCIDENTAL, ElementKind.ARTICULATION,
+        ElementKind.LEDGER_LINES,
         ElementKind.SLUR, ElementKind.TIE, ElementKind.HAIRPIN}
     assert ElementKind.CLEF not in TINTED_KINDS
     assert ElementKind.KEY_SIG not in TINTED_KINDS

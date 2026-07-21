@@ -54,6 +54,7 @@ from scoreanim.core.timing.tempo_map import TempoMap
 # sounding EVENTS. Rests joined per ruling B (2026-07-12); dynamics
 # deliberately absent (attachments).
 ANCHOR_KINDS = frozenset({ElementKind.NOTEHEAD, ElementKind.SLASH,
+                          ElementKind.BAR_REPEAT,
                           ElementKind.REST, ElementKind.MREST})
 
 # Spanner kinds revealed by clip-grow at the reveal edge (Phase 5.2

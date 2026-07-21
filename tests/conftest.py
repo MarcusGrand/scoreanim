@@ -29,11 +29,23 @@ VIDEO_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
 # cleanly with no unknown-class degradation.
 COMPLEX1_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
     "complex1.musicxml"
+# Minimal bar-repeat fixture (Phase 12.2): the Bongos part extracted from
+# complex2 (mm.1-6), carrying a <measure-repeat> region [2,7). Verovio
+# imports the repeat bars as empty <space>, so the adapter synthesizes
+# five BAR_REPEAT symbols (one per bar, onset on the downbeat).
+BAR_REPEAT_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
+    "bar_repeat_min.musicxml"
 
 
 @pytest.fixture(scope="session")
 def engraved() -> EngravedScore:
     return VerovioEngravingProvider().load_detailed(TESTSCORE, EngravingParams())
+
+
+@pytest.fixture(scope="session")
+def engraved_bar_repeat() -> EngravedScore:
+    return VerovioEngravingProvider().load_detailed(BAR_REPEAT_SCORE,
+                                                    EngravingParams())
 
 
 @pytest.fixture(scope="session")

@@ -37,6 +37,13 @@ class ElementKind(enum.Enum):
     REST = enum.auto()
     MREST = enum.auto()                  # whole-measure rest
     SLASH = enum.auto()                  # synthesized (CLAUDE.md rule 10)
+    BAR_REPEAT = enum.auto()             # synthesized % measure-repeat
+                                         # symbol (Phase 12.2) — Verovio
+                                         # draws nothing for <measure-repeat>
+                                         # (imports as empty <space>), so
+                                         # the adapter synthesizes it like
+                                         # a slash; one per repeated bar,
+                                         # onset on the downbeat (ruling b)
     CLEF = enum.auto()
     KEY_SIG = enum.auto()
     METER_SIG = enum.auto()

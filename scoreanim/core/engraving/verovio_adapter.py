@@ -815,15 +815,15 @@ class VerovioEngravingProvider(EngravingProvider):
         engraved, first_measure = self._engrave_prepared(
             score_path, prep, params, effective_hide, strict)
         if engraved is None:
-            # Hiding made a slash-region staff vanish (Verovio judges
-            # slash measures empty — MEI <space>). Slash regions are
-            # first-class (rule 10), so they win over the option:
-            # engrave flat, flagged (spikes/NOTES.md Phase 10R).
+            # Hiding made a slash- or bar-repeat-region staff vanish
+            # (Verovio judges both empty — MEI <space>). Both are
+            # first-class (rule 10 family), so they win over the option:
+            # engrave flat, flagged (spikes/NOTES.md Phase 10R / 12).
             effective_hide = False
             extra.append(LoadWarning(
                 "hide-unavailable",
-                "a slash-region staff would be hidden; empty-staff "
-                "hiding skipped for this score"))
+                "a slash- or bar-repeat-region staff would be hidden; "
+                "empty-staff hiding skipped for this score"))
             engraved, first_measure = self._engrave_prepared(
                 score_path, prep, params, effective_hide, strict)
             assert engraved is not None
@@ -978,11 +978,12 @@ class VerovioEngravingProvider(EngravingProvider):
             if measure_n < first_measure.get(system_n, 1 << 30):
                 first_measure[system_n] = measure_n
         if hide_empty_staves and any(
-                (r.part, m, 1) not in staff_geo
-                for r in prep.slash_regions
-                for m in range(r.start_measure, r.stop_measure)):
+                (region.part, m, 1) not in staff_geo
+                for region in (*prep.slash_regions, *prep.repeat_regions)
+                for m in range(region.start_measure, region.stop_measure)):
             return None, first_measure   # caller retries flat (rule 10)
         elements.extend(_synthesize_slashes(state, staff_geo))
+        elements.extend(_synthesize_repeats(state, staff_geo))
         layout = Layout(pages=pages, elements=tuple(elements))
         return EngravedScore(layout=layout,
                              note_records=tuple(note_records),
@@ -1421,6 +1422,50 @@ def _synthesize_slashes(st: _LoadState,
                         PathPrimitive(d=_SLASH_D, transform=tf),)),
                     system=system,
                 ))
+    return out
+
+
+# Measure-repeat symbol (approximates SMuFL repeat1Bar): a bold oblique
+# stroke with a dot in the upper-left and lower-right quadrants, in
+# staff-space units, y-down, origin at the glyph's center on the middle
+# staff line.
+_REPEAT_D = ("M0.25 -1.1 L0.95 -1.1 L-0.25 1.1 L-0.95 1.1 Z "
+             "M-0.62 -0.88 L-0.36 -0.62 L-0.62 -0.36 L-0.88 -0.62 Z "
+             "M0.62 0.36 L0.88 0.62 L0.62 0.88 L0.36 0.62 Z")
+
+
+def _synthesize_repeats(st: _LoadState,
+                        staff_geo: dict[tuple, tuple[int, int | None, Rect]]
+                        ) -> list[RenderedElement]:
+    """One % symbol per repeated bar (ruling b — per measure), centered on
+    the middle staff line, onset on the bar's downbeat. Verovio draws
+    nothing for <measure-repeat> (empty <space>), so this is full
+    synthesis in the slash shape (spikes/NOTES.md Phase 12)."""
+    out: list[RenderedElement] = []
+    glyph_bbox = path_bbox(_REPEAT_D)
+    for region in st.prep.repeat_regions:
+        info = next(p for p in st.prep.parts if p.part_id == region.part)
+        for m in range(region.start_measure, region.stop_measure):
+            # v1 limitation: repeat regions on the part's first staff
+            page, system, staff_bbox = staff_geo[(region.part, m, 1)]
+            staff_space = staff_bbox.h / 4
+            cx = staff_bbox.x + staff_bbox.w / 2
+            mid_y = staff_bbox.y + staff_bbox.h / 2
+            tf = Affine(a=staff_space, d=staff_space, e=cx, f=mid_y)
+            bbox = tf.apply_rect(glyph_bbox)
+            identity = ElementIdentity(
+                element_id=ElementId(f"{region.part}:m{m}:barrepeat"),
+                kind=ElementKind.BAR_REPEAT,
+                part=region.part, part_name=info.name,
+                staff=1, voice=None, onset=st.measure_start[m],
+            )
+            out.append(RenderedElement(
+                identity=identity, page=page, x=cx, y=mid_y,
+                bbox=bbox, anchor=bbox.center,
+                glyph=RenderPrimitive(paths=(
+                    PathPrimitive(d=_REPEAT_D, transform=tf),)),
+                system=system,
+            ))
     return out
 
 
