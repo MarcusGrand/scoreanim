@@ -45,6 +45,13 @@ CONDENSE_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
 # fit (Phase 12.5).
 TALL_SYSTEM_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
     "tall_system_min.musicxml"
+# 4-part big-band chart (Alto/Bari/Tpt/Tbn). Under hide-empty-staves (the
+# default) the optimize round-trip makes Verovio reuse an xml:id across a
+# stem group and a tie group, nesting later-system tie/slur curves INSIDE
+# earlier notes' stem/flag groups — the cross-system stray-path leak
+# (2026-07-21). Loaded hidden to exercise _rehome_stray_paths.
+BIGBAND_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
+    "bigband1.musicxml"
 
 
 @pytest.fixture(scope="session")
@@ -92,6 +99,16 @@ def engraved_video_hidden() -> EngravedScore:
     # hidden per system, as the score's encoded page layout assumes.
     return VerovioEngravingProvider().load_detailed(
         VIDEO_SCORE, EngravingParams(), hide_empty_staves=True)
+
+
+@pytest.fixture(scope="session")
+def engraved_bigband_hidden() -> EngravedScore:
+    # hide_empty_staves=True (the new-document default) is the trigger for
+    # the stray-path artifact; strict=False so the unknown 'gliss' class
+    # degrades instead of raising (the leak is unrelated to it).
+    return VerovioEngravingProvider().load_detailed(
+        BIGBAND_SCORE, EngravingParams(), hide_empty_staves=True,
+        strict=False)
 
 
 @pytest.fixture(scope="session")

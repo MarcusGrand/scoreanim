@@ -61,10 +61,14 @@ def test_hidden_load_warning_census(engraved_video_hidden):
     one previously-dropped open tie (P4 m41) now DRAWS, producing a
     continuation segment with no resolvable source — skipped with a
     flag, never absorbed (ruling b). The 13 implausible ties suppress
-    identically to the flat load."""
+    identically to the flat load. One `stray-path`: under the optimize
+    round-trip Verovio nested a system-14 hairpin path inside the
+    id-colliding system-13 group; it is re-homed to system 14 so it
+    animates in place instead of leaking (2026-07-21)."""
     assert Counter(w.code for w in engraved_video_hidden.warnings) == {
         "dropped-spanner": 5, "implausible-tie": 13,
-        "segment-count-mismatch": 1, "unattributed-continuation": 1}
+        "segment-count-mismatch": 1, "unattributed-continuation": 1,
+        "stray-path": 1}
 
 
 def test_hidden_load_is_deterministic():

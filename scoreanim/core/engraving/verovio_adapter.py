@@ -1009,6 +1009,7 @@ class VerovioEngravingProvider(EngravingProvider):
                     acc.system, {}).setdefault(
                     acc.staff, acc.bbox.y + acc.bbox.h / 2)
 
+        _rehome_stray_paths(accumulators, state)
         _attribute_ledger_dashes(accumulators, state)
         _attribute_spanner_segments(accumulators, state)
         _flag_implausible_ties(state)
@@ -1237,6 +1238,117 @@ def _attribute_spanner_segments(
         st.warnings.append(LoadWarning(
             "dropped-spanner",
             f"{tag} {where} was not drawn by the engraver"))
+
+
+def _rehome_stray_paths(accumulators: list[tuple[int, _ElementAccumulator]],
+                        st: _LoadState) -> None:
+    """Re-home a drawable whose geometry lands in a DIFFERENT system than
+    its element's attribution. Under hide-empty-staves (the scoreDef
+    @optimize round-trip) Verovio reuses one xml:id across element types
+    and can emit a spanner's <path> INSIDE a note's <g class="stem|flag">
+    group whose id collides — e.g. a tie curve belonging to a LATER
+    system nested in an EARLIER note's stem (bigband1, 2026-07-21). The
+    stem then inherits that early note's system/onset, so at the stem's
+    reveal time the absorbed curve paints down in the later system —
+    invisible among the ghosts at the default floor, solid ink at floor 0.
+
+    The per-(system, part) reveal edge assumes an element's ink lies
+    within its attributed system; a path crossing systems breaks that
+    invariant. We split each stray path out into its own OTHER element
+    attributed by GEOMETRY to the system its coordinates occupy (onset =
+    that system's first measure, the animate-everything measure-start
+    fallback), so it lights in the right place and never leaks. No ink is
+    dropped (rule 7); flag-and-continue with one warning per re-homed
+    element (ruling b). A no-op on well-formed scores — only an element
+    whose bbox straddles a system boundary is examined."""
+    # Per-page vertical partition into systems from the staff-line bands.
+    # Page-local coords: the same system index sits at similar y on
+    # different pages, so partition per page.
+    bands: dict[int, dict[int, tuple[float, float]]] = {}
+    for page, acc in accumulators:
+        if (acc.svg_class == "staff" and acc.system is not None
+                and acc.bbox is not None):
+            per = bands.setdefault(page, {})
+            lo, hi = per.get(acc.system, (acc.bbox.y, acc.bbox.y2))
+            per[acc.system] = (min(lo, acc.bbox.y), max(hi, acc.bbox.y2))
+    ordered: dict[int, list[tuple[int, float, float]]] = {
+        page: sorted(((s, lo, hi) for s, (lo, hi) in per.items()),
+                     key=lambda t: t[1])
+        for page, per in bands.items()}
+
+    def system_at(page: int, y: float) -> int | None:
+        """The system whose vertical partition (staff band, split at the
+        midpoint of each inter-system gap) contains y."""
+        rows = ordered.get(page)
+        if not rows:
+            return None
+        for i, (sysn, _lo, hi) in enumerate(rows):
+            upper = (float("inf") if i == len(rows) - 1
+                     else (hi + rows[i + 1][1]) / 2.0)
+            if y < upper:
+                return sysn
+        return rows[-1][0]
+
+    first_of_system: dict[int, int] = {}
+    for m, s in st.system_of_measure.items():
+        if m < first_of_system.get(s, 1 << 30):
+            first_of_system[s] = m
+
+    for page, acc in list(accumulators):
+        if (acc.system is None or acc.bbox is None or not acc.paths
+                or acc.texts):
+            continue
+        # cheap pre-filter: only a bbox straddling a system boundary can
+        # hold a foreign-system path
+        if (system_at(page, acc.bbox.y) == acc.system
+                and system_at(page, acc.bbox.y2) == acc.system):
+            continue
+        strays: dict[int, list[PathPrimitive]] = defaultdict(list)
+        kept: list[PathPrimitive] = []
+        for prim in acc.paths:
+            box = prim.transform.apply_rect(path_bbox(prim.d))
+            target = system_at(page, box.center.y)
+            if target is not None and target != acc.system:
+                strays[target].append(prim)
+            else:
+                kept.append(prim)
+        if not strays:
+            continue
+        acc.paths[:] = kept
+        acc.bbox = None
+        for prim in kept:
+            acc.add_bbox(prim.transform.apply_rect(path_bbox(prim.d)))
+        for target, prims in sorted(strays.items()):
+            box = None
+            for prim in prims:
+                r = prim.transform.apply_rect(path_bbox(prim.d))
+                box = r if box is None else box.union(r)
+            centers = st.staff_centers_by_system.get(target, {})
+            staff_n = (min(centers, key=lambda n: abs(centers[n] - box.center.y))
+                       if centers else None)
+            # Reveal-clip (TIE) when the ink resolves to a staff/part, so it
+            # grows in with the playhead SWEEP at its own x — a spanner
+            # curve drawn late in the system must not pop at the system's
+            # downbeat (2026-07-21, cursor-in-m26 regression). The onset
+            # stays None (edge-driven, like any REVEALED kind); its clip
+            # rides the (system, part) reveal curve the part's own notes
+            # build. Fall back to a measure-start OTHER only when no staff
+            # underlies the ink (no reveal curve to ride — never leak).
+            rehomed = _ElementAccumulator(
+                verovio_id="", svg_class="",
+                kind=ElementKind.TIE if staff_n else ElementKind.OTHER,
+                measure=first_of_system.get(target), staff=staff_n,
+                layer=None, owner_onset=None, system=target)
+            rehomed.paths.extend(prims)
+            rehomed.bbox = box
+            accumulators.append((page, rehomed))
+            st.warnings.append(LoadWarning(
+                "stray-path",
+                f"{acc.svg_class or acc.kind.name.lower()} on page {page} "
+                f"carried {len(prims)} path(s) drawn in system {target}, "
+                f"not its own system {acc.system} — re-homed to system "
+                f"{target} so it animates in place (Verovio id-reuse "
+                f"artifact under hide-empty-staves)"))
 
 
 def _flag_implausible_ties(st: _LoadState) -> None:
