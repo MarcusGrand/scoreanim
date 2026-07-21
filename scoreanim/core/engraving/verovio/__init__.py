@@ -5,3 +5,8 @@ Being split out of verovio_adapter.py one pipeline stage per commit
 Verovio types, ids, and SVG never leak past this package (CLAUDE.md
 rule 4).
 """
+
+from scoreanim.core.engraving.verovio.records import (AdapterNoteRecord,
+                                                      EngravedScore)
+
+__all__ = ["AdapterNoteRecord", "EngravedScore"]
