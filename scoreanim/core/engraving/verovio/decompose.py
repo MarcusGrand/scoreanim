@@ -3,8 +3,12 @@
 _PageDecomposer walks the page SVG tree, dereferencing <use> glyphs and
 folding drawables into one _ElementAccumulator per emitted element
 (kinds tables decide what emits, what nests, and what is transparent).
-Reads _LoadState lookups (onsets, staff/layer ns, MEI index) and appends
-load warnings; the accumulators feed every downstream post-pass.
+The accumulators feed every downstream post-pass.
+
+Inputs: one page's SVG text + _LoadState. Outputs: the page's
+_ElementAccumulators. _LoadState READS: mei, onset_by_id, staff_n_by_id,
+layer_n_by_id, strict, glyph_bbox (its cache). WRITES: system_count,
+system_of_measure, warnings ("unknown-class").
 """
 
 from __future__ import annotations

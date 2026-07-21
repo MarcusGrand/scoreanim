@@ -7,6 +7,12 @@ _identity_for mints deterministic ElementIds from musical position
 fix live here). _build_elements runs it over every accumulator, then
 constructs continuation-segment elements under their source's ":seg<k>"
 ids in a second pass.
+
+Inputs: the attributed accumulator list + _LoadState. Outputs:
+RenderedElements, AdapterNoteRecords, and the staff-lines geometry map
+synthesis positions from. _LoadState READS: prep, mei, onset_by_id,
+measure_start, staff_centers_by_system (grpSym span),
+suppressed_spanners. WRITES: warnings ("unattributed-continuation").
 """
 
 from __future__ import annotations

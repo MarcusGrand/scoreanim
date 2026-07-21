@@ -238,6 +238,27 @@ class VerovioEngravingProvider(EngravingProvider):
             for acc in decomposer.run():
                 accumulators.append((page, acc))
 
+        # ------------------------------------------------------------------
+        # Post-pass pipeline. The ORDER below is a correctness invariant,
+        # not a style choice (Phase R.2 — it used to live only in the
+        # stage functions' comments):
+        #
+        # 1. staff_centers_by_system is built BEFORE any post-pass runs:
+        #    rehoming (nearest-staff attribution of stray ink) and identity
+        #    minting (grpSym staff-span) both read it.
+        # 2. _rehome_stray_paths runs FIRST among the passes: it splits
+        #    foreign-system ink out into its own accumulators, so the
+        #    ledger/spanner passes below must never see (and claim) a path
+        #    that is about to be re-homed elsewhere.
+        # 3. _flag_implausible_ties runs AFTER _attribute_spanner_segments:
+        #    the bogus tie sources must stay in the candidate pool during
+        #    y-order segment pairing, or the REMAINING segments pair with
+        #    the wrong sources; only element construction skips them.
+        # 4. _build_elements runs BEFORE synthesis: slashes/repeats are
+        #    positioned from the staff geometry it collects, and synthetic
+        #    elements must never enter the post-passes above.
+        # ------------------------------------------------------------------
+
         # staff y-centers per system, for geometric grpSym identity
         for _, acc in accumulators:
             if (acc.svg_class == "staff" and acc.bbox is not None
@@ -264,9 +285,8 @@ class VerovioEngravingProvider(EngravingProvider):
         elements.extend(synthesis._synthesize_slashes(state, staff_geo))
         elements.extend(synthesis._synthesize_repeats(state, staff_geo))
         layout = Layout(pages=pages, elements=tuple(elements))
-        return records.EngravedScore(layout=layout,
-                             note_records=tuple(note_records),
-                             prepared=prep,
-                             warnings=tuple(state.warnings)), first_measure
+        return records.EngravedScore(
+            layout=layout, note_records=tuple(note_records), prepared=prep,
+            warnings=tuple(state.warnings)), first_measure
 
 

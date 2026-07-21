@@ -4,6 +4,12 @@ both region kinds with no notes and Verovio draws nothing for them
 per beat, one % symbol per repeated bar — positioned from the staff-line
 geometry _build_elements collected, so they render and animate like
 notes.
+
+Inputs: _LoadState + the staff-lines geometry map from _build_elements
+(so it runs after element construction; synthetic elements never enter
+the post-passes). Outputs: RenderedElements. _LoadState READS: prep
+(slash_regions/repeat_regions/parts), measure_start, measure_duration.
+WRITES: nothing.
 """
 
 from __future__ import annotations

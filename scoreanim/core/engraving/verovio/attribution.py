@@ -7,6 +7,14 @@ _attribute_ledger_dashes gives id-less dashes their owner's onset/voice;
 _attribute_spanner_segments pairs continuation ink with source spanners;
 _flag_implausible_ties suppresses engraving-artifact ties. Also the
 tstamp arithmetic helpers the spanner passes and identity minting share.
+
+Inputs: the accumulator list + _LoadState. Outputs: none — the passes
+mutate accumulators in place (paths/bbox/owner_onset/layer on dashes,
+source_vid/seg_index on continuation segments; rehoming APPENDS new
+accumulators). _LoadState READS: mei, onset_by_id, measure_start,
+measure_duration, prep, system_of_measure, staff_centers_by_system.
+WRITES: warnings ("stray-path", "segment-count-mismatch",
+"dropped-spanner", "implausible-tie"), suppressed_spanners.
 """
 
 from __future__ import annotations

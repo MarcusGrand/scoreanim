@@ -3,7 +3,8 @@
 AdapterNoteRecord / EngravedScore are the adapter's public data surface
 (the ScoreModel join and every tool read them). _LoadState is the
 per-load state every pipeline stage reads — and some write — placed next
-to the records it feeds. Plain data; no Verovio types (rule 4).
+to the records it feeds; each stage module's docstring lists exactly
+which fields it reads and writes. Plain data; no Verovio types (rule 4).
 """
 
 from __future__ import annotations

@@ -4,6 +4,9 @@ Pure XML in, plain dicts out — one _MeiIndex per load, read by every
 downstream stage. Also home to the two other pure-XML helpers:
 _set_scoredef_optimize (the hide-empty-staves round-trip marker) and
 _container_ns (staff/layer @n by xml:id, shared by MEI and SVG).
+
+Inputs: MEI XML text. Outputs: _MeiIndex / plain dicts. Touches no
+_LoadState — this stage runs before it exists.
 """
 
 from __future__ import annotations
