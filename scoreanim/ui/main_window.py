@@ -62,6 +62,7 @@ from scoreanim.ui.export_dialog import ExportDialog
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.part_names_dialog import PartNamesDialog
+from scoreanim.ui.score_setup_dialog import ScoreSetupDialog
 from scoreanim.ui.staff_groups_dialog import StaffGroupsDialog
 from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.texts_dialog import TextsDialog
@@ -97,6 +98,7 @@ class MainWindow(QMainWindow):
         self._applied_text_overrides: dict = {}   # label overrides ditto
         self._applied_hide_empty = False   # hide-empty-staves ditto
         self._applied_condense: tuple = ()   # condense groups ditto
+        self._last_overflow = False          # last load overflowed a page
         self._hide_staves_action: QAction | None = None
         self._applied_stage_texts: tuple = ()   # stage texts on the scenes
         self._applied_hidden: dict = {}    # ElementId → applied hidden flag
@@ -651,6 +653,9 @@ class MainWindow(QMainWindow):
         self._part_effect_actions = {}
         self._applied_colors = {}
         self._applied_overrides = {}
+        setup_action = QAction("Score Setup…", self._parts_menu)
+        setup_action.triggered.connect(self._open_score_setup_dialog)
+        self._parts_menu.addAction(setup_action)
         groups_action = QAction("Staff Groups…", self._parts_menu)
         groups_action.triggered.connect(self._open_staff_groups_dialog)
         self._parts_menu.addAction(groups_action)
@@ -808,6 +813,10 @@ class MainWindow(QMainWindow):
         self.app_state.reset_document(doc)   # → _on_document_changed
         self._show_current()
         self.view.fit()
+        # a score that overflows its page needs staff-count reduction —
+        # offer the Score Setup dialog on open (Phase 12.4)
+        if self._last_overflow:
+            self._open_score_setup_dialog()
 
         sidecar = path.with_suffix(".tempo")
         if sidecar.exists():
@@ -980,6 +989,10 @@ class MainWindow(QMainWindow):
         self._applied_text_overrides = text_overrides
         self._applied_hide_empty = hide_empty_staves
         self._applied_condense = condense_groups
+        # a system still overflowing its page after repagination means the
+        # score needs staff-count reduction — the Score Setup trigger (12.4)
+        self._last_overflow = any(w.code == "system-overflow"
+                                  for w in engraved.warnings)
 
         self.statusBar().showMessage(
             f"engrave+decompose {t1 - t0:.2f}s · scene build {t2 - t1:.2f}s · "
@@ -994,6 +1007,11 @@ class MainWindow(QMainWindow):
         if not self._parts:
             return
         StaffGroupsDialog(self.app_state, self._parts, parent=self).exec()
+
+    def _open_score_setup_dialog(self) -> None:
+        if not self._parts:
+            return
+        ScoreSetupDialog(self.app_state, self._parts, parent=self).exec()
 
     def _open_part_names_dialog(self) -> None:
         if not self._parts:

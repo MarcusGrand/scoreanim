@@ -10,9 +10,10 @@ import pytest
 
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
-from scoreanim.core.project import (AddCondenseGroup, CommandError,
-                                    CondenseGroup, EditCondenseGroup,
-                                    ProjectDoc, RemoveCondenseGroup, UndoStack,
+from scoreanim.core.project import (AddCondenseGroup, ApplyScoreSetup,
+                                    CommandError, CondenseGroup,
+                                    EditCondenseGroup, ProjectDoc,
+                                    RemoveCondenseGroup, StaffGroup, UndoStack,
                                     from_dict, to_dict)
 from scoreanim.core.score.join import join_notes
 from scoreanim.core.score.model import build_score_model
@@ -129,3 +130,39 @@ def test_pre_v5_files_load_without_condensing():
     """A v4 file predates condensing — a missing key defaults to () (no
     condensing is the correct look for older documents)."""
     assert from_dict({"version": 4}).condense_groups == ()
+
+
+# --- 12.4 batch setup command ----------------------------------------------
+
+def test_apply_score_setup_is_one_undo_step():
+    """Condense + staff groups + hide-empty change together in ONE step
+    (ruling c), so the slow re-engrave runs once and one undo reverts all."""
+    stack = UndoStack()
+    doc = ProjectDoc(hide_empty_staves=True)   # a fresh-doc default
+    cg = CondenseGroup(parts=("P1", "P2"), name="Flute 1.2")
+    sg = StaffGroup(parts=("P3", "P4"), symbol="bracket")
+    doc = stack.execute(
+        ApplyScoreSetup((cg,), (sg,), False, _ORDER), doc)
+    assert doc.condense_groups == (cg,)
+    assert doc.staff_groups == (sg,)
+    assert doc.hide_empty_staves is False
+    reverted = stack.undo()
+    assert reverted.condense_groups == () and reverted.staff_groups == ()
+    assert reverted.hide_empty_staves is True
+
+
+def test_apply_score_setup_validates_both_group_sets():
+    with pytest.raises(CommandError):        # non-contiguous condense
+        ApplyScoreSetup((CondenseGroup(parts=("P1", "P3"), name="x"),),
+                        (), False, _ORDER).apply(ProjectDoc())
+    with pytest.raises(CommandError):        # overlapping staff group
+        ApplyScoreSetup((), (StaffGroup(parts=("P9",)),),
+                        False, _ORDER).apply(ProjectDoc())
+
+
+def test_default_condense_name():
+    from scoreanim.ui.score_setup_dialog import default_condense_name
+    assert default_condense_name(("Flute 1", "Flute 2")) == "Flute 1.2"
+    assert default_condense_name(("Horn (F) 1", "Horn (F) 2",
+                                  "Horn (F) 3")) == "Horn (F) 1.2.3"
+    assert default_condense_name(("Oboe", "Cor Anglais")) == "Oboe"

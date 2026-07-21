@@ -741,6 +741,33 @@ class RemoveCondenseGroup(Command):
         return "uncondense parts"
 
 
+@dataclass(frozen=True)
+class ApplyScoreSetup(Command):
+    """Batch the load-time layout choices — condense groups, staff groups,
+    and hide-empty-staves — into ONE undoable step (ruling c, Phase 12.4).
+    The Score Setup dialog gathers all choices and applies them together,
+    so a score that re-engraves slowly (complex2 ~20 s) re-engraves ONCE
+    instead of once per change. There is no generic macro command; this is
+    the 'fat apply' idiom (AddTempoOverlay's shape). Both group sets are
+    validated against the score's part order (runtime data)."""
+    condense_groups: tuple[CondenseGroup, ...]
+    staff_groups: tuple[StaffGroup, ...]
+    hide_empty_staves: bool
+    part_order: tuple[PartId, ...]
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        return replace(
+            doc,
+            condense_groups=_validated_condense_groups(
+                self.condense_groups, self.part_order),
+            staff_groups=_validated_groups(self.staff_groups, self.part_order),
+            hide_empty_staves=self.hide_empty_staves,
+        )
+
+    def describe(self) -> str:
+        return "apply score setup"
+
+
 # ---------------------------------------------------------------------------
 # part texts (Phase 9.3)
 # ---------------------------------------------------------------------------
