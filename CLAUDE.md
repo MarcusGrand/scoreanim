@@ -167,7 +167,14 @@ testdata/                  # testscore.musicxml (Dorico export) + companion
                            # bigband1.musicxml — 4-part big-band chart whose
                            # hide-empty-staves load exposed the cross-system
                            # stray-path leak (ARCHITECTURE §3 item 11, fixed
-                           # 2026-07-21)
+                           # 2026-07-21); complex3.musicxml — 14-part
+                           # orchestral chart with a Dorico "X0" pickup bar;
+                           # drove the measure-identity=ordinal fix (§3 item
+                           # 12), the start-staff continuation-segment fix
+                           # (§3 item 13, phantom slurs), and monotonic
+                           # view-follow (2026-07-21); pickup_min.musicxml —
+                           # 3-bar "X0"-pickup unit fixture for the identity
+                           # invariant
 docs/
 ```
 

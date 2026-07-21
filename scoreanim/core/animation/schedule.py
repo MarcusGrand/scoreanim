@@ -4,20 +4,20 @@ Built once per (score, join) from the Layout identities plus the
 ScoreModel join mapping; pure data downstream. The three rules that make
 it musically correct on real Dorico exports (spikes/NOTES.md):
 
-1. Tie gating. Tied-to noteheads appear as fresh timemap onsets (all 58
-   tie-stops + 6 continues on the fixture), so triggering on
-   ``identity.onset`` alone would re-fire them. A notehead whose
-   ScoreNote.tie is 'stop'/'continue' inherits the trigger of the
-   nearest earlier 'start'/'continue' of the same (part, staff, pitch) —
-   propagating to the chain start — so it never re-triggers, and
-   scrubbing into the middle of a tie lands in the lit state (the note
-   is sounding there). The voice label is deliberately NOT part of the
-   chain key: MusicXML voice labels are per-measure and change exactly
-   where ties cross barlines (verified: the fixture's m18→19 hi-hat tie
-   starts in an implicit single voice, label None, and stops in voice
-   '5'). Plain same-pitch notes interleaved from other voices are
-   skipped by the backward scan; an intervening 'stop' ends the scan (a
-   closed chain never donates its trigger to a later orphan).
+1. Grow-with-playhead (ruling A/B revised 2026-07-22): every notehead —
+   INCLUDING a tie 'stop'/'continue' — fires at its OWN notated onset.
+   A held note is re-notated at each barline; those continuation noteheads
+   fill in as the playhead reaches them, and the tie ink over them grows
+   left-to-right against the reveal edge (reveal.py). Previously a tied
+   continuation inherited its chain-start trigger ("a tied group is one
+   event") — which drew the whole held span at once, so a 14-beat held
+   note's tie painted to the system's end while the playhead was mid-
+   system (the complex3 Oboe/Clarinet phantom). Scrubbing into a held
+   note now lands it filled-in up to the playhead (the audio position),
+   not fully lit. The default "appear" effect is an opacity fade, so a
+   continuation REVEALS rather than re-attacks; onset-less broken :seg
+   tie/slur segments carry no ScoreNote, never reach this table, and stay
+   edge-driven.
 
 2. Grace timing. Grace ScoreNotes carry the principal's onset, but the
    layout identity carries Verovio's fractional qstamp (just before the
@@ -125,14 +125,6 @@ class TriggerSchedule:
     beats_by_element: Mapping[ElementId, Beats]
 
 
-def _pitch_key(note: ScoreNote) -> tuple:
-    # Same convention as the identity join: (step, octave) without the
-    # chromatic alter, staff position for unpitched (see join._pitch_key).
-    if note.pitch_step is None:
-        return ("loc", note.staff_loc)
-    return (note.pitch_step, note.octave)
-
-
 def build_trigger_schedule(layout: Layout,
                            mapping: Mapping[ElementId, ScoreNote],
                            measures: Sequence[MeasureInfo] = ()
@@ -140,33 +132,24 @@ def build_trigger_schedule(layout: Layout,
     ident_by_id = {el.identity.element_id: el.identity
                    for el in layout.elements}
 
-    # -- rule 1 + 2: notehead triggers via tie-chain walk ------------------
-    chains: dict[tuple, list[tuple[ScoreNote, ElementId]]] = defaultdict(list)
-    for eid, note in mapping.items():
-        if eid in ident_by_id:
-            chains[(note.part, note.staff,
-                    _pitch_key(note))].append((note, eid))
-
+    # -- rule 1 + 2: each notehead triggers at its OWN notated onset --------
+    # Grow-with-playhead (ruling A/B revised 2026-07-22): a tied
+    # continuation fires at its own notated onset, NOT the chain start — so
+    # a held note's re-notated barline noteheads FILL IN as the playhead
+    # reaches each barline (with the tie ink growing between them), instead
+    # of the whole held span appearing at once (the complex3 Oboe/Clarinet
+    # phantom: a 14-beat held-note tie drawn to the system end while the
+    # playhead was mid-system). Scrubbing into a held note lands it filled-in
+    # up to the playhead, matching the audio position; the default "appear"
+    # effect is a fade, so a continuation reveals rather than re-attacks.
+    # Grace notes still use the layout's fractional qstamp (rule 2).
     note_trigger: dict[ElementId, Beats] = {}
-    for members in chains.values():
-        members.sort(key=lambda pair: (pair[0].onset,
-                                       pair[0].voice_label or "",
-                                       pair[0].order))
-        resolved: list[tuple[str | None, Beats]] = []   # (tie, trigger)
-        for note, eid in members:
-            ident = ident_by_id[eid]
-            own = ident.onset if note.grace and ident.onset is not None \
-                else note.onset
-            trigger = own
-            if note.tie in ("stop", "continue"):
-                for earlier_tie, earlier_trigger in reversed(resolved):
-                    if earlier_tie in ("start", "continue"):
-                        trigger = earlier_trigger
-                        break
-                    if earlier_tie == "stop":
-                        break            # closed chain; orphan keeps own onset
-            note_trigger[eid] = trigger
-            resolved.append((note.tie, trigger))
+    for eid, note in mapping.items():
+        if eid not in ident_by_id:
+            continue
+        ident = ident_by_id[eid]
+        note_trigger[eid] = (ident.onset if note.grace
+                             and ident.onset is not None else note.onset)
 
     # -- rule 3: group table from the noteheads ----------------------------
     group_triggers: dict[tuple, list[tuple[Beats, Beats]]] = defaultdict(list)

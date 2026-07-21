@@ -126,15 +126,16 @@ def test_preroll_hidden_past_end_revealed(qapp, engraved_spanners,
             assert child.clip_right is None, eid       # fully revealed
 
 
-def test_slur_over_broken_ties_steps_the_full_tied_value(
+def test_slur_over_broken_ties_grows_with_the_playhead(
         qapp, engraved_spanners, spanner_setup) -> None:
-    """Ruling A on the broken slur (it spans the m8→m9 tied notes):
-    before the tied chain starts, the continuation segment is hidden;
-    AT the chain start both the source and the continuation stand
-    revealed in one step — the spanner never advances incrementally
-    across the tied group."""
+    """Grow-with-playhead (ruling A/B revised 2026-07-22): the broken slur
+    over the m8→m9 tied notes reveals PROGRESSIVELY as each side's own
+    playhead sweeps it. The continuation segment (system 3) is hidden before
+    its system's playhead reaches it, grows monotonically across, and stands
+    full by the slur's own end — it no longer pops to the tied value at the
+    chain start (there is no chain-start retiming any more; seconds==beats)."""
     scenes, applier, _ = _make(qapp, engraved_spanners, spanner_setup)
-    schedule, _, _ = spanner_setup
+    _, tracks, _ = spanner_setup
     layout = engraved_spanners.layout
     slur = next(e for e in layout.elements
                 if e.identity.kind is ElementKind.SLUR
@@ -142,41 +143,30 @@ def test_slur_over_broken_ties_steps_the_full_tied_value(
     seg = next(e for e in layout.elements
                if e.identity.kind is ElementKind.SLUR
                and ":seg" in str(e.identity.element_id))
-    els = {eid: e for eid, e in
-           ((e.identity.element_id, e) for e in layout.elements)}
-    # earliest P1 chain start among the ties under the slur: gated
-    # tie-stop triggers of noteheads in the segment's system
-    chain_start = min(
-        schedule.beats_by_element[eid]
-        for eid, ident in ((e.identity.element_id, e.identity)
-                           for e in layout.elements)
-        if ident.kind.name == "NOTEHEAD" and ident.part == "P1"
-        and els[eid].system == seg.system
-        and schedule.beats_by_element.get(eid, ident.onset) < ident.onset)
-    start, _ = slur.identity.extent
-    assert start < chain_start                  # slur begins pre-tie
-
-    src_children = scenes.items[slur.identity.element_id].reveal_children
     seg_children = scenes.items[seg.identity.element_id].reveal_children
-    applier.refresh(chain_start - 0.01)         # seconds == beats
-    assert all(c.hidden for c in seg_children)  # nothing before the chain
-    assert all(not c.hidden for c in src_children)   # slur already growing
-    before = [c.clip_right for c in src_children]
-    applier.refresh(chain_start)                # ONE step: full tied value
-    # the continuation reveals up to the tied stop heads in one step
-    # (it completes later, at the slur's own end note past the group)
-    assert all(not c.hidden for c in seg_children)
-    after = [c.clip_right for c in src_children]
-    assert all(b is None or (a is not None and b > a)
-               for a, b in zip(before, after))  # source jumped to the margin
+    # the seg's OWN (system, part) reveal track drives it
+    track = next(t for t in tracks
+                 if t.system == seg.system and t.part == seg.identity.part)
+
+    # before its system's playhead has entered, the continuation is hidden
+    applier.refresh(track.beats[0] - 0.01)
+    assert all(c.hidden for c in seg_children)
+
+    # sweeping forward across the seg's own anchors, its clip only advances
+    def clips():
+        return [float("inf") if c.clip_right is None else c.clip_right
+                for c in seg_children]
+    prev = clips()
+    for beat in track.beats:
+        applier.refresh(beat)
+        now = clips()
+        assert all(a <= b for a, b in zip(prev, now)), beat  # never retreats
+        prev = now
+
+    # by the slur's own end note the continuation is fully revealed
     _, slur_end = slur.identity.extent
     applier.refresh(slur_end)
     assert all(c.clip_right is None for c in seg_children)
-    # and the source never advanced between the slur's start and the
-    # chain start (stateless re-check):
-    applier.refresh((start + chain_start) / 2)
-    applier.refresh(chain_start - 0.01)
-    assert [c.clip_right for c in src_children] == before
 
 
 def test_stepped_holds_between_onsets_continuous_moves(

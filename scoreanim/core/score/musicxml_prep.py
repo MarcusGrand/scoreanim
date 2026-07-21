@@ -164,8 +164,12 @@ def _repaginate(root: ET.Element, break_measures: tuple[int, ...]) -> None:
             if pr is not None and pr.get("new-page"):
                 del pr.attrib["new-page"]
     wanted = set(break_measures)
-    for measure in parts[0].findall("measure"):
-        if int(measure.get("number", "0")) in wanted:
+    # Measure identity is the 1-based document-order ordinal everywhere (see
+    # verovio_adapter._parse_mei): `break_measures` come from the adapter's
+    # ordinal-keyed system_of_measure, so match by ordinal here — the printed
+    # `number` is neither unique nor consistent (Dorico's "X0"/"X1" bars).
+    for ordinal, measure in enumerate(parts[0].findall("measure"), start=1):
+        if ordinal in wanted:
             pr = measure.find("print")
             if pr is None:
                 pr = ET.Element("print")
@@ -346,14 +350,10 @@ def _parts(root: ET.Element) -> tuple[PartInfo, ...]:
     return tuple(infos)
 
 
-def _measure_number(measure: ET.Element, ordinal: int) -> int:
-    try:
-        return int(measure.get("number", ""))
-    except ValueError:
-        return ordinal
-
-
 def _slash_regions(root: ET.Element) -> tuple[SlashRegion, ...]:
+    # Region bounds are 1-based document-order ordinals — the same measure
+    # identity the adapter keys staff_geo/measure_start by (never the printed
+    # `number`, which collides for Dorico's "X0"/"X1" bars).
     regions: list[SlashRegion] = []
     for part in root.findall("part"):
         pid = PartId(part.get("id", ""))
@@ -361,7 +361,7 @@ def _slash_regions(root: ET.Element) -> tuple[SlashRegion, ...]:
         open_unit = 1.0
         last_n = 0
         for ordinal, measure in enumerate(part.findall("measure"), start=1):
-            n = _measure_number(measure, ordinal)
+            n = ordinal
             last_n = n
             for slash in measure.iter("slash"):
                 unit = _SLASH_UNIT_QUARTERS.get(
@@ -392,7 +392,7 @@ def _repeat_regions(root: ET.Element) -> tuple[RepeatRegion, ...]:
         open_span = 1
         last_n = 0
         for ordinal, measure in enumerate(part.findall("measure"), start=1):
-            n = _measure_number(measure, ordinal)
+            n = ordinal
             last_n = n
             for mr in measure.iter("measure-repeat"):
                 if mr.get("type") == "stop" and open_start is not None:

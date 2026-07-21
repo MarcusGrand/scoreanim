@@ -6,7 +6,7 @@ from collections import defaultdict
 import pytest
 
 from scoreanim.core.animation import build_trigger_schedule, is_animated
-from scoreanim.core.animation.schedule import _pitch_key, quantize_beats
+from scoreanim.core.animation.schedule import quantize_beats
 from scoreanim.core.score.identity import ElementKind
 
 
@@ -38,13 +38,16 @@ def test_all_slashes_scheduled_on_their_beats(schedule, identities) -> None:
         assert schedule.beats_by_element[eid] == identities[eid].onset
 
 
-def test_tie_stops_never_retrigger(schedule, join_mapping) -> None:
-    """All 58 stop + 6 continue noteheads fire before their notated onset."""
+def test_tie_stops_fire_at_own_onset(schedule, join_mapping) -> None:
+    """Grow-with-playhead (ruling A/B revised 2026-07-22): all 58 stop + 6
+    continue noteheads fire at their OWN notated onset — a held note fills
+    in at each barline rather than the whole span lighting at the chain
+    start. (Previously they inherited the chain-start trigger.)"""
     gated = {eid: n for eid, n in join_mapping.items()
              if n.tie in ("stop", "continue")}
     assert len(gated) == 64
     for eid, note in gated.items():
-        assert schedule.beats_by_element[eid] < note.onset, eid
+        assert schedule.beats_by_element[eid] == note.onset, eid
 
 
 def test_fresh_noteheads_fire_at_own_onset(schedule, join_mapping,
@@ -56,35 +59,22 @@ def test_fresh_noteheads_fire_at_own_onset(schedule, join_mapping,
         assert schedule.beats_by_element[eid] == expected, eid
 
 
-def test_tied_triggers_are_start_onsets(schedule, join_mapping) -> None:
-    """Every gated notehead's trigger is the onset of an actual tie-start
-    earlier in its (part, staff, pitch) chain — and chains with
-    'continue' links propagate THROUGH them to the true start."""
-    chains = defaultdict(list)
+def test_every_notehead_fires_at_its_own_onset(schedule, join_mapping,
+                                               identities) -> None:
+    """The whole point of the grow-with-playhead revision: NO notehead
+    (tied or fresh) is retimed — each fires at its own notated onset (a
+    grace at its fractional qstamp). So the reveal edge sweeps a held note
+    left-to-right with the playhead instead of jumping to the chain end."""
     for eid, note in join_mapping.items():
-        chains[(note.part, note.staff, _pitch_key(note))].append(note)
-    start_onsets = {
-        key: {n.onset for n in notes if n.tie == "start"}
-        for key, notes in chains.items()}
-    continues_passed = 0
-    for eid, note in join_mapping.items():
-        if note.tie not in ("stop", "continue"):
-            continue
-        key = (note.part, note.staff, _pitch_key(note))
-        trigger = schedule.beats_by_element[eid]
-        assert trigger in start_onsets[key], eid
-        # multi-link: a 'continue' sits strictly between trigger and onset
-        if any(n.tie == "continue" and trigger < n.onset < note.onset
-               for n in chains[key]):
-            continues_passed += 1
-    assert continues_passed > 0        # fixture has 6 'continue' links
+        expected = identities[eid].onset if note.grace else note.onset
+        assert schedule.beats_by_element[eid] == expected, eid
 
 
-def test_hihat_tie_across_voice_relabeling(schedule) -> None:
-    """m18→19 drum tie: the start is in an implicit voice (label None),
-    the stop in voice '5' — the chain must still connect (this is why
-    the chain key excludes the per-measure voice label)."""
-    assert schedule.beats_by_element["P7:m19:s1:v5:note:0"] == 65.5
+def test_hihat_tie_stop_fires_at_its_own_onset(schedule) -> None:
+    """m18→19 drum tie stop (voice '5', its start was the implicit voice in
+    m18): with retiming removed it fires at its OWN m19 downbeat (66.0), not
+    the m18 chain start — the held hi-hat fills in at the barline."""
+    assert schedule.beats_by_element["P7:m19:s1:v5:note:0"] == 66.0
 
 
 def test_graces_fire_just_before_the_beat(schedule, join_mapping,
@@ -104,12 +94,13 @@ def test_grace_stems_share_the_grace_trigger(schedule) -> None:
     assert schedule.beats_by_element["P5:m1:s1:v1:stem:0"] == 0.94140625
 
 
-def test_all_tied_chords_inherit_through_their_ink(schedule, join_mapping,
-                                                   identities) -> None:
+def test_tied_chord_ink_fires_at_the_groups_own_onset(schedule, join_mapping,
+                                                      identities) -> None:
     """Fixture fact: every tied-over chord is tied in ALL its heads (no
-    mixed groups exist — pinned here; the mixed 'any fresh' rule is
-    covered synthetically below). All-tied groups' stems/attachments
-    inherit the chain-start trigger with their heads."""
+    mixed groups exist — pinned here; the mixed 'any fresh' rule is covered
+    synthetically below). With retiming removed, an all-tied group's
+    stems/attachments fire at the group's OWN notated onset (with its
+    heads), so the whole re-notated chord fills in at its barline."""
     heads_by_group = defaultdict(list)
     for eid, note in join_mapping.items():
         ident = identities[eid]
@@ -127,10 +118,8 @@ def test_all_tied_chords_inherit_through_their_ink(schedule, join_mapping,
             continue
         assert len(tied) == len(heads), f"mixed tied chord appeared: {key}"
         all_tied_groups += 1
-        earliest = min(schedule.beats_by_element[e] for e in tied)
         for ink in ink_by_group.get(key, ()):
-            assert schedule.beats_by_element[ink] == earliest, ink
-            assert earliest < identities[ink].onset
+            assert schedule.beats_by_element[ink] == identities[ink].onset, ink
     assert all_tied_groups > 0
 
 
@@ -191,21 +180,17 @@ def _synthetic(tie_second_head: str | None):
     return build_trigger_schedule(layout, mapping)
 
 
-def test_mixed_chord_articulates_at_notated_onset() -> None:
-    """One tied head + one fresh head: only the tied head lights early;
-    the fresh head AND the shared stem fire at the chord's own onset."""
-    sched = _synthetic(tie_second_head=None)
-    assert sched.beats_by_element["c1"] == 0.0     # tied head inherits
-    assert sched.beats_by_element["e1"] == 4.0     # fresh head at own onset
-    assert sched.beats_by_element["s1"] == 4.0     # any-fresh: stem articulates
-    assert sched.beats_by_element["s0"] == 0.0
-
-
-def test_all_tied_chord_inherits_stem() -> None:
-    sched = _synthetic(tie_second_head="stop")
-    assert sched.beats_by_element["c1"] == 0.0
-    assert sched.beats_by_element["e1"] == 0.0
-    assert sched.beats_by_element["s1"] == 0.0     # all tied: stem inherits
+def test_chord_ink_fires_at_own_onset_tied_or_not() -> None:
+    """Grow-with-playhead: retiming removed, so a chord's heads and its
+    shared stem all fire at the chord's OWN notated onset whether or not a
+    head is tied — the re-notated chord fills in at its barline, it never
+    inherits the chain-start trigger."""
+    for second in (None, "stop"):
+        sched = _synthetic(tie_second_head=second)
+        assert sched.beats_by_element["c1"] == 4.0   # (tied) head, own onset
+        assert sched.beats_by_element["e1"] == 4.0   # head, own onset
+        assert sched.beats_by_element["s1"] == 4.0   # shared stem, own onset
+        assert sched.beats_by_element["s0"] == 0.0   # first chord's stem
 
 
 # Page furniture — TEXT sub-classes the adapter mints onset-less; the

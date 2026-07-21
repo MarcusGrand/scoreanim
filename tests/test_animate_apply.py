@@ -105,20 +105,22 @@ def test_scrubbing_is_stateless(qapp, engraved, schedule, scenes) -> None:
     assert walked == _opacities(fresh_scenes)
 
 
-def test_tie_stop_lit_before_its_bar_and_never_restepped(
+def test_tie_stop_fills_in_at_its_own_onset(
         scenes, schedule, applier, join_mapping) -> None:
+    """Grow-with-playhead (ruling A/B revised 2026-07-22): a tie-stop head
+    lights at its OWN notated onset — it fills in as the playhead reaches
+    its barline, no longer lit early at the chain start. Before its onset it
+    sits at the ghost floor."""
     eid = next(e for e, n in join_mapping.items() if n.tie == "stop")
     note = join_mapping[eid]
     trigger_s = TEMPO.seconds_at(schedule.beats_by_element[eid])
     notated_s = TEMPO.seconds_at(note.onset)
-    assert trigger_s < notated_s
+    assert trigger_s == pytest.approx(notated_s)       # fires at its own onset
 
-    applier.apply_at((trigger_s + notated_s) / 2)      # mid-tie
-    assert scenes.items[eid].opacity() == pytest.approx(1.0)
+    applier.apply_at(notated_s - 0.5)                  # before its bar
+    assert scenes.items[eid].opacity() == pytest.approx(FLOOR)
     applier.apply_at(notated_s + 0.01)                 # crossing notated onset
     assert scenes.items[eid].opacity() == pytest.approx(1.0)
-    applier.apply_at(trigger_s - 0.01)                 # scrub before the chain
-    assert scenes.items[eid].opacity() == pytest.approx(FLOOR)
 
 
 def test_diff_apply_touches_only_crossed_triggers(scenes, schedule,

@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from scoreanim.core.score.musicxml_prep import (CreditText, PartGroupSpec,
-                                                prepare)
+                                                _repaginate, prepare)
 from tests.conftest import TESTSCORE
 
 
@@ -55,6 +55,32 @@ def test_units_per_tenth_matches_page_geometry(engraved) -> None:
     # fixture <defaults>: 5.99722 mm = 40 tenths, page-width 1397.65 tenths
     assert prep.units_per_tenth == pytest.approx(5.99722 / 40 * 10)
     assert prep.page_width == pytest.approx(1397.65 * prep.units_per_tenth)
+
+
+# --- repagination with non-numeric measure numbers -------------------------
+
+def _one_part_root(numbers: list[str]) -> ET.Element:
+    """A minimal <score-partwise> with one part whose measures carry the
+    given `number` attributes (Dorico uses "X0"/"X1" for split/unnumbered
+    bars — cadenzas, mid-bar system starts)."""
+    root = ET.Element("score-partwise")
+    part = ET.SubElement(root, "part", id="P1")
+    for n in numbers:
+        ET.SubElement(part, "measure", number=n)
+    return root
+
+
+def test_repaginate_survives_non_numeric_measure_numbers() -> None:
+    # break_measures live in the decompose's ordinal-fallback space, so a
+    # break "before ordinal 3" must land on the 3rd measure regardless of
+    # its non-numeric MusicXML number — and must not crash on "X0".
+    root = _one_part_root(["1", "2", "3", "X0"])
+    _repaginate(root, break_measures=(4,))
+    measures = root.find("part").findall("measure")
+    breaks = [m.get("number") for m in measures
+              if m.find("print") is not None
+              and m.find("print").get("new-page") == "yes"]
+    assert breaks == ["X0"]  # the 4th measure by ordinal
 
 
 # --- <part-group> injection (Phase 8) ---------------------------------------

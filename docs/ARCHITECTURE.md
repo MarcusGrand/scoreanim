@@ -262,6 +262,47 @@ class EngravingProvider(ABC):
 #    straddling bbox is examined); across testdata only bigband1 and
 #    video_test (a system-14 hairpin path in the id-colliding system-13
 #    group) fire.
+#
+# 12. Measure identity is the 1-based DOCUMENT-ORDER ORDINAL, never the
+#    printed measure number (fix 2026-07-21, complex3). The printed number
+#    is not unique or consistent: Dorico exports pickup/split bars as
+#    non-numeric "X0"/"X1", which music21 parses to 0 while the DOM/MEI keep
+#    the string — so the pickup collides with real bar 1 (both key 1) and
+#    the two sides disagree. The k-th <measure> is the SAME bar in music21,
+#    the MusicXML DOM and Verovio's MEI (verified 1:1 across every fixture,
+#    incl. multi-measure rests, the hide-empty-staves round-trip, repeats),
+#    so the ordinal is the one safe key. Every identity dict keys by it —
+#    measure_by_id (xml:id→ordinal), system_of_measure, measure_start,
+#    measure_duration, meter_unit_by_measure, ScoreNote.measure /
+#    AdapterNoteRecord.measure (the join key), slash/repeat region bounds,
+#    _repaginate page-break bars, and the ElementId ":m{ordinal}:" segment.
+#    The PRINTED number survives only as display: MeasureInfo.number and the
+#    tempo/export/measure-label UI. Consequence: for a score not starting at
+#    printed bar 1, ":m{n}:" ids shift, so saved dx/dy layout overrides on
+#    such a project (which already collided pre-fix) will not re-match — an
+#    accepted one-time break (rule 5 override staleness).
+#
+# 13. Continuation-segment attribution keys by the START-note staff
+#    (fix 2026-07-21, complex3). A system-broken spanner continues on its
+#    start staff; _attribute_spanner_segments pairs each continuation
+#    segment to a crossing source in (staff, end_y) order. The staff must be
+#    the source's START-note staff — reliable even when the end note has no
+#    drawn accumulator (common under hide-empty-staves: 69 such sources in
+#    complex3). Keying by the end-note staff collapsed those to 0, sorting
+#    them degenerately and handing a segment the wrong source → a slur
+#    painted on another part's staff and revealed on that part's advanced
+#    edge (the phantom-slur family, sibling to item 11). See
+#    tests/test_phantom_slur.py.
+
+# Followed page/system (render/animate.py) is MONOTONIC non-decreasing over
+# the time-ordered triggers (prefix-max): the view never turns backward
+# while the clock advances. A per-trigger page/system is only a hint —
+# schedule.py aggregates each beat bucket with min(), and tie/rest/group
+# retiming plus sub-beat bucket-merging across a system break can dip it
+# N, N-1, N; without the clamp _follow_position turns the page back and
+# forward on every such dip. A genuine backward SEEK still resets (the
+# bisect cursor moves earlier into the monotone array). Assumes v1's linear
+# through-composed playback (no repeat/D.S.-driven backward follow).
 
 @dataclass(frozen=True)
 class RenderedElement:
@@ -352,14 +393,22 @@ part's events — beats taken from the trigger schedule's TIE-GATED
   smooth shared WAVEFRONT per system revealing all ink (a different
   computational model — BACKLOG 8, its own design round).
 
-**A tied chain is one event** (ruling A): tie-stop heads carry the
-chain-start trigger, so the whole group collapses into a single anchor
-at (chain start, x2 of the chain's furthest ink — its tie curves and
-broken segments fold into the bucket of the system they sit in). The
-edge steps past the full tied value at once and next advances at the
-part's next event; a chain broken across systems stands revealed from
-chain start on both sides. Events are noteheads, slashes, **and rests**
-(ruling B) — a rest's trigger is when its silence resolves:
+**Grow-with-playhead** (ruling A/B REVISED 2026-07-22, complex3): a held
+note FILLS IN with the playhead. Every notehead — including a tie
+'stop'/'continue' — fires at its OWN notated onset, so the reveal edge
+sweeps across a held note's re-notated barline noteheads with the
+playhead and the tie ink over them grows left-to-right; a broken chain
+reveals each side with its own system's playhead. Ties do NOT anchor the
+edge (they clip-reveal against it). The prior "a tied chain is one
+event" rule carried the chain-start trigger and folded each tie's
+furthest x onto it, so a 14-beat held note's tie painted to the system's
+end at once while the playhead was mid-system (the complex3 Oboe/
+Clarinet phantom). Scrubbing into a held note now lands it filled-in up
+to the playhead (the audio position); the default "appear" effect is an
+opacity fade, so a continuation REVEALS rather than re-attacks. Events
+are noteheads, slashes, **and rests** (ruling B) — a rest still keeps its
+retimed trigger (the edge must not advance at a silent beat): its
+trigger is when its silence resolves,
 min(next note's trigger in its part/voice scope, end of its own bar),
 never on its own silent beat (second-session ruling 2026-07-12), so the
 edge never advances mid-silence. Dynamics animate at their attach point

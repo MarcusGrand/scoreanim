@@ -250,13 +250,18 @@ def _parse_mei(mei_xml: str) -> _MeiIndex:
             unit = _int_or(el.get("unit"), unit)
         elif tag == "measure":
             meter_ordinal += 1
-            index.meter_unit_by_measure[
-                _int_or(el.get("n"), meter_ordinal)] = unit
+            # Measure IDENTITY is the 1-based document-order ordinal, never the
+            # printed @n. The printed number is not unique or consistent across
+            # music21/DOM/MEI (Dorico's "X0"/"X1" pickup/split bars collide with
+            # real numbers under any int-fallback); the ordinal is (the k-th
+            # <measure> is the same bar in all three, verified 1:1). Display
+            # numbers live only in MeasureInfo.number.
+            index.meter_unit_by_measure[meter_ordinal] = unit
 
     measure_ordinal = 0
     for measure in root.iter(f"{_MEI_NS}measure"):
         measure_ordinal += 1
-        m_n = _int_or(measure.get("n"), measure_ordinal)
+        m_n = measure_ordinal
         m_id = measure.get(_XML_ID)
         if m_id:
             index.measure_by_id[m_id] = m_n
@@ -1162,16 +1167,22 @@ def _attribute_spanner_segments(
         start_id, end_id = st.mei.spanners.get(vid, (None, None))
         end_sys: int | None = None
         end_y: float | None = None
-        staff_n = 0
+        # The staff a spanner is DRAWN on is its start note's staff — that's
+        # the staff its continuation segments appear on. Prefer it; the end
+        # note's staff (below) is only a fallback, and is 0 whenever the end
+        # note's accumulator isn't found — which would mis-group the source
+        # and defeat staff-based segment pairing.
+        start_mei = st.mei.notes.get(start_id or "")
+        staff_n = (start_mei.staff or 0) if start_mei is not None else 0
         end_note = note_accs.get(end_id or "")
         if end_note is not None:
             end_sys = end_note.system
             end_y = end_note.bbox.center.y if end_note.bbox else None
-            staff_n = end_note.staff or 0
+            staff_n = staff_n or (end_note.staff or 0)
         elif vid in st.mei.tstamps_by_id:
             m, _, tstamp2 = st.mei.tstamps_by_id[vid]
             end_sys = st.system_of_measure.get(_tstamp2_end_measure(m, tstamp2))
-            staff_n = st.mei.staff_attr_by_id.get(vid, 0)
+            staff_n = staff_n or st.mei.staff_attr_by_id.get(vid, 0)
         if acc.system is None or end_sys is None or end_sys <= acc.system:
             continue
         sources.append((acc.svg_class, acc.system, end_sys,
@@ -1194,6 +1205,13 @@ def _attribute_spanner_segments(
         else:
             crossing = (s for s in sources
                         if s[0] == cls and s[1] < sys_n <= s[2])
+        # Pair by (staff, end_y): a system-broken spanner continues on its
+        # start staff, so sources and their continuation segments must line up
+        # in STAFF order. The staff key is now the start-note staff (above),
+        # which is reliable even when the end note's accumulator is missing —
+        # previously it was the end-note staff, 0 when that note wasn't found,
+        # collapsing several sources to an arbitrary end_y=0 order and handing
+        # segments the wrong source (a phantom slur on the wrong part's edge).
         candidates = sorted(crossing, key=lambda s: s[3])
         if len(candidates) != len(segs):
             st.warnings.append(LoadWarning(

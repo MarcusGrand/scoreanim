@@ -108,8 +108,16 @@ def build_score_model(source: Path | PreparedScore) -> ScoreModel:
                         f"PartStaff '{info.part_id}-Staff{k}' at slot "
                         f"{k}, got {type(p).__name__} {p.id!r}")
         for staff_local, part in enumerate(group, start=1):
-            for measure in part.getElementsByClass(m21.stream.Measure):
-                m_number = measure.number
+            # ScoreNote.measure is the 1-based document-order ordinal (the join
+            # key), NOT measure.number — Dorico's "X0" pickup parses to music21
+            # number 0 while the adapter's MEI ordinal is 1, so the printed
+            # number is neither unique nor consistent across the two sides. The
+            # k-th <measure> is the same bar in music21, the DOM and the MEI
+            # (verified 1:1), so the ordinal aligns the join buckets. The
+            # printed number is kept for display in MeasureInfo.number only.
+            for m_ordinal, measure in enumerate(
+                    part.getElementsByClass(m21.stream.Measure), start=1):
+                m_number = m_ordinal
                 m_offset = float(measure.offset)
                 streams: list = list(measure.voices) or [measure]
                 for stream in streams:

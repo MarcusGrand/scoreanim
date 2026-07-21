@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
 from collections import defaultdict
+from itertools import accumulate
 from typing import Callable, Mapping, Sequence
 
 from scoreanim.core.animation import (OPACITY, PRESETS, REVEALED_KINDS,
@@ -79,8 +80,22 @@ class AnimationApplier:
         self._items_per_trigger: tuple[tuple[ElementItem, ...], ...] = tuple(
             tuple(items[eid] for eid in trig.element_ids if eid in items)
             for trig in schedule.triggers)
-        self._pages = tuple(trig.page for trig in schedule.triggers)
-        self._systems = tuple(trig.system for trig in schedule.triggers)
+        # Followed page/system is monotonic non-decreasing over the
+        # time-ordered triggers (prefix-max): the view must never turn
+        # backward while the clock advances. A per-trigger page/system is
+        # only a hint — schedule.py aggregates each beat bucket with min(),
+        # and tie/rest/group retiming plus sub-beat bucket-merging across a
+        # system break can make a single trigger's value dip N, N-1, N.
+        # bisect_right(trigger_seconds, t) is monotone in t, so forward play
+        # only grows the cursor → the followed unit only advances; a genuine
+        # backward seek moves the cursor earlier and returns the prefix-max
+        # up to that time (exactly what a forward playthrough showed there).
+        # v1 playback is a linear sweep of a through-composed timeline, so a
+        # legitimate backward turn (repeats/D.S.) does not arise.
+        self._pages = tuple(accumulate(
+            (trig.page for trig in schedule.triggers), max))
+        self._systems = tuple(accumulate(
+            (trig.system for trig in schedule.triggers), max))
         self._trigger_seconds: list[float] = []
         self._cursor = 0
         self._t = _BEFORE_EVERYTHING
