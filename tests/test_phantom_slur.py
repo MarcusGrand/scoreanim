@@ -17,25 +17,19 @@ gaps) is generous for a slur's arc but catches a gross cross-part swap."""
 
 import statistics
 from collections import defaultdict
-from pathlib import Path
 
 import pytest
 
-from scoreanim.core.engraving.provider import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
 from scoreanim.core.score.identity import ElementKind
 
-COMPLEX3 = Path(__file__).resolve().parent.parent / "testdata" / "complex3.musicxml"
 CURVES = {ElementKind.SLUR, ElementKind.TIE, ElementKind.HAIRPIN}
 
 
-@pytest.fixture(scope="module")
-def complex3_hidden():
-    if not COMPLEX3.exists():
-        pytest.skip("complex3.musicxml fixture not present")
-    prov = VerovioEngravingProvider()
-    return prov.load_detailed(COMPLEX3, EngravingParams(),
-                              hide_empty_staves=True, strict=True)
+@pytest.fixture()
+def complex3_hidden(engraved_complex3_hidden):
+    # The load lives in conftest (session scope, shared with the golden
+    # suite — Phase R.0 promotion); skip-if-absent lives there too.
+    return engraved_complex3_hidden
 
 
 def test_curves_render_on_their_attributed_staff(complex3_hidden) -> None:

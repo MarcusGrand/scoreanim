@@ -52,6 +52,15 @@ TALL_SYSTEM_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
 # (2026-07-21). Loaded hidden to exercise _rehome_stray_paths.
 BIGBAND_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
     "bigband1.musicxml"
+# 14-part orchestral chart with a Dorico "X0" pickup bar (measure-identity
+# fixture) and 69 spanner sources whose end note is hidden under
+# hide-empty-staves — the phantom-slur condition (test_phantom_slur).
+# Skip-if-absent: large production score, may not ship everywhere.
+COMPLEX3_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
+    "complex3.musicxml"
+# 3-bar "X0"-pickup unit fixture for the measure-identity invariant.
+PICKUP_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
+    "pickup_min.musicxml"
 
 
 @pytest.fixture(scope="session")
@@ -115,6 +124,48 @@ def engraved_bigband_hidden() -> EngravedScore:
 def engraved_complex1() -> EngravedScore:
     return VerovioEngravingProvider().load_detailed(COMPLEX1_SCORE,
                                                     EngravingParams())
+
+
+@pytest.fixture(scope="session")
+def engraved_complex3_hidden() -> EngravedScore:
+    # Promoted from test_phantom_slur's module fixture (Phase R.0) so the
+    # golden suite shares the load. Skip-if-absent kept.
+    if not COMPLEX3_SCORE.exists():
+        pytest.skip("complex3.musicxml fixture not present")
+    return VerovioEngravingProvider().load_detailed(
+        COMPLEX3_SCORE, EngravingParams(), hide_empty_staves=True,
+        strict=True)
+
+
+@pytest.fixture(scope="session")
+def engraved_pickup() -> EngravedScore:
+    return VerovioEngravingProvider().load_detailed(PICKUP_SCORE,
+                                                    EngravingParams())
+
+
+@pytest.fixture(scope="session")
+def engraved_condense_flat() -> EngravedScore:
+    return VerovioEngravingProvider().load_detailed(CONDENSE_SCORE,
+                                                    EngravingParams())
+
+
+@pytest.fixture(scope="session")
+def engraved_condense_grouped() -> EngravedScore:
+    # One condense group (the test_condense spec): exercises the prep-seam
+    # part-list rewrite branch the golden suite must pin.
+    from scoreanim.core.score.musicxml_prep import PartCondenseSpec
+    spec = PartCondenseSpec(parts=("P1", "P2"), name="Flute 1.2",
+                            abbreviation="Fl. 1.2")
+    return VerovioEngravingProvider().load_detailed(
+        CONDENSE_SCORE, EngravingParams(), condense=(spec,))
+
+
+@pytest.fixture(scope="session")
+def engraved_tall_system() -> EngravedScore:
+    # strict=False matching test_scale_to_fit — exercises the
+    # scale-to-fit retry path.
+    return VerovioEngravingProvider().load_detailed(
+        TALL_SYSTEM_SCORE, EngravingParams(), strict=False)
 
 
 @pytest.fixture(scope="session")
