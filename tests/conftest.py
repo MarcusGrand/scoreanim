@@ -83,7 +83,7 @@ def engraved_spanners() -> EngravedScore:
 @pytest.fixture(scope="session")
 def score_model(engraved):
     from scoreanim.core.score.model import build_score_model
-    return build_score_model(engraved.prepared)
+    return build_score_model(engraved.prepared, engraved.timeline)
 
 
 @pytest.fixture(scope="session")
@@ -169,17 +169,20 @@ def engraved_tall_system() -> EngravedScore:
 
 
 @pytest.fixture(scope="session")
-def complex1_score_model():
+def complex1_score_model(engraved_complex1):
     from scoreanim.core.score.model import build_score_model
-    return build_score_model(COMPLEX1_SCORE)
+    return build_score_model(engraved_complex1.prepared,
+                             engraved_complex1.timeline)
 
 
 @pytest.fixture(scope="session")
-def video_score_model():
-    # Deliberately independent of engraved_video: build_score_model is
-    # prep + music21 only, no engraving.
+def video_score_model(engraved_video):
+    # The model requires the engraved timeline (ruling 2026-07-22): its
+    # beat accounting is reconciled to the timemap, so a model can no
+    # longer be built independently of an engraving.
     from scoreanim.core.score.model import build_score_model
-    return build_score_model(VIDEO_SCORE)
+    return build_score_model(engraved_video.prepared,
+                             engraved_video.timeline)
 
 
 @pytest.fixture(scope="session")

@@ -1,6 +1,19 @@
 """ScoreModel: music21 parse of the canonical MusicXML → musical facts
-(onset beats per note, slash regions, per-measure meter), independent of
-any engraving. Joined to layout ElementIds by core/score/join.py.
+(notated pitches, voices, ties, document order per note), with ALL beat
+accounting reconciled to the engraved MeasureTimeline (ruling
+2026-07-22, FINDING-1 fix): Verovio's timemap qstamps are the single
+beat authority for the whole app, so a note's onset is
+``timeline.starts[ordinal] + its music21 offset WITHIN the measure``,
+and MeasureInfo carries the engraved start/span — never music21's own
+inter-measure accumulation, which shears on real Dorico exports
+(spikes/beat_domain.py census): the X0 pickup is padded to its nominal
+length (+3 beats on complex3), repeats are never expanded (the timemap
+IS playback-expanded — performance axis), half-beat bars round down,
+and per-part accumulation can even self-diverge (complex3 part 0
+drifts +7.75 beats from the other parts by m78). Intra-measure offsets
+are trustworthy (pickup notes sit at offset 0 — verified against
+paddingLeft on pickup_min and complex3); the shear is inter-measure
+only. Joined to layout ElementIds by core/score/join.py.
 
 music21 quirks this code is built around (spikes/NOTES.md, T0 and the
 Phase 10 triage spike):
@@ -26,6 +39,7 @@ from pathlib import Path
 
 import music21 as m21
 
+from scoreanim.core.engraving.types import MeasureTimeline
 from scoreanim.core.score.identity import Beats, PartId
 from scoreanim.core.score.musicxml_prep import (PreparedScore, SlashRegion,
                                                 prepare)
@@ -61,9 +75,13 @@ class ScoreNote:
 
 @dataclass(frozen=True)
 class MeasureInfo:
-    number: int
-    start: Beats                 # global quarter notes
-    quarter_length: float        # from the active time signature
+    number: int                  # PRINTED number (display only; identity
+                                 # is the document-order ordinal)
+    start: Beats                 # engraved downbeat qstamp (performance
+                                 # axis — MeasureTimeline)
+    quarter_length: float        # actual engraved span to the next
+                                 # first-pass downbeat — NOT the nominal
+                                 # signature length (ruling 2026-07-22)
 
 
 @dataclass(frozen=True)
@@ -80,7 +98,12 @@ class ScoreModel:
         raise KeyError(f"no measure {number}")
 
 
-def build_score_model(source: Path | PreparedScore) -> ScoreModel:
+def build_score_model(source: Path | PreparedScore,
+                      timeline: MeasureTimeline) -> ScoreModel:
+    """``timeline`` is REQUIRED (ruling 2026-07-22): an unreconciled
+    model — one whose beats come from music21's own accumulation — is
+    structurally impossible. Every production caller passes
+    ``EngravedScore.timeline``."""
     prep = source if isinstance(source, PreparedScore) else prepare(source)
     score = m21.converter.parse(prep.canonical_xml, format="musicxml")
     score.toSoundingPitch(inPlace=True)
@@ -118,7 +141,16 @@ def build_score_model(source: Path | PreparedScore) -> ScoreModel:
             for m_ordinal, measure in enumerate(
                     part.getElementsByClass(m21.stream.Measure), start=1):
                 m_number = m_ordinal
-                m_offset = float(measure.offset)
+                if m_ordinal not in timeline.starts:
+                    raise ValueError(
+                        f"measure ordinal {m_ordinal} (part "
+                        f"{info.part_id}) has no engraved timeline start "
+                        f"— music21 and the MEI disagree on measure count")
+                # Onset = engraved downbeat + intra-measure offset. The
+                # intra-measure offset is music21's and is reliable; the
+                # inter-measure accumulation is the timeline's (the
+                # engraved beat authority) — never measure.offset.
+                m_offset = timeline.starts[m_ordinal]
                 streams: list = list(measure.voices) or [measure]
                 for stream in streams:
                     voice_label = (str(stream.id)
@@ -143,7 +175,7 @@ def build_score_model(source: Path | PreparedScore) -> ScoreModel:
 
     return ScoreModel(
         notes=tuple(notes),
-        measures=_measures(parts[0]),
+        measures=_measures(parts[0], timeline),
         slash_regions=prep.slash_regions,
         parts=tuple(p.part_id for p in prep.parts),
     )
@@ -173,12 +205,31 @@ def _flatten_pitched(el: m21.note.NotRest) -> list[dict]:
     return [pitched(el.pitch, tie_of(el))]
 
 
-def _measures(part: m21.stream.Part) -> tuple[MeasureInfo, ...]:
+def _measures(part: m21.stream.Part,
+              timeline: MeasureTimeline) -> tuple[MeasureInfo, ...]:
+    """Printed numbers from music21; starts/spans from the engraved
+    timeline. One exception (beat_domain.py census): a trailing
+    event-less measure (e.g. a final bar-repeat bar) has no timemap
+    events, so score_end stops at its downbeat and its engraved span is
+    0 — floor the FINAL measure with its notated length so the last bar
+    keeps its display time. Mid-score spans always come from
+    next-downbeat deltas and never under-run."""
+    m21_measures = list(part.getElementsByClass(m21.stream.Measure))
+    if len(m21_measures) != len(timeline.starts):
+        raise ValueError(
+            f"music21 sees {len(m21_measures)} measures, the engraved "
+            f"timeline has {len(timeline.starts)} — the 1:1 ordinal "
+            f"correspondence is load-bearing")
     infos: list[MeasureInfo] = []
-    for measure in part.getElementsByClass(m21.stream.Measure):
+    last = len(m21_measures)
+    for ordinal, measure in enumerate(m21_measures, start=1):
+        span = timeline.durations[ordinal]
+        if ordinal == last:
+            span = max(span,
+                       float(Fraction(measure.barDuration.quarterLength)))
         infos.append(MeasureInfo(
             number=measure.number,
-            start=float(measure.offset),
-            quarter_length=float(Fraction(measure.barDuration.quarterLength)),
+            start=timeline.starts[ordinal],
+            quarter_length=span,
         ))
     return tuple(infos)

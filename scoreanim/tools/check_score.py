@@ -82,7 +82,7 @@ def check(path: Path, *, strict: bool) -> _Report:
     report.warnings = Counter(w.code for w in engraved.warnings)
 
     try:
-        model = build_score_model(engraved.prepared)
+        model = build_score_model(engraved.prepared, engraved.timeline)
     except Exception as exc:                                  # noqa: BLE001
         return report.fail("score-model", exc)
     report.model_notes = len(model.notes)

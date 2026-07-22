@@ -20,9 +20,9 @@ PICKUP = Path(__file__).resolve().parent.parent / "testdata" / "pickup_min.music
 
 
 def _load():
-    model = build_score_model(PICKUP)
     prov = VerovioEngravingProvider()
     engraved = prov.load_detailed(PICKUP, EngravingParams(), strict=True)
+    model = build_score_model(engraved.prepared, engraved.timeline)
     return model, engraved
 
 

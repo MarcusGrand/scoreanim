@@ -20,9 +20,13 @@ beat tapping.
 ```
 Score file (MusicXML, Dorico export)
    │
-   ├──► ScoreModel (music21)          id → musical_time (beats), identities
+   ├──► ScoreModel (music21 + the engraved MeasureTimeline)
+   │        notated identities; ALL beats rebased onto the timeline
+   │        (CLAUDE.md rule 12 — build_score_model REQUIRES it)
    │
    └──► EngravingProvider (Verovio)   id → position/geometry per page
+              │  + MeasureTimeline (timemap qstamps — THE beat axis,
+              │    performance/playback-expanded time)
               │  honors encoded system/page breaks
               ▼
         base Layout  ⊕  LayoutOverrides (user dx/dy deltas)
@@ -313,6 +317,28 @@ class EngravingProvider(ABC):
 #    such a project (which already collided pre-fix) will not re-match — an
 #    accepted one-time break (rule 5 override staleness).
 #
+# 14. The engraved MeasureTimeline is the app-wide beat authority
+#    (ruling 2026-07-22, FINDING-1 fix; CLAUDE.md rule 12). The provider
+#    exposes EngravedScore.timeline: per-ordinal measure starts (first
+#    timemap qstamp) and durations (delta to the next FIRST-PASS
+#    downbeat), plus score_end — with a loud load-time invariant that
+#    every MEI measure ordinal has a timemap start. The timemap is
+#    playback-EXPANDED: a repeat's later passes appear as clone measure
+#    ids ("…-rend<k>") which the measure_by_id guard drops by design —
+#    repeated measures keep first-pass positions, the next new measure
+#    starts after the full expansion, and the axis is therefore
+#    PERFORMANCE time (what a recording that takes the repeat plays).
+#    build_score_model rebases music21's accounting onto this timeline;
+#    music21's own inter-measure accumulation is untrustworthy on real
+#    Dorico exports (spikes/beat_domain.py census: X0 pickups padded to
+#    nominal length, repeats never expanded, half-beat bars rounded
+#    down — complex2 m8/m120 — and per-part self-divergence, complex3
+#    part 0 drifting +7.75 by m78). One nominal-length survivor: a
+#    trailing event-less bar (final bar-repeat) has no timemap end, so
+#    the LAST measure's span is floored with its notated length.
+#    The golden suite pins the timeline per fixture (measure_timeline
+#    section, 2026-07-22 re-capture).
+#
 # 13. Continuation-segment attribution keys by the START-note staff
 #    (fix 2026-07-21, complex3). A system-broken spanner continues on its
 #    start staff; _attribute_spanner_segments pairs each continuation
@@ -370,7 +396,11 @@ class TempoMap:
     """Piecewise-constant tempo → piecewise-linear beats⇄seconds mapping.
     Precomputed segment boundaries; lookups are binary search + lerp.
     Invertible in both directions. Taps derive tempo events (smoothed)
-    or, per region, act as hard anchors (dense events)."""
+    or, per region, act as hard anchors (dense events).
+    Positions are PERFORMANCE-AXIS beats (CLAUDE.md rule 12): every
+    producer (sidecar m<n> anchors via MeasureInfo.start, taps,
+    triggers, export ranges) lives on the engraved timeline, so beats
+    and seconds share one domain end to end."""
     def seconds_at(self, beats: Beats) -> float: ...
     def beats_at(self, seconds: float) -> Beats: ...
 

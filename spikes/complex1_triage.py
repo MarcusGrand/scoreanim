@@ -652,7 +652,7 @@ def section_e(eng):
     print(f"  source <grace> notes: {n_grace_src}")
     check("source has 26 <grace> notes", n_grace_src == 26)
 
-    model = build_score_model(COMPLEX1)
+    model = build_score_model(eng.prepared, eng.timeline)
     report = join_notes(model, eng.note_records)
     n_s, n_l = len(model.notes), len(eng.note_records)
     print(f"  join: {len(report.matched)} matched of score={n_s} / "

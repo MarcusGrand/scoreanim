@@ -10,8 +10,9 @@ top-left — the same space as PageGeometry, derived from the score's own
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Mapping
 
-from scoreanim.core.score.identity import ElementIdentity
+from scoreanim.core.score.identity import Beats, ElementIdentity
 
 
 @dataclass(frozen=True)
@@ -174,6 +175,30 @@ class PageGeometry:
 class Layout:
     pages: tuple[PageGeometry, ...]
     elements: tuple[RenderedElement, ...]
+
+
+@dataclass(frozen=True)
+class MeasureTimeline:
+    """The engraved measure timeline — THE beat authority for the whole
+    app (ruling 2026-07-22, FINDING-1 fix): Verovio timemap qstamps on
+    the PERFORMANCE axis. The timemap is playback-expanded, so a
+    repeated span occupies the beats of all its passes: repeated
+    measures keep their FIRST-pass positions (the expansion's clone
+    measures are not part of the notation) and the next new measure
+    starts after the full expansion — which is what syncs with a
+    recording that takes the repeat.
+
+    ``starts``/``durations`` are keyed by the 1-based document-order
+    measure ordinal (ARCHITECTURE §3 item 12); a duration runs to the
+    next first-pass downbeat. ``score_end`` is the last timemap qstamp;
+    for a trailing event-less measure (e.g. a final bar-repeat bar) it
+    can fall short of that bar's musical end — build_score_model floors
+    the final bar with its notated length (the one place the nominal
+    length survives).
+    """
+    starts: Mapping[int, Beats]
+    durations: Mapping[int, Beats]
+    score_end: Beats
 
 
 # Concert pitch is a fixed engraving rule (CLAUDE.md rule 9), not a user

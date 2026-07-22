@@ -890,3 +890,36 @@ verovio_adapter attributes would silently do nothing. Both triage spikes
 were updated in the same commits that broke their seams and run
 end-to-end. The golden suite (tests/goldens/, 12 loads byte-for-byte) is
 the standing regression net for any adapter change.
+
+## Beat-domain census (2026-07-22) — spikes/beat_domain.py
+
+FINDING-1 fix groundwork: per fixture, the engraved timemap's measure
+starts/spans (derived exactly as the provider derives them) against
+music21's `measure.offset` / `barDuration`. Facts the fix builds on:
+
+- **1:1 ordinal coverage holds everywhere**: every MEI measure ordinal
+  has a timemap `measureOn` start on all 11 fixtures — the loud
+  provider invariant is safe.
+- **The timemap is playback-EXPANDED**: complex3's repeat (printed
+  m35–36) emits second-pass clone measure ids (`e1jy649-rend2` at
+  q147, `qa3bpe5-rend2` at q151) which the `measure_by_id` guard
+  drops; the kept ordinal-37 span is 12 = 4 notated + 8 repeat pass.
+  music21 never expands → −8 shear after the repeat. No duplicate
+  note ids in `on`/`restsOn` — repeated bars' notes keep FIRST-pass
+  qstamps.
+- **music21 pads the X0 pickup to nominal length** (complex3 m1:
+  engraved 1 beat, model 4 → +3 shear; pickup_min parses correctly
+  with `paddingLeft=3`, so the padding behavior is export-dependent).
+  Intra-measure note offsets start at 0 in BOTH cases — the rebase
+  formula `starts[ordinal] + el.offset` needs no padding correction.
+- **Half-beat bars round down in music21**: complex3 m52 (4.5 vs 4),
+  complex2 m8 and m120 (4.5 vs 4) — so complex2 shears too (+0.5,
+  then +1.0), previously unnoticed (the diagnosis never ran complex2).
+- **music21 per-part accumulation self-diverges**: complex3 part 0
+  drifts +7.75 beats from every other part by m78 (the 714
+  notes-outside-measure finding). Per-ordinal rebasing erases it.
+- **A trailing event-less bar has no timemap end**: bar_repeat_min's
+  final bar-repeat measure gets engraved span 0 (score_end stops at
+  its downbeat) → build_score_model floors the LAST measure's span
+  with its notated length. Mid-score empty bars are safe (spans are
+  next-downbeat deltas).

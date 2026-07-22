@@ -20,7 +20,8 @@ from scoreanim.core.engraving.provider import EngravingProvider
 from scoreanim.core.engraving.systems import plan_page_breaks, system_bands
 from scoreanim.core.engraving.types import (TRANSPOSE_TO_SOUNDING_PITCH,
                                             EngravingParams, Layout,
-                                            LoadWarning, PageGeometry)
+                                            LoadWarning, MeasureTimeline,
+                                            PageGeometry)
 from scoreanim.core.engraving.verovio import (attribution, decompose,
                                               identity, kinds, mei_index,
                                               records, synthesis)
@@ -215,6 +216,24 @@ class VerovioEngravingProvider(EngravingProvider):
             n: (starts[i + 1][1] if i + 1 < len(starts) else score_end) - q
             for i, (n, q) in enumerate(starts)
         }
+        # The engraved measure timeline is the app-wide beat authority
+        # (ruling 2026-07-22): every MEI measure ordinal must have a
+        # timemap start — the 1:1 document-order correspondence is
+        # load-bearing (ARCHITECTURE §3 item 12), so a gap is a fault,
+        # never something to paper over. The measureOn ids the guard
+        # above drops are Verovio's playback-expansion clones
+        # ("…-rend<k>", repeat second passes) — expected, and exactly
+        # why the axis is performance time.
+        n_measures = len(set(mei.measure_by_id.values()))
+        missing = [n for n in range(1, n_measures + 1)
+                   if n not in measure_start]
+        if missing:
+            raise ValueError(
+                f"engraved timeline gap: no timemap start for measure "
+                f"ordinal(s) {missing} of {n_measures} in {score_path}")
+        timeline = MeasureTimeline(starts=measure_start,
+                                   durations=measure_duration,
+                                   score_end=score_end)
 
         state = records._LoadState(
             prep=prep, mei=mei, onset_by_id=onset_by_id,
@@ -287,6 +306,6 @@ class VerovioEngravingProvider(EngravingProvider):
         layout = Layout(pages=pages, elements=tuple(elements))
         return records.EngravedScore(
             layout=layout, note_records=tuple(note_records), prepared=prep,
-            warnings=tuple(state.warnings)), first_measure
+            timeline=timeline, warnings=tuple(state.warnings)), first_measure
 
 

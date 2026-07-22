@@ -445,8 +445,12 @@ def section_f():
             return
         print(f"  [{label}] no longer raises (fixed)")
 
-    attempt("F1 build_score_model 8-vs-7",
-            lambda: build_score_model(VIDEO))
+    def _model():
+        # the model requires the engraved timeline (ruling 2026-07-22)
+        eng = provider.load_detailed(VIDEO, params)
+        return build_score_model(eng.prepared, eng.timeline)
+
+    attempt("F1 build_score_model 8-vs-7", _model)
     attempt("F2 ledger dash m12 staff 2",
             lambda: provider.load_detailed(VIDEO, params))
 

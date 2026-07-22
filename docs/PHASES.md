@@ -1648,6 +1648,95 @@ Standing rule from here: any "it looks wrong in live playback" report
 starts with `python -m scoreanim.tools.live_oracle testdata/<file>` —
 the output names the layer and the proving elements.
 
+## Live-timing fix 1 — FINDING-1: one beat domain (2026-07-22)
+
+Ruling (Marcus, 2026-07-22): the ENGRAVED domain — Verovio's timemap
+qstamps — is the single beat authority for the whole app; the score
+model's beat accounting is reconciled to it, never the reverse. The
+session's audit found the shear leaking beyond triggers into seconds:
+the TempoMap is model-anchored (sidecar/tap positions from
+MeasureInfo.start), so every engraved-domain trigger (sigs, clefs,
+graces, synthesized slashes/bar-repeats, group fallbacks, rest floors)
+resolves to wall-clock through the wrong domain; the rule-3 fresh test
+and rule-4 rest caps mix domains inside one expression; export
+measure-ranges, no-audio durations, score_end, tap labels, tempo-lane
+gridlines and swing extents are all model-nominal. Reframing finding:
+the "12-beat m37" is a 2-bar REPEAT (printed m35–36) — Verovio's
+timemap is playback-EXPANDED (second-pass clone ids `…-rend2` dropped
+by the measure_by_id guard), so the engraved axis is PERFORMANCE time.
+Ruled: performance axis accepted (repeated bars light on the first
+pass and stay lit; a repeat-skipping recording needs a tempo-map
+workaround — BACKLOG). The three FINDING-1 deltas decompose exactly:
++3.00 = music21 pads the X0 pickup to nominal 4 (engraved 1.0);
+−8.00 more = the unexpanded repeat; −0.50 more = the genuine 4.5-beat
+ordinal 52. Fix shape: rebase the model at the source
+(onset = timeline.starts[ordinal] + el.offset); schedule/reveal/
+timing/render/ui are untouched — every crossing heals by data. On
+all-regular fixtures the rebase is a numeric no-op, so exact-value
+pins (test_schedule, test_reveal, complex1's 0.0957 grace delta)
+hold. Rulings: timeline REQUIRED on build_score_model (an
+unreconciled model is structurally impossible); goldens extended
+with the timeline in a separate step. Accepted staleness (rule-5
+precedent): saved tempo maps/taps/swing authored on
+irregular-bar/repeat scores shift.
+
+- [x] **T1.0 Spike — engraved-timeline census** (spikes/beat_domain.py,
+      findings in spikes/NOTES.md): 1:1 ordinal coverage holds on all
+      11 fixtures; the only dropped measureOn ids are complex3's two
+      `-rend2` repeat clones; irregular spans are exactly the pickup,
+      the repeat, half-beat bars (complex3 m52 AND — previously
+      unknown — complex2 m8/m120, so complex2 sheared too, +0.5/+1.0),
+      genuine 6/4 bars (consistent both sides), music21 part-0
+      self-divergence (+7.75 by complex3 m78), and one NEW fact: a
+      trailing event-less bar (bar_repeat_min's final bar-repeat) has
+      no timemap end → engraved span 0, handled by flooring the LAST
+      measure's span with its notated length.
+- [x] **T1.1 Expose the timeline**: frozen `MeasureTimeline` (starts,
+      durations, score_end) in core/engraving/types.py;
+      `EngravedScore.timeline` built in provider._engrave_prepared
+      with the loud invariant (every MEI ordinal has a timemap start,
+      else ValueError).
+- [x] **T1.2 Rebase the model**: `build_score_model(source, timeline)`
+      — timeline REQUIRED; ScoreNote.onset = starts[ordinal] +
+      music21's intra-measure offset (verified trustworthy: pickup
+      notes sit at offset 0 under both paddingLeft styles);
+      MeasureInfo.start/quarter_length = the engraved values
+      (quarter_length now the actual performance-axis span; final-bar
+      nominal floor). All call sites repointed: main_window,
+      check_score, live_oracle, conftest (complex1/video model
+      fixtures now derive from their engraved fixtures — the
+      "independent of engraving" contract is dead), test_measure_
+      identity, test_condense, test_reveal_apply, test_stray_path_
+      rehome, both triage spikes (run end-to-end).
+- [x] **T1.3 Pins flipped + before/after oracle**: the four _XF1
+      strict-xfails all XPASSed and their marks are removed — now
+      plain regression pins; _XF2/_XF3/_XF4 stay xfail. Oracle CLI
+      over all 11 fixtures, before → after: complex3 D2 277 → 32
+      findings (88 anchor inversions, 117 trigger-shift clusters, 14
+      note-outside-measure, 2 irregular-bar, 24 sig-onset: ALL gone;
+      the 32 = FINDING-4 sig-nesting), pickup_min 1 → 0 (clean),
+      complex2 29 → 9 (19 sig-onset + 1 trigger-shift gone; 9
+      pre-existing cross-voice inversions remain, unchanged count),
+      every all-regular fixture byte-identical output; 4/11 → 5/11
+      clean, and NO FINDING-1-category finding remains anywhere.
+      D1/D3/D4 statuses unchanged (STEPPED and CONTINUOUS).
+- [x] **T1.4 Golden timeline section**: tests/golden.py emits
+      measure_timeline (per-ordinal start/duration + score_end); all
+      12 baselines re-captured — the diff is additions-only (0
+      removed lines; existing sections byte-identical, verified by a
+      full-suite pass BEFORE the serializer change); a
+      mutated-timeline comparator guard added.
+- [x] **T1.5 Docs**: CLAUDE.md rule 12; ARCHITECTURE §2 layer map,
+      §3 adapter item 14, §5 TempoMap note; BACKLOG (repeat-skipping
+      recordings; second-pass cosmetics); spikes/NOTES.md census;
+      this section.
+
+**Exit run (all criteria met)**: full pytest 528 passed + 4 xfailed
+(the remaining FINDING-2/3/4 pins); goldens green post-re-capture;
+score-doctor 11/11 PASS with joins complete everywhere (the join never
+keyed on onset, so the rebase is join-transparent); oracle CLI diff as
+recorded in T1.3; both triage spikes end-to-end.
+
 ## Later (explicitly not now)
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-

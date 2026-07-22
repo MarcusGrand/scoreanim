@@ -946,7 +946,7 @@ class MainWindow(QMainWindow):
                                      # pass re-applies doc hidden flags
         t2 = time.perf_counter()
 
-        model = build_score_model(engraved.prepared)
+        model = build_score_model(engraved.prepared, engraved.timeline)
         report = join_notes(model, engraved.note_records)
         join_note = ""
         if not report.is_complete:

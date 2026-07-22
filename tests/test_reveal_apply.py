@@ -35,7 +35,8 @@ def qapp():
 
 @pytest.fixture(scope="module")
 def spanner_setup(engraved_spanners):
-    model = build_score_model(engraved_spanners.prepared)
+    model = build_score_model(engraved_spanners.prepared,
+                              engraved_spanners.timeline)
     report = join_notes(model, engraved_spanners.note_records)
     assert report.is_complete
     schedule = build_trigger_schedule(engraved_spanners.layout,

@@ -12,7 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from scoreanim.core.engraving.svg_geom import path_bbox
-from scoreanim.core.engraving.types import Layout, LoadWarning, Rect
+from scoreanim.core.engraving.types import (Layout, LoadWarning,
+                                            MeasureTimeline, Rect)
 from scoreanim.core.engraving.verovio.mei_index import _MeiIndex
 from scoreanim.core.score.identity import Beats, ElementId, PartId
 from scoreanim.core.score.musicxml_prep import PreparedScore
@@ -44,6 +45,10 @@ class EngravedScore:
     layout: Layout
     note_records: tuple[AdapterNoteRecord, ...]
     prepared: PreparedScore
+    # The engraved measure timeline — the app-wide beat authority
+    # (ruling 2026-07-22, FINDING-1 fix). build_score_model REQUIRES it;
+    # the model's beat accounting is reconciled to these qstamps.
+    timeline: MeasureTimeline
     # Non-fatal load anomalies (Phase 10 ruling b): dropped spanners,
     # continuation-attribution gaps. Empty on clean loads.
     warnings: tuple[LoadWarning, ...] = ()

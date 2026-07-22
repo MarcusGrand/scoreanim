@@ -130,6 +130,27 @@ of the current phase.
     adapter **scales the engraving down uniformly to fit** — the
     never-clip completion (rule 7 amendment c).
 
+12. **The engraved timemap is the single beat authority** (ruling
+    2026-07-22, FINDING-1 fix). Every beat in the app — note onsets,
+    measure starts/spans, triggers, reveal anchors, rest caps,
+    score_end, export ranges, TempoMap positions — lives on ONE axis:
+    Verovio's timemap qstamps, exposed as `EngravedScore.timeline`
+    (`MeasureTimeline`, per-ordinal starts/durations). This is the
+    PERFORMANCE axis: the timemap is playback-expanded, so a repeated
+    span occupies its passes' beats (repeated bars keep first-pass
+    positions and stay lit through later passes; post-repeat music
+    syncs with a recording that takes the repeat).
+    `build_score_model` REQUIRES the timeline and rebases music21's
+    accounting onto it (`onset = starts[ordinal] + intra-measure
+    offset`) — music21's own inter-measure accumulation is never
+    trusted (it pads pickups to nominal length, never expands repeats,
+    rounds half-beat bars, and can self-diverge between parts;
+    spikes/beat_domain.py is the census). One exception: a trailing
+    event-less bar (final bar-repeat) has no timemap end, so the last
+    measure's span is floored with its notated length. Intra-measure
+    offsets stay music21's (an appoggiatura-delayed principal still
+    triggers at its notated beat — the shear was inter-measure only).
+
 ## Stack (do not substitute without discussion)
 
 - Python 3.11+, PySide6 (LGPL — not PyQt), `verovio` (pip package),

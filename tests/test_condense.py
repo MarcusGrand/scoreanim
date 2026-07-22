@@ -62,7 +62,7 @@ def test_condensed_part_engraves_and_joins_completely():
     assert sorted({r.voice for r in p1}) == [1, 2]
     assert len(p1) == 72                                       # 36 + 36
     assert not any(r.part == "P2" for r in eng.note_records)
-    model = build_score_model(eng.prepared)
+    model = build_score_model(eng.prepared, eng.timeline)
     report = join_notes(model, eng.note_records)
     assert report.is_complete
 

@@ -128,7 +128,7 @@ def test_later_system_ink_stays_hidden_at_earlier_cursor(
     eng = engraved_bigband_hidden
     stage = default_stage_config(eng.prepared, page_content_top(eng.layout))
     scenes = ScoreScenes(eng.layout, stage, ghost_opacity=0.0)
-    model = build_score_model(eng.prepared)
+    model = build_score_model(eng.prepared, eng.timeline)
     report = join_notes(model, eng.note_records)
     schedule = build_trigger_schedule(eng.layout, report.mapping,
                                       model.measures)

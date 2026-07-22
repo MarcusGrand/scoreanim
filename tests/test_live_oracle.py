@@ -47,7 +47,9 @@ from scoreanim.tools.live_oracle import (audit_join,
 
 TESTDATA = Path(__file__).resolve().parent.parent / "testdata"
 
-_XF1 = "FINDING-1: beat-domain shear (irregular bars; model vs engraved)"
+# FINDING-1 (beat-domain shear) FIXED 2026-07-22: the model's beat
+# accounting is reconciled to the engraved MeasureTimeline, so its four
+# complex3 pins below are plain passing regression tests now.
 _XF2 = "FINDING-2: curve-less revealed spanner visible from t=0"
 _XF3 = "FINDING-3: per-part edge vs multi-voice rest (BACKLOG 10)"
 _XF4 = "FINDING-4: cautionary sig nests in pre-change measure"
@@ -93,22 +95,12 @@ def test_d1_every_revealed_item_has_a_curve(request, fixture):
 
 # -- D2: trigger / model audits ---------------------------------------------
 
-@pytest.mark.parametrize("fixture", [
-    "testscore",
-    "bigband",
-    pytest.param("complex3",
-                 marks=pytest.mark.xfail(reason=_XF1, strict=True)),
-])
+@pytest.mark.parametrize("fixture", ["testscore", "bigband", "complex3"])
 def test_d2_triggers_match_engraved_onsets(request, fixture):
     assert audit_triggers(_bundle(request, fixture)) == []
 
 
-@pytest.mark.parametrize("fixture", [
-    "testscore",
-    "bigband",
-    pytest.param("complex3",
-                 marks=pytest.mark.xfail(reason=_XF1, strict=True)),
-])
+@pytest.mark.parametrize("fixture", ["testscore", "bigband", "complex3"])
 def test_d2_model_consistent_with_itself_and_engraving(request, fixture):
     assert audit_model_consistency(_bundle(request, fixture)) == []
 
@@ -117,8 +109,7 @@ def test_d2_model_consistent_with_itself_and_engraving(request, fixture):
     pytest.param("testscore",
                  marks=pytest.mark.xfail(reason=_XF3, strict=True)),
     "bigband",
-    pytest.param("complex3",
-                 marks=pytest.mark.xfail(reason=_XF1, strict=True)),
+    "complex3",
 ])
 def test_d2_reveal_anchors_monotone_in_x(request, fixture):
     assert audit_reveal_anchors(_bundle(request, fixture)) == []
@@ -141,12 +132,7 @@ def test_d2_sig_nesting_measures(request, fixture):
     assert [f for f in findings if f.code == "sig-nesting"] == []
 
 
-@pytest.mark.parametrize("fixture", [
-    "testscore",
-    "bigband",
-    pytest.param("complex3",
-                 marks=pytest.mark.xfail(reason=_XF1, strict=True)),
-])
+@pytest.mark.parametrize("fixture", ["testscore", "bigband", "complex3"])
 def test_d2_sig_onsets_match_model_measure_starts(request, fixture):
     findings = audit_signatures(_bundle(request, fixture))
     assert [f for f in findings

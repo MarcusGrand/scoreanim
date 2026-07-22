@@ -252,6 +252,20 @@ scale-to-fit). Parked:
   (`SCOREANIM_UPDATE_GOLDENS=1` re-captures after a deliberate change —
   commit the diff with the change that caused it).
 
+## One beat domain (FINDING-1 fix, 2026-07-22) — deferrals
+
+- **Repeat-skipping recordings.** The beat axis is performance time
+  (playback-expanded timemap, CLAUDE.md rule 12), which syncs with a
+  recording that TAKES the repeats. A recording that skips a repeat
+  currently needs an ugly tempo-map workaround (a near-infinite-bpm
+  region over the skipped pass); a proper affordance (per-repeat
+  "played/skipped" toggle compressing the timeline) is future work.
+- **Second-pass cosmetics.** During a repeat's later passes the tap
+  label reads as extra beats of the repeated bar (e.g. "m37 beat 6"
+  in a 4/4 bar) and the tempo lane draws no gridlines inside the
+  expanded span (clone downbeats carry no measure ordinal). Accepted
+  for v1; fixing needs an expansion map from the timemap clones.
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

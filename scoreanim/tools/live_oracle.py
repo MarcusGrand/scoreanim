@@ -123,7 +123,7 @@ def build_bundle(path: Path, *, hide_empty_staves: bool = True,
         engraved = VerovioEngravingProvider().load_detailed(
             path, EngravingParams(), hide_empty_staves=hide_empty_staves,
             strict=strict)
-    model = build_score_model(engraved.prepared)
+    model = build_score_model(engraved.prepared, engraved.timeline)
     join = join_notes(model, engraved.note_records)
     schedule = build_trigger_schedule(engraved.layout, join.mapping,
                                       model.measures)
