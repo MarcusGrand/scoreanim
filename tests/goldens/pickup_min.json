@@ -45,5 +45,11 @@
 {"element_id": "P1:m3:s1:v1:note:3", "part": "P1", "measure": 3, "staff": 1, "voice": 1, "onset": 8.0, "grace": false, "pitch_step": "C", "pitch_alter": 0.0, "octave": 5, "staff_loc": null, "chord_group": null, "order_in_voice": 3}
 ],
 "warnings": [
+],
+"measure_timeline": [
+{"ordinal": 1, "start": 0.0, "duration": 1.0},
+{"ordinal": 2, "start": 1.0, "duration": 4.0},
+{"ordinal": 3, "start": 5.0, "duration": 4.0},
+{"score_end": 9.0}
 ]
 }

@@ -57,5 +57,14 @@
 {"element_id": "P25:m1:s1:v1:note:7", "part": "P25", "measure": 1, "staff": 1, "voice": 1, "onset": 3.5, "grace": false, "pitch_step": null, "pitch_alter": 0.0, "octave": null, "staff_loc": 3, "chord_group": null, "order_in_voice": 7}
 ],
 "warnings": [
+],
+"measure_timeline": [
+{"ordinal": 1, "start": 0.0, "duration": 4.0},
+{"ordinal": 2, "start": 4.0, "duration": 4.0},
+{"ordinal": 3, "start": 8.0, "duration": 4.0},
+{"ordinal": 4, "start": 12.0, "duration": 4.0},
+{"ordinal": 5, "start": 16.0, "duration": 4.0},
+{"ordinal": 6, "start": 20.0, "duration": 0.0},
+{"score_end": 20.0}
 ]
 }

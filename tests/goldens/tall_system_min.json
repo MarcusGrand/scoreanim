@@ -247,5 +247,10 @@
 ],
 "warnings": [
 {"code": "scaled-to-fit", "message": "the tallest system exceeded the page height; the engraving was scaled to 90% so nothing is clipped"}
+],
+"measure_timeline": [
+{"ordinal": 1, "start": 0.0, "duration": 4.0},
+{"ordinal": 2, "start": 4.0, "duration": 4.0},
+{"score_end": 8.0}
 ]
 }

@@ -81,6 +81,13 @@ def test_mutated_float_changes_text(engraved_pickup) -> None:
     assert dumps(mutated) != dumps(snap)
 
 
+def test_mutated_timeline_changes_text(engraved_pickup) -> None:
+    snap = snapshot(engraved_pickup)
+    mutated = copy.deepcopy(snap)
+    mutated["measure_timeline"][0]["duration"] += 0.5
+    assert dumps(mutated) != dumps(snap)
+
+
 def test_changed_glyph_hash_changes_text(engraved_pickup) -> None:
     snap = snapshot(engraved_pickup)
     mutated = copy.deepcopy(snap)

@@ -2201,5 +2201,27 @@
 {"code": "dropped-spanner", "message": "tie from P3 m8 s1 was not drawn by the engraver"},
 {"code": "dropped-spanner", "message": "tie from P1 m17 s1 was not drawn by the engraver"},
 {"code": "dropped-spanner", "message": "tie from P1 m14 s1 was not drawn by the engraver"}
+],
+"measure_timeline": [
+{"ordinal": 1, "start": 0.0, "duration": 4.0},
+{"ordinal": 2, "start": 4.0, "duration": 4.0},
+{"ordinal": 3, "start": 8.0, "duration": 4.0},
+{"ordinal": 4, "start": 12.0, "duration": 4.0},
+{"ordinal": 5, "start": 16.0, "duration": 2.0},
+{"ordinal": 6, "start": 18.0, "duration": 4.0},
+{"ordinal": 7, "start": 22.0, "duration": 4.0},
+{"ordinal": 8, "start": 26.0, "duration": 4.0},
+{"ordinal": 9, "start": 30.0, "duration": 4.0},
+{"ordinal": 10, "start": 34.0, "duration": 4.0},
+{"ordinal": 11, "start": 38.0, "duration": 4.0},
+{"ordinal": 12, "start": 42.0, "duration": 4.0},
+{"ordinal": 13, "start": 46.0, "duration": 4.0},
+{"ordinal": 14, "start": 50.0, "duration": 2.0},
+{"ordinal": 15, "start": 52.0, "duration": 4.0},
+{"ordinal": 16, "start": 56.0, "duration": 4.0},
+{"ordinal": 17, "start": 60.0, "duration": 4.0},
+{"ordinal": 18, "start": 64.0, "duration": 2.0},
+{"ordinal": 19, "start": 66.0, "duration": 4.0},
+{"score_end": 70.0}
 ]
 }

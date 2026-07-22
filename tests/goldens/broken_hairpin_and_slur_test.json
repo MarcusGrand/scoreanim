@@ -905,5 +905,18 @@
 {"code": "dropped-spanner", "message": "tie from P1 m8 s1 was not drawn by the engraver"},
 {"code": "dropped-spanner", "message": "tie from P2 m5 s1 was not drawn by the engraver"},
 {"code": "dropped-spanner", "message": "tie from P1 m5 s1 was not drawn by the engraver"}
+],
+"measure_timeline": [
+{"ordinal": 1, "start": 0.0, "duration": 4.0},
+{"ordinal": 2, "start": 4.0, "duration": 4.0},
+{"ordinal": 3, "start": 8.0, "duration": 4.0},
+{"ordinal": 4, "start": 12.0, "duration": 4.0},
+{"ordinal": 5, "start": 16.0, "duration": 2.0},
+{"ordinal": 6, "start": 18.0, "duration": 4.0},
+{"ordinal": 7, "start": 22.0, "duration": 4.0},
+{"ordinal": 8, "start": 26.0, "duration": 4.0},
+{"ordinal": 9, "start": 30.0, "duration": 4.0},
+{"ordinal": 10, "start": 34.0, "duration": 4.0},
+{"score_end": 38.0}
 ]
 }

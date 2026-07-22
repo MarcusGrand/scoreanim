@@ -451,5 +451,17 @@
 {"element_id": "P1:m9:s1:v2:note:3", "part": "P1", "measure": 9, "staff": 1, "voice": 2, "onset": 35.0, "grace": false, "pitch_step": "G", "pitch_alter": 1.0, "octave": 5, "staff_loc": null, "chord_group": null, "order_in_voice": 3}
 ],
 "warnings": [
+],
+"measure_timeline": [
+{"ordinal": 1, "start": 0.0, "duration": 4.0},
+{"ordinal": 2, "start": 4.0, "duration": 4.0},
+{"ordinal": 3, "start": 8.0, "duration": 4.0},
+{"ordinal": 4, "start": 12.0, "duration": 4.0},
+{"ordinal": 5, "start": 16.0, "duration": 4.0},
+{"ordinal": 6, "start": 20.0, "duration": 4.0},
+{"ordinal": 7, "start": 24.0, "duration": 4.0},
+{"ordinal": 8, "start": 28.0, "duration": 4.0},
+{"ordinal": 9, "start": 32.0, "duration": 4.0},
+{"score_end": 36.0}
 ]
 }

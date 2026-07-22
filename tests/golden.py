@@ -14,7 +14,9 @@ exact reprs of every PathPrimitive and TextPrimitive/TextRun — counts
 alone would let the styling branches (fill-opacity→none, currentColor
 defaults, bold/italic mapping, _RunAttrs inheritance) regress undetected.
 Plus all AdapterNoteRecord fields, all (code, message) warning pairs,
-page geometries, and a sha256 of prepared.canonical_xml.
+page geometries, a sha256 of prepared.canonical_xml, and the engraved
+MeasureTimeline (the app-wide beat authority since the FINDING-1 fix,
+2026-07-22: per-ordinal starts/durations + score_end).
 
 Pure data in, text out — no fixtures, no I/O, no pytest imports here.
 """
@@ -97,6 +99,12 @@ def snapshot(engraved: EngravedScore) -> dict:
         "note_records": [_note_row(n) for n in engraved.note_records],
         "warnings": [{"code": w.code, "message": w.message}
                      for w in engraved.warnings],
+        "measure_timeline": [
+            {"ordinal": n,
+             "start": engraved.timeline.starts[n],
+             "duration": engraved.timeline.durations[n]}
+            for n in sorted(engraved.timeline.starts)
+        ] + [{"score_end": engraved.timeline.score_end}],
     }
 
 
@@ -107,7 +115,8 @@ def dumps(snap: dict) -> str:
     parts: list[str] = ["{"]
     parts.append('"canonical_xml_sha256": '
                  + json.dumps(snap["canonical_xml_sha256"]) + ",")
-    keys = ("pages", "elements", "note_records", "warnings")
+    keys = ("pages", "elements", "note_records", "warnings",
+            "measure_timeline")
     for key in keys:
         rows = snap[key]
         parts.append(f'"{key}": [')
