@@ -145,9 +145,9 @@ def _parse_mei(mei_xml: str) -> _MeiIndex:
             elif tag == "beamSpan":
                 index.beamspan_ends[sp_id] = (ref(sp.get("startid")),
                                               ref(sp.get("endid")))
-            if sp.get("staff"):
-                index.staff_attr_by_id[sp_id] = _int_or(
-                    sp.get("staff", "").split()[0], 0)
+            staff_tokens = (sp.get("staff") or "").split()
+            if staff_tokens:    # a whitespace-only @staff must not crash
+                index.staff_attr_by_id[sp_id] = _int_or(staff_tokens[0], 0)
     return index
 
 

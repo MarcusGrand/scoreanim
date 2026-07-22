@@ -234,6 +234,24 @@ scale-to-fit). Parked:
 - **Condensing multi-staff parts** (e.g. two grand-staff keyboards) is
   rejected in v1 (raises); needs a per-staff merge design.
 
+## Phase R (adapter package split) — deferrals
+
+- **`_LoadState` narrowing** into per-stage inputs: every stage module
+  now documents which fields it reads/writes, but the type is still one
+  shared mutable dataclass. Explicitly deferred by the refactor brief.
+- **`_identity_for` onset-chain table**: the svg_class-gated if/elif
+  chain works and is pinned by the goldens; restructuring it into a
+  dispatch table is deferred (brief).
+- **Redundant re-prepare in the scale-to-fit path** (R.4 finding F4):
+  when systems overflow but `plan_page_breaks` returns no breaks,
+  `load_detailed` re-runs `prepare()` with identical inputs before the
+  scaled engrave — wasted work, output unaffected. Perf work is out of
+  the refactor's scope (brief).
+- **Golden snapshots are the standing regression net** for all future
+  adapter work: `tests/goldens/` pins 12 loads byte-for-byte
+  (`SCOREANIM_UPDATE_GOLDENS=1` re-captures after a deliberate change —
+  commit the diff with the change that caused it).
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

@@ -347,6 +347,12 @@ class _PageDecomposer:
         x = float(pos_el.get("x", "0"))
         y = float(pos_el.get("y", "0"))
         anchor = pos_el.get("text-anchor") or el.get("text-anchor") or "start"
+        if anchor not in ("start", "middle", "end"):
+            # fail BEFORE the primitive is appended (the bbox lookup below
+            # would otherwise die on a bare KeyError mid-accumulation) and
+            # with page context — TextPrimitive.anchor is a 3-value contract
+            raise ValueError(f"page {self.page}: <text> with unsupported "
+                             f"text-anchor {anchor!r}")
 
         cls_weight = "bold" if acc.svg_class in _BOLD_TEXT_CLASSES else None
         cls_style = "italic" if acc.svg_class in _ITALIC_TEXT_CLASSES else None

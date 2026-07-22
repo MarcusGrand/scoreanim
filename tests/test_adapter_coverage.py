@@ -214,3 +214,37 @@ def test_no_known_fixture_degrades(engraved, engraved_spanners,
     for score in (engraved, engraved_spanners, engraved_video,
                   engraved_complex1):
         assert not [w for w in score.warnings if w.code == "unknown-class"]
+
+
+# --- Phase R.4 hardening pins (category 2 — no fixture output change) ------
+
+def test_unsupported_text_anchor_fails_loudly():
+    """A text-anchor outside start/middle/end used to die on a bare
+    KeyError after the primitive was already appended; it now fails
+    before any mutation, with page context (R.4 finding F2)."""
+    svg = _page(
+        '<g class="dir" xml:id="d1">'
+        '<text x="10" y="20" text-anchor="bogus" font-size="200px">'
+        'hi</text></g>')
+    st = _LoadState(prep=None, mei=_MeiIndex(measure_by_id={"m1": 1}),
+                    onset_by_id={}, measure_start={1: 0.0},
+                    measure_duration={1: 4.0},
+                    staff_n_by_id={}, layer_n_by_id={})
+    with pytest.raises(ValueError, match="text-anchor 'bogus'"):
+        _PageDecomposer(svg, page=1, adapter=st).run()
+
+
+def test_whitespace_staff_attr_is_ignored_not_a_crash():
+    """A whitespace-only @staff on a measure-attached element used to
+    IndexError in _parse_mei's split()[0]; it is now skipped like a
+    missing @staff (R.4 finding F3)."""
+    from scoreanim.core.engraving.verovio.mei_index import _parse_mei
+    mei = (
+        '<music xmlns="http://www.music-encoding.org/ns/mei">'
+        '<body><mdiv><score><section>'
+        '<measure xml:id="m1"><staff n="1"><layer n="1"/></staff>'
+        '<dynam xml:id="dy1" staff="  " tstamp="1"/>'
+        '</measure></section></score></mdiv></body></music>')
+    index = _parse_mei(mei)
+    assert "dy1" not in index.staff_attr_by_id
+    assert index.tstamps_by_id["dy1"] == (1, "1", None)
