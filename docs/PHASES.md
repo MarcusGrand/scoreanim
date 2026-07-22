@@ -1550,7 +1550,8 @@ testdata as before; the findings list is fully dispositioned; docs
 closed out. The goldens remain in the suite permanently as the
 standing regression net for adapter work.
 
-**As built (2026-07-22, all exit criteria passed).** Eleven commits:
+**As built (2026-07-22, all exit criteria passed).** Twelve commits
+(plus the plan-docs commit):
 R.0 (golden harness + 12 committed baselines, 500 tests), seven R.1
 moves (each pytest-green, goldens byte-identical; move 6's first run
 omitted an import that the golden suite caught pre-commit on
