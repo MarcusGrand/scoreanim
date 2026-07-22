@@ -485,7 +485,14 @@ whole curve underneath (consistent with the dimmed ghost score);
 RevealMode is the only knob. Spanners split across systems by Verovio
 reveal per segment (adapter emits `<source-id>:seg<k>` elements);
 segments in not-yet-reached systems sit at reveal = 0 with no page
-logic. Any cursor reads this same function.
+logic. Any cursor reads this same function. **The clip default is
+HIDDEN** (FINDING-2 fix, 2026-07-22): a reveal child constructs fully
+clipped (`-inf`) and only an arriving edge reveals it, so a revealed
+item whose (system, part) key matches no reveal curve fails safe as
+invisible ink over its floor ghost instead of painting from t=0; the
+applier warns loudly per uncovered key at construction
+(`reveal warning [curve-less-key]`, `uncovered_reveal_keys`), and the
+live-oracle's D3 pins that such items stay hidden at every t.
 
 ### Animated-ink taxonomy — a DENYLIST (revised 2026-07-12; Phase 10R 2026-07-13; inverted 2026-07-20)
 

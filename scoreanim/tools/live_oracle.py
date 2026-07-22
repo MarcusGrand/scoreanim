@@ -13,9 +13,12 @@ governing principle; CLAUDE.md rule 2 — state is a pure function of t):
 
 Four checks, doctor-style (never a traceback; exit 1 on findings):
 
-- D1 (L0): every revealed-kind item must have a matching reveal curve —
-  a curve-less spanner is silently VISIBLE FROM t=0 (brief F1); plus the
-  schedule<->scene id audit (F2).
+- D1 (L0): every revealed-kind item should have a matching reveal
+  curve. Since the FINDING-2 fix (2026-07-22) a curve-less item is a
+  CAUGHT condition — default-hidden clip children + a loud applier
+  warning — so D1 reports it as a note, not a finding (D3 verifies the
+  containment: such items must be hidden at every t). The
+  schedule<->scene id audit (F2) remains a finding.
 - D2 (L0): trigger-vs-onset deviations clustered by (part, staff,
   measure) — misjoins cluster (F3); keysig/meter/clef nesting-measure
   attribution vs the musical change stream (F4).
@@ -227,7 +230,8 @@ def _effects_by_eid(bundle: OracleBundle, style: StyleRules) -> dict:
 
 # -- D1 (L0): curve audit ----------------------------------------------------
 
-def check_d1(bundle: OracleBundle) -> list[Finding]:
+def check_d1(bundle: OracleBundle,
+             log: list[str] | None = None) -> list[Finding]:
     findings: list[Finding] = []
     track_keys = {(tr.system, tr.part) for tr in bundle.tracks}
     layout_ids = {el.identity.element_id
@@ -237,18 +241,23 @@ def check_d1(bundle: OracleBundle) -> list[Finding]:
         ident = el.identity
         if ident.kind not in REVEALED_KINDS:
             continue
+        # A curve-less / system-less revealed item is CAUGHT since the
+        # FINDING-2 fix: its clip children default to hidden and the
+        # applier warns on construction. Reported as a note; D3 pins
+        # that it really stays hidden at every t.
         if el.system is None:
-            findings.append(Finding(
-                "D1", "system-less-revealed", ident.element_id,
-                f"kind={ident.kind.name} part={ident.part} — no system, "
-                f"never keyed to any edge: VISIBLE FROM t=0"))
+            if log is not None:
+                log.append(
+                    f"D1: {ident.element_id} kind={ident.kind.name} "
+                    f"part={ident.part} has no system — caught: "
+                    f"default-hidden + applier warning")
         elif (el.system, ident.part) not in track_keys:
-            findings.append(Finding(
-                "D1", "curve-less-key", ident.element_id,
-                f"kind={ident.kind.name} sys={el.system} "
-                f"part={ident.part} bbox=({el.bbox.x:.0f},{el.bbox.y:.0f},"
-                f"{el.bbox.x2:.0f},{el.bbox.y2:.0f}) — no reveal curve for "
-                f"this (system, part): VISIBLE FROM t=0"))
+            if log is not None:
+                log.append(
+                    f"D1: {ident.element_id} kind={ident.kind.name} "
+                    f"sys={el.system} part={ident.part} matches no "
+                    f"reveal curve — caught: default-hidden + applier "
+                    f"warning")
 
     for trig in bundle.schedule.triggers:          # F2, schedule → scene
         for eid in trig.element_ids:
@@ -558,7 +567,20 @@ def check_d3(bundle: OracleBundle, mode: RevealMode, grid: str,
                 continue
             curve = bundle.curve_by_key.get((item.system, ident.part))
             if curve is None:
-                continue                 # D1's curve-less-key
+                # FINDING-2 containment: a curve-less item never
+                # receives an edge, so it must sit at the hidden
+                # construction default at EVERY t
+                for k, child in enumerate(item.reveal_children):
+                    if not child.hidden and ("clip", eid) not in seen:
+                        seen.add(("clip", eid))
+                        findings.append(Finding(
+                            "D3", "curveless-not-hidden", eid,
+                            f"t={t:.3f}s ({mode.name}) child {k}: no "
+                            f"reveal curve for (sys {item.system}, part "
+                            f"{ident.part}) yet clip_right="
+                            f"{child.clip_right} is not hidden — "
+                            f"visible-from-t0 regression (FINDING-2)"))
+                continue
             edge = reveal_x(curve, t, mode)
             for k, child in enumerate(item.reveal_children):
                 exp_clip, exp_hidden = _expected_clip(child, edge)
@@ -695,7 +717,7 @@ def run_checks(bundle: OracleBundle, checks: Sequence[str],
                log: list[str]) -> list[Finding]:
     findings: list[Finding] = []
     if "d1" in checks:
-        findings += check_d1(bundle)
+        findings += check_d1(bundle, log)
     if "d2" in checks:
         findings += check_d2(bundle)
     if "d3" in checks:

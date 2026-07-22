@@ -21,12 +21,18 @@ build degrades instead of crashing.
 
 Spanners (REVEALED_KINDS) are not trigger-driven at all: their clip
 edges follow the per-system reveal curves (core/animation/reveal.py).
+A revealed item whose (system, part) key matches NO reveal track can
+never receive an edge; since the FINDING-2 fix (2026-07-22) its clip
+children default to hidden (fail-safe — only the floor ghost shows)
+and construction warns loudly on stderr, one line per uncovered key
+(``uncovered_reveal_keys`` carries them for tests and callers).
 
 Opacity floor overlap caveat (Phase 3, accepted): separate elements
 whose ink overlaps double-darken at floor opacity.
 """
 from __future__ import annotations
 
+import sys
 from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from itertools import accumulate
@@ -105,13 +111,31 @@ class AnimationApplier:
         # schedule). Per-part edges: one part's tied group holds only
         # that part's spanners (ruling A, 2026-07-12).
         self._reveal_tracks = tuple(reveal_tracks)
+        track_keys = {(tr.system, tr.part) for tr in self._reveal_tracks}
         by_key: dict[tuple, list[ElementItem]] = defaultdict(list)
-        for item in items.values():
-            if (item.identity is not None and item.system is not None
-                    and item.identity.kind in REVEALED_KINDS):
-                by_key[(item.system, item.identity.part)].append(item)
+        uncovered: dict[tuple, list[ElementId]] = defaultdict(list)
+        for eid, item in items.items():
+            if (item.identity is None
+                    or item.identity.kind not in REVEALED_KINDS):
+                continue
+            key = (item.system, item.identity.part)
+            if item.system is not None and key in track_keys:
+                by_key[key].append(item)
+            else:
+                # no track can ever reach this item: its clip children
+                # stay at the hidden construction default (FINDING-2
+                # fix — fail safe, never silently visible from t=0)
+                uncovered[key].append(eid)
         self._revealed_by_key: dict[tuple, tuple[ElementItem, ...]] = {
             k: tuple(v) for k, v in by_key.items()}
+        self.uncovered_reveal_keys: dict[tuple, tuple[ElementId, ...]] = {
+            k: tuple(v) for k, v in uncovered.items()}
+        for (system, part), eids in sorted(
+                self.uncovered_reveal_keys.items(), key=repr):
+            print(f"reveal warning [curve-less-key]: system {system} "
+                  f"part {part} matches no reveal curve — "
+                  f"{len(eids)} spanner(s) stay hidden: "
+                  f"{', '.join(str(e) for e in eids)}", file=sys.stderr)
         self._curves: tuple[RevealCurve, ...] = ()
         self._last_edges: dict[tuple, float] = {}  # (system, part) → edge
 

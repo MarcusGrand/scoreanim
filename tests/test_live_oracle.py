@@ -16,9 +16,13 @@ Findings (full table in docs/PHASES.md, "Live-timing diagnosis"):
   against x (spanners reveal early), and sig onsets (engraved
   domain) shear against the note stream (sigs read ~2 measures
   late).
-- FINDING-2 (L0, reveal coverage): a revealed-kind element whose
-  (system, part) matches no reveal curve is silently visible from
-  t=0 (brief F1) — complex3 P2:m69 hairpin seg1 in sys18.
+- FINDING-2 (L0, reveal coverage) FIXED 2026-07-22: a revealed-kind
+  element whose (system, part) matches no reveal curve WAS silently
+  visible from t=0 (brief F1) — complex3 P2:m69 hairpin seg1 in
+  sys18. Now its clip children default to hidden and the applier
+  warns loudly; the D1 pin passes and
+  test_finding2_curveless_spanner_hidden_and_warned pins the
+  containment.
 - FINDING-3 (accepted limit, BACKLOG 10): per-part (not per-voice)
   edges let one voice's note anchor reveal past another voice's
   later-resolving rest — testscore sys5 P7.
@@ -50,7 +54,9 @@ TESTDATA = Path(__file__).resolve().parent.parent / "testdata"
 # FINDING-1 (beat-domain shear) FIXED 2026-07-22: the model's beat
 # accounting is reconciled to the engraved MeasureTimeline, so its four
 # complex3 pins below are plain passing regression tests now.
-_XF2 = "FINDING-2: curve-less revealed spanner visible from t=0"
+# FINDING-2 (curve-less spanner) FIXED 2026-07-22: default-hidden clip
+# children + loud applier warning — the D1 pin passes and the
+# containment pin below replaces the xfail.
 _XF3 = "FINDING-3: per-part edge vs multi-voice rest (BACKLOG 10)"
 _XF4 = "FINDING-4: cautionary sig nests in pre-change measure"
 
@@ -83,14 +89,39 @@ def _bundle(request, name):
 
 # -- D1: curve audit ---------------------------------------------------------
 
-@pytest.mark.parametrize("fixture", [
-    "testscore",
-    "bigband",
-    pytest.param("complex3",
-                 marks=pytest.mark.xfail(reason=_XF2, strict=True)),
-])
+@pytest.mark.parametrize("fixture", ["testscore", "bigband", "complex3"])
 def test_d1_every_revealed_item_has_a_curve(request, fixture):
-    assert check_d1(_bundle(request, fixture)) == []
+    """Curve-less keys are notes (caught: default-hidden + warning),
+    never findings; the id audits (F2) must stay clean."""
+    log: list[str] = []
+    assert check_d1(_bundle(request, fixture), log) == []
+    expected_notes = 1 if fixture == "complex3" else 0
+    assert len(log) == expected_notes
+
+
+def test_finding2_curveless_spanner_hidden_and_warned(
+        qapp, bundle_complex3, capsys):
+    """FINDING-2 regression pin (fixed 2026-07-22): complex3's sys-18 P2
+    hairpin segment matches no reveal curve — it must default to hidden
+    at every t (never silently visible from t=0) and the applier must
+    warn loudly on construction."""
+    from scoreanim.core.animation import StyleRules
+    from scoreanim.core.score.identity import ElementId
+    from scoreanim.tools.live_oracle import build_scene_applier
+
+    eid = ElementId("P2:m69:s1:v0:hairpin:0:seg1")
+    scenes, applier = build_scene_applier(
+        bundle_complex3, StyleRules(reveal_mode=RevealMode.STEPPED))
+    assert applier.uncovered_reveal_keys == {(18, "P2"): (eid,)}
+    err = capsys.readouterr().err
+    assert "curve-less-key" in err and str(eid) in err
+
+    item = scenes.items[eid]
+    assert item.reveal_children
+    for t in (0.0, bundle_complex3.score_end / 2,
+              bundle_complex3.score_end + 10.0):
+        applier.refresh(t)
+        assert all(c.hidden for c in item.reveal_children), t
 
 
 # -- D2: trigger / model audits ---------------------------------------------

@@ -1737,6 +1737,45 @@ score-doctor 11/11 PASS with joins complete everywhere (the join never
 keyed on onset, so the rebase is join-transparent); oracle CLI diff as
 recorded in T1.3; both triage spikes end-to-end.
 
+## Live-timing fix 2 — FINDING-2: fail-safe reveal default (2026-07-22)
+
+Pre-census (post-FINDING-1, all three symptom fixtures): every
+remaining early-reveal element classified into known findings, nothing
+new — complex3: 1 curve-less key (`P2:m69:s1:v0:hairpin:0:seg1`,
+sys 18 — FINDING-2, the only one anywhere) + 32 sig-nesting
+(FINDING-4), zero anchor inversions; complex2: D1 clean, 9 cross-voice
+anchor-inversion clusters (all P26/P27 v1-vs-v2 / s1-vs-s2 —
+FINDING-3); testscore: D1 clean, 1 inversion (P7 v5/v6 — the
+FINDING-3 pin) + 7 sig-nesting (FINDING-4).
+
+Fix, render-side only (adapter/core data untouched, goldens
+unaffected): (a) `RevealPathItem._clip_right` now constructs at
+`-inf` (fully hidden) instead of `None` (fully revealed) — a clip
+child that never receives an edge fails SAFE as invisible ink over
+its floor-opacity ghost; `None` still means saturated/fully revealed,
+and covered items are unaffected (every resolved curve fans its edge
+out on the applier's construction-time refresh). (b)
+`AnimationApplier.__init__` compares revealed-item (system, part)
+keys against the reveal tracks and emits one loud stderr line per
+uncovered key (`reveal warning [curve-less-key]: … stay hidden: <ids>`,
+the load-warning idiom), exposing `uncovered_reveal_keys` for tests.
+(c) Oracle D1 reports a curve-less/system-less revealed item as a
+NOTE ("caught: default-hidden + applier warning"), no longer a
+finding; D3 gained the containment check (`curveless-not-hidden`): a
+curve-less item must be hidden at EVERY grid t, so a regression to
+visible-from-t0 fails D3 on any fixture.
+
+Pins: test_d1_every_revealed_item_has_a_curve[complex3] xfail
+REMOVED (passes; also asserts the note census), new
+test_finding2_curveless_spanner_hidden_and_warned (uncovered key set,
+stderr warning, hidden at t=0 / mid / past-end). After-census: all
+three fixtures byte-identical to the pre-census except complex3 D1
+FAIL→PASS (+ the caught note); FINDING-3 (9+1 inversions) and
+FINDING-4 (32+7 sig-nesting) counts unchanged, left on BACKLOG.
+Full pytest 530 passed + 3 xfailed (FINDING-3/4); D3/D4 green
+STEPPED and CONTINUOUS everywhere; oracle CLI end-to-end over all 11
+fixtures.
+
 ## Later (explicitly not now)
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-
