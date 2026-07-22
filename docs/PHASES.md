@@ -1574,6 +1574,80 @@ strict=False, 4592 elements) and complex1 (strict, 3491 elements)
 each rendered a correct mid-reveal frame; `grep -rn verovio_adapter
 scoreanim/` shows no imports (comment-text remnants only).
 
+## Live-timing diagnosis (2026-07-22 — docs/LIVE_TIMING_BRIEF.md)
+
+Diagnosis session, NO fixes. Harness built: `scoreanim/tools/live_oracle.py`
+(offscreen doctor-style CLI, checks D1–D4 per the brief) +
+`tests/test_live_oracle.py` (21 passing pins, 8 strict-xfail finding
+pins). Brief facts F1–F5 all verified against head. Run on testscore,
+bigband1 (hidden), complex3 (hidden). **bigband1 is fully clean** (its
+old early-reveal leak really was the stray-path mechanism, fixed
+2026-07-21). **D3 and D4 PASS on all three fixtures, STEPPED and
+CONTINUOUS: the live path (applier caches, clip transforms, diff-apply
+cursor, backward seeks) faithfully applies its input data — every
+symptom is L0 (data), none is L1/L2.** "It only happens live" was an
+illusion of the whole-page render tests' single-t view.
+
+Findings, for per-mechanism fix rulings (brief prompt 2):
+
+- **FINDING-1 (L0, score model / schedule rule 1) — beat-domain shear
+  on irregular-length bars. The prime mechanism: symptoms 1, 2 AND 3.**
+  complex3 has three irregular bars: m1 (the X0 pickup — engraved span
+  1 beat vs model nominal 4), m37 (12 beats vs 4), m52 (4.5 vs 4).
+  music21-side beat accounting diverges from Verovio's timemap there —
+  and from ITSELF: 714 of 4834 ScoreNotes sit outside their own
+  measure's [start, start+quarter_length) span (e.g. P2 m78 onset 312.0
+  vs span [319.75, 323.75)). Because a notehead's trigger is its joined
+  ScoreNote.onset (schedule rule 1) while graces, sig glyphs,
+  measure-start fallbacks and synthesized elements carry engraved-
+  domain onsets, the schedule mixes both domains. Trigger−onset deltas
+  are piecewise-constant, delimited exactly by the irregular bars:
+  **+3.00 beats (late) over m2..m37, −5.00 (early) over m38..m52,
+  −5.50 over m53..m85** (oracle `trigger-onset-shift` clusters, e.g.
+  P6 staff 1: 622 elements at +3.00). Consequences: notes light up to
+  ~1.5 measures late/early varying by part/voice/measure (symptom 2);
+  88 (system, part) reveal tracks contain SAME-VOICE anchor beat-vs-x
+  inversions up to 6.5 beats (e.g. P14:m84:s1:v1:note:1 beat 336 drawn
+  right of v1:note:0 beat 341.5), dragging the reveal edge right early
+  so slurs/ties left of it paint before their music (symptom 1); sig
+  glyphs light at engraved-domain measure starts, ~5.5–7.75 beats
+  (≈1.5–2 measures) AFTER the −5.5-shifted note stream around them
+  (symptom 3, `sig-onset-vs-measure-start`, 24 measures). Fix locus:
+  build_score_model's onset/measure accounting for irregular bars (one
+  consistent beat domain), NOT the live path. Pins:
+  test_d2_triggers_match_engraved_onsets[complex3],
+  test_d2_model_consistent_with_itself_and_engraving[complex3],
+  test_d2_reveal_anchors_monotone_in_x[complex3],
+  test_d2_sig_onsets_match_model_measure_starts[complex3].
+- **FINDING-2 (L0, reveal coverage — brief F1 confirmed live):**
+  `P2:m69:s1:v0:hairpin:0:seg1` (sys 18) matches NO reveal curve — P2
+  has tracks in every system except 18 (no anchor-kind P2 events
+  there) — so its clip edge is never set and it is fully visible from
+  t=0, silently (RevealPathItem's None-clip = fully-revealed default).
+  The only curve-less revealed element across all three fixtures; the
+  fix direction the brief names (default-hidden + loud warning) awaits
+  ruling. Pin: test_d1_every_revealed_item_has_a_curve[complex3].
+- **FINDING-3 (accepted limit, BACKLOG 10 evidence):** testscore sys 5
+  P7 — v5 note (beat 66) drawn right of v6 rest (trigger 68.5): the
+  per-part edge reveals the rest region 2.5 beats before its
+  resolution. Cross-voice x/time interleave, the known per-part-not-
+  per-voice granularity. Pin (xfail, flip only if BACKLOG 10 is built):
+  test_d2_reveal_anchors_monotone_in_x[testscore].
+- **FINDING-4 (L0, adapter F4 — cautionary sig nesting):** mid-score
+  meter changes draw a cautionary glyph nested in the PREVIOUS measure
+  (testscore m4 for the m5 change; complex3 m26 for m27, m52, m54, m69
+  — 32 glyphs), so they light a measure early at the nesting measure's
+  downbeat (on complex3, compounded by FINDING-1's shear). End-of-
+  system courtesy key/clef restatements are correctly nested (early
+  reports of those were an oracle heuristic bug, fixed: system starts
+  derive from ANCHOR_KINDS only, since cross-system spanner segments
+  carry their start measure's ordinal into the next system). Pins:
+  test_d2_sig_nesting_measures[testscore, complex3].
+
+Standing rule from here: any "it looks wrong in live playback" report
+starts with `python -m scoreanim.tools.live_oracle testdata/<file>` —
+the output names the layer and the proving elements.
+
 ## Later (explicitly not now)
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-
