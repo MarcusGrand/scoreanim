@@ -74,6 +74,37 @@ class EngravingProvider(ABC):
     # `texts` (Phase 9.3) and `hide_empty_staves` (Phase 10R) follow
     # the same reasoning (doc.text_overrides / doc.hide_empty_staves).
 
+# The adapter is a package (Phase R, 2026-07-22), one module per
+# pipeline stage — core/engraving/verovio/:
+#   kinds.py        policy tables only (class→kind map, container/spanner
+#                   sets, scale constants); no logic
+#   mei_index.py    Verovio's MEI export → per-id musical lookup tables
+#   records.py      AdapterNoteRecord, EngravedScore, _LoadState (the
+#                   per-load shared state; each stage module's docstring
+#                   lists the fields it reads/writes)
+#   decompose.py    one page SVG → identity-bearing element accumulators
+#   attribution.py  in-place post-passes: rehome strays, ledger dashes,
+#                   spanner segments, implausible ties
+#   identity.py     ElementId minting + the svg_class-gated onset chain;
+#                   accumulators → RenderedElements + note records
+#   synthesis.py    slash / bar-repeat synthesis (rule 10)
+#   provider.py     toolkit options, hide/repagination/scale-to-fit retry
+#                   loops, and _engrave_prepared — the ONE function that
+#                   names the pipeline order:
+#
+#   engrave → parse MEI → timemap → decompose pages → rehome strays →
+#   attribute ledger dashes → attribute spanner segments → flag
+#   implausible ties → build elements → synthesize slash/repeat
+#
+#   The order is a correctness invariant: rehoming must precede the other
+#   attribution passes (they must never claim ink that is about to move),
+#   implausible-tie flagging must follow segment pairing (bogus sources
+#   stay in the candidate pool so the remaining segments pair right), and
+#   synthesis follows element construction (it positions from the
+#   collected staff geometry; synthetic elements never enter the passes).
+#   tests/goldens/ pins 12 fixture loads byte-for-byte (the Phase R
+#   safety net, kept as the standing regression suite).
+
 # Verovio adapter obligations (Phase 0 rulings, 2026-07-10):
 #
 # 1. Concert pitch, always: transposeToSoundingPitch=True is a fixed part

@@ -1452,7 +1452,7 @@ not shadow the pip `import verovio` (absolute imports), and
 `verovio/provider.py` must import the base seam absolutely
 (`scoreanim.core.engraving.provider`), never `from .provider`.
 
-- [ ] **R.0 Golden harness + baselines**: `tests/golden.py` (pure
+- [x] **R.0 Golden harness + baselines**: `tests/golden.py` (pure
       serializer: EngravedScore → JSON) + `tests/test_golden_layouts.py`
       + committed `tests/goldens/<name>.json`. Per element, in LAYOUT
       ORDER (deterministic — accumulator order over membership-only
@@ -1478,7 +1478,7 @@ not shadow the pip `import verovio` (absolute imports), and
       committed; a comparator unit test proves a removed element, a
       mutated float, and a changed glyph hash each FAIL; a second
       fresh capture is byte-identical; full pytest green.
-- [ ] **R.1 Mechanical split — seven move commits, zero logic edits**:
+- [x] **R.1 Mechanical split — seven move commits, zero logic edits**:
       create `core/engraving/verovio/` with `__init__.py`;
       `verovio_adapter.py` becomes a thin shim DURING the split,
       re-exporting the external surface by EXPLICIT name (star-import
@@ -1498,7 +1498,7 @@ not shadow the pip `import verovio` (absolute imports), and
       commit. Verify EVERY commit: full pytest green +
       test_golden_layouts byte-identical. After (7):
       verovio_adapter.py contains only the shim.
-- [ ] **R.2 Seams made explicit, minimally**: `_engrave_prepared` IS
+- [x] **R.2 Seams made explicit, minimally**: `_engrave_prepared` IS
       the pipeline function — keep it; add the WHY-order comment
       block (staff_centers built before rehome because rehome and
       identity read them; rehome BEFORE ledger/spanner attribution so
@@ -1510,7 +1510,7 @@ not shadow the pip `import verovio` (absolute imports), and
       No signature changes beyond what the moves forced. Verify:
       comment/docstring-only diff; pytest green; goldens
       byte-identical.
-- [ ] **R.3 Tooling migration** (per rulings a/b): repoint
+- [x] **R.3 Tooling migration** (per rulings a/b): repoint
       ui/main_window.py, the four tools (check_score, dump_notes,
       render_page_png, bbox_overlay), core/score/join.py, conftest +
       the 12 adapter-importing test modules (incl. the private imports
@@ -1519,7 +1519,7 @@ not shadow the pip `import verovio` (absolute imports), and
       Verify: `grep -rn verovio_adapter scoreanim/ tests/ spikes/`
       shows only comment-text remnants; pytest green; goldens
       byte-identical; both triage spikes RUN end-to-end.
-- [ ] **R.4 Findings pass**: work `docs/REFACTOR_FINDINGS.md` under
+- [x] **R.4 Findings pass**: work `docs/REFACTOR_FINDINGS.md` under
       the policy — category-2 hardening freely in its own commits
       (goldens prove no output change); category-3 fixes one per
       commit with golden before/after diff + pinning test + baseline
@@ -1528,7 +1528,7 @@ not shadow the pip `import verovio` (absolute imports), and
       too-large findings → BACKLOG.md with a one-line rationale.
       Verify: every finding dispositioned (fixed / backlogged /
       ruled-out); each fix commit contains its golden diff and test.
-- [ ] **R.5 Docs close-out + exit**: CLAUDE.md (rule 4 path → the
+- [x] **R.5 Docs close-out + exit**: CLAUDE.md (rule 4 path → the
       package; package-layout tree lists the modules one line each);
       ARCHITECTURE.md §3 module map + pipeline order + one line on
       why the order is fixed; BACKLOG.md (deferred: `_LoadState`
@@ -1549,6 +1549,29 @@ commit deliberately re-captured them; score-doctor passes across
 testdata as before; the findings list is fully dispositioned; docs
 closed out. The goldens remain in the suite permanently as the
 standing regression net for adapter work.
+
+**As built (2026-07-22, all exit criteria passed).** Eleven commits:
+R.0 (golden harness + 12 committed baselines, 500 tests), seven R.1
+moves (each pytest-green, goldens byte-identical; move 6's first run
+omitted an import that the golden suite caught pre-commit on
+video_test_hidden — the net working exactly as designed), R.2
+(comment/docstring-only), R.3 (all import sites repointed, shim
+DELETED, both triage spikes run end-to-end), R.4 + R.5. Final module
+sizes: kinds 144, mei_index 218, records 84, decompose 416,
+attribution 400, identity 335, synthesis 118, provider 292,
+__init__ 23 — the old 1823-line file is gone. Findings (all
+dispositioned, none flag-and-stop): F1 move-defect fixed pre-commit;
+F2 text-anchor KeyError and F3 whitespace-@staff IndexError hardened
+in R.4 with pinning tests (category 2 — goldens prove no output
+change); F4 redundant re-prepare in the scale-to-fit path backlogged
+(perf, out of scope). NO category-3 behavior change landed: every
+golden baseline is byte-identical to its R.0 capture — there are no
+golden diffs to report. Exit run: 502 headless green; score-doctor
+11/11 PASS over testdata (same censuses as Phase 12 close);
+offscreen open+animate+export-frame on bigband1 (hidden,
+strict=False, 4592 elements) and complex1 (strict, 3491 elements)
+each rendered a correct mid-reveal frame; `grep -rn verovio_adapter
+scoreanim/` shows no imports (comment-text remnants only).
 
 ## Later (explicitly not now)
 

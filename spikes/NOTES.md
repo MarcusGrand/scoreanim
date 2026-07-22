@@ -875,3 +875,18 @@ notation classes. Root causes reproduced against the real files:
 Fixtures the prior two never exercised: multi-staff (grand-staff) parts;
 two+ part-groups in a system (systemDivider); `ppp` dynamics; `wedge`
 hairpins in this configuration; trill wavy-lines; chord-symbol bass notes.
+
+## Phase R (2026-07-22) — adapter package split
+
+`core/engraving/verovio_adapter.py` (1823 lines) was decomposed into the
+`core/engraving/verovio/` package, one module per pipeline stage (kinds /
+mei_index / records / decompose / attribution / identity / synthesis /
+provider) and DELETED — imports repoint to the package. For spike
+authors: the monkeypatch seams moved with the code. Patch
+`verovio.decompose.parse_transform` (complex1_triage's rotate shim) and
+`verovio.attribution._attribute_ledger_dashes` (both triage spikes) —
+the provider calls stages module-qualified, so patching the old
+verovio_adapter attributes would silently do nothing. Both triage spikes
+were updated in the same commits that broke their seams and run
+end-to-end. The golden suite (tests/goldens/, 12 loads byte-for-byte) is
+the standing regression net for any adapter change.

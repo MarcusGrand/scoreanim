@@ -31,11 +31,13 @@ of the current phase.
    loaded; the controller picks the clock by `transport.has_media()`.
 
 4. **Engraving is behind the `EngravingProvider` interface.** Verovio types,
-   Verovio element IDs, and Verovio SVG never leak past the adapter in
-   `core/engraving/verovio_adapter.py`. Everything downstream uses our own
+   Verovio element IDs, and Verovio SVG never leak past the adapter package
+   `core/engraving/verovio/`. Everything downstream uses our own
    `ElementId` and neutral `Layout` types. The adapter always sets a fixed
    `xmlIdSeed` so Verovio IDs are deterministic across loads — overrides,
-   style rules, and tests depend on stable `ElementId`s.
+   style rules, and tests depend on stable `ElementId`s; the golden
+   suite (`tests/goldens/`, Phase R) pins 12 fixture loads byte-for-byte
+   on exactly that determinism.
    Amendment, Phase 11 (2026-07-15 ruling): an unknown drawable SVG
    class no longer fails the load in the app path — it degrades to a
    warned static OTHER element (`LoadWarning "unknown-class"`; the
@@ -144,7 +146,19 @@ of the current phase.
 scoreanim/
   core/                    # pure Python, no Qt
     score/                 # music21 parsing → ScoreModel, ElementIdentity
-    engraving/             # EngravingProvider ABC, Layout, verovio_adapter
+    engraving/             # EngravingProvider ABC, neutral Layout types
+      verovio/             # the adapter package (Phase R), one module per
+                           # pipeline stage:
+                           #   kinds.py      policy tables, no logic
+                           #   mei_index.py  MEI XML → per-id lookup tables
+                           #   records.py    AdapterNoteRecord, EngravedScore,
+                           #                 _LoadState
+                           #   decompose.py  page SVG → element accumulators
+                           #   attribution.py post-passes (rehome, ledger,
+                           #                 spanner segments, tie flags)
+                           #   identity.py   ElementId minting + onset chain
+                           #   synthesis.py  slash / bar-repeat synthesis
+                           #   provider.py   toolkit, retry loops, pipeline
     timing/                # TempoMap (BPM events, taps, swing), beat↔seconds
     animation/             # properties, Envelope, Effect, RevealMode, state(t)
     project/               # Project document, commands/undo, serialization
