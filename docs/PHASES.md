@@ -1863,6 +1863,74 @@ unchanged (STEPPED and CONTINUOUS), all-regular fixtures byte-identical
 output; score-doctor 11/11 PASS; trigger-table diff clean per the
 scope note.
 
+## Live-timing fix 4 — FINDING-5: absorbed spanner ink reclaimed (2026-07-23)
+
+Ruling (Marcus, 2026-07-23): slur ink must mint SLUR elements on the
+right part — no flag-and-stop on the semantics. Root cause (external
+repro on complex3, then proven by the new D5 oracle): under the
+hide-empty-staves MEI optimize round-trip Verovio reuses one xml:id
+across element types AND draws a slur/tie's bézier INSIDE the foreign
+group carrying its id; the spanner's own `<g>`, nested in the correct
+measure, renders EMPTY. Decompose's subtree claim handed the curve to
+that stem/flag/dots/barline/text element, so the curve fired at the
+HOST's onset — the recurring "early slur", live and export. Census: 64
+absorbed spanners across 6 fixtures (complex3 23, complex1 16,
+bigband1 12, broken_hairpin 6, condense_min 4, video_test 3); every
+FLAT load clean — the artifact is exclusive to the optimize
+round-trip. Two accomplices, same root: the reused id satisfied the
+dropped-spanner drawn-check (masking the warning), and
+`identity_by_vid`'s last-writer-wins handed continuation segments a
+foreign STEM identity (complex3 minted 4 `stem:N:seg1` elements).
+Rehome (the 2026-07-21 bigband fix) only ever rescued the CROSS-system
+share geometrically, as anonymous v0 ties.
+
+Detector first (commit 1): oracle **D5** (`live_oracle/d5_purity.py`,
+CLI default, importable pins). (a) kind/ink purity — straight-ink
+kinds (STEM/LEDGER/BEAM) hold no béziers, compact kinds fit sane
+staff-space bbox bounds (units from the STAFF_LINES median, so
+scale-to-fit tracks); (b) spanner coverage — every MEI slur/tie the
+engraver inked yields exactly one SLUR/TIE element on its own staff's
+part, audited against the raw page SVGs + `_LoadState` captured DURING
+the load at the provider's monkeypatch stage seam, with identity
+minting re-run over the captured accumulators so reported ids match
+the layout byte for byte. Also split live_oracle (1088 lines) into a
+package, one module per check (commit 2).
+
+Fix shape (commit 3, adapter): decompose indexes literal `<path>`
+béziers per accumulator (`literal_curves` — host-own ink is
+rects/lines/ellipse-paths/`<use>` glyphs, so a literal bézier in a
+non-spanner group is provably stolen) and keeps EMPTY id-bearing
+spanner groups; new post-pass **`_reclaim_spanner_ink`** runs FIRST
+(before rehome — the true owner is known by id, so the geometric pass
+must not split the curve anonymously): stolen curves move onto the
+spanner's own accumulator when in its system, else become
+PRE-ATTRIBUTED continuation segments (`source_vid` set; the pairing
+pool skips them) in the system the ink occupies — the (system, part)
+reveal-edge invariant; a missing placeholder is synthesized from the
+MEI start note (bigband vz2tmdv has no tie `<g>` at all); placeholders
+that gain nothing are dropped again, so flat loads stay byte-identical
+(9 of 12 goldens unchanged). `identity_by_vid` is restricted to
+spanner-class accs (segments can no longer inherit a stem identity),
+and the dropped-spanner drawn-check requires ink under the spanner's
+OWN class family (reused ids no longer mask the warning; octave keeps
+the any-group test). One `reclaimed-spanner-ink` LoadWarning per
+reclaim (ruling b). Scope limit: reclaim covers slur/tie/lv — hairpin
+ink is straight lines, indistinguishable from host ink by shape; no
+hairpin absorption observed on any fixture.
+
+Verified: D5 green on all 11 fixtures (55 reclaims: complex3 19,
+complex1 14, bigband 10, broken_hairpin 6, condense 4, video 2;
+dropped-spanner unmasked everywhere); full oracle D1–D5 green on
+bigband + complex3; goldens re-captured — exactly the 3 hidden
+baselines changed (complex3: 19 new P14 SLUR elements incl. the 4
+`slur:N:seg1` that had minted under stem identities, curve ink out of
+the 6 stems + m72 flag; bigband: 10 anonymous v0 rehomed ties replaced
+by properly-attributed P4 TIE/SLUR elements with real voices; rehome
+still backstops 3 artic strays); D5 pytest pins flipped to passing,
+`test_finding5_viola_slurs_reclaimed` +
+`test_stray_tie_curves_are_reclaimed_as_own_elements` pin the reclaim;
+full suite green.
+
 ## Later (explicitly not now)
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-

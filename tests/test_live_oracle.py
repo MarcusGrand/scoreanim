@@ -33,17 +33,21 @@ Findings (full table in docs/PHASES.md, "Live-timing diagnosis"):
   end-of-system courtesy to its CHANGE measure's start; the nesting
   pins pass and test_finding4_courtesy_sig_lights_with_change pins
   the retime.
-- FINDING-5 (L0, adapter D5, diagnosed 2026-07-23): under the
+- FINDING-5 (L0, adapter D5) FIXED 2026-07-23: under the
   hide-empty-staves MEI round-trip Verovio reuses one xml:id across
   element types AND draws a slur/tie's curve inside the foreign group
   carrying its id (the spanner's own <g> in the right measure renders
-  EMPTY). Decompose's subtree claim then folds the curve into that
-  stem/flag/dots/barline/text element, so the curve fires at the
+  EMPTY). Decompose's subtree claim folded the curve into that
+  stem/flag/dots/barline/text element, so the curve fired at the
   host's onset in the host's measure — the recurring early-slur, live
-  and export (complex3: 23 absorbed spanners over 6 fixtures; the
-  same reuse masks the dropped-spanner warning and, via the
-  last-writer identity_by_vid, mints continuation segments under
-  foreign stem identities). D5 pins below are xfail until the fix.
+  and export (64 absorbed spanners over 6 fixtures; the same reuse
+  masked the dropped-spanner warning and, via the last-writer
+  identity_by_vid, minted continuation segments under foreign stem
+  identities). The adapter now reclaims the ink by id
+  (_reclaim_spanner_ink), restricts identity_by_vid to spanner
+  classes, and requires own-class ink in the dropped-spanner check;
+  the D5 pins below pass and test_finding5_viola_slurs_reclaimed pins
+  the reclaim.
 """
 from __future__ import annotations
 
@@ -62,8 +66,7 @@ from scoreanim.tools.live_oracle import (audit_join, audit_kind_purity,
                                          audit_signatures,
                                          audit_spanner_coverage,
                                          audit_triggers, build_bundle,
-                                         check_d1, check_d3, check_d4,
-                                         check_d5)
+                                         check_d1, check_d3, check_d4)
 
 TESTDATA = Path(__file__).resolve().parent.parent / "testdata"
 
@@ -230,10 +233,6 @@ def test_d4_ticking_equals_fresh_refresh(qapp, request, fixture, mode):
 # sub-check audits the raw page SVG and MEI captured DURING the load,
 # which the session-cached engravings cannot provide.
 
-_XF5 = ("FINDING-5: Verovio id reuse under hide-empty-staves absorbs "
-        "slur/tie curve ink into foreign stem/flag/dots/barline/text "
-        "groups (D5, 2026-07-23)")
-
 
 @pytest.fixture(scope="session")
 def bundle_testscore_captured():
@@ -253,13 +252,7 @@ def bundle_complex3_captured():
 
 
 @pytest.mark.parametrize("fixture", [
-    "testscore_captured",
-    "bigband_captured",       # its stolen curves are cross-system: rehome
-                              # already split the INK out, so purity is
-                              # clean — coverage below still fails
-    pytest.param("complex3_captured",
-                 marks=pytest.mark.xfail(reason=_XF5, strict=True)),
-])
+    "testscore_captured", "bigband_captured", "complex3_captured"])
 def test_d5_kind_ink_purity(request, fixture):
     """No straight-ink kind carries a bézier; no compact kind exceeds
     its sane bbox bounds."""
@@ -267,32 +260,32 @@ def test_d5_kind_ink_purity(request, fixture):
 
 
 @pytest.mark.parametrize("fixture", [
-    "testscore_captured",
-    pytest.param("bigband_captured",
-                 marks=pytest.mark.xfail(reason=_XF5, strict=True)),
-    pytest.param("complex3_captured",
-                 marks=pytest.mark.xfail(reason=_XF5, strict=True)),
-])
+    "testscore_captured", "bigband_captured", "complex3_captured"])
 def test_d5_spanner_coverage(request, fixture):
     """Every MEI slur/tie the engraver inked yields exactly one
     SLUR/TIE element attributed to its own staff's part."""
     assert audit_spanner_coverage(_bundle(request, fixture)) == []
 
 
-def test_d5_names_the_absorbed_viola_slurs(bundle_complex3_captured):
-    """The concrete complex3 symptom, pinned mechanically while the bug
-    exists: the viola (P14) m66-68 slur ids are reported absorbed and
-    the named hosts carry the stolen ink. The FINDING-5 fix session
-    REPLACES this test with the positive pin (slur elements exist on
-    P14, hosts hold one straight path each)."""
-    findings = check_d5(bundle_complex3_captured)
-    absorbed = {f.element_id for f in findings
-                if f.code == "spanner-absorbed"}
-    assert {"x15guzva", "efon8na", "e1rex54i", "n11z1ce2",
-            "g1b4p4u5"} <= absorbed
-    hosts = {f.element_id for f in findings
-             if f.code in ("kind-curve-ink", "kind-bbox-oversize")}
-    assert {"P2:m65:s1:v1:stem:1", "P12:m65:s1:v1:stem:0",
-            "P13:m65:s1:v1:stem:1", "P3:m66:s1:v1:stem:0",
-            "P5:m66:s1:v1:stem:5", "P13:m66:s1:v1:stem:3",
-            "P3:m72:s1:v1:flag:0"} <= hosts
+def test_finding5_viola_slurs_reclaimed(bundle_complex3_captured):
+    """FINDING-5 regression pin (fixed 2026-07-23): the viola (P14)
+    m66-68 slurs whose reused ids Verovio drew inside foreign stems now
+    mint SLUR elements on P14 with their start note's onset, and the
+    former hosts hold exactly their own straight ink again."""
+    els = {str(el.identity.element_id): el
+           for el in bundle_complex3_captured.engraved.layout.elements}
+    for eid in ("P14:m66:s1:v1:slur:2", "P14:m67:s1:v1:slur:0",
+                "P14:m67:s1:v1:slur:1", "P14:m68:s1:v1:slur:0",
+                "P14:m68:s1:v1:slur:1", "P14:m69:s1:v1:slur:0"):
+        el = els[eid]
+        assert el.identity.part == "P14"
+        assert el.identity.onset is not None
+    for host in ("P2:m65:s1:v1:stem:1", "P12:m65:s1:v1:stem:0",
+                 "P13:m65:s1:v1:stem:1", "P3:m66:s1:v1:stem:0",
+                 "P5:m66:s1:v1:stem:5", "P13:m66:s1:v1:stem:3",
+                 "P3:m72:s1:v1:flag:0"):
+        el = els[host]
+        assert len(el.glyph.paths) == 1
+    warns = [w for w in bundle_complex3_captured.engraved.warnings
+             if w.code == "reclaimed-spanner-ink"]
+    assert len(warns) == 19

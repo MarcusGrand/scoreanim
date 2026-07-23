@@ -9,13 +9,16 @@ note's system/onset — so at the stem's reveal time the curve painted
 down in the later system (a solid-black "tie" appearing many bars ahead
 of the playhead once the ghost floor is 0).
 
-The adapter now re-homes any path whose geometry lands in a different
-system than its element (verovio.attribution._rehome_stray_paths): the ink
-becomes its own element attributed by geometry to the system it occupies,
-so it animates in place and never leaks. These tests pin both the core
-invariant (no element's ink crosses a system band) and the observable
-effect through the live applier (later-system ink stays dark-free at an
-earlier-system cursor).
+Two passes share the cleanup since the FINDING-5 fix (2026-07-23):
+_reclaim_spanner_ink intercepts the slur/tie share BY ID — the stolen
+curve moves back onto the spanner's own element (right part, voice, and
+onset) — and _rehome_stray_paths remains the geometric backstop for any
+other cross-system leak (bigband still has three stray artic paths),
+re-emitting the ink as its own element in the system it occupies. These
+tests pin the core invariant (no element's ink crosses a system band),
+the reclaim (bigband's tie curves are proper TIE elements again), and
+the observable effect through the live applier (later-system ink stays
+dark-free at an earlier-system cursor).
 """
 import os
 
@@ -92,25 +95,27 @@ def test_no_element_ink_crosses_a_system_band(engraved_bigband_hidden):
     assert offenders == [], f"paths crossing systems: {offenders[:5]}"
 
 
-def test_stray_tie_curves_are_rehomed_as_reveal_ink(engraved_bigband_hidden):
-    """The bigband1 tie/slur curves Verovio nested in earlier stems are
-    re-emitted in the later system they occupy, as a REVEAL kind (TIE) —
-    so they grow in with the playhead sweep at their own x rather than
-    popping at the system downbeat (the cursor-in-m26 regression). Each
-    resolves a part, so it rides that part's (system, part) reveal edge."""
-    layout = engraved_bigband_hidden.layout
-    warned = [w for w in engraved_bigband_hidden.warnings
-              if w.code == "stray-path"]
-    assert warned, "expected stray-path warnings on the bigband fixture"
-    rehomed = [e for e in layout.elements
-               if e.identity.kind is ElementKind.TIE
-               and ":v0:tie:" in str(e.identity.element_id)
-               and e.identity.onset is None]   # onset-less: edge-driven
-    # the tie curves sit in later systems (8/9) with a resolved part so a
-    # (system, part) reveal curve exists to clip them
-    rehomed = [e for e in rehomed if e.system is not None and e.system >= 8
-               and e.identity.part is not None]
-    assert rehomed, "no re-homed reveal-ink ties found"
+def test_stray_tie_curves_are_reclaimed_as_own_elements(
+        engraved_bigband_hidden):
+    """FINDING-5: the bigband1 tie/slur curves Verovio nested in earlier
+    stems are reclaimed BY ID onto their own elements — proper TIE/SLUR
+    identities on P4 with real voices, not the anonymous v0 geometric
+    ties the rehome pass used to mint. Rehome remains the backstop for
+    the non-spanner strays (three artic paths)."""
+    eng = engraved_bigband_hidden
+    reclaimed = [w for w in eng.warnings
+                 if w.code == "reclaimed-spanner-ink"]
+    assert len(reclaimed) == 10
+    els = {str(e.identity.element_id): e for e in eng.layout.elements}
+    for eid in ("P4:m26:s1:v1:tie:0", "P4:m26:s1:v2:tie:0",
+                "P4:m27:s1:v2:slur:0", "P4:m27:s1:v2:tie:0"):
+        assert els[eid].identity.part == "P4", eid
+    # the pre-fix rehome pass minted these anonymous geometric ties
+    # (v0, first-measure-of-system scope) for the very same curves
+    assert "P4:m26:s1:v0:tie:0" not in els, \
+        "anonymous rehomed ties resurfaced — reclaim should own these"
+    strays = [w for w in eng.warnings if w.code == "stray-path"]
+    assert strays and all("artic" in w.message for w in strays)
 
 
 def test_later_system_ink_stays_hidden_at_earlier_cursor(

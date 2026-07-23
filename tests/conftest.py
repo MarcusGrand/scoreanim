@@ -48,8 +48,9 @@ TALL_SYSTEM_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
 # 4-part big-band chart (Alto/Bari/Tpt/Tbn). Under hide-empty-staves (the
 # default) the optimize round-trip makes Verovio reuse an xml:id across a
 # stem group and a tie group, nesting later-system tie/slur curves INSIDE
-# earlier notes' stem/flag groups — the cross-system stray-path leak
-# (2026-07-21). Loaded hidden to exercise _rehome_stray_paths.
+# earlier notes' stem/flag groups (2026-07-21; FINDING-5). Loaded hidden
+# to exercise _reclaim_spanner_ink (the by-id reclaim) and
+# _rehome_stray_paths (the geometric backstop — three artic strays).
 BIGBAND_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
     "bigband1.musicxml"
 # 14-part orchestral chart with a Dorico "X0" pickup bar (measure-identity

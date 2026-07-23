@@ -3,7 +3,11 @@
 _PageDecomposer walks the page SVG tree, dereferencing <use> glyphs and
 folding drawables into one _ElementAccumulator per emitted element
 (kinds tables decide what emits, what nests, and what is transparent).
-The accumulators feed every downstream post-pass.
+The accumulators feed every downstream post-pass. Two FINDING-5 duties
+(2026-07-23): literal <path> drawables with bézier commands are indexed
+per accumulator (a curve inside a non-spanner group is stolen spanner
+ink), and an EMPTY id-bearing spanner group is still emitted so the
+reclaim pass has its measure/system context.
 
 Inputs: one page's SVG text + _LoadState. Outputs: the page's
 _ElementAccumulators. _LoadState READS: mei, onset_by_id, staff_n_by_id,
@@ -13,6 +17,7 @@ system_of_measure, warnings ("unknown-class").
 
 from __future__ import annotations
 
+import re
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -34,6 +39,9 @@ from scoreanim.core.score.identity import Beats, ElementKind
 # SVG decomposition
 # ---------------------------------------------------------------------------
 
+_CURVE_CMD_RE = re.compile(r"[CcSsQqTt]")
+
+
 @dataclass
 class _ElementAccumulator:
     verovio_id: str
@@ -54,6 +62,12 @@ class _ElementAccumulator:
     paths: list[PathPrimitive] = field(default_factory=list)
     texts: list[TextPrimitive] = field(default_factory=list)
     use_origins: list[Point] = field(default_factory=list)
+    # Indices into ``paths`` of literal <path> drawables carrying bézier
+    # commands. A host's own ink is rects/lines/ellipse-paths/<use>
+    # glyphs; a literal bézier inside a NON-spanner group is a slur/tie
+    # curve Verovio drew into the foreign group sharing its reused id
+    # (FINDING-5) — _reclaim_spanner_ink moves exactly these.
+    literal_curves: list[int] = field(default_factory=list)
     bbox: Rect | None = None
 
     def add_bbox(self, rect: Rect) -> None:
@@ -196,7 +210,13 @@ class _PageDecomposer:
                         owner_onset=new_owner_onset, system=new_system)
                     self._walk(child, child_ctm, acc, new_measure, new_staff,
                                new_layer, new_owner_onset, new_system)
-                    if acc.paths or acc.texts:
+                    # An EMPTY id-bearing spanner group is kept: under
+                    # id reuse Verovio draws the spanner's curve inside
+                    # the foreign group carrying its id and leaves this
+                    # one bare (FINDING-5) — _reclaim_spanner_ink needs
+                    # its measure/system context to put the ink back,
+                    # and drops it again if nothing is reclaimed.
+                    if acc.paths or acc.texts or cls in _SPANNER_CLASSES:
                         self.done.append(acc)
                     continue
                 if cls and cls not in _CONTAINER_CLASSES and cls not in _KIND_BY_CLASS \
@@ -305,6 +325,8 @@ class _PageDecomposer:
 
         if tag == "path":
             d = el.get("d", "")
+            if _CURVE_CMD_RE.search(d):
+                acc.literal_curves.append(len(acc.paths))
         elif tag == "rect":
             d = rect_path(fnum("x"), fnum("y"), fnum("width"), fnum("height"))
         elif tag == "line":
@@ -363,15 +385,10 @@ class _PageDecomposer:
         runs = [r for r in runs if r.content.strip() and r.font_size > 0]
         if not runs:
             return
-        acc.texts.append(TextPrimitive(runs=tuple(runs), x=x, y=y,
-                                       anchor=anchor, transform=ctm))
-        # crude metric estimate: 0.5 em average advance, 0.8/0.2 em
-        # ascent/descent — a placeholder until real font metrics (Phase 2)
-        width = sum(0.5 * r.font_size * len(r.content) for r in runs)
-        height = max(r.font_size for r in runs)
-        x0 = {"start": x, "middle": x - width / 2, "end": x - width}[anchor]
-        local = Rect(x0, y - 0.8 * height, width, height)
-        acc.add_bbox(ctm.apply_rect(local))
+        prim = TextPrimitive(runs=tuple(runs), x=x, y=y,
+                             anchor=anchor, transform=ctm)
+        acc.texts.append(prim)
+        acc.add_bbox(_text_prim_bbox(prim))
 
     def _text_runs(self, node: ET.Element, inherited: "_RunAttrs"
                    ) -> list[TextRun]:
@@ -391,6 +408,20 @@ class _PageDecomposer:
             if child.tag == f"{_SVG_NS}tspan":
                 runs.extend(self._text_runs(child, attrs))
         return runs
+
+
+def _text_prim_bbox(prim: TextPrimitive) -> Rect:
+    """Crude metric estimate for one text primitive: 0.5 em average
+    advance, 0.8/0.2 em ascent/descent — a placeholder until real font
+    metrics (Phase 2). Recomputable from the primitive alone so the
+    reclaim pass (attribution) can rebuild a text-bearing host's bbox
+    after removing stolen spanner ink."""
+    width = sum(0.5 * r.font_size * len(r.content) for r in prim.runs)
+    height = max(r.font_size for r in prim.runs)
+    x0 = {"start": prim.x, "middle": prim.x - width / 2,
+          "end": prim.x - width}[prim.anchor]
+    local = Rect(x0, prim.y - 0.8 * height, width, height)
+    return prim.transform.apply_rect(local)
 
 
 @dataclass(frozen=True)

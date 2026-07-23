@@ -57,18 +57,20 @@ def test_native_brace_follows_staff_visibility(engraved_video_hidden):
 
 
 def test_hidden_load_warning_census(engraved_video_hidden):
-    """The condensed layout changes Verovio's tie behavior slightly:
-    one previously-dropped open tie (P4 m41) now DRAWS, producing a
-    continuation segment with no resolvable source — skipped with a
-    flag, never absorbed (ruling b). The 13 implausible ties suppress
-    identically to the flat load. One `stray-path`: under the optimize
-    round-trip Verovio nested a system-14 hairpin path inside the
-    id-colliding system-13 group; it is re-homed to system 14 so it
-    animates in place instead of leaking (2026-07-21)."""
+    """The 13 implausible ties suppress identically to the flat load.
+    Since the FINDING-5 fix (2026-07-23) two tie curves Verovio drew
+    inside id-colliding foreign groups are RECLAIMED onto their own
+    elements — which also supplies the segment pairing its previously
+    missing source, so the old segment-count-mismatch and
+    unattributed-continuation warnings are gone — and one more
+    never-drawn tie's reused id no longer masks its dropped-spanner
+    warning (5 → 6). One `stray-path` remains: a system-14 hairpin path
+    nested in an id-colliding system-13 group (hairpin ink is straight,
+    outside the reclaim's curve discriminator) is re-homed geometrically
+    so it animates in place (2026-07-21)."""
     assert Counter(w.code for w in engraved_video_hidden.warnings) == {
-        "dropped-spanner": 5, "implausible-tie": 13,
-        "segment-count-mismatch": 1, "unattributed-continuation": 1,
-        "stray-path": 1}
+        "dropped-spanner": 6, "implausible-tie": 13,
+        "reclaimed-spanner-ink": 2, "stray-path": 1}
 
 
 def test_hidden_load_is_deterministic():

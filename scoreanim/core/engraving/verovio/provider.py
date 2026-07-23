@@ -293,15 +293,21 @@ class VerovioEngravingProvider(EngravingProvider):
         # 1. staff_centers_by_system is built BEFORE any post-pass runs:
         #    rehoming (nearest-staff attribution of stray ink) and identity
         #    minting (grpSym staff-span) both read it.
-        # 2. _rehome_stray_paths runs FIRST among the passes: it splits
+        # 2. _reclaim_spanner_ink runs FIRST among the passes: it moves
+        #    slur/tie curves out of foreign same-id groups (FINDING-5)
+        #    back onto their own elements BY ID, so the geometric passes
+        #    below never see stolen spanner ink — rehome would split a
+        #    cross-system curve into an anonymous element when its true
+        #    owner is known.
+        # 3. _rehome_stray_paths runs SECOND: it splits any remaining
         #    foreign-system ink out into its own accumulators, so the
         #    ledger/spanner passes below must never see (and claim) a path
         #    that is about to be re-homed elsewhere.
-        # 3. _flag_implausible_ties runs AFTER _attribute_spanner_segments:
+        # 4. _flag_implausible_ties runs AFTER _attribute_spanner_segments:
         #    the bogus tie sources must stay in the candidate pool during
         #    y-order segment pairing, or the REMAINING segments pair with
         #    the wrong sources; only element construction skips them.
-        # 4. _build_elements runs BEFORE synthesis: slashes/repeats are
+        # 5. _build_elements runs BEFORE synthesis: slashes/repeats are
         #    positioned from the staff geometry it collects, and synthetic
         #    elements must never enter the post-passes above.
         # ------------------------------------------------------------------
@@ -314,6 +320,7 @@ class VerovioEngravingProvider(EngravingProvider):
                     acc.system, {}).setdefault(
                     acc.staff, acc.bbox.y + acc.bbox.h / 2)
 
+        attribution._reclaim_spanner_ink(accumulators, state)
         attribution._rehome_stray_paths(accumulators, state)
         attribution._attribute_ledger_dashes(accumulators, state)
         attribution._attribute_spanner_segments(accumulators, state)

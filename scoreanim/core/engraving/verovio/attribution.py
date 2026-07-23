@@ -2,19 +2,23 @@
 accumulators, ORDER-SENSITIVE (the pipeline in provider._engrave_prepared
 names the order and why it is load-bearing).
 
-_rehome_stray_paths splits foreign-system ink out of colliding groups;
-_attribute_ledger_dashes gives id-less dashes their owner's onset/voice;
+_reclaim_spanner_ink moves slur/tie curves out of foreign same-id groups
+back onto their own elements (FINDING-5); _rehome_stray_paths splits
+foreign-system ink out of colliding groups; _attribute_ledger_dashes
+gives id-less dashes their owner's onset/voice;
 _attribute_spanner_segments pairs continuation ink with source spanners;
 _flag_implausible_ties suppresses engraving-artifact ties. Also the
 tstamp arithmetic helpers the spanner passes and identity minting share.
 
 Inputs: the accumulator list + _LoadState. Outputs: none — the passes
 mutate accumulators in place (paths/bbox/owner_onset/layer on dashes,
-source_vid/seg_index on continuation segments; rehoming APPENDS new
-accumulators). _LoadState READS: mei, onset_by_id, measure_start,
+source_vid/seg_index on continuation segments; reclaiming and rehoming
+APPEND new accumulators, reclaiming also DROPS ink-less spanner
+placeholders). _LoadState READS: mei, onset_by_id, measure_start,
 measure_duration, prep, system_of_measure, staff_centers_by_system.
-WRITES: warnings ("stray-path", "segment-count-mismatch",
-"dropped-spanner", "implausible-tie"), suppressed_spanners.
+WRITES: warnings ("reclaimed-spanner-ink", "stray-path",
+"segment-count-mismatch", "dropped-spanner", "implausible-tie"),
+suppressed_spanners.
 """
 
 from __future__ import annotations
@@ -24,10 +28,198 @@ from collections import defaultdict
 from scoreanim.core.engraving.svg_geom import path_bbox
 from scoreanim.core.engraving.types import (LoadWarning, PathPrimitive,
                                             Rect)
-from scoreanim.core.engraving.verovio.decompose import _ElementAccumulator
+from scoreanim.core.engraving.verovio.decompose import (_ElementAccumulator,
+                                                        _text_prim_bbox)
 from scoreanim.core.engraving.verovio.kinds import _SPANNER_CLASSES
 from scoreanim.core.engraving.verovio.records import _LoadState
 from scoreanim.core.score.identity import Beats, ElementKind
+
+# ---------------------------------------------------------------------------
+# System partition (shared by reclaiming and rehoming): which system's
+# vertical band a y coordinate falls in, per page.
+# ---------------------------------------------------------------------------
+
+def _system_partition(
+        accumulators: list[tuple[int, _ElementAccumulator]],
+) -> dict[int, list[tuple[int, float, float]]]:
+    """Per-page vertical partition into systems from the staff-line
+    bands. Page-local coords: the same system index sits at similar y on
+    different pages, so partition per page."""
+    bands: dict[int, dict[int, tuple[float, float]]] = {}
+    for page, acc in accumulators:
+        if (acc.svg_class == "staff" and acc.system is not None
+                and acc.bbox is not None):
+            per = bands.setdefault(page, {})
+            lo, hi = per.get(acc.system, (acc.bbox.y, acc.bbox.y2))
+            per[acc.system] = (min(lo, acc.bbox.y), max(hi, acc.bbox.y2))
+    return {page: sorted(((s, lo, hi) for s, (lo, hi) in per.items()),
+                         key=lambda t: t[1])
+            for page, per in bands.items()}
+
+
+def _system_at(ordered: dict[int, list[tuple[int, float, float]]],
+               page: int, y: float) -> int | None:
+    """The system whose vertical partition (staff band, split at the
+    midpoint of each inter-system gap) contains y."""
+    rows = ordered.get(page)
+    if not rows:
+        return None
+    for i, (sysn, _lo, hi) in enumerate(rows):
+        upper = (float("inf") if i == len(rows) - 1
+                 else (hi + rows[i + 1][1]) / 2.0)
+        if y < upper:
+            return sysn
+    return rows[-1][0]
+
+
+# ---------------------------------------------------------------------------
+# Spanner-ink reclaim (FINDING-5, 2026-07-23): under the hide-empty-
+# staves MEI optimize round-trip Verovio reuses one xml:id across
+# element types AND draws a slur/tie's curve inside the foreign group
+# carrying its id — the spanner's own <g>, nested in the right measure,
+# renders EMPTY. Decompose's subtree claim hands the curve to that
+# stem/flag/dots/barline/text element, so the curve would fire at the
+# HOST's onset (the recurring early-slur), and the reused id masks the
+# dropped-spanner warning. Every flat load is clean — the artifact is
+# exclusive to the optimize round-trip.
+#
+# The reclaim: a literal <path> bézier inside a non-spanner group
+# (indexed by decompose as ``literal_curves``; host-own ink is rects/
+# lines/ellipse-paths/<use> glyphs) that shares a slur/tie's id is moved
+# back. Ink lying in the spanner's own system folds into its (kept-
+# empty) accumulator, which then mints normally — measure from its own
+# <g>, staff/voice/onset from the MEI start note. Ink lying in ANOTHER
+# system becomes a pre-attributed continuation segment there (the ink of
+# a broken spanner belongs to that system's :seg element — the
+# (system, part) reveal-edge invariant; folding it into the start-system
+# element would just make rehome split it back out as anonymous ink).
+# Placeholders that end ink-less are dropped again unless a reclaimed
+# segment needs their identity, so flat loads are untouched. One warning
+# per reclaimed spanner (ruling b).
+# ---------------------------------------------------------------------------
+
+_RECLAIM_TAGS = ("slur", "tie", "lv")    # curve-shaped drawn spanners;
+                                         # hairpin ink is straight lines,
+                                         # indistinguishable from host ink
+
+
+def _reclaim_spanner_ink(
+        accumulators: list[tuple[int, _ElementAccumulator]],
+        st: _LoadState) -> None:
+    ordered = _system_partition(accumulators)
+    by_vid: dict[str, list[tuple[int, _ElementAccumulator]]] = \
+        defaultdict(list)
+    for page, acc in accumulators:
+        if acc.verovio_id and not acc.continuation:
+            by_vid[acc.verovio_id].append((page, acc))
+
+    needed_sources: set[str] = set()
+    new_segs: list[tuple[int, _ElementAccumulator]] = []
+    for vid, tag in sorted(st.mei.spanner_tags.items()):
+        if tag not in _RECLAIM_TAGS:
+            continue
+        entries = by_vid.get(vid, [])
+        targets = [(p, a) for p, a in entries
+                   if a.svg_class in _SPANNER_CLASSES]
+        hosts = [(p, a) for p, a in entries
+                 if a.svg_class not in _SPANNER_CLASSES]
+        if targets and targets[0][1].paths:
+            continue                     # spanner has its own ink
+        if not targets:
+            # Not even an empty <g> for the spanner (bigband: vz2tmdv).
+            # If a same-id host holds a stolen curve, synthesize the
+            # placeholder from the MEI start note so the ink still has
+            # a home; without stolen ink there is nothing to do (the
+            # drawn-check warns dropped-spanner).
+            if not any(host.literal_curves for _, host in hosts):
+                continue
+            note = st.mei.notes.get(st.mei.spanners.get(vid,
+                                                        (None, None))[0]
+                                    or "")
+            measure = note.measure if note is not None \
+                else hosts[0][1].measure
+            target = _ElementAccumulator(
+                verovio_id=vid, svg_class=tag,
+                kind=ElementKind.SLUR if tag == "slur" else ElementKind.TIE,
+                measure=measure, staff=None, layer=None, owner_onset=None,
+                system=st.system_of_measure.get(measure)
+                if measure is not None else None)
+            accumulators.append((hosts[0][0], target))
+        else:
+            target = targets[0][1]
+
+        moved: list[tuple[int, PathPrimitive, Rect]] = []
+        host_names: list[str] = []
+        for host_page, host in hosts:
+            if not host.literal_curves:
+                continue
+            stolen_idx = set(host.literal_curves)
+            stolen = [host.paths[i] for i in sorted(stolen_idx)]
+            host.paths[:] = [p for i, p in enumerate(host.paths)
+                             if i not in stolen_idx]
+            host.literal_curves.clear()
+            host.bbox = None
+            for prim in host.paths:
+                host.add_bbox(prim.transform.apply_rect(path_bbox(prim.d)))
+            for text in host.texts:
+                host.add_bbox(_text_prim_bbox(text))
+            for prim in stolen:
+                moved.append((host_page, prim,
+                              prim.transform.apply_rect(path_bbox(prim.d))))
+            host_names.append(f"{host.svg_class or host.kind.name.lower()} "
+                              f"m{host.measure}")
+        if not moved:
+            continue
+
+        segs_made = 0
+        for host_page, prim, box in moved:
+            curve_sys = _system_at(ordered, host_page, box.center.y)
+            if curve_sys is None or curve_sys == target.system:
+                target.literal_curves.append(len(target.paths))
+                target.paths.append(prim)
+                target.add_bbox(box)
+            else:
+                seg = _ElementAccumulator(
+                    verovio_id="", svg_class=target.svg_class,
+                    kind=target.kind, measure=None, staff=None, layer=None,
+                    owner_onset=None, system=curve_sys, continuation=True,
+                    source_vid=vid)
+                seg.literal_curves.append(0)
+                seg.paths.append(prim)
+                seg.bbox = box
+                new_segs.append((host_page, seg))
+                needed_sources.add(vid)
+                segs_made += 1
+
+        start_id, _ = st.mei.spanners.get(vid, (None, None))
+        note = st.mei.notes.get(start_id or "")
+        if note is not None:
+            info = st.prep.part_for_staff(note.staff)
+            where = (f"from {info.part_id} m{note.measure} "
+                     f"s{note.staff - info.first_staff + 1}")
+        else:
+            where = "with unresolved start"
+        st.warnings.append(LoadWarning(
+            "reclaimed-spanner-ink",
+            f"{tag} {where}: {len(moved)} curve path(s) drawn inside "
+            f"foreign group(s) sharing its reused id "
+            f"({', '.join(host_names)}) — reclaimed onto the {tag}'s own "
+            f"element"
+            + (f" ({segs_made} as continuation segment(s))" if segs_made
+               else "")
+            + " (Verovio id-reuse artifact under hide-empty-staves)"))
+
+    accumulators.extend(new_segs)
+    # Drop the placeholders nothing was reclaimed into — decompose keeps
+    # empty spanner groups only for this pass. A placeholder whose ink
+    # lives entirely in reclaimed segments survives ink-less: identity
+    # minting still registers it so its segments inherit the right ids
+    # (no element is built for it — Verovio drew no start-system ink).
+    accumulators[:] = [
+        (p, a) for p, a in accumulators
+        if a.continuation or a.svg_class not in _SPANNER_CLASSES
+        or a.paths or a.texts or a.verovio_id in needed_sources]
+
 
 # ---------------------------------------------------------------------------
 # Ledger-dash attribution (BACKLOG 6): a dash carries no id and no onset;
@@ -167,6 +359,10 @@ def _attribute_spanner_segments(
                 raise ValueError(
                     f"continuation {acc.svg_class} segment without "
                     f"system/bbox — cannot attribute")
+            if acc.source_vid:
+                continue    # pre-attributed by _reclaim_spanner_ink:
+                            # its source is KNOWN, keep it out of the
+                            # y-order pairing pool
             segments[(acc.svg_class, acc.system)].append(acc)
 
     for (cls, sys_n), segs in segments.items():
@@ -207,14 +403,27 @@ def _attribute_spanner_segments(
         for k, seg in enumerate(segs, start=1):
             seg.seg_index = k
 
-    # Spanners the engraver dropped: the MEI records them but their
-    # id-bearing <g> carries no ink, so no accumulator exists (Verovio's
-    # "N ties left open" / "tie ignored" warnings, and testscore's 5
-    # open ties). Flag-and-continue (ruling b); timing is unaffected —
-    # tie chains come from the music21 ScoreModel, not drawn ties.
-    drawn = {acc.verovio_id for _, acc in accumulators if acc.verovio_id}
+    # Spanners the engraver dropped: the MEI records them but no ink
+    # exists under their OWN class family (Verovio's "N ties left open" /
+    # "tie ignored" warnings, and testscore's 5 open ties). A foreign
+    # group merely REUSING the id must not count as drawn — that masking
+    # was FINDING-5's silent half; ink reclaimed into a continuation
+    # segment counts via its source vid. Non-spanner-class tags (octave)
+    # keep the original any-group test. Flag-and-continue (ruling b);
+    # timing is unaffected — tie chains come from the music21 ScoreModel,
+    # not drawn ties.
+    spanner_inked = {acc.verovio_id for _, acc in accumulators
+                     if acc.verovio_id and not acc.continuation
+                     and acc.svg_class in _SPANNER_CLASSES
+                     and (acc.paths or acc.texts)}
+    seg_sources = {acc.source_vid for _, acc in accumulators
+                   if acc.continuation and acc.source_vid}
+    any_drawn = {acc.verovio_id for _, acc in accumulators
+                 if acc.verovio_id}
     for vid, tag in sorted(st.mei.spanner_tags.items()):
-        if vid in drawn:
+        if vid in spanner_inked or vid in seg_sources:
+            continue
+        if tag not in ("slur", "tie", "lv", "hairpin") and vid in any_drawn:
             continue
         start_id, _ = st.mei.spanners[vid]
         start = st.mei.notes.get(start_id or "")
@@ -249,34 +458,14 @@ def _rehome_stray_paths(accumulators: list[tuple[int, _ElementAccumulator]],
     fallback), so it lights in the right place and never leaks. No ink is
     dropped (rule 7); flag-and-continue with one warning per re-homed
     element (ruling b). A no-op on well-formed scores — only an element
-    whose bbox straddles a system boundary is examined."""
-    # Per-page vertical partition into systems from the staff-line bands.
-    # Page-local coords: the same system index sits at similar y on
-    # different pages, so partition per page.
-    bands: dict[int, dict[int, tuple[float, float]]] = {}
-    for page, acc in accumulators:
-        if (acc.svg_class == "staff" and acc.system is not None
-                and acc.bbox is not None):
-            per = bands.setdefault(page, {})
-            lo, hi = per.get(acc.system, (acc.bbox.y, acc.bbox.y2))
-            per[acc.system] = (min(lo, acc.bbox.y), max(hi, acc.bbox.y2))
-    ordered: dict[int, list[tuple[int, float, float]]] = {
-        page: sorted(((s, lo, hi) for s, (lo, hi) in per.items()),
-                     key=lambda t: t[1])
-        for page, per in bands.items()}
+    whose bbox straddles a system boundary is examined. Runs AFTER
+    _reclaim_spanner_ink, which intercepts the slur/tie share of the
+    id-reuse artifact by id; rehome remains the geometric backstop for
+    any other cross-system leak."""
+    ordered = _system_partition(accumulators)
 
     def system_at(page: int, y: float) -> int | None:
-        """The system whose vertical partition (staff band, split at the
-        midpoint of each inter-system gap) contains y."""
-        rows = ordered.get(page)
-        if not rows:
-            return None
-        for i, (sysn, _lo, hi) in enumerate(rows):
-            upper = (float("inf") if i == len(rows) - 1
-                     else (hi + rows[i + 1][1]) / 2.0)
-            if y < upper:
-                return sysn
-        return rows[-1][0]
+        return _system_at(ordered, page, y)
 
     first_of_system: dict[int, int] = {}
     for m, s in st.system_of_measure.items():
@@ -304,6 +493,8 @@ def _rehome_stray_paths(accumulators: list[tuple[int, _ElementAccumulator]],
         if not strays:
             continue
         acc.paths[:] = kept
+        acc.literal_curves.clear()   # indices stale; sole consumer
+                                     # (_reclaim_spanner_ink) already ran
         acc.bbox = None
         for prim in kept:
             acc.add_bbox(prim.transform.apply_rect(path_bbox(prim.d)))

@@ -67,7 +67,12 @@ def _build_elements(
         if str(identity.element_id) in seen_ids:
             raise ValueError(f"duplicate ElementId {identity.element_id}")
         seen_ids.add(str(identity.element_id))
-        if acc.verovio_id:
+        # Spanner-class accs only: the map's sole consumer is the
+        # continuation second pass, and Verovio reuses xml:ids across
+        # element types — an unrestricted last-writer-wins handed
+        # segments a foreign STEM identity when the same-id stem acc
+        # came later (FINDING-5; complex3 minted stem:N:seg1 elements).
+        if acc.verovio_id and acc.svg_class in _SPANNER_CLASSES:
             identity_by_vid[acc.verovio_id] = identity
 
         if acc.bbox is None:

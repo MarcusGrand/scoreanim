@@ -170,12 +170,24 @@ def audit_spanner_coverage(bundle: OracleBundle,
                  if start_note is not None else f"staff {staff_n or '?'}")
 
         if not spanner_entries:
-            if host_entries:
-                hosts = ", ".join(
-                    f"{i.element_id}"
-                    + ("(+curve ink)" if any(_CURVE_CMD_RE.search(p.d)
-                                             for p in a.paths) else "")
-                    for a, i in host_entries)
+            # stolen ink = literal <path> béziers (decompose provenance);
+            # a raw curve-regex would false-positive on a host's own
+            # <use> glyph outlines (flags are all curves)
+            hosts = ", ".join(
+                f"{i.element_id}"
+                + ("(+curve ink)" if a.literal_curves else "")
+                for a, i in host_entries)
+            curve_hosts = any(a.literal_curves for a, _ in host_entries)
+            # the adapter's dropped-spanner message names (tag, part,
+            # measure) — enough to tell a WARNED drop from a masked one
+            drop_prefix = (f"{tag} from {expected_part} "
+                           f"m{start_note.measure} "
+                           if start_note is not None
+                           else f"{tag} with unresolved start")
+            warned = any(w.code == "dropped-spanner"
+                         and w.message.startswith(drop_prefix)
+                         for w in bundle.engraved.warnings)
+            if curve_hosts:
                 findings.append(Finding(
                     "D5", "spanner-absorbed", vid,
                     f"{tag} ({where}): no {want.name} element minted — its "
@@ -186,7 +198,15 @@ def audit_spanner_coverage(bundle: OracleBundle,
                     "D5", "spanner-ink-lost", vid,
                     f"{tag} ({where}): inked <g> on page {svg_inked[vid]} "
                     f"but no element and no accumulator — decompose lost it"))
-            # else: engraver drew nothing — the dropped-spanner warning path
+            elif host_entries and not warned:
+                # ink exists nowhere, but the reused id silently masked
+                # the dropped-spanner warning — the quiet half of the
+                # absorption bug
+                findings.append(Finding(
+                    "D5", "spanner-drop-masked", vid,
+                    f"{tag} ({where}): never drawn, yet no dropped-spanner "
+                    f"warning — its reused id (on {hosts}) masks the drop"))
+            # else: engraver drew nothing and the load warned — caught
             continue
         if len(spanner_entries) > 1:
             findings.append(Finding(
@@ -205,11 +225,16 @@ def audit_spanner_coverage(bundle: OracleBundle,
                 "D5", "spanner-wrong-part", vid,
                 f"{tag} ({where}): minted {ident.element_id} on part "
                 f"{ident.part}, expected {expected_part}"))
-        if str(ident.element_id) not in layout_ids:
+        # A source whose only ink is cross-system legitimately exists as
+        # :seg elements alone (Verovio drew no start-system ink; the
+        # reclaim pass put the curve in the system it occupies).
+        if str(ident.element_id) not in layout_ids \
+                and f"{ident.element_id}:seg1" not in layout_ids:
             findings.append(Finding(
                 "D5", "spanner-element-missing", vid,
                 f"{tag} ({where}): identity {ident.element_id} minted but "
-                f"absent from the layout (ink-less accumulator)"))
+                f"absent from the layout (ink-less accumulator, no "
+                f"segments)"))
 
     # SVG cross-check: an inked spanner group whose id minted no spanner
     # element and isn't an MEI spanner at all (should never happen).
