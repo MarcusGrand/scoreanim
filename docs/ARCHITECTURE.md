@@ -339,6 +339,39 @@ class EngravingProvider(ABC):
 #    The golden suite pins the timeline per fixture (measure_timeline
 #    section, 2026-07-22 re-capture).
 #
+# 15. Courtesy sigs light with their change measure (FINDING-4 fix,
+#    2026-07-23). Verovio nests an end-of-system courtesy key/meter/clef
+#    restatement in the SVG measure group of the system's LAST measure m
+#    while the change it announces takes effect at m+1 (the next
+#    system's first bar) — so the measure-start fallback lit it a bar
+#    early. The adapter retimes it: for a SIG_KINDS glyph whose nesting
+#    measure m is the last of its system (from system_of_measure — the
+#    element-free measure-group nesting map, immune to the :seg ordinal
+#    hazard), is NOT itself a change measure for its (kind, part), and
+#    where m+1 IS one, onset = measure_start[m+1]. Change measures per
+#    (kind, part) parse from the canonical MusicXML <attributes>
+#    (provider._sig_change_measures → _LoadState.sig_changes); the
+#    live-oracle keeps an independent copy of that parse as arbiter.
+#    The element id keeps ":m{m}:" (drawn-position identity; onset is
+#    timing) and no LoadWarning fires (a courtesy is normal engraving).
+#    In-place changes and system-start restatements nest in their own
+#    measure and are untouched; a sig matching neither shape stays a
+#    loud D2 sig-nesting finding. Known limit: a courtesy drawn in a
+#    measure that is itself a system START (old-sig restatement at left
+#    + courtesy at right in one measure) is indistinguishable without
+#    geometry and is not retimed — no fixture exercises it.
+#    Consequence in the schedule: a DISPLACED sig — onset not equal to
+#    its own drawn measure's start, i.e. a retimed courtesy — is
+#    excluded from a trigger's FRESH page/system hint sets
+#    (schedule._displaced_sig, over SIG_KINDS): it is fresh (its onset
+#    IS the retimed beat) but drawn on the previous page, and would
+#    otherwise drag the min() hint back and delay the page turn past
+#    the change downbeat. A sig lighting at its own drawn downbeat
+#    still drives hints — system-start restatements are the ONLY fresh
+#    elements at rest-heavy system starts (bigband1 m9, complex2 m48),
+#    so a blanket sig exclusion would hint the previous system there.
+#    Sigs light where drawn; the view follows the music.
+#
 # 13. Continuation-segment attribution keys by the START-note staff
 #    (fix 2026-07-21, complex3). A system-broken spanner continues on its
 #    start staff; _attribute_spanner_segments pairs each continuation
@@ -528,7 +561,13 @@ inherit their notes' first onset so they light WITH the tuplet/tremolo,
 not at the downbeat**; bug fix 2026-07-20) → @startid note (chords via
 their first member) → @tstamp arithmetic → **measure start** (the last
 resort, for genuine bar-level objects: clefs, key signatures, meter
-changes, and measure-attached texts/dynamics). Note-region decorations
+changes, and measure-attached texts/dynamics). One refinement inside
+the measure-start fallback (FINDING-4 ruling 2026-07-23): a sig
+(clef/key/meter, `schedule.SIG_KINDS`) drawn as an **end-of-system
+courtesy** — nested in a system's LAST measure while its change takes
+effect at the next measure — lights WITH the change measure
+(`onset = measure_start[m+1]`), not at its drawn position; see adapter
+item 15. Note-region decorations
 never use the measure-start fallback, and spanners (slurs/ties/hairpins)
 are excluded from it entirely — a spanner's timing is its start note or
 nothing. **A rest is

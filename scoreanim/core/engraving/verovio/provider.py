@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from xml.etree import ElementTree
 
 import verovio
 
@@ -25,10 +26,36 @@ from scoreanim.core.engraving.types import (TRANSPOSE_TO_SOUNDING_PITCH,
 from scoreanim.core.engraving.verovio import (attribution, decompose,
                                               identity, kinds, mei_index,
                                               records, synthesis)
-from scoreanim.core.score.identity import Beats
+from scoreanim.core.score.identity import Beats, ElementKind
 from scoreanim.core.score.musicxml_prep import (PartCondenseSpec,
                                                 PartGroupSpec, PartTextSpec,
                                                 PreparedScore, prepare)
+
+
+def _sig_change_measures(canonical_xml: str) -> dict[
+        ElementKind, dict[str, set[int]]]:
+    """Kind → part id → measure ordinals whose MusicXML <attributes>
+    carry a <key>/<time>/<clef> — the change measures a courtesy sig can
+    announce (FINDING-4 ruling 2026-07-23). Parsed from the canonical
+    MusicXML, the intent source; the live-oracle keeps an independent
+    copy of this parse (_musical_changes) so it can arbitrate the retime
+    end to end."""
+    root = ElementTree.fromstring(canonical_xml)
+    tag_kind = (("key", ElementKind.KEY_SIG),
+                ("time", ElementKind.METER_SIG),
+                ("clef", ElementKind.CLEF))
+    out: dict[ElementKind, dict[str, set[int]]] = {
+        kind: {} for _, kind in tag_kind}
+    for part in root.iter("part"):
+        pid = part.get("id")
+        if pid is None:
+            continue
+        for ordinal, measure in enumerate(part.findall("measure"), start=1):
+            for attrs in measure.findall("attributes"):
+                for tag, kind in tag_kind:
+                    if attrs.find(tag) is not None:
+                        out[kind].setdefault(pid, set()).add(ordinal)
+    return out
 
 
 class VerovioEngravingProvider(EngravingProvider):
@@ -240,6 +267,7 @@ class VerovioEngravingProvider(EngravingProvider):
             measure_start=measure_start, measure_duration=measure_duration,
             staff_n_by_id={vid: n.staff for vid, n in mei.notes.items()},
             layer_n_by_id={}, strict=strict,
+            sig_changes=_sig_change_measures(prep.canonical_xml),
         )
         # staff/layer container ids appear in both MEI and SVG; index them
         state.staff_n_by_id.update(mei_index._container_ns(tk.getMEI(), "staff"))
@@ -290,6 +318,15 @@ class VerovioEngravingProvider(EngravingProvider):
         attribution._attribute_ledger_dashes(accumulators, state)
         attribution._attribute_spanner_segments(accumulators, state)
         attribution._flag_implausible_ties(state)
+        # Last measure of each system (courtesy-sig retime, FINDING-4) —
+        # from system_of_measure, the measure-group nesting map, which is
+        # element-free and so immune to the cross-system :seg ordinal
+        # hazard that forced the oracle onto ANCHOR_KINDS.
+        last_by_system: dict[int, int] = {}
+        for measure_n, system_n in state.system_of_measure.items():
+            if measure_n > last_by_system.get(system_n, 0):
+                last_by_system[system_n] = measure_n
+        state.last_of_system = set(last_by_system.values())
         elements, note_records, staff_geo = identity._build_elements(
             accumulators, state)
         first_measure: dict[int, int] = {}

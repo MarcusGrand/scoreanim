@@ -12,7 +12,8 @@ Inputs: the attributed accumulator list + _LoadState. Outputs:
 RenderedElements, AdapterNoteRecords, and the staff-lines geometry map
 synthesis positions from. _LoadState READS: prep, mei, onset_by_id,
 measure_start, staff_centers_by_system (grpSym span),
-suppressed_spanners. WRITES: warnings ("unattributed-continuation").
+suppressed_spanners, sig_changes + last_of_system (courtesy-sig
+retime, FINDING-4). WRITES: warnings ("unattributed-continuation").
 """
 
 from __future__ import annotations
@@ -20,7 +21,8 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import replace
 
-from scoreanim.core.animation.schedule import REVEALED_KINDS, STATIC_KINDS
+from scoreanim.core.animation.schedule import (REVEALED_KINDS, SIG_KINDS,
+                                               STATIC_KINDS)
 from scoreanim.core.engraving.types import (LoadWarning, Rect,
                                             RenderedElement,
                                             RenderPrimitive)
@@ -177,6 +179,17 @@ def _attach_onset(st: _LoadState, vid: str) -> Beats | None:
     return None
 
 
+def _sig_changes_for(st: _LoadState, kind: ElementKind,
+                     part: str | None) -> set[int]:
+    """The measure ordinals carrying a MusicXML key/time/clef change for
+    this part (union over parts when the glyph resolved no part — the
+    oracle's idiom)."""
+    per_part = st.sig_changes.get(kind, {})
+    if part is not None:
+        return per_part.get(part, set())
+    return set().union(*per_part.values()) if per_part else set()
+
+
 def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
                   counters: dict[tuple, int]) -> ElementIdentity:
     prep = st.prep
@@ -307,7 +320,24 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
         # its start is unresolved it stays onset-less (its reveal is
         # edge-driven regardless). Scaffold (STATIC_KINDS) and page
         # furniture (_STATIC_TEXT_CLASSES) stay onset-less = static.
-        onset = st.measure_start.get(acc.measure)
+        #
+        # Courtesy-sig retime (FINDING-4 ruling 2026-07-23): a key/meter/
+        # clef restated at the END of a system nests in that system's
+        # LAST measure while announcing the change at the next measure
+        # (the next system's first) — it lights WITH the change measure,
+        # not at its drawn position. In-place changes and system-start
+        # restatements nest in their own measure and keep it. A sig that
+        # matches neither shape keeps the drawn measure and stays a D2
+        # sig-nesting finding (loud, never guessed). Known limit (shared
+        # with the oracle's gate): a courtesy drawn in a measure that is
+        # itself a system start is indistinguishable from the restatement
+        # beside it without geometry, and is not retimed.
+        onset_measure = acc.measure
+        if acc.kind in SIG_KINDS and acc.measure in st.last_of_system:
+            changes = _sig_changes_for(st, acc.kind, part)
+            if acc.measure not in changes and acc.measure + 1 in changes:
+                onset_measure = acc.measure + 1
+        onset = st.measure_start.get(onset_measure)
 
     # spanners for notes were handled; note extent stays None in v1
 

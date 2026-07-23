@@ -1776,6 +1776,93 @@ Full pytest 530 passed + 3 xfailed (FINDING-3/4); D3/D4 green
 STEPPED and CONTINUOUS everywhere; oracle CLI end-to-end over all 11
 fixtures.
 
+## Live-timing fix 3 — FINDING-4: courtesy sigs light with their change measure (2026-07-23)
+
+Ruling (Marcus, 2026-07-23): a key/meter sig restated at the END of a
+system — the courtesy announcing the change at the start of the NEXT
+system — lights WITH the change measure it announces, not at its drawn
+position. Pre-fix census (fresh oracle run, all 11 fixtures): every
+flagged glyph is METER_SIG, nests in the LAST measure m of a system, is
+neither a change measure nor a system start, and its change is at
+exactly m+1, which starts the next system — complex3 m26→27 (×14) +
+m52→53 (×18) = 32; testscore m4→5 (×7); video_test m17→18 (×2);
+broken_hairpin_and_slur_test m4→5 (×2); the other 7 fixtures clean. No
+KEY_SIG/CLEF findings anywhere; mid-system changes draw in place (in
+the change measure) and were never wrong. The derivation was
+unambiguous on every fixture, so no flag-and-stop and no spike.
+
+Fix shape (adapter onset data, brief F4; ARCHITECTURE §3 item 15):
+change measures per (kind, part) parse from the canonical MusicXML
+`<attributes>` at the provider seam (`_sig_change_measures` →
+`_LoadState.sig_changes`; the oracle keeps its own independent copy of
+the parse as arbiter); last-of-system derives from `system_of_measure`
+— the element-free measure-group nesting map, so the cross-system
+spanner `:seg` ordinal hazard that bit the diagnosis heuristic cannot
+recur (the oracle's element-based derivations keep their ANCHOR_KINDS
+filter, with a new max-based `_system_last_measures` twin). In
+`_identity_for`'s measure-start fallback, a SIG_KINDS glyph with
+`m ∈ last_of_system`, `m ∉ changes(kind, part)`, `m+1 ∈ changes(kind,
+part)` takes `onset = measure_start[m+1]`. Ids keep `:m{m}:` (drawn-
+position identity; retiming the measure would renumber the change
+measure's own sig seq counters); no LoadWarning (courtesy sigs are
+normal engraving); KEY_SIG/CLEF are covered by the same predicate even
+though only METER_SIG fires on current fixtures. A sig matching no
+shape keeps the drawn downbeat and stays a loud D2 sig-nesting
+finding. Known limit (shared with the oracle's sys-start gate): a
+courtesy drawn in a measure that is itself a system START is
+indistinguishable from the restatement beside it without geometry and
+is not retimed — no fixture exercises it.
+
+**Scope note (one step beyond the adapter, forced by the ruling):** a
+retimed courtesy is FRESH in its trigger bucket (its onset IS the
+retimed beat) while drawn on the previous system/page, so
+`min(fresh_pages)` dragged the change-downbeat trigger's page hint
+back to the courtesy's page and the live/export page turn landed one
+event late (caught by test_fresh_elements_of_a_trigger_share_one_page
+on testscore). Fix: a **displaced** sig — onset ≠ its own drawn
+measure's start, detected in `schedule._displaced_sig` over the new
+`schedule.SIG_KINDS` policy set (STATIC_KINDS precedent — adapter and
+oracle import it) — is excluded from the fresh hint sets; its page
+still counts in the no-fresh fallback. A first, blanket
+all-sigs-excluded attempt was caught BY the before/after trigger-table
+diff and reverted: at rest-heavy system starts the system-start
+restatement sigs are the only fresh elements (bigband1 m9 t=32,
+complex2 m48 t=188.5), so excluding them hinted the PREVIOUS system.
+Final trigger-table diff over all 11 fixtures: page/system hints
+byte-identical everywhere; the only differences are the 43 courtesy
+sig ids moving from their drawn-measure bucket to their change-measure
+bucket.
+
+- [x] **T4.0** `_sig_change_measures` (provider) + `_LoadState.
+      sig_changes` / `last_of_system`; stage docstrings updated.
+- [x] **T4.1** the retime in identity.py's measure-start fallback
+      (`_sig_changes_for` helper; part=None unions parts, oracle idiom).
+- [x] **T4.2** oracle `audit_signatures` expected-measure logic (own m
+      for in-place/system-start, m+1 for courtesy, else sig-nesting);
+      `sig-onset-vs-measure-start` compares against the EXPECTED start.
+- [x] **T4.3** pins: `_XF4` strict-xfails removed (both XPASSed first);
+      new `test_finding4_courtesy_sig_lights_with_change` (courtesy
+      onset == starts[5] across P1–P7, in-place m5 sig and system-start
+      key restatement unchanged); `SIG_KINDS` + `_displaced_sig` in
+      schedule, the fresh-page invariant test amended to fresh
+      non-displaced elements.
+- [x] **T4.4** goldens: the 5 affected baselines re-captured
+      (testscore 7, complex3_hidden 32, video_test_flat 8 — flat draws
+      the P3–P7 staves hiding removes, video_test_hidden 2,
+      broken_hairpin_and_slur_test 2); diff verified onset-only on
+      meter_sig rows (0 non-sig lines; every line pairs exactly with
+      its counterpart once onset is stripped); other 7 byte-identical.
+- [x] **T4.5** before/after oracle CLI over all 11 fixtures + docs
+      (this section; ARCHITECTURE §3 item 15 + resolution-order
+      clause; CLAUDE.md untouched).
+
+**Exit run**: full pytest 533 passed + 1 xfailed (FINDING-3 only, left
+on BACKLOG 10); goldens green post-re-capture; oracle CLI end-to-end
+on all 11 fixtures — sig-nesting 32/7/2/2 → 0, D1/D3/D4 statuses
+unchanged (STEPPED and CONTINUOUS), all-regular fixtures byte-identical
+output; score-doctor 11/11 PASS; trigger-table diff clean per the
+scope note.
+
 ## Later (explicitly not now)
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-

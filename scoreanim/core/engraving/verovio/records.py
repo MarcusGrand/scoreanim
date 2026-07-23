@@ -71,6 +71,15 @@ class _LoadState:
         field(default_factory=dict)
     system_count: int = 0                    # score-wide, across pages
     system_of_measure: dict[int, int] = field(default_factory=dict)
+    # FINDING-4 (2026-07-23): kind → part id → measure ordinals whose
+    # MusicXML <attributes> carry that signature (key/time/clef) — the
+    # change measures an end-of-system courtesy sig can announce. Parsed
+    # from the canonical MusicXML at state construction (provider).
+    sig_changes: dict = field(default_factory=dict)
+    # Last measure ordinal of each system, from system_of_measure (the
+    # element-free measure-group nesting map — immune to the :seg
+    # ordinal hazard); filled after decomposition, before _build_elements.
+    last_of_system: set[int] = field(default_factory=set)
     warnings: list[LoadWarning] = field(default_factory=list)
     # Strict loads raise on an unknown drawable SVG class; app loads
     # degrade it to a static OTHER element with a warning (Phase 11.4).

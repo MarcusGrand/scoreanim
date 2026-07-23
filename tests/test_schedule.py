@@ -125,11 +125,30 @@ def test_tied_chord_ink_fires_at_the_groups_own_onset(schedule, join_mapping,
 
 def test_fresh_elements_of_a_trigger_share_one_page(schedule, identities,
                                                     engraved) -> None:
+    """Fresh NON-DISPLACED elements: a retimed end-of-system courtesy
+    sig (FINDING-4, 2026-07-23) is fresh (its onset IS the retimed
+    beat) but drawn on the previous system/page, so a sig whose onset
+    is not its own drawn measure's start never drives the page/system
+    hint (schedule._displaced_sig exclusion)."""
+    import re
+
+    from scoreanim.core.animation.schedule import SIG_KINDS
+
+    def displaced(eid) -> bool:
+        ident = identities[eid]
+        if ident.kind not in SIG_KINDS:
+            return False
+        m = re.search(r":m(\d+):", str(eid))
+        start = engraved.timeline.starts.get(int(m.group(1))) if m else None
+        return (start is not None
+                and quantize_beats(start) != quantize_beats(ident.onset))
+
     pages = {el.identity.element_id: el.page for el in engraved.layout.elements}
     for trigger in schedule.triggers:
         fresh_pages = {pages[eid] for eid in trigger.element_ids
                        if quantize_beats(schedule.beats_by_element[eid])
-                       == quantize_beats(identities[eid].onset)}
+                       == quantize_beats(identities[eid].onset)
+                       and not displaced(eid)}
         if fresh_pages:
             assert len(fresh_pages) == 1
             assert trigger.page == fresh_pages.pop()

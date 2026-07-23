@@ -62,6 +62,7 @@ from scoreanim.core.animation import (OPACITY, PRESETS, REVEALED_KINDS,
                                       build_trigger_schedule, effect_for,
                                       element_state, is_animated,
                                       quantize_beats, reveal_x)
+from scoreanim.core.animation.schedule import SIG_KINDS
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio import (EngravedScore,
                                               VerovioEngravingProvider)
@@ -78,8 +79,7 @@ from scoreanim.render.scene import ScoreScenes
 
 _EPS_S = 1e-3                    # grid epsilon around events (seconds)
 _MEASURE_RE = re.compile(r":m(\d+):")
-_SIG_KINDS = frozenset({ElementKind.KEY_SIG, ElementKind.METER_SIG,
-                        ElementKind.CLEF})
+_SIG_KINDS = SIG_KINDS           # the schedule's kind-policy set
 _GRID_CAP = 500                  # sampled-grid trigger points (logged)
 
 
@@ -185,6 +185,24 @@ def _system_start_measures(bundle: OracleBundle) -> set[int]:
         if el.system not in first or m < first[el.system]:
             first[el.system] = m
     return set(first.values())
+
+
+def _system_last_measures(bundle: OracleBundle) -> set[int]:
+    """Last measure ordinal of each system — the _system_start_measures
+    idiom. A max is provably immune to :seg intrusion (a continuation
+    segment carries its start measure's EARLIER ordinal forward), but
+    the ANCHOR_KINDS filter is kept so the two derivations stay twins."""
+    from scoreanim.core.animation import ANCHOR_KINDS
+    last: dict[int, int] = {}
+    for el in bundle.engraved.layout.elements:
+        if el.system is None or el.identity.kind not in ANCHOR_KINDS:
+            continue
+        m = _measure_of(el.identity.element_id)
+        if m is None:
+            continue
+        if el.system not in last or m > last[el.system]:
+            last[el.system] = m
+    return set(last.values())
 
 
 def _musical_changes(bundle: OracleBundle) -> dict[
@@ -432,10 +450,16 @@ def audit_join(bundle: OracleBundle) -> list[Finding]:
 
 def audit_signatures(bundle: OracleBundle) -> list[Finding]:
     """KEY_SIG / METER_SIG / CLEF measure attribution vs the musical
-    change stream (F4)."""
+    change stream (F4). Each glyph's EXPECTED lighting measure is its
+    own nesting measure for an in-place change or a system-start
+    restatement, and the CHANGE measure m+1 for an end-of-system
+    courtesy (the FINDING-4 retime, ruled 2026-07-23); a glyph matching
+    neither shape is a sig-nesting finding, and any onset that differs
+    from the expected measure's start is a sig-onset finding."""
     findings: list[Finding] = []
     starts = _measure_starts(bundle.model)
     sys_starts = _system_start_measures(bundle)
+    sys_lasts = _system_last_measures(bundle)
     changes = _musical_changes(bundle)
     onset_mismatch: dict[int, list[str]] = defaultdict(list)
     for el in bundle.engraved.layout.elements:
@@ -448,10 +472,6 @@ def audit_signatures(bundle: OracleBundle) -> list[Finding]:
                 "D2", "sig-no-measure", ident.element_id,
                 f"kind={ident.kind.name} — id carries no :m<n>: segment"))
             continue
-        start = starts.get(m)
-        if ident.onset is not None and start is not None \
-                and abs(ident.onset - start) > 1e-6:
-            onset_mismatch[m].append(str(ident.element_id))
         per_part = changes[ident.kind]
         change_set = (per_part.get(ident.part)
                       if ident.part is not None
@@ -459,21 +479,29 @@ def audit_signatures(bundle: OracleBundle) -> list[Finding]:
                       if per_part else set())
         change_set = change_set or set()
         if m in change_set or m in sys_starts:
-            continue                     # change measure / system courtesy
-        prev = max((c for c in change_set if c < m), default=None)
-        nxt = min((c for c in change_set if c > m), default=None)
-        findings.append(Finding(
-            "D2", "sig-nesting", ident.element_id,
-            f"kind={ident.kind.name} part={ident.part} nests in m={m} "
-            f"(not a change measure, not a system start; nearest changes: "
-            f"prev={prev} next={nxt}) — lights at m{m}'s downbeat"))
+            expected = m        # in-place change / system-start restatement
+        elif m in sys_lasts and m + 1 in change_set:
+            expected = m + 1    # end-of-system courtesy → change measure
+        else:
+            expected = m
+            prev = max((c for c in change_set if c < m), default=None)
+            nxt = min((c for c in change_set if c > m), default=None)
+            findings.append(Finding(
+                "D2", "sig-nesting", ident.element_id,
+                f"kind={ident.kind.name} part={ident.part} nests in m={m} "
+                f"(not a change measure, not a system start, not an "
+                f"end-of-system courtesy; nearest changes: "
+                f"prev={prev} next={nxt}) — lights at m{m}'s downbeat"))
+        start = starts.get(expected)
+        if ident.onset is not None and start is not None \
+                and abs(ident.onset - start) > 1e-6:
+            onset_mismatch[expected].append(str(ident.element_id))
     for m, eids in sorted(onset_mismatch.items()):
         s = starts[m]
         findings.append(Finding(
             "D2", "sig-onset-vs-measure-start", eids[0],
-            f"m{m}: {len(eids)} sig glyph(s) with onset != model measure "
-            f"start {s:g} (engraved-timemap domain vs model domain — the "
-            f"beat-domain shear, e.g. {eids[0]})"))
+            f"m{m}: {len(eids)} sig glyph(s) with onset != the expected "
+            f"measure start {s:g} (e.g. {eids[0]})"))
     return findings
 
 

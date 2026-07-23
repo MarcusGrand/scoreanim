@@ -45,6 +45,7 @@ it musically correct on real Dorico exports (spikes/NOTES.md):
 """
 from __future__ import annotations
 
+import re
 from bisect import bisect_right
 from collections import defaultdict
 from dataclasses import dataclass
@@ -56,6 +57,7 @@ from scoreanim.core.score.identity import (Beats, ElementId, ElementIdentity,
 from scoreanim.core.score.model import MeasureInfo, ScoreNote
 
 _Q = 4096                    # exact for binary subdivisions (join convention)
+_MEASURE_RE = re.compile(r":m(\d+):")    # the minted-id measure segment
 
 
 def quantize_beats(beats: Beats) -> int:
@@ -89,6 +91,22 @@ STATIC_KINDS = frozenset({
 # authority on HOW they reveal).
 REVEALED_KINDS = frozenset({ElementKind.SLUR, ElementKind.TIE,
                             ElementKind.HAIRPIN})
+
+# Signature kinds (bar-level glyphs on the measure-start onset chain).
+# A DISPLACED sig — one whose onset is not its own drawn measure's
+# start, i.e. an end-of-system courtesy retimed to its CHANGE measure
+# on the next system/page (FINDING-4 ruling 2026-07-23) — never drives
+# a trigger's page/system hint: at the change downbeat its drawn page
+# would drag the min() hint backward and delay the page turn. Like
+# tie/rest-retimed ink, it lights where it is drawn but the VIEW
+# follows the music. A sig lighting at its own drawn downbeat still
+# drives hints as before — system-start restatements are the only
+# fresh elements at rest-heavy system starts (bigband1 m9, complex2
+# m48), and excluding them would hint the PREVIOUS system there. The
+# adapter and the live-oracle import this set (the STATIC_KINDS
+# precedent: schedule.py is the kind-policy authority).
+SIG_KINDS = frozenset({ElementKind.CLEF, ElementKind.KEY_SIG,
+                       ElementKind.METER_SIG})
 
 # Opacity-animated kinds = everything that is neither scaffold nor a
 # clip-revealed spanner. DERIVED from the denylist (introspection and
@@ -213,6 +231,20 @@ def build_trigger_schedule(layout: Layout,
                 rest_trigger[ident.element_id] = trigger
 
     # -- assemble all animated elements ------------------------------------
+    measure_start_q = {n: quantize_beats(m.start)
+                       for n, m in enumerate(measures, start=1)}
+
+    def _displaced_sig(ident: ElementIdentity) -> bool:
+        # A retimed courtesy sig: onset != its own drawn measure's start
+        # (see the SIG_KINDS note above). With no measures supplied
+        # (synthetic tests) nothing is displaced — the pre-FINDING-4
+        # behavior.
+        if ident.kind not in SIG_KINDS or ident.onset is None:
+            return False
+        m = _MEASURE_RE.search(str(ident.element_id))
+        start_q = measure_start_q.get(int(m.group(1))) if m else None
+        return start_q is not None and start_q != quantize_beats(ident.onset)
+
     by_qbeat: dict[int, dict] = {}
     beats_by_element: dict[ElementId, Beats] = {}
     for el in layout.elements:
@@ -237,7 +269,8 @@ def build_trigger_schedule(layout: Layout,
         bucket["pages"].add(el.page)
         if el.system is not None:
             bucket["systems"].add(el.system)
-        if quantize_beats(trigger) == quantize_beats(own):
+        if (quantize_beats(trigger) == quantize_beats(own)
+                and not _displaced_sig(ident)):
             bucket["fresh_pages"].add(el.page)
             if el.system is not None:
                 bucket["fresh_systems"].add(el.system)

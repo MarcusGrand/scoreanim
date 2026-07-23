@@ -26,10 +26,13 @@ Findings (full table in docs/PHASES.md, "Live-timing diagnosis"):
 - FINDING-3 (accepted limit, BACKLOG 10): per-part (not per-voice)
   edges let one voice's note anchor reveal past another voice's
   later-resolving rest — testscore sys5 P7.
-- FINDING-4 (L0, adapter F4): cautionary/courtesy sigs nest in the
-  measure BEFORE their change (testscore m4 meter → change m5;
-  complex3 m26 → m27 etc.), lighting a measure early at the nesting
-  measure's downbeat.
+- FINDING-4 (L0, adapter F4) FIXED 2026-07-23: cautionary/courtesy
+  sigs nest in the measure BEFORE their change (testscore m4 meter →
+  change m5; complex3 m26 → m27, m52 → m53), so they lit a measure
+  early at the nesting measure's downbeat. The adapter now retimes an
+  end-of-system courtesy to its CHANGE measure's start; the nesting
+  pins pass and test_finding4_courtesy_sig_lights_with_change pins
+  the retime.
 """
 from __future__ import annotations
 
@@ -57,8 +60,10 @@ TESTDATA = Path(__file__).resolve().parent.parent / "testdata"
 # FINDING-2 (curve-less spanner) FIXED 2026-07-22: default-hidden clip
 # children + loud applier warning — the D1 pin passes and the
 # containment pin below replaces the xfail.
+# FINDING-4 (courtesy sig nesting) FIXED 2026-07-23: an end-of-system
+# courtesy sig retimes to its change measure — the sig-nesting pins
+# below are plain passing regression tests now.
 _XF3 = "FINDING-3: per-part edge vs multi-voice rest (BACKLOG 10)"
-_XF4 = "FINDING-4: cautionary sig nests in pre-change measure"
 
 
 @pytest.fixture(scope="session")
@@ -151,16 +156,26 @@ def test_d2_join_complete(request, fixture):
     assert audit_join(_bundle(request, fixture)) == []
 
 
-@pytest.mark.parametrize("fixture", [
-    pytest.param("testscore",
-                 marks=pytest.mark.xfail(reason=_XF4, strict=True)),
-    "bigband",
-    pytest.param("complex3",
-                 marks=pytest.mark.xfail(reason=_XF4, strict=True)),
-])
+@pytest.mark.parametrize("fixture", ["testscore", "bigband", "complex3"])
 def test_d2_sig_nesting_measures(request, fixture):
     findings = audit_signatures(_bundle(request, fixture))
     assert [f for f in findings if f.code == "sig-nesting"] == []
+
+
+def test_finding4_courtesy_sig_lights_with_change(bundle_testscore):
+    """FINDING-4 regression pin (fixed 2026-07-23): testscore's m4
+    end-of-system courtesy meter sig lights WITH the m5 change it
+    announces; the m5 in-place sig and a system-start restatement keep
+    their own measure's start."""
+    starts = bundle_testscore.engraved.timeline.starts
+    onsets = {str(el.identity.element_id): el.identity.onset
+              for el in bundle_testscore.engraved.layout.elements}
+    for part in ("P1", "P2", "P3", "P4", "P5", "P6", "P7"):
+        assert onsets[f"{part}:m4:s1:v0:meter_sig:0"] == starts[5]  # 16.0
+    assert onsets["P1:m5:s1:v0:meter_sig:0"] == starts[5]
+    # m5 starts system 2: its key restatement stays at its own downbeat
+    assert onsets["P1:m5:s1:v0:key_sig:0"] == starts[5]
+    assert starts[5] != starts[4]
 
 
 @pytest.mark.parametrize("fixture", ["testscore", "bigband", "complex3"])
