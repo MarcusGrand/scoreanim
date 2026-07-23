@@ -5,8 +5,11 @@ view background — the white page rect in each scene is the "screen".
 Fit mode re-letterboxes on every resize; wheel zoom (anchored under the
 cursor) leaves fit mode until the Fit action restores it. Drag to pan.
 
-System mode (Phase 7.4): show_system_band frames one system's band
-instead of the page. Masking is drawForeground — the view paints
+System mode (Phase 7.4, framing revised Phase 10R): show_system_band
+keeps the PAGE's own frame — a page-sized, page-aspect window centered
+vertically on the system's band, so the frame never changes shape
+between modes and the system sits in the middle at natural page width
+(ruling 2026-07-13). Masking is drawForeground — the view paints
 letterbox color over every exposed scene region outside the band, so a
 neighboring system on the same page never bleeds in at any window
 aspect, zoom, or pan. View-level on purpose: the scenes are shared with
@@ -42,20 +45,34 @@ class StageView(QGraphicsView):
         self.setTransformationAnchor(
             QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self._fit_mode = True
-        self._band: QRectF | None = None
+        self._band: QRectF | None = None     # masked region (the system)
+        self._frame: QRectF | None = None    # fitted region (page-sized)
 
     def show_scene(self, scene: QGraphicsScene) -> None:
         """Page flip: swap scenes, keep the current fit/zoom behavior."""
         self.setScene(scene)
+        self.setSceneRect(scene.sceneRect())
         if self._fit_mode:
             self._fit()
 
     def show_system_band(self, scene: QGraphicsScene, band: QRectF) -> None:
-        """System flip (Phase 7.4): swap to the band's page scene and
-        frame the band, centered, letterboxed — a hard cut, exactly like
-        a page flip (ruling R2)."""
+        """System flip (Phase 7.4; framing revised Phase 10R): swap to
+        the band's page scene and fit a PAGE-SIZED window centered
+        vertically on the band — the frame keeps the page's aspect, the
+        system occupies the middle at natural page width; everything
+        outside the band letterboxes. A hard cut, exactly like a page
+        flip (ruling R2)."""
         self.setScene(scene)
         self._band = QRectF(band)
+        page = scene.sceneRect()
+        self._frame = QRectF(page.left(),
+                             band.center().y() - page.height() / 2,
+                             page.width(), page.height())
+        # the frame may extend past the page for systems near its top or
+        # bottom; widening the VIEW's scene rect lets fitInView center
+        # there instead of clamping to the page (the overhang renders as
+        # view background = letterbox, exactly right)
+        self.setSceneRect(self._frame.united(page))
         if self._fit_mode:
             self._fit()
         self.viewport().update()
@@ -63,6 +80,9 @@ class StageView(QGraphicsView):
     def clear_band(self) -> None:
         """Back to paged framing (mask off)."""
         self._band = None
+        self._frame = None
+        if self.scene() is not None:
+            self.setSceneRect(self.scene().sceneRect())
         if self._fit_mode:
             self._fit()
         self.viewport().update()
@@ -75,7 +95,7 @@ class StageView(QGraphicsView):
     def _fit(self) -> None:
         if self.scene() is None:
             return
-        target = self._band if self._band is not None \
+        target = self._frame if self._frame is not None \
             else self.scene().sceneRect()
         self.fitInView(target, Qt.AspectRatioMode.KeepAspectRatio)
 

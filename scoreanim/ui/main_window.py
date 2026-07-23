@@ -11,6 +11,7 @@ diffs part tints — views never talk to each other.
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import replace as _dc_replace
 from pathlib import Path
@@ -28,11 +29,15 @@ from scoreanim.core.animation import (DEFAULT_EFFECT, FLOOR_OPACITY, PRESETS,
                                       takes_part_color)
 from scoreanim.core.engraving.systems import system_bands
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
-from scoreanim.core.project import (DEFAULT_BPM, SUFFIX, ApplyTaps, FileRef,
-                                    ImportTempoSetup, PresentationMode,
+from scoreanim.core.engraving.verovio import VerovioEngravingProvider
+from scoreanim.core.project import (DEFAULT_BPM,
+                                    HIDE_EMPTY_STAVES_DEFAULT, SUFFIX,
+                                    ApplyTaps, FileRef,
+                                    ImportTempoSetup, MoveTempoEvent,
+                                    PresentationMode,
                                     ProjectDoc,
                                     SetFloorOpacity, SetGlobalSwing,
+                                    SetHideEmptyStaves,
                                     SetOffset, SetPartColor,
                                     SetPartEffect, SetPresentationMode,
                                     SetRevealMode,
@@ -42,7 +47,8 @@ from scoreanim.core.project import (DEFAULT_BPM, SUFFIX, ApplyTaps, FileRef,
 from scoreanim.core.project import save_project as write_project_file
 from scoreanim.core.score.identity import PartId
 from scoreanim.core.score.join import join_notes
-from scoreanim.core.score.musicxml_prep import PartGroupSpec, PartTextSpec
+from scoreanim.core.score.musicxml_prep import (PartCondenseSpec,
+                                                PartGroupSpec, PartTextSpec)
 from scoreanim.core.score.model import build_score_model
 from scoreanim.core.timing import (TempoEvent, TempoMap, parse_tempo_file,
                                    resolve_seconds)
@@ -56,6 +62,7 @@ from scoreanim.ui.export_dialog import ExportDialog
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.part_names_dialog import PartNamesDialog
+from scoreanim.ui.score_setup_dialog import ScoreSetupDialog
 from scoreanim.ui.staff_groups_dialog import StaffGroupsDialog
 from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.texts_dialog import TextsDialog
@@ -89,6 +96,10 @@ class MainWindow(QMainWindow):
         self._applied_mode = PresentationMode.PAGED  # what the view shows
         self._applied_groups: tuple = ()   # staff groups the engrave used
         self._applied_text_overrides: dict = {}   # label overrides ditto
+        self._applied_hide_empty = False   # hide-empty-staves ditto
+        self._applied_condense: tuple = ()   # condense groups ditto
+        self._last_overflow = False          # last load overflowed a page
+        self._hide_staves_action: QAction | None = None
         self._applied_stage_texts: tuple = ()   # stage texts on the scenes
         self._applied_hidden: dict = {}    # ElementId → applied hidden flag
         self._parts: tuple = ()            # PartInfos of the loaded score
@@ -137,8 +148,10 @@ class MainWindow(QMainWindow):
         self.playback.status_message.connect(
             lambda msg: self.statusBar().showMessage(msg))
         self.playback.time_changed.connect(self._on_time)
-        self.playback.transport.playing_changed.connect(self._on_playing)
-        self.playback.transport.duration_changed.connect(
+        # play-state and duration come from the CONTROLLER, not the audio
+        # wrapper, so no-audio playback (FIX 2) drives the same UI paths
+        self.playback.playing_changed.connect(self._on_playing)
+        self.playback.duration_changed.connect(
             self.app_state.axis.set_duration)
 
         self.app_state.seek_requested.connect(self.playback.seek)
@@ -299,6 +312,20 @@ class MainWindow(QMainWindow):
         self._slider.valueChanged.connect(self._on_slider_value)
         self._time_label = QLabel(" 0:00.0 / 0:00.0 ")
 
+        # initial tempo (FIX 2): edits the beat-0 tempo event through the
+        # existing tempo-map machinery (MoveTempoEvent) — not a parallel
+        # path. With no audio it sets the no-audio playback pace; the
+        # offset is simply 0 then.
+        self._bpm_spin = QDoubleSpinBox()
+        self._bpm_spin.setPrefix("bpm ")
+        self._bpm_spin.setDecimals(1)
+        self._bpm_spin.setSingleStep(1.0)
+        self._bpm_spin.setRange(20.0, 400.0)
+        self._bpm_spin.setKeyboardTracking(False)
+        self._bpm_spin.setToolTip("Initial tempo — drives no-audio "
+                                  "playback and the tempo map")
+        self._bpm_spin.editingFinished.connect(self._commit_bpm)
+
         self._offset_spin = QDoubleSpinBox()
         self._offset_spin.setPrefix("offset ")
         self._offset_spin.setSuffix(" s")
@@ -335,6 +362,7 @@ class MainWindow(QMainWindow):
         bar.addAction(self._play)
         bar.addWidget(self._slider)
         bar.addWidget(self._time_label)
+        bar.addWidget(self._bpm_spin)
         bar.addWidget(self._offset_spin)
         bar.addWidget(self._swing_spin)
         bar.addWidget(self._floor_spin)
@@ -475,7 +503,9 @@ class MainWindow(QMainWindow):
         if (self._scenes is not None and doc.score is not None
                 and (doc.staff_groups != self._applied_groups
                      or dict(doc.text_overrides)
-                     != self._applied_text_overrides)):
+                     != self._applied_text_overrides
+                     or doc.hide_empty_staves != self._applied_hide_empty
+                     or doc.condense_groups != self._applied_condense)):
             self._reengrave(doc)
         self.playback.set_timing_config(*self._timing_config(doc))
         self._sync_styles(doc)
@@ -489,6 +519,11 @@ class MainWindow(QMainWindow):
         self._offset_spin.blockSignals(True)
         self._offset_spin.setValue(doc.timing.offset_seconds)
         self._offset_spin.blockSignals(False)
+        first_tempo = self._initial_tempo_event(doc)
+        self._bpm_spin.blockSignals(True)
+        self._bpm_spin.setValue(first_tempo.bpm if first_tempo
+                                else DEFAULT_BPM)
+        self._bpm_spin.blockSignals(False)
         self._swing_spin.blockSignals(True)
         self._swing_spin.setValue(self._global_swing_ratio(doc))
         self._swing_spin.blockSignals(False)
@@ -499,6 +534,10 @@ class MainWindow(QMainWindow):
         self._systems_mode.setChecked(doc.stage.mode
                                       is PresentationMode.SYSTEM)
         self._systems_mode.blockSignals(False)
+        if self._hide_staves_action is not None:
+            self._hide_staves_action.blockSignals(True)
+            self._hide_staves_action.setChecked(doc.hide_empty_staves)
+            self._hide_staves_action.blockSignals(False)
         self._sync_presentation_mode(doc.stage.mode)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
@@ -614,12 +653,26 @@ class MainWindow(QMainWindow):
         self._part_effect_actions = {}
         self._applied_colors = {}
         self._applied_overrides = {}
+        setup_action = QAction("Score Setup…", self._parts_menu)
+        setup_action.triggered.connect(self._open_score_setup_dialog)
+        self._parts_menu.addAction(setup_action)
         groups_action = QAction("Staff Groups…", self._parts_menu)
         groups_action.triggered.connect(self._open_staff_groups_dialog)
         self._parts_menu.addAction(groups_action)
         names_action = QAction("Part Names…", self._parts_menu)
         names_action.triggered.connect(self._open_part_names_dialog)
         self._parts_menu.addAction(names_action)
+        # an engraving input like the two above (Phase 10R): toggling
+        # re-engraves via the _applied_hide_empty diff, one undo step
+        self._hide_staves_action = QAction("Hide Empty Staves",
+                                           self._parts_menu)
+        self._hide_staves_action.setCheckable(True)
+        self._hide_staves_action.setChecked(
+            self.app_state.doc.hide_empty_staves)
+        self._hide_staves_action.toggled.connect(
+            lambda checked: self.app_state.execute(
+                SetHideEmptyStaves(checked)))
+        self._parts_menu.addAction(self._hide_staves_action)
         self._parts_menu.addSeparator()
         for info in parts:
             pid = PartId(info.part_id)
@@ -704,6 +757,22 @@ class MainWindow(QMainWindow):
             self.app_state.execute(SetOffset(value))
 
     @staticmethod
+    def _initial_tempo_event(doc: ProjectDoc):
+        events = doc.timing.tempo_events
+        return min(events, key=lambda e: e.position) if events else None
+
+    def _commit_bpm(self) -> None:
+        """Set the initial (beat-0) tempo through the existing tempo-map
+        machinery — MoveTempoEvent on the first event, so a tempo curve's
+        later events survive. Drives no-audio playback (FIX 2)."""
+        first = self._initial_tempo_event(self.app_state.doc)
+        value = self._bpm_spin.value()
+        if first is None or abs(value - first.bpm) < 1e-9:
+            return
+        self.app_state.execute(
+            MoveTempoEvent(first.position, first.position, value))
+
+    @staticmethod
     def _global_swing_ratio(doc: ProjectDoc) -> float:
         """v1 reads the single global region; a multi-region doc (from a
         later build or hand edit) shows its first ratio, and committing
@@ -744,6 +813,10 @@ class MainWindow(QMainWindow):
         self.app_state.reset_document(doc)   # → _on_document_changed
         self._show_current()
         self.view.fit()
+        # a score that overflows its page needs staff-count reduction —
+        # offer the Score Setup dialog on open (Phase 12.4)
+        if self._last_overflow:
+            self._open_score_setup_dialog()
 
         sidecar = path.with_suffix(".tempo")
         if sidecar.exists():
@@ -771,12 +844,14 @@ class MainWindow(QMainWindow):
                 return
             warnings.append(score_warning)
 
-        # groups + label overrides engrave here once; the reset_document
-        # below finds the _applied_* caches already equal — no double
-        # engrave
+        # groups + label overrides + hide flag engrave here once; the
+        # reset_document below finds the _applied_* caches already equal
+        # — no double engrave
         self._load_score(Path(doc.score.path), doc.engraving,
                          stage=doc.stage, groups=doc.staff_groups,
-                         text_overrides=doc.text_overrides)
+                         text_overrides=doc.text_overrides,
+                         hide_empty_staves=doc.hide_empty_staves,
+                         condense_groups=doc.condense_groups)
         self._project_path = path
         self._score_name = path.name
         self._tempo_path = None
@@ -799,35 +874,44 @@ class MainWindow(QMainWindow):
     def _load_score(self, path: Path, params: EngravingParams,
                     stage: StageConfig | None,
                     groups: tuple = (),
-                    text_overrides: dict | None = None) -> StageConfig:
+                    text_overrides: dict | None = None,
+                    hide_empty_staves: bool = HIDE_EMPTY_STAVES_DEFAULT,
+                    condense_groups: tuple = ()
+                    ) -> StageConfig:
         """Fresh-load entry: engrave + wire, then reset to page 1."""
         stage = self._engrave_and_wire(path, params, stage, groups,
-                                       text_overrides or {})
+                                       text_overrides or {},
+                                       hide_empty_staves, condense_groups)
         self._page = 1
         self._system = 1
         return stage
 
     def _reengrave(self, doc: ProjectDoc) -> None:
-        """Re-derive the engraved world after a staff-group or
-        part-label change, preserving page/system/zoom (no view.fit, no
-        position reset). ~0.6 s on the GUI thread per call (engrave +
-        scene rebuild), so these commands must arrive via execute(),
-        never preview()."""
+        """Re-derive the engraved world after a staff-group, part-label,
+        or hide-empty-staves change, preserving page/system/zoom (no
+        view.fit, no position reset). ~0.6 s on the GUI thread per call
+        (engrave + scene rebuild), so these commands must arrive via
+        execute(), never preview()."""
         self._engrave_and_wire(Path(doc.score.path), doc.engraving,
                                doc.stage, doc.staff_groups,
-                               doc.text_overrides)
+                               doc.text_overrides, doc.hide_empty_staves,
+                               doc.condense_groups)
         self._show_current()             # install the fresh scene
 
     def _engrave_and_wire(self, path: Path, params: EngravingParams,
                           stage: StageConfig | None,
                           groups: tuple = (),
-                          text_overrides: dict | None = None) -> StageConfig:
+                          text_overrides: dict | None = None,
+                          hide_empty_staves: bool = False,
+                          condense_groups: tuple = ()) -> StageConfig:
         """Engrave + decompose + join + wire the animation. Returns the
         stage config used (seeded from the score's credits when None).
         `groups` is doc.staff_groups — injected as <part-group> at the
         prep seam; `text_overrides` is doc.text_overrides — part labels
-        rewritten there (Phase 9.3); geometry re-derives, ids survive
-        (rule 5, Phases 8/9)."""
+        rewritten there (Phase 9.3); `condense_groups` is
+        doc.condense_groups — contiguous like parts merged onto one staff
+        there (Phase 12.3); geometry re-derives, musical ids survive
+        (rule 5, Phases 8/9/12)."""
         text_overrides = dict(text_overrides or {})
         specs = tuple(PartGroupSpec(parts=g.parts, symbol=g.symbol,
                                     join_barlines=g.join_barlines)
@@ -835,10 +919,17 @@ class MainWindow(QMainWindow):
         text_specs = tuple(PartTextSpec(part=pid, name=o.name,
                                         abbreviation=o.abbreviation)
                            for pid, o in sorted(text_overrides.items()))
+        condense_specs = tuple(
+            PartCondenseSpec(parts=g.parts, name=g.name,
+                             abbreviation=g.abbreviation)
+            for g in condense_groups)
         t0 = time.perf_counter()
-        engraved = VerovioEngravingProvider().load_detailed(path, params,
-                                                            specs,
-                                                            text_specs)
+        # strict=False (app path, Phase 11.4): an unknown drawable SVG
+        # class degrades to a warned static element instead of failing the
+        # open. The status bar shows the warning count.
+        engraved = VerovioEngravingProvider().load_detailed(
+            path, params, specs, text_specs, hide_empty_staves,
+            condense_specs, strict=False)
         t1 = time.perf_counter()
         if stage is None:
             stage = default_stage_config(engraved.prepared,
@@ -855,12 +946,19 @@ class MainWindow(QMainWindow):
                                      # pass re-applies doc hidden flags
         t2 = time.perf_counter()
 
-        model = build_score_model(engraved.prepared)
+        model = build_score_model(engraved.prepared, engraved.timeline)
         report = join_notes(model, engraved.note_records)
         join_note = ""
         if not report.is_complete:
             join_note = (f" · JOIN INCOMPLETE ({len(report.unmatched_score)}"
                          f"/{len(report.unmatched_layout)} unmatched)")
+        if engraved.warnings:
+            # flag-and-continue (Phase 10 ruling b): e.g. ties the
+            # engraver dropped — the score loads, the anomaly is visible
+            join_note += f" · {len(engraved.warnings)} load warning(s)"
+            for w in engraved.warnings:
+                print(f"load warning [{w.code}]: {w.message}",
+                      file=sys.stderr)
         schedule = build_trigger_schedule(engraved.layout, report.mapping,
                                           model.measures)
         score_end = max((m.start + m.quarter_length for m in model.measures),
@@ -889,6 +987,12 @@ class MainWindow(QMainWindow):
         self._build_parts_menu(engraved.prepared.parts)
         self._applied_groups = groups
         self._applied_text_overrides = text_overrides
+        self._applied_hide_empty = hide_empty_staves
+        self._applied_condense = condense_groups
+        # a system still overflowing its page after repagination means the
+        # score needs staff-count reduction — the Score Setup trigger (12.4)
+        self._last_overflow = any(w.code == "system-overflow"
+                                  for w in engraved.warnings)
 
         self.statusBar().showMessage(
             f"engrave+decompose {t1 - t0:.2f}s · scene build {t2 - t1:.2f}s · "
@@ -903,6 +1007,11 @@ class MainWindow(QMainWindow):
         if not self._parts:
             return
         StaffGroupsDialog(self.app_state, self._parts, parent=self).exec()
+
+    def _open_score_setup_dialog(self) -> None:
+        if not self._parts:
+            return
+        ScoreSetupDialog(self.app_state, self._parts, parent=self).exec()
 
     def _open_part_names_dialog(self) -> None:
         if not self._parts:
@@ -933,7 +1042,7 @@ class MainWindow(QMainWindow):
     def _open_export_dialog(self) -> None:
         if self._animation_inputs is None:
             return
-        self.playback.transport.pause()      # no live tick under the modal
+        self.playback.pause()                # no live tick under the modal
         doc = self.app_state.doc
         offset, tempo_map, swing = self._timing_config(doc)
         duration = self.playback.transport.duration_seconds()

@@ -284,6 +284,23 @@ def test_set_presentation_mode(doc) -> None:
     assert stack.redo() == d1
 
 
+def test_set_hide_empty_staves(doc) -> None:
+    from scoreanim.core.project import SetHideEmptyStaves
+
+    assert doc.hide_empty_staves is True         # new-doc default
+    out = SetHideEmptyStaves(False).apply(doc)
+    assert out.hide_empty_staves is False
+    assert doc.hide_empty_staves is True
+    assert SetHideEmptyStaves(False).describe() == "show empty staves"
+    assert SetHideEmptyStaves(True).describe() == "hide empty staves"
+    with pytest.raises(CommandError):
+        SetHideEmptyStaves("yes").apply(doc)  # type: ignore[arg-type]
+    stack = UndoStack()
+    d1 = stack.execute(SetHideEmptyStaves(False), doc)
+    assert stack.undo() == doc
+    assert stack.redo() == d1
+
+
 def test_floor_opacity_undo_round_trip(doc) -> None:
     from scoreanim.core.project import SetFloorOpacity
 

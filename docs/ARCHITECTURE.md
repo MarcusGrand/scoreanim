@@ -20,9 +20,13 @@ beat tapping.
 ```
 Score file (MusicXML, Dorico export)
    │
-   ├──► ScoreModel (music21)          id → musical_time (beats), identities
+   ├──► ScoreModel (music21 + the engraved MeasureTimeline)
+   │        notated identities; ALL beats rebased onto the timeline
+   │        (CLAUDE.md rule 12 — build_score_model REQUIRES it)
    │
    └──► EngravingProvider (Verovio)   id → position/geometry per page
+              │  + MeasureTimeline (timemap qstamps — THE beat axis,
+              │    performance/playback-expanded time)
               │  honors encoded system/page breaks
               ▼
         base Layout  ⊕  LayoutOverrides (user dx/dy deltas)
@@ -63,12 +67,47 @@ class ElementIdentity:
 # core/engraving/
 class EngravingProvider(ABC):
     def load(self, score_path: Path, params: EngravingParams,
-             groups: tuple[PartGroupSpec, ...] = ()) -> Layout: ...
+             groups: tuple[PartGroupSpec, ...] = (),
+             texts: tuple[PartTextSpec, ...] = (),
+             hide_empty_staves: bool = False) -> Layout: ...
     # `groups` (Phase 8): staff groups injected as <part-group> at the
     # prep seam — engraving INPUTS like the score file itself. A
     # separate argument, NOT an EngravingParams field, because params
     # are serialized in the project document and a groups field there
     # would duplicate doc.staff_groups (rule 5: one source of intent).
+    # `texts` (Phase 9.3) and `hide_empty_staves` (Phase 10R) follow
+    # the same reasoning (doc.text_overrides / doc.hide_empty_staves).
+
+# The adapter is a package (Phase R, 2026-07-22), one module per
+# pipeline stage — core/engraving/verovio/:
+#   kinds.py        policy tables only (class→kind map, container/spanner
+#                   sets, scale constants); no logic
+#   mei_index.py    Verovio's MEI export → per-id musical lookup tables
+#   records.py      AdapterNoteRecord, EngravedScore, _LoadState (the
+#                   per-load shared state; each stage module's docstring
+#                   lists the fields it reads/writes)
+#   decompose.py    one page SVG → identity-bearing element accumulators
+#   attribution.py  in-place post-passes: rehome strays, ledger dashes,
+#                   spanner segments, implausible ties
+#   identity.py     ElementId minting + the svg_class-gated onset chain;
+#                   accumulators → RenderedElements + note records
+#   synthesis.py    slash / bar-repeat synthesis (rule 10)
+#   provider.py     toolkit options, hide/repagination/scale-to-fit retry
+#                   loops, and _engrave_prepared — the ONE function that
+#                   names the pipeline order:
+#
+#   engrave → parse MEI → timemap → decompose pages → rehome strays →
+#   attribute ledger dashes → attribute spanner segments → flag
+#   implausible ties → build elements → synthesize slash/repeat
+#
+#   The order is a correctness invariant: rehoming must precede the other
+#   attribution passes (they must never claim ink that is about to move),
+#   implausible-tie flagging must follow segment pairing (bogus sources
+#   stay in the candidate pool so the remaining segments pair right), and
+#   synthesis follows element construction (it positions from the
+#   collected staff geometry; synthetic elements never enter the passes).
+#   tests/goldens/ pins 12 fixture loads byte-for-byte (the Phase R
+#   safety net, kept as the standing regression suite).
 
 # Verovio adapter obligations (Phase 0 rulings, 2026-07-10):
 #
@@ -131,6 +170,68 @@ class EngravingProvider(ABC):
 #    sub-classing rides RenderedElement.text_class — presentation
 #    metadata; ElementIdentity and minted ids untouched.
 #
+# 7. Hide empty staves (Phase 10R, as built 2026-07-13, rule-7
+#    amendment b): Verovio honors hidden empty staves ONLY via MEI
+#    scoreDef@optimize + condense:"encoded" (staff-details
+#    print-object and staffDef@visible are ignored; MusicXML carries
+#    no hidden-staff info from Dorico). The adapter runs a TWO-PASS
+#    load when doc.hide_empty_staves is on: loadData(MusicXML) →
+#    getMEI() → set optimize="true" on the first scoreDef → fresh
+#    toolkit → loadData(MEI). The round-trip is id- and
+#    timemap-transparent (pinned; spikes/NOTES.md Phase 10R).
+#    systemDivider:"none" is a fixed option (condensed layouts draw
+#    dividers by default; Dorico's look has none — SYSTEM_DIVIDER
+#    decomposer support stays as defense). Slash regions WIN over
+#    hiding (rule 10): if a slash-region staff would vanish, the load
+#    redoes flat with LoadWarning "hide-unavailable".
+#
+# 8. Never-clip repagination (Phase 10R, as built 2026-07-13, rule-7
+#    amendment a): after every engrave the adapter measures system
+#    bands against the page height; on overflow it re-derives page
+#    breaks (greedy pack from measured heights + margins, 2% drift
+#    pad — core/engraving/systems.plan_page_breaks), strips encoded
+#    new-page attributes, injects <print new-page="yes"> at the chosen
+#    system starts (part 1 only) at the prep seam, and re-engraves
+#    once. Breaks are DERIVED data — recomputed every load, never
+#    stored (rule 5). Page-scoped ids (score:p{n}:…) shift; musical
+#    ids are pagination-independent. LoadWarning "repaginated".
+#
+# 9. Load warnings (Phase 10/10R, ruling b): non-fatal anomalies are
+#    NEVER silently absorbed — EngravedScore.warnings carries
+#    LoadWarning(code, message) in musical coordinates only (rule 4):
+#    dropped-spanner (engraver emitted no ink), implausible-tie (a tie
+#    force-matched to a distant note — extent > 2× its start measure —
+#    is suppressed with its continuation ink; the Phase 10R m44 fix),
+#    segment-count-mismatch / unattributed-continuation (tolerant
+#    continuation pairing), hide-unavailable, repaginated,
+#    system-overflow, unknown-class (a drawable SVG class the decomposer
+#    does not know, rendered as a static element — Phase 11.4, app path
+#    only), stray-path (a path re-homed out of a cross-system element —
+#    item 11 below). The status bar shows the count; stderr the text.
+#
+# 10. Dorico-robustness decomposer coverage (Phase 11, as built
+#    2026-07-19): three notation classes and one geometry gap that the
+#    prior fixtures never exercised. (a) TREMOLO — a bowed/measured
+#    tremolo's stroke <use> is a DIRECT child of the id-bearing
+#    <g class="bTrem|fTrem">, so the class EMITS its own element (a
+#    container would fold the stroke into the static staff scaffold, the
+#    BACKLOG-6 shape); the element inherits its child note's onset
+#    (chord-member style) and animates untinted (ruling a), the nested
+#    note keeping its own timemap onset. fTrem is defensive (neither
+#    fixture draws one — all tremolos are bTrem). (b) beamSpan → BEAM
+#    with onset/extent from MEI @startid/@endid (a measure-level beam is
+#    not in the layer-beam table). (c) rotate transforms: Verovio DOES
+#    rotate (vertical text carries rotate(-90 …)), so svg_geom parses
+#    rotate into the affine matrix and Affine.apply_rect maps by four
+#    corners (exact for 90-degree multiples, reduces to the old
+#    two-corner result when axis-aligned). (d) the ledger rest tier
+#    (Phase 10.2) also claims displaced mRests. Graceful degradation
+#    (ruling, Marcus 2026-07-15): in the app path an unknown drawable
+#    class no longer fails the open — it mints a static OTHER element +
+#    unknown-class warning; strict loads (pytest / doctor --strict)
+#    still raise so coverage gaps stay loud. The score-doctor
+#    (scoreanim.tools.check_score) is the triage engine.
+#
 # 5. Staff groups via prep injection (Phase 8, as built 2026-07-12):
 #    doc-stored groupings (staff_groups, user intent) become
 #    PartGroupSpec at the prep seam and are injected as <part-group>
@@ -145,6 +246,153 @@ class EngravingProvider(ABC):
 #    (tests/test_adapter_groups.py) even though every VEROVIO id
 #    re-rolls on any input change despite the fixed seed — which is
 #    exactly why identity is minted from musical position, not ids.
+#
+# 10 (Phase 12). Orchestral robustness (complex2). Four pieces:
+#    (a) ORDER-BASED JOIN (12.1): the model↔layout match keys plain notes
+#    on PITCH only and pairs by document order within (part, measure,
+#    staff, voice) — onset is NOT in the key, because Verovio's timemap
+#    delays a note after an appoggiatura by the grace's duration while
+#    music21 keeps the notated beat. Triggers keep the Verovio qstamp
+#    (performance time — the note lights when it sounds; ruling a). A
+#    bounded cross-staff fallback re-matches leftovers within (part,
+#    measure) across staves for multi-staff parts (complex2's Synth).
+#    (b) BAR-REPEAT SYNTHESIS (12.2): Verovio draws nothing for
+#    <measure-repeat> (empty <space>), so the adapter synthesizes one
+#    ElementKind.BAR_REPEAT % symbol per repeated bar (onset on the
+#    downbeat), the slash-region shape (rule 10). (c) CONDENSING (12.3):
+#    doc-stored condense_groups (PartCondenseSpec at the seam) merge
+#    contiguous like parts onto one staff, one voice per player, behind a
+#    <backup> — a canonical rewrite BEFORE Verovio (rule 11); v1 naive,
+#    no a2/divisi. ElementIds shift (part identity is an engraving input).
+#    (d) SCALE-TO-FIT (12.5): when a single system is taller than its page
+#    after repagination (Dorico sized the page for its condensed score),
+#    the adapter scales the engraving down uniformly (Verovio `scale`
+#    option) so the tallest fits — the never-clip completion, rule-7
+#    amendment c (`LoadWarning "scaled-to-fit"`). complex2 renders at 54%,
+#    zero overflow. The Score Setup dialog (§7) gathers condense/bracket/
+#    hide as ONE undoable batch (ApplyScoreSetup).
+#
+# 11. Cross-system stray-path re-homing (as built 2026-07-21, bigband1).
+#    The per-(system, part) reveal edge assumes an element's ink lies
+#    within its attributed system. Under hide-empty-staves the
+#    scoreDef@optimize round-trip makes Verovio REUSE one xml:id across
+#    element types and emit a LATER system's tie/slur/artic curve as a
+#    bare <path> INSIDE an EARLIER note's <g class="stem|flag|artic">
+#    whose id collides — the deeper manifestation of the Phase 10R
+#    id-reuse hazard (which _identity_for already gates for ONSET). The
+#    decomposer used to absorb that path into the early element, so at
+#    its reveal time the curve painted down in the later system (a
+#    solid-black "tie" bars ahead of the playhead once the ghost floor
+#    is 0). _rehome_stray_paths (post-decompose, before ledger/spanner
+#    attribution) partitions each page into per-system vertical strips
+#    (staff bands split at inter-system-gap midpoints) and, for any
+#    element whose bbox straddles a boundary, splits each foreign-system
+#    path into its OWN element attributed by GEOMETRY to the system it
+#    occupies. Re-homed as a reveal-clip TIE (onset-less, edge-driven)
+#    when a staff/part underlies the ink — so it grows in with the
+#    playhead sweep at its own x, never popping at the system downbeat —
+#    else a measure-start OTHER (no reveal curve to ride; still cannot
+#    leak). No ink dropped (rule 7); LoadWarning "stray-path" per
+#    re-homed element (ruling b). A no-op on well-formed scores (only a
+#    straddling bbox is examined); across testdata only bigband1 and
+#    video_test (a system-14 hairpin path in the id-colliding system-13
+#    group) fire.
+#
+# 12. Measure identity is the 1-based DOCUMENT-ORDER ORDINAL, never the
+#    printed measure number (fix 2026-07-21, complex3). The printed number
+#    is not unique or consistent: Dorico exports pickup/split bars as
+#    non-numeric "X0"/"X1", which music21 parses to 0 while the DOM/MEI keep
+#    the string — so the pickup collides with real bar 1 (both key 1) and
+#    the two sides disagree. The k-th <measure> is the SAME bar in music21,
+#    the MusicXML DOM and Verovio's MEI (verified 1:1 across every fixture,
+#    incl. multi-measure rests, the hide-empty-staves round-trip, repeats),
+#    so the ordinal is the one safe key. Every identity dict keys by it —
+#    measure_by_id (xml:id→ordinal), system_of_measure, measure_start,
+#    measure_duration, meter_unit_by_measure, ScoreNote.measure /
+#    AdapterNoteRecord.measure (the join key), slash/repeat region bounds,
+#    _repaginate page-break bars, and the ElementId ":m{ordinal}:" segment.
+#    The PRINTED number survives only as display: MeasureInfo.number and the
+#    tempo/export/measure-label UI. Consequence: for a score not starting at
+#    printed bar 1, ":m{n}:" ids shift, so saved dx/dy layout overrides on
+#    such a project (which already collided pre-fix) will not re-match — an
+#    accepted one-time break (rule 5 override staleness).
+#
+# 14. The engraved MeasureTimeline is the app-wide beat authority
+#    (ruling 2026-07-22, FINDING-1 fix; CLAUDE.md rule 12). The provider
+#    exposes EngravedScore.timeline: per-ordinal measure starts (first
+#    timemap qstamp) and durations (delta to the next FIRST-PASS
+#    downbeat), plus score_end — with a loud load-time invariant that
+#    every MEI measure ordinal has a timemap start. The timemap is
+#    playback-EXPANDED: a repeat's later passes appear as clone measure
+#    ids ("…-rend<k>") which the measure_by_id guard drops by design —
+#    repeated measures keep first-pass positions, the next new measure
+#    starts after the full expansion, and the axis is therefore
+#    PERFORMANCE time (what a recording that takes the repeat plays).
+#    build_score_model rebases music21's accounting onto this timeline;
+#    music21's own inter-measure accumulation is untrustworthy on real
+#    Dorico exports (spikes/beat_domain.py census: X0 pickups padded to
+#    nominal length, repeats never expanded, half-beat bars rounded
+#    down — complex2 m8/m120 — and per-part self-divergence, complex3
+#    part 0 drifting +7.75 by m78). One nominal-length survivor: a
+#    trailing event-less bar (final bar-repeat) has no timemap end, so
+#    the LAST measure's span is floored with its notated length.
+#    The golden suite pins the timeline per fixture (measure_timeline
+#    section, 2026-07-22 re-capture).
+#
+# 15. Courtesy sigs light with their change measure (FINDING-4 fix,
+#    2026-07-23). Verovio nests an end-of-system courtesy key/meter/clef
+#    restatement in the SVG measure group of the system's LAST measure m
+#    while the change it announces takes effect at m+1 (the next
+#    system's first bar) — so the measure-start fallback lit it a bar
+#    early. The adapter retimes it: for a SIG_KINDS glyph whose nesting
+#    measure m is the last of its system (from system_of_measure — the
+#    element-free measure-group nesting map, immune to the :seg ordinal
+#    hazard), is NOT itself a change measure for its (kind, part), and
+#    where m+1 IS one, onset = measure_start[m+1]. Change measures per
+#    (kind, part) parse from the canonical MusicXML <attributes>
+#    (provider._sig_change_measures → _LoadState.sig_changes); the
+#    live-oracle keeps an independent copy of that parse as arbiter.
+#    The element id keeps ":m{m}:" (drawn-position identity; onset is
+#    timing) and no LoadWarning fires (a courtesy is normal engraving).
+#    In-place changes and system-start restatements nest in their own
+#    measure and are untouched; a sig matching neither shape stays a
+#    loud D2 sig-nesting finding. Known limit: a courtesy drawn in a
+#    measure that is itself a system START (old-sig restatement at left
+#    + courtesy at right in one measure) is indistinguishable without
+#    geometry and is not retimed — no fixture exercises it.
+#    Consequence in the schedule: a DISPLACED sig — onset not equal to
+#    its own drawn measure's start, i.e. a retimed courtesy — is
+#    excluded from a trigger's FRESH page/system hint sets
+#    (schedule._displaced_sig, over SIG_KINDS): it is fresh (its onset
+#    IS the retimed beat) but drawn on the previous page, and would
+#    otherwise drag the min() hint back and delay the page turn past
+#    the change downbeat. A sig lighting at its own drawn downbeat
+#    still drives hints — system-start restatements are the ONLY fresh
+#    elements at rest-heavy system starts (bigband1 m9, complex2 m48),
+#    so a blanket sig exclusion would hint the previous system there.
+#    Sigs light where drawn; the view follows the music.
+#
+# 13. Continuation-segment attribution keys by the START-note staff
+#    (fix 2026-07-21, complex3). A system-broken spanner continues on its
+#    start staff; _attribute_spanner_segments pairs each continuation
+#    segment to a crossing source in (staff, end_y) order. The staff must be
+#    the source's START-note staff — reliable even when the end note has no
+#    drawn accumulator (common under hide-empty-staves: 69 such sources in
+#    complex3). Keying by the end-note staff collapsed those to 0, sorting
+#    them degenerately and handing a segment the wrong source → a slur
+#    painted on another part's staff and revealed on that part's advanced
+#    edge (the phantom-slur family, sibling to item 11). See
+#    tests/test_phantom_slur.py.
+
+# Followed page/system (render/animate.py) is MONOTONIC non-decreasing over
+# the time-ordered triggers (prefix-max): the view never turns backward
+# while the clock advances. A per-trigger page/system is only a hint —
+# schedule.py aggregates each beat bucket with min(), and tie/rest/group
+# retiming plus sub-beat bucket-merging across a system break can dip it
+# N, N-1, N; without the clamp _follow_position turns the page back and
+# forward on every such dip. A genuine backward SEEK still resets (the
+# bisect cursor moves earlier into the monotone array). Assumes v1's linear
+# through-composed playback (no repeat/D.S.-driven backward follow).
 
 @dataclass(frozen=True)
 class RenderedElement:
@@ -181,7 +429,11 @@ class TempoMap:
     """Piecewise-constant tempo → piecewise-linear beats⇄seconds mapping.
     Precomputed segment boundaries; lookups are binary search + lerp.
     Invertible in both directions. Taps derive tempo events (smoothed)
-    or, per region, act as hard anchors (dense events)."""
+    or, per region, act as hard anchors (dense events).
+    Positions are PERFORMANCE-AXIS beats (CLAUDE.md rule 12): every
+    producer (sidecar m<n> anchors via MeasureInfo.start, taps,
+    triggers, export ranges) lives on the engraved timeline, so beats
+    and seconds share one domain end to end."""
     def seconds_at(self, beats: Beats) -> float: ...
     def beats_at(self, seconds: float) -> Beats: ...
 
@@ -235,14 +487,22 @@ part's events — beats taken from the trigger schedule's TIE-GATED
   smooth shared WAVEFRONT per system revealing all ink (a different
   computational model — BACKLOG 8, its own design round).
 
-**A tied chain is one event** (ruling A): tie-stop heads carry the
-chain-start trigger, so the whole group collapses into a single anchor
-at (chain start, x2 of the chain's furthest ink — its tie curves and
-broken segments fold into the bucket of the system they sit in). The
-edge steps past the full tied value at once and next advances at the
-part's next event; a chain broken across systems stands revealed from
-chain start on both sides. Events are noteheads, slashes, **and rests**
-(ruling B) — a rest's trigger is when its silence resolves:
+**Grow-with-playhead** (ruling A/B REVISED 2026-07-22, complex3): a held
+note FILLS IN with the playhead. Every notehead — including a tie
+'stop'/'continue' — fires at its OWN notated onset, so the reveal edge
+sweeps across a held note's re-notated barline noteheads with the
+playhead and the tie ink over them grows left-to-right; a broken chain
+reveals each side with its own system's playhead. Ties do NOT anchor the
+edge (they clip-reveal against it). The prior "a tied chain is one
+event" rule carried the chain-start trigger and folded each tie's
+furthest x onto it, so a 14-beat held note's tie painted to the system's
+end at once while the playhead was mid-system (the complex3 Oboe/
+Clarinet phantom). Scrubbing into a held note now lands it filled-in up
+to the playhead (the audio position); the default "appear" effect is an
+opacity fade, so a continuation REVEALS rather than re-attacks. Events
+are noteheads, slashes, **and rests** (ruling B) — a rest still keeps its
+retimed trigger (the edge must not advance at a silent beat): its
+trigger is when its silence resolves,
 min(next note's trigger in its part/voice scope, end of its own bar),
 never on its own silent beat (second-session ruling 2026-07-12), so the
 edge never advances mid-silence. Dynamics animate at their attach point
@@ -258,22 +518,70 @@ whole curve underneath (consistent with the dimmed ghost score);
 RevealMode is the only knob. Spanners split across systems by Verovio
 reveal per segment (adapter emits `<source-id>:seg<k>` elements);
 segments in not-yet-reached systems sit at reveal = 0 with no page
-logic. Any cursor reads this same function.
+logic. Any cursor reads this same function. **The clip default is
+HIDDEN** (FINDING-2 fix, 2026-07-22): a reveal child constructs fully
+clipped (`-inf`) and only an arriving edge reveals it, so a revealed
+item whose (system, part) key matches no reveal curve fails safe as
+invisible ink over its floor ghost instead of painting from t=0; the
+applier warns loudly per uncovered key at construction
+(`reveal warning [curve-less-key]`, `uncovered_reveal_keys`), and the
+live-oracle's D3 pins that such items stay hidden at every t.
 
-### Animated-ink taxonomy (revised 2026-07-12)
+### Animated-ink taxonomy — a DENYLIST (revised 2026-07-12; Phase 10R 2026-07-13; inverted 2026-07-20)
 
-Opacity-triggered (dim at floor, light at trigger): noteheads, slashes,
-stems, flags, beams, accidentals, articulations, dots, ledger dashes,
-**rests, whole-bar rests, dynamics** (ruling B — everything IN the
-staves animates; a dynamic's trigger is its attach point). **A rest is
+**Animation is a denylist, not an allowlist** (ruling 2026-07-20).
+EVERY object on the page animates with the appear/effect system EXCEPT
+the true scaffold; a new `ElementKind` is animated *by default*. The
+allowlist that preceded this shipped every new kind static-until-someone-
+remembered — the exact mechanism behind the recurring coverage gaps —
+so the default is inverted. `schedule.STATIC_KINDS` is the single
+authority; `ANIMATED_KINDS` is derived (`all kinds − STATIC_KINDS −
+REVEALED_KINDS`) and the adapter imports `STATIC_KINDS` to decide which
+kinds to mint onset-less.
+
+The **scaffold** (static, onset-less) is exactly: **staff lines,
+barlines** (including the system-left barline joining a system's
+staves — reclassified from OTHER), **group symbols/brackets, and
+between-system dividers** — plus **page furniture** (part labels,
+page header/footer, measure numbers), which the adapter mints
+onset-less via `_STATIC_TEXT_CLASSES` so the onset gate excludes it
+without a distinct kind. Everything else is animated ink.
+
+**Clefs and key signatures MOVED from static to animated** with this
+ruling; tuplet brackets/numbers, ornaments, and degraded `OTHER` ink
+(the Phase 11 graceful-degradation path) animate too. Opacity-triggered
+(dim at floor, light at trigger): noteheads, slashes, **synthesized
+bar-repeat `%` symbols (Phase 12.2, one per repeated bar, tinted like
+slashes)**, stems, flags, beams, accidentals, articulations, tremolo
+strokes, dots, ledger dashes, rests, whole-bar rests, dynamics, texts,
+chord symbols, lyrics, meter signatures, clefs, key signatures, tuplets,
+ornaments/fermatas — every object at its onset. Resolution order: owner note (stems/flags/
+accidentals — and **tuplet brackets/numbers and tremolo strokes, which
+inherit their notes' first onset so they light WITH the tuplet/tremolo,
+not at the downbeat**; bug fix 2026-07-20) → @startid note (chords via
+their first member) → @tstamp arithmetic → **measure start** (the last
+resort, for genuine bar-level objects: clefs, key signatures, meter
+changes, and measure-attached texts/dynamics). One refinement inside
+the measure-start fallback (FINDING-4 ruling 2026-07-23): a sig
+(clef/key/meter, `schedule.SIG_KINDS`) drawn as an **end-of-system
+courtesy** — nested in a system's LAST measure while its change takes
+effect at the next measure — lights WITH the change measure
+(`onset = measure_start[m+1]`), not at its drawn position; see adapter
+item 15. Note-region decorations
+never use the measure-start fallback, and spanners (slurs/ties/hairpins)
+are excluded from it entirely — a spanner's timing is its start note or
+nothing. **A rest is
 retrospective ink** (ruling 2026-07-12, second session): it triggers
-when its silence resolves — at the next note in its part/voice or at
-the end of its own bar, whichever comes first, never on its own silent
-beat (a whole-bar rest completes at its barline). Reveal anchors follow
-the same triggers, so the edge never advances mid-silence.
-Clip-revealed (opacity pinned 1.0): slurs, ties, hairpins. Static:
-clefs, key/time signatures, barlines, staff lines, texts, lyrics,
-chord symbols.
+when its silence resolves — at the next note in its part/voice or the
+end of its own bar, whichever comes first, never on its own silent beat
+(a whole-bar rest completes at its barline). Reveal anchors follow the
+same triggers, so the edge never advances mid-silence.
+
+Clip-revealed (opacity pinned 1.0, animated by the reveal EDGE not the
+opacity trigger — so `is_animated` excludes them): slurs, ties,
+hairpins. **Animation scope ≠ color scope** (ruling D stands): this
+ruling widened what animates, not what tints — `TINTED_KINDS` is
+unchanged, so clefs and key signatures animate but stay black.
 
 ### Styling
 
@@ -320,24 +628,36 @@ Project (saved file, versioned schema)
 │                        contiguous parts + symbol + joined-barlines flag
 │                        (bracket geometry re-derives via prep injection;
 │                        adapter ruling 5)
-└── text_overrides       consumed since Phase 9.3 (v3): per-part
-                         name/abbreviation edits, rewritten into the
-                         part-list at the prep seam (adapter ruling 6)
+├── text_overrides       consumed since Phase 9.3 (v3): per-part
+│                        name/abbreviation edits, rewritten into the
+│                        part-list at the prep seam (adapter ruling 6)
+├── hide_empty_staves    v4 (Phase 10R): per-score bool, default ON for
+│                        new documents; the hidden layout re-derives
+│                        via the MEI optimize round-trip (adapter
+│                        ruling 7); rule-7 amendment b
+└── condense_groups      v5 (Phase 12.3): contiguous like parts merged
+                         onto one staff (one voice per player, combined
+                         label); the merged part-list re-derives at the
+                         prep seam (adapter ruling 10); CLAUDE.md rule 11
 ```
 
 Schema versions (`core/project/serialize.py`, strict gate): **v1**
 (Phase 4) had `style.part_colors`; **v2** (Phase 5.3) is the StyleRules
 shape above; **v3** (Phase 7.1) added floor_opacity, presentation mode,
 staff_groups, and text_overrides in ONE bump — every planned v2-era
-field designed at once, no per-phase bumps. The reader accepts
-{1, 2, 3}: v1 `part_colors` folds into part color rules, v1/v2 files
-default every v3 field per-field (no migration code — they just lack
-the keys); the writer emits 3. The gate is strict-by-version ON
-PURPOSE: an older build REFUSES a newer file instead of tolerantly
-reading it, silently dropping fields, and destroying them on the next
-save. Effect names are stored intent — an unknown name fails soft to
-the default preset at animation time but round-trips untouched
-(rule 5).
+field designed at once, no per-phase bumps; **v4** (Phase 10R) added
+hide_empty_staves, VERSION-GATED on read: v≤3 files predate the option
+and load OFF so their look is unchanged, while new documents default
+ON; **v5** (Phase 12.3) added condense_groups (no read gate needed — a
+missing key defaults to (), the correct look for older files). The
+reader accepts {1, 2, 3, 4, 5}: v1 `part_colors` folds into part
+color rules, older files default newer fields per-field (no migration
+code — they just lack the keys); the writer emits 5. The gate is
+strict-by-version ON PURPOSE: an older build REFUSES a newer file
+instead of tolerantly reading it, silently dropping fields, and
+destroying them on the next save. Effect names are stored intent — an
+unknown name fails soft to the default preset at animation time but
+round-trips untouched (rule 5).
 
 Never persisted: Layout, timemaps, decomposed geometry — always re-derived.
 All mutations go through undoable commands (`core/project/commands.py`).
@@ -362,6 +682,22 @@ re-touching. "Clear overrides on selection" must be cheap.
   paused, re-anchored on seek. Not accumulation: a pure function of
   (recent authoritative audio positions, wall time), error bounded by
   the anchor cadence — the audio playhead stays master (rules 2/3).
+- `WallClock` (ui/wall_clock.py, FIX 2 as built 2026-07-20): the live
+  clock for **no-audio playback**. `now = anchor_position +
+  (perf_counter() − anchor_wall)` — anchored on play, frozen on pause,
+  re-anchored on seek; a pure function of the wall source, no `t += dt`
+  (rule 2). Qt-free (headless-testable via an injected `now`). The
+  `PlaybackController` reads it instead of the AudioClock whenever
+  `transport.has_media()` is false, with the audio offset simply 0 and
+  the tempo map (default 120 bpm, sidecar, taps, or the transport BPM
+  spinbox — all the existing tempo-map machinery) setting the pace; the
+  no-audio timeline length is the score's own duration through the same
+  `resolve_seconds` seam as triggers. The controller is the single
+  bridge, so its `playing_changed`/`duration_changed`/`time_changed`
+  signals are identical across both clock sources. **AudioClock remains
+  master whenever audio is loaded** (rule 3). Export is unchanged and
+  already audio-independent (FrameClock below): a no-audio export uses
+  offset 0 and the score-length duration, verified not rebuilt.
 - `FrameClock` (core/timing/clock.py, Phase 6 as built): `now =
   frame_index / fps` — a fresh division per query, never `t += 1/fps`,
   so drift in export is impossible by construction and out-of-order

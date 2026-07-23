@@ -14,7 +14,7 @@ import re
 from collections import Counter
 
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
+from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.score.identity import ElementKind
 
 from .conftest import SPANNER_SCORE

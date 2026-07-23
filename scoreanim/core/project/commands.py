@@ -20,7 +20,7 @@ from dataclasses import dataclass, replace
 
 from scoreanim.core.animation.reveal import RevealMode
 from scoreanim.core.animation.style import ElementStyle
-from scoreanim.core.project.document import (LayoutOverride,
+from scoreanim.core.project.document import (CondenseGroup, LayoutOverride,
                                              PartTextOverride, ProjectDoc,
                                              StaffGroup)
 from scoreanim.core.project.stage_config import (OVERLAY_PREFIX,
@@ -420,6 +420,22 @@ class SetPresentationMode(Command):
         return "set presentation mode"
 
 
+@dataclass(frozen=True)
+class SetHideEmptyStaves(Command):
+    """Hide staves that are empty for a whole system (Phase 10R).
+    Intent only — the hidden layout re-derives at the engraving seam,
+    like staff groups; the window re-engraves on the doc diff."""
+    value: bool
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not isinstance(self.value, bool):
+            raise CommandError(f"bad hide_empty_staves {self.value!r}")
+        return replace(doc, hide_empty_staves=self.value)
+
+    def describe(self) -> str:
+        return "hide empty staves" if self.value else "show empty staves"
+
+
 _TEXT_ANCHORS = frozenset({"start", "middle", "end"})
 
 
@@ -636,6 +652,120 @@ class RemoveStaffGroup(Command):
 
     def describe(self) -> str:
         return "remove staff group"
+
+
+# ---------------------------------------------------------------------------
+# condense groups (Phase 12.3)
+# ---------------------------------------------------------------------------
+
+def _validated_condense_groups(groups: tuple[CondenseGroup, ...],
+                               part_order: tuple[PartId, ...]
+                               ) -> tuple[CondenseGroup, ...]:
+    """Validate against the score's part order (runtime data — the
+    part_order idiom) and normalize by first-part position so the prep-seam
+    merge order is deterministic. A part may be in at most one condense
+    group; parts must be contiguous and there must be >= 2 of them."""
+    index = {pid: i for i, pid in enumerate(part_order)}
+    claimed: dict[PartId, int] = {}
+    for g_i, group in enumerate(groups):
+        if len(group.parts) < 2:
+            raise CommandError(
+                f"condense group needs >= 2 parts, got {group.parts}")
+        if len(set(group.parts)) != len(group.parts):
+            raise CommandError(f"duplicate part in condense group {group.parts}")
+        for pid in group.parts:
+            if pid not in index:
+                raise CommandError(f"unknown part {pid!r}")
+            if pid in claimed:
+                raise CommandError(f"part {pid!r} is already in "
+                                   f"another condense group")
+            claimed[pid] = g_i
+        positions = [index[pid] for pid in group.parts]
+        if positions != list(range(positions[0], positions[0] + len(positions))):
+            raise CommandError("condense group parts must be contiguous "
+                               f"in score order, got {group.parts}")
+    return tuple(sorted(groups, key=lambda g: index[g.parts[0]]))
+
+
+def _condense_at(doc: ProjectDoc, group_index: int) -> CondenseGroup:
+    if not 0 <= group_index < len(doc.condense_groups):
+        raise CommandError(f"no condense group #{group_index}")
+    return doc.condense_groups[group_index]
+
+
+@dataclass(frozen=True)
+class AddCondenseGroup(Command):
+    """Merge contiguous like parts onto one staff (one voice per player),
+    re-derived by rewriting the part-list at the prep seam — the doc stores
+    only this intent (rule 5). ElementIds shift, like a part rename."""
+    group: CondenseGroup
+    part_order: tuple[PartId, ...]     # score order, from the loaded score
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        groups = _validated_condense_groups(
+            doc.condense_groups + (self.group,), self.part_order)
+        return replace(doc, condense_groups=groups)
+
+    def describe(self) -> str:
+        return "condense parts"
+
+
+@dataclass(frozen=True)
+class EditCondenseGroup(Command):
+    index: int                         # position in doc.condense_groups
+    group: CondenseGroup
+    part_order: tuple[PartId, ...]
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        _condense_at(doc, self.index)
+        groups = tuple(self.group if i == self.index else g
+                       for i, g in enumerate(doc.condense_groups))
+        return replace(doc, condense_groups=_validated_condense_groups(
+            groups, self.part_order))
+
+    def describe(self) -> str:
+        return "edit condense group"
+
+
+@dataclass(frozen=True)
+class RemoveCondenseGroup(Command):
+    index: int
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        _condense_at(doc, self.index)
+        groups = tuple(g for i, g in enumerate(doc.condense_groups)
+                       if i != self.index)
+        return replace(doc, condense_groups=groups)
+
+    def describe(self) -> str:
+        return "uncondense parts"
+
+
+@dataclass(frozen=True)
+class ApplyScoreSetup(Command):
+    """Batch the load-time layout choices — condense groups, staff groups,
+    and hide-empty-staves — into ONE undoable step (ruling c, Phase 12.4).
+    The Score Setup dialog gathers all choices and applies them together,
+    so a score that re-engraves slowly (complex2 ~20 s) re-engraves ONCE
+    instead of once per change. There is no generic macro command; this is
+    the 'fat apply' idiom (AddTempoOverlay's shape). Both group sets are
+    validated against the score's part order (runtime data)."""
+    condense_groups: tuple[CondenseGroup, ...]
+    staff_groups: tuple[StaffGroup, ...]
+    hide_empty_staves: bool
+    part_order: tuple[PartId, ...]
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        return replace(
+            doc,
+            condense_groups=_validated_condense_groups(
+                self.condense_groups, self.part_order),
+            staff_groups=_validated_groups(self.staff_groups, self.part_order),
+            hide_empty_staves=self.hide_empty_staves,
+        )
+
+    def describe(self) -> str:
+        return "apply score setup"
 
 
 # ---------------------------------------------------------------------------

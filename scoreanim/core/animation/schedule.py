@@ -4,20 +4,20 @@ Built once per (score, join) from the Layout identities plus the
 ScoreModel join mapping; pure data downstream. The three rules that make
 it musically correct on real Dorico exports (spikes/NOTES.md):
 
-1. Tie gating. Tied-to noteheads appear as fresh timemap onsets (all 58
-   tie-stops + 6 continues on the fixture), so triggering on
-   ``identity.onset`` alone would re-fire them. A notehead whose
-   ScoreNote.tie is 'stop'/'continue' inherits the trigger of the
-   nearest earlier 'start'/'continue' of the same (part, staff, pitch) —
-   propagating to the chain start — so it never re-triggers, and
-   scrubbing into the middle of a tie lands in the lit state (the note
-   is sounding there). The voice label is deliberately NOT part of the
-   chain key: MusicXML voice labels are per-measure and change exactly
-   where ties cross barlines (verified: the fixture's m18→19 hi-hat tie
-   starts in an implicit single voice, label None, and stops in voice
-   '5'). Plain same-pitch notes interleaved from other voices are
-   skipped by the backward scan; an intervening 'stop' ends the scan (a
-   closed chain never donates its trigger to a later orphan).
+1. Grow-with-playhead (ruling A/B revised 2026-07-22): every notehead —
+   INCLUDING a tie 'stop'/'continue' — fires at its OWN notated onset.
+   A held note is re-notated at each barline; those continuation noteheads
+   fill in as the playhead reaches them, and the tie ink over them grows
+   left-to-right against the reveal edge (reveal.py). Previously a tied
+   continuation inherited its chain-start trigger ("a tied group is one
+   event") — which drew the whole held span at once, so a 14-beat held
+   note's tie painted to the system's end while the playhead was mid-
+   system (the complex3 Oboe/Clarinet phantom). Scrubbing into a held
+   note now lands it filled-in up to the playhead (the audio position),
+   not fully lit. The default "appear" effect is an opacity fade, so a
+   continuation REVEALS rather than re-attacks; onset-less broken :seg
+   tie/slur segments carry no ScoreNote, never reach this table, and stay
+   edge-driven.
 
 2. Grace timing. Grace ScoreNotes carry the principal's onset, but the
    layout identity carries Verovio's fractional qstamp (just before the
@@ -45,6 +45,7 @@ it musically correct on real Dorico exports (spikes/NOTES.md):
 """
 from __future__ import annotations
 
+import re
 from bisect import bisect_right
 from collections import defaultdict
 from dataclasses import dataclass
@@ -56,6 +57,7 @@ from scoreanim.core.score.identity import (Beats, ElementId, ElementIdentity,
 from scoreanim.core.score.model import MeasureInfo, ScoreNote
 
 _Q = 4096                    # exact for binary subdivisions (join convention)
+_MEASURE_RE = re.compile(r":m(\d+):")    # the minted-id measure segment
 
 
 def quantize_beats(beats: Beats) -> int:
@@ -64,32 +66,64 @@ def quantize_beats(beats: Beats) -> int:
     return round(beats * _Q)
 
 
-# Ink that dims and lights via opacity triggers. SLUR/TIE left this set
-# in Phase 5.2: spanners (with HAIRPIN) reveal by clip-grow at reveal_x
-# instead (REVEALED_KINDS in core/animation/reveal.py) — their opacity
-# stays 1.0 and they carry no trigger. REST/MREST/DYNAMIC joined
-# (ruling 2026-07-12, superseding the Phase 3 taxonomy): everything IN
-# the staves is dimmed and revealed; a rest fires at its notated onset,
-# a dynamic at its attach point (adapter resolves @tstamp/@startid).
-# Statics remain: clefs, key/time signatures, barlines, staff lines,
-# texts, lyrics, chord symbols.
-ANIMATED_KINDS = frozenset({
-    ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.STEM,
-    ElementKind.FLAG, ElementKind.BEAM, ElementKind.ACCIDENTAL,
-    ElementKind.ARTICULATION, ElementKind.LEDGER_LINES,
-    ElementKind.REST, ElementKind.MREST, ElementKind.DYNAMIC,
+# Animation is a DENYLIST, not an allowlist (ruling 2026-07-20, revising
+# the Phase 10R taxonomy). EVERY object on the page animates with the
+# appear/effect system EXCEPT the true scaffold below; clefs, key
+# signatures, tuplet brackets/numbers, ornaments — anything with an
+# onset — are animated ink. An allowlist shipped every new kind
+# static-until-remembered, which is exactly how coverage gaps kept
+# appearing; the denylist inverts the default so new kinds animate for
+# free. The scaffold is: staff lines, barlines, group symbols/brackets,
+# and between-system dividers — plus page furniture (part labels,
+# pgHead/pgFoot, measure numbers), which the adapter mints onset-less so
+# the onset gate excludes it. Clip-revealed spanners (REVEALED_KINDS)
+# are animated ink too, but via the reveal EDGE, not the opacity
+# trigger, so is_animated excludes them here. Note ANIMATED ≠ TINTED
+# (ruling D — TINTED_KINDS unchanged, clefs/keysigs stay black).
+STATIC_KINDS = frozenset({
+    ElementKind.STAFF_LINES, ElementKind.BARLINE,
+    ElementKind.GROUP_SYMBOL, ElementKind.SYSTEM_DIVIDER,
 })
+
+# Spanner kinds revealed by clip-grow (opacity pinned 1.0). Defined here,
+# the base animation module, so is_animated can exclude them from the
+# opacity path; reveal.py re-exports it (its clip machinery is the
+# authority on HOW they reveal).
+REVEALED_KINDS = frozenset({ElementKind.SLUR, ElementKind.TIE,
+                            ElementKind.HAIRPIN})
+
+# Signature kinds (bar-level glyphs on the measure-start onset chain).
+# A DISPLACED sig — one whose onset is not its own drawn measure's
+# start, i.e. an end-of-system courtesy retimed to its CHANGE measure
+# on the next system/page (FINDING-4 ruling 2026-07-23) — never drives
+# a trigger's page/system hint: at the change downbeat its drawn page
+# would drag the min() hint backward and delay the page turn. Like
+# tie/rest-retimed ink, it lights where it is drawn but the VIEW
+# follows the music. A sig lighting at its own drawn downbeat still
+# drives hints as before — system-start restatements are the only
+# fresh elements at rest-heavy system starts (bigband1 m9, complex2
+# m48), and excluding them would hint the PREVIOUS system there. The
+# adapter and the live-oracle import this set (the STATIC_KINDS
+# precedent: schedule.py is the kind-policy authority).
+SIG_KINDS = frozenset({ElementKind.CLEF, ElementKind.KEY_SIG,
+                       ElementKind.METER_SIG})
+
+# Opacity-animated kinds = everything that is neither scaffold nor a
+# clip-revealed spanner. DERIVED from the denylist (introspection and
+# back-compat); the denylist is the authority, so a new ElementKind
+# joins this set automatically.
+ANIMATED_KINDS = frozenset(
+    k for k in ElementKind
+    if k not in STATIC_KINDS and k not in REVEALED_KINDS)
 
 
 def is_animated(identity: ElementIdentity) -> bool:
-    """Note-owned ink dims and lights; scaffold stays at full opacity.
-
-    OTHER-with-onset covers augmentation dots (and any future note-owned
-    fragment the adapter classifies as OTHER but stamps with an onset).
-    """
-    if identity.kind in ANIMATED_KINDS:
-        return identity.onset is not None
-    return identity.kind is ElementKind.OTHER and identity.onset is not None
+    """Opacity-animated = not scaffold, not a clip-revealed spanner, and
+    carries an onset. Onset-less scaffold and page furniture (the adapter
+    mints those onset-less) stay static through the onset gate."""
+    return (identity.kind not in STATIC_KINDS
+            and identity.kind not in REVEALED_KINDS
+            and identity.onset is not None)
 
 
 @dataclass(frozen=True)
@@ -109,14 +143,6 @@ class TriggerSchedule:
     beats_by_element: Mapping[ElementId, Beats]
 
 
-def _pitch_key(note: ScoreNote) -> tuple:
-    # Same convention as the identity join: (step, octave) without the
-    # chromatic alter, staff position for unpitched (see join._pitch_key).
-    if note.pitch_step is None:
-        return ("loc", note.staff_loc)
-    return (note.pitch_step, note.octave)
-
-
 def build_trigger_schedule(layout: Layout,
                            mapping: Mapping[ElementId, ScoreNote],
                            measures: Sequence[MeasureInfo] = ()
@@ -124,33 +150,24 @@ def build_trigger_schedule(layout: Layout,
     ident_by_id = {el.identity.element_id: el.identity
                    for el in layout.elements}
 
-    # -- rule 1 + 2: notehead triggers via tie-chain walk ------------------
-    chains: dict[tuple, list[tuple[ScoreNote, ElementId]]] = defaultdict(list)
-    for eid, note in mapping.items():
-        if eid in ident_by_id:
-            chains[(note.part, note.staff,
-                    _pitch_key(note))].append((note, eid))
-
+    # -- rule 1 + 2: each notehead triggers at its OWN notated onset --------
+    # Grow-with-playhead (ruling A/B revised 2026-07-22): a tied
+    # continuation fires at its own notated onset, NOT the chain start — so
+    # a held note's re-notated barline noteheads FILL IN as the playhead
+    # reaches each barline (with the tie ink growing between them), instead
+    # of the whole held span appearing at once (the complex3 Oboe/Clarinet
+    # phantom: a 14-beat held-note tie drawn to the system end while the
+    # playhead was mid-system). Scrubbing into a held note lands it filled-in
+    # up to the playhead, matching the audio position; the default "appear"
+    # effect is a fade, so a continuation reveals rather than re-attacks.
+    # Grace notes still use the layout's fractional qstamp (rule 2).
     note_trigger: dict[ElementId, Beats] = {}
-    for members in chains.values():
-        members.sort(key=lambda pair: (pair[0].onset,
-                                       pair[0].voice_label or "",
-                                       pair[0].order))
-        resolved: list[tuple[str | None, Beats]] = []   # (tie, trigger)
-        for note, eid in members:
-            ident = ident_by_id[eid]
-            own = ident.onset if note.grace and ident.onset is not None \
-                else note.onset
-            trigger = own
-            if note.tie in ("stop", "continue"):
-                for earlier_tie, earlier_trigger in reversed(resolved):
-                    if earlier_tie in ("start", "continue"):
-                        trigger = earlier_trigger
-                        break
-                    if earlier_tie == "stop":
-                        break            # closed chain; orphan keeps own onset
-            note_trigger[eid] = trigger
-            resolved.append((note.tie, trigger))
+    for eid, note in mapping.items():
+        if eid not in ident_by_id:
+            continue
+        ident = ident_by_id[eid]
+        note_trigger[eid] = (ident.onset if note.grace
+                             and ident.onset is not None else note.onset)
 
     # -- rule 3: group table from the noteheads ----------------------------
     group_triggers: dict[tuple, list[tuple[Beats, Beats]]] = defaultdict(list)
@@ -214,6 +231,20 @@ def build_trigger_schedule(layout: Layout,
                 rest_trigger[ident.element_id] = trigger
 
     # -- assemble all animated elements ------------------------------------
+    measure_start_q = {n: quantize_beats(m.start)
+                       for n, m in enumerate(measures, start=1)}
+
+    def _displaced_sig(ident: ElementIdentity) -> bool:
+        # A retimed courtesy sig: onset != its own drawn measure's start
+        # (see the SIG_KINDS note above). With no measures supplied
+        # (synthetic tests) nothing is displaced — the pre-FINDING-4
+        # behavior.
+        if ident.kind not in SIG_KINDS or ident.onset is None:
+            return False
+        m = _MEASURE_RE.search(str(ident.element_id))
+        start_q = measure_start_q.get(int(m.group(1))) if m else None
+        return start_q is not None and start_q != quantize_beats(ident.onset)
+
     by_qbeat: dict[int, dict] = {}
     beats_by_element: dict[ElementId, Beats] = {}
     for el in layout.elements:
@@ -238,7 +269,8 @@ def build_trigger_schedule(layout: Layout,
         bucket["pages"].add(el.page)
         if el.system is not None:
             bucket["systems"].add(el.system)
-        if quantize_beats(trigger) == quantize_beats(own):
+        if (quantize_beats(trigger) == quantize_beats(own)
+                and not _displaced_sig(ident)):
             bucket["fresh_pages"].add(el.page)
             if el.system is not None:
                 bucket["fresh_systems"].add(el.system)

@@ -5,7 +5,7 @@ shifts to fit, and — THE pin — no existing ElementId moves."""
 import pytest
 
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
+from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.score.musicxml_prep import PartTextSpec
 from tests.conftest import TESTSCORE
 

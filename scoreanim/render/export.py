@@ -67,21 +67,19 @@ class ExportSpec:
     video 0 == recording 0), and the sidecar offset is applied inside
     the frame walk, never by the compositing user.
 
-    Phase 7.5, system mode: the canvas is user-chosen (width + height,
-    default 1920×1080 in the dialog, session memory only — ruling R3);
-    the current system's band is cropped from its page and composited
-    CENTERED both axes, scaled to fit preserving the band's aspect.
-    Paged mode keeps the Phase 6 semantics untouched: height only,
-    width derived from the page aspect."""
+    System mode (Phase 7.5, framing revised Phase 10R): the canvas is
+    the PAGE's own aspect from `height`, exactly like paged mode — the
+    frame never changes shape between modes; the current system renders
+    at natural page width, vertically centered, everything outside its
+    band transparent."""
     fps: int
-    height: int                  # pixel height (paged: width from aspect)
+    height: int                  # pixel height; width from the page aspect
     start_seconds: float
     end_seconds: float           # exclusive: frames sample [start, end)
     offset_seconds: float        # audio time of score beat 0 (sidecar)
     format: ExportFormat
     out_path: Path
     mode: PresentationMode = PresentationMode.PAGED
-    width: int | None = None     # canvas width; required in system mode
 
 
 def even_size(page_w: float, page_h: float,
@@ -155,19 +153,16 @@ class FrameRenderer:
                                          tempo_map, style,
                                          inputs.reveal_tracks)
         self._applier.set_timing(tempo_map, swing)
+        # both modes share the page-aspect canvas (Phase 10R ruling:
+        # the frame never changes shape); system mode only adds bands
+        geo = inputs.layout.pages[0]
+        self._page_geo = geo
+        self._width, self._height = even_size(geo.width, geo.height,
+                                              spec.height)
         if spec.mode is PresentationMode.SYSTEM:
-            if spec.width is None:
-                raise ValueError("system-mode export needs a canvas width")
-            # free-form canvas (ruled): both dimensions user-chosen,
-            # independently floored to even for the encoder
-            self._width = max(int(spec.width) & ~1, 2)
-            self._height = max(int(spec.height) & ~1, 2)
             self._band_by_system = {b.system: b
                                     for b in system_bands(inputs.layout)}
         else:
-            geo = inputs.layout.pages[0]
-            self._width, self._height = even_size(geo.width, geo.height,
-                                                  spec.height)
             self._band_by_system = None
         self._last_frame: int | None = None
 
@@ -225,27 +220,34 @@ class FrameRenderer:
         return image
 
     def _render_system_frame(self) -> QImage:
-        """One system's band, cropped from its page scene and composited
-        centered on the transparent canvas (Phase 7.5 ruling). The cut
-        lands on the frame current_system() changes — the same applier
-        walk as live follow (ruling R2). The explicit clip is the bleed
-        guarantee: nothing outside the band's target can paint, however
-        Qt clips the source internally."""
+        """A page-sized window centered vertically on the current
+        system's band, rendered onto the page-aspect canvas (Phase 10R
+        ruling: the frame keeps the layout's shape; the system occupies
+        the middle at natural page width). The cut lands on the frame
+        current_system() changes — the same applier walk as live follow
+        (ruling R2). The explicit clip to the band's projected sub-rect
+        is the bleed guarantee: neighboring systems inside the window
+        can never paint."""
         band = self._band_by_system[self._applier.current_system()]
         scene = self._scenes.scene_for_page(band.page)
-        fit = centered_fit(band.rect.w, band.rect.h,
+        page = self._page_geo
+        src = QRectF(0.0, band.rect.y + band.rect.h / 2 - page.height / 2,
+                     page.width, page.height)
+        # the fitted target of the page-sized window (its ≤1 px even-
+        # rounding residue letterboxes exactly like paged mode)
+        fit = centered_fit(page.width, page.height,
                            self._width, self._height)
-        target = QRectF(fit.x, fit.y, fit.w, fit.h)
+        scale = fit.h / page.height
+        clip = QRectF(fit.x, fit.y + (band.rect.y - src.top()) * scale,
+                      fit.w, band.rect.h * scale)
         image = QImage(self._width, self._height,
                        QImage.Format.Format_ARGB32_Premultiplied)
         image.fill(Qt.GlobalColor.transparent)
         painter = QPainter(image)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-        painter.setClipRect(target)
-        scene.render(painter, target,
-                     QRectF(band.rect.x, band.rect.y,
-                            band.rect.w, band.rect.h),
+        painter.setClipRect(clip)
+        scene.render(painter, QRectF(fit.x, fit.y, fit.w, fit.h), src,
                      Qt.AspectRatioMode.KeepAspectRatio)
         painter.end()
         return image

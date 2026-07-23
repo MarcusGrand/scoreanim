@@ -9,25 +9,42 @@ measure's existing barLine group; baseline m1 barlines leave the P1–P2
 inter-staff gap (y 1604–2964 on page 1) empty.
 """
 
+from collections import Counter, defaultdict
+
 import pytest
 
-from scoreanim.core.animation.reveal import REVEALED_KINDS
+from scoreanim.core.animation.reveal import ANCHOR_KINDS, REVEALED_KINDS
 from scoreanim.core.animation.schedule import ANIMATED_KINDS
 from scoreanim.core.animation.style import TINTED_KINDS
 from scoreanim.core.engraving.svg_geom import path_bbox
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.engraving.verovio_adapter import VerovioEngravingProvider
+from scoreanim.core.engraving.verovio import VerovioEngravingProvider
+from scoreanim.core.engraving.verovio.decompose import _PageDecomposer
+from scoreanim.core.engraving.verovio.identity import _identity_for
+from scoreanim.core.engraving.verovio.mei_index import _MeiIndex
+from scoreanim.core.engraving.verovio.records import _LoadState
 from scoreanim.core.score.identity import ElementKind
 from scoreanim.core.score.musicxml_prep import PartGroupSpec
 from tests.conftest import TESTSCORE
 
 SAX_GROUP = PartGroupSpec(parts=("P1", "P2"))
+# Two disjoint groups: the configuration that re-opened BACKLOG 1 —
+# Verovio's condense:"auto" would condense the layout and draw
+# systemDividers; condense:"encoded" (Phase 10) keeps the encoded layout.
+TWO_GROUPS = (PartGroupSpec(parts=("P1", "P2")),
+              PartGroupSpec(parts=("P3", "P4")))
 
 
 @pytest.fixture(scope="module")
 def engraved_grouped():
     return VerovioEngravingProvider().load_detailed(
         TESTSCORE, EngravingParams(), groups=(SAX_GROUP,))
+
+
+@pytest.fixture(scope="module")
+def engraved_two_groups():
+    return VerovioEngravingProvider().load_detailed(
+        TESTSCORE, EngravingParams(), groups=TWO_GROUPS)
 
 
 def _grpsyms(layout):
@@ -92,6 +109,74 @@ def test_kinds_stable_under_grouping(engraved, engraved_grouped) -> None:
                for e in engraved_grouped.layout.elements
                if e.identity.kind is not ElementKind.GROUP_SYMBOL}
     assert grouped == base
+
+
+# --- Phase 10: N>=2 groups (BACKLOG 1, re-opened and closed here) ----------
+
+def test_two_groups_load_with_the_encoded_layout(engraved,
+                                                 engraved_two_groups) -> None:
+    """condense:"encoded" keeps the layout group-count-invariant: same
+    pages, same per-system staff row count, TWO span-keyed grpSyms per
+    system, and no systemDivider ink at all."""
+    spans = Counter(str(e.identity.element_id).rsplit(":", 1)[-1]
+                    for e in _grpsyms(engraved_two_groups.layout))
+    assert spans == {"P1-P2": 5, "P3-P4": 5}
+    per_system = Counter(e.system
+                         for e in _grpsyms(engraved_two_groups.layout))
+    assert per_system == {n: 2 for n in range(1, 6)}
+    assert not [e for e in engraved_two_groups.layout.elements
+                if e.identity.kind is ElementKind.SYSTEM_DIVIDER]
+    base_staves = [e for e in engraved.layout.elements
+                   if e.identity.kind is ElementKind.STAFF_LINES]
+    two_staves = [e for e in engraved_two_groups.layout.elements
+                  if e.identity.kind is ElementKind.STAFF_LINES]
+    assert len(two_staves) == len(base_staves)   # no staves hidden
+
+
+def test_element_ids_stable_under_two_groups(engraved,
+                                             engraved_two_groups) -> None:
+    # the 8.3 pin, at N=2: grouped ids == baseline + the grpSym ids
+    base_ids = {str(e.identity.element_id) for e in engraved.layout.elements}
+    grouped = {str(e.identity.element_id)
+               for e in engraved_two_groups.layout.elements}
+    grp_ids = {str(e.identity.element_id)
+               for e in _grpsyms(engraved_two_groups.layout)}
+    assert grouped - grp_ids == base_ids
+
+
+def test_system_divider_is_static_by_construction() -> None:
+    # ruling (a): SYSTEM_DIVIDER never animates, tints, anchors, or
+    # reveals — every one of those sets is an allowlist
+    assert ElementKind.SYSTEM_DIVIDER not in ANIMATED_KINDS
+    assert ElementKind.SYSTEM_DIVIDER not in TINTED_KINDS
+    assert ElementKind.SYSTEM_DIVIDER not in REVEALED_KINDS
+    assert ElementKind.SYSTEM_DIVIDER not in ANCHOR_KINDS
+
+
+def test_system_divider_decomposes_with_system_scoped_identity() -> None:
+    """No fixture draws a divider under condense:"encoded", so the id-less
+    systemDivider branch is covered synthetically: the Verovio shape is an
+    id-less <g class="systemDivider"> with two polygons, hosted directly
+    in the system (triage spike, section B)."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2096 2967">'
+        '<svg viewBox="0 0 20960 29670" class="definition-scale">'
+        '<g class="page-margin" transform="translate(50, 50)">'
+        '<g class="system" xml:id="s1">'
+        '<g class="systemDivider">'
+        '<polygon points="0,100 300,50 300,90 0,140"/>'
+        '<polygon points="0,200 300,150 300,190 0,240"/>'
+        '</g></g></g></svg></svg>')
+    st = _LoadState(prep=None, mei=_MeiIndex(), onset_by_id={},
+                    measure_start={}, measure_duration={},
+                    staff_n_by_id={}, layer_n_by_id={})
+    accs = _PageDecomposer(svg, page=1, adapter=st).run()
+    (acc,) = accs
+    assert acc.kind is ElementKind.SYSTEM_DIVIDER
+    assert acc.system == 1 and len(acc.paths) == 2 and acc.bbox is not None
+    identity = _identity_for(acc, page=1, st=st, counters=defaultdict(int))
+    assert str(identity.element_id) == "score:sys1:systemdivider:0"
+    assert identity.onset is None and identity.part is None
 
 
 def test_joined_barlines_fill_the_grouped_inter_staff_gap(

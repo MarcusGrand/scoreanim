@@ -78,6 +78,51 @@ def test_neighbour_system_never_bleeds(qapp, engraved, scenes, size) -> None:
         assert exposed_any
 
 
+def test_system_frame_is_page_sized_and_band_centered(qapp, engraved,
+                                                      scenes) -> None:
+    """Phase 10R framing: the fitted region is a PAGE-SIZED window
+    centered on the band — the view scale matches fitting the page
+    itself (the frame never changes shape between modes) and the band's
+    center maps to the viewport center."""
+    bands = {b.system: b for b in system_bands(engraved.layout)}
+    band = bands[2]
+    scene = scenes.scene_for_page(2)
+    page = scene.sceneRect()
+
+    view = StageView()
+    view.resize(600, 850)                # roughly page-shaped viewport
+    view.viewport().grab()               # force offscreen layout/resize
+    view.show_scene(scene)               # paged fit
+    paged_scale = view.transform().m11()
+    view.show_system_band(scene, _qrect(band.rect))
+    assert view.transform().m11() == pytest.approx(paged_scale, rel=1e-6)
+
+    # ±4 px: fitInView's internal 2 px margin + integer scroll positions
+    center = view.mapFromScene(QPointF(page.center().x(),
+                                       band.rect.y + band.rect.h / 2))
+    assert center.x() == pytest.approx(view.viewport().width() / 2, abs=4)
+    assert center.y() == pytest.approx(view.viewport().height() / 2, abs=4)
+
+
+def test_live_zoom_is_constant_across_systems(qapp, engraved, scenes) -> None:
+    """Phase 10R: the frame keeps the page's size, so the view zoom is
+    IDENTICAL for every system however its band height differs — the
+    system is just singled out and centered, the canvas never resizes
+    (the user's requirement, live side)."""
+    bands = {b.system: b for b in system_bands(engraved.layout)}
+    heights = {s: round(b.rect.h) for s, b in bands.items()}
+    assert len(set(heights.values())) > 1     # bands really differ in height
+    view = StageView()
+    view.resize(600, 850)
+    view.viewport().grab()
+    zooms = set()
+    for system, band in bands.items():
+        view.show_system_band(scenes.scene_for_page(band.page),
+                              _qrect(band.rect))
+        zooms.add(round(view.transform().m11(), 6))
+    assert len(zooms) == 1, f"zoom varied across systems: {zooms}"
+
+
 def test_clear_band_restores_paged_framing(qapp, engraved, scenes) -> None:
     bands = {b.system: b for b in system_bands(engraved.layout)}
     view = StageView()

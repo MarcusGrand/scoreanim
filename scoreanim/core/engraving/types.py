@@ -10,8 +10,9 @@ top-left — the same space as PageGeometry, derived from the score's own
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Mapping
 
-from scoreanim.core.score.identity import ElementIdentity
+from scoreanim.core.score.identity import Beats, ElementIdentity
 
 
 @dataclass(frozen=True)
@@ -82,12 +83,16 @@ class Affine:
         return self.b == 0.0 and self.c == 0.0
 
     def apply_rect(self, r: Rect) -> Rect:
-        """Exact for axis-aligned transforms (the only kind Verovio emits)."""
-        if not self.is_axis_aligned:
-            raise ValueError(f"non-axis-aligned transform: {self}")
-        x1, y1 = self.apply(r.x, r.y)
-        x2, y2 = self.apply(r.x2, r.y2)
-        return Rect(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
+        """Axis-aligned bbox of the transformed rectangle, mapped by its
+        four corners: exact for axis-aligned and 90-degree-multiple
+        rotations (Verovio's vertical text — Phase 11), conservative for
+        arbitrary rotation/skew. Reduces to the old two-corner result
+        when the transform is axis-aligned."""
+        pts = [self.apply(r.x, r.y), self.apply(r.x2, r.y),
+               self.apply(r.x, r.y2), self.apply(r.x2, r.y2)]
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return Rect(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
 
 
 @dataclass(frozen=True)
@@ -172,9 +177,59 @@ class Layout:
     elements: tuple[RenderedElement, ...]
 
 
+@dataclass(frozen=True)
+class MeasureTimeline:
+    """The engraved measure timeline — THE beat authority for the whole
+    app (ruling 2026-07-22, FINDING-1 fix): Verovio timemap qstamps on
+    the PERFORMANCE axis. The timemap is playback-expanded, so a
+    repeated span occupies the beats of all its passes: repeated
+    measures keep their FIRST-pass positions (the expansion's clone
+    measures are not part of the notation) and the next new measure
+    starts after the full expansion — which is what syncs with a
+    recording that takes the repeat.
+
+    ``starts``/``durations`` are keyed by the 1-based document-order
+    measure ordinal (ARCHITECTURE §3 item 12); a duration runs to the
+    next first-pass downbeat. ``score_end`` is the last timemap qstamp;
+    for a trailing event-less measure (e.g. a final bar-repeat bar) it
+    can fall short of that bar's musical end — build_score_model floors
+    the final bar with its notated length (the one place the nominal
+    length survives).
+    """
+    starts: Mapping[int, Beats]
+    durations: Mapping[int, Beats]
+    score_end: Beats
+
+
 # Concert pitch is a fixed engraving rule (CLAUDE.md rule 9), not a user
 # option — deliberately a module constant, not an EngravingParams field.
 TRANSPOSE_TO_SOUNDING_PITCH: bool = True
+
+
+@dataclass(frozen=True)
+class LoadWarning:
+    """A non-fatal load anomaly, surfaced instead of silently absorbed
+    (Phase 10 ruling b). Messages use musical coordinates only —
+    provider ids never leak (CLAUDE.md rule 4).
+
+    Codes: "dropped-spanner" (the engraver emitted no ink for a spanner
+    in the source), "unattributed-continuation" (a continuation segment
+    matched no source and was skipped), "segment-count-mismatch"
+    (continuation segments vs crossing sources disagreed in a system),
+    "implausible-tie" (a tie force-matched to a distant note was
+    suppressed — Phase 10R), "hide-unavailable" (empty-staff hiding
+    skipped: it would hide a slash-region staff, rule 10),
+    "repaginated" (encoded page breaks replaced — systems overflowed;
+    page-scoped ids shift), "scaled-to-fit" (a system taller than its
+    page could not be paginated away, so the engraving was scaled down
+    uniformly so nothing is clipped — Phase 12.5, never-clip completion),
+    "system-overflow" (defensive: a system still overflows after
+    scale-to-fit), "unknown-class" (a drawable SVG class the decomposer
+    does not know was rendered as a static element instead of failing the
+    load — app path only, Phase 11.4; strict loads still raise).
+    """
+    code: str
+    message: str
 
 
 @dataclass(frozen=True)

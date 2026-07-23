@@ -47,7 +47,9 @@ def test_affine_rect_mapping_handles_negative_scale() -> None:
     assert (r.x, r.y, r.w, r.h) == (0, -15, 5, 5)
 
 
-def test_affine_rejects_rotation_for_rects() -> None:
-    rot = Affine(a=0, b=1, c=-1, d=0)
-    with pytest.raises(ValueError):
-        rot.apply_rect(Rect(0, 0, 1, 1))
+def test_affine_rect_mapping_corner_maps_90_degree_rotation() -> None:
+    # 90-degree rotation is exact via corner mapping (Phase 11): a 10x2
+    # rect becomes 2x10 (Verovio's vertical text)
+    rot = Affine(a=0, b=1, c=-1, d=0)          # rotate(90)
+    r = rot.apply_rect(Rect(0, 0, 10, 2))
+    assert (round(r.w, 6), round(r.h, 6)) == (2.0, 10.0)

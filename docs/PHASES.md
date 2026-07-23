@@ -676,10 +676,1202 @@ rename re-engraves with the score shifting to fit; everything undoable
 and round-tripping — BACKLOG 5 resolved as split. **PASSED 2026-07-13**
 (user's interactive run on the build commit edb2d79: accepted).
 
+## Phase 10 — Robustness: multi-staff parts & decomposer coverage
+
+Build complete 2026-07-13 (387 headless tests green; 20/20 scripted
+exit checks on the real MainWindow offscreen; review artifact with
+rendered pages delivered). Rulings at plan review (2026-07-13):
+**(a)** `systemDivider` → its own `ElementKind.SYSTEM_DIVIDER`, static
+by construction; **(b)** ties Verovio drops → flag-and-continue as
+`LoadWarning`s, never silent, never fatal; **(c)** a multi-staff part
+is ONE PartId entry everywhere (colors, groups, reveal) — no
+schema/UI ripple.
+
+The design round CORRECTED three of the recorded triage mechanisms
+(verified against the real files; frozen in the 10.0 spike): the m12
+ledger dash belongs to a displaced two-voice REST, not cross-staff
+notation; tie continuation ink is drawn ONLY in a tie's END system
+(the old start<n<=end predicate over-counted pass-through ties), plus
+6 ties Verovio drops entirely (empty <g>s); and the systemDivider root
+cause is Verovio's `condense:"auto"` default silently condensing the
+layout (hiding empty staves!) at 2+ staff groups — fixed by pinning
+`condense:"encoded"`, a rule-7-reinforcing fixed adapter option (the
+transposeToSoundingPitch shape), 0/1-group renders byte-identical.
+
+Both defects are ONE class of bug (verified 2026-07-13, triage in
+`spikes/NOTES.md` "Phase 10"): the adapter was built against two
+fixtures that never exercised multi-staff parts, system dividers, or
+several notation classes, so decomposer whitelists and attribution
+passes assume things `testdata/video_test.musicxml` violates. NOT a
+grouping-logic bug and NOT a text-editing regression — a coverage gap.
+This phase makes the loader robust and adds `video_test.musicxml` to
+the permanent fixtures. Keep changes surgical; the load-bearing walls
+(rules 1–10) hold unchanged.
+
+Root causes established (reproduced against the real files):
+
+- **Multi-bracket (BACKLOG 1 follow-up).** Command layer, dialog, and
+  `_inject_part_groups` are all correct for N groups (two disjoint
+  groups validate and inject cleanly). When a system carries *two*
+  groups Verovio draws a **`systemDivider`** glyph; the decomposer
+  whitelist lacks that class, so the "unknown SVG class with drawable
+  content" guard raises. One group never draws a divider — which is
+  why one always worked. A decomposer-coverage fix, task 10.4.
+- **`video_test.musicxml` won't load.** One structural novelty cascades:
+  the **Piano is a multi-staff part** (`<staves>2</staves>` — one
+  `<score-part>`, two staves; neither prior fixture had one). It yields,
+  in order: `build_score_model` raises `music21 sees 8 parts, prep sees
+  7` (music21 splits the grand staff, prep counts score-parts);
+  `_attribute_ledger_dashes` raises (staff-2 dash matches no notehead);
+  `_attribute_spanner_segments` / `_build_elements` raise on grand-staff
+  tie continuations (Verovio also warns "5 ties left open / start does
+  not occur before end"). Fixed at the root by 10.1, with 10.2/10.3
+  as the fall-out.
+- **New but non-blocking.** `bracketSpan` and `mSpace` appear as
+  NON-drawable classes (don't raise today; add to the container/ignore
+  set so a future drawable one never does — 10.4). New notation
+  (trills/`wavy-line`, fermatas, ornaments, `ppp`, `wedge` hairpins,
+  chord-symbol bass notes) maps to classes already whitelisted — it
+  renders; 10.5 verifies it visually.
+
+Rulings to confirm at plan review, BEFORE building (flag-and-stop, do
+not guess): (a) `systemDivider` — its own `ElementKind.SYSTEM_DIVIDER`
+(static) or fold into `OTHER`; (b) the ties Verovio genuinely drops in
+this export — flag-and-continue vs. investigate the export; (c)
+multi-staff parts — one part color/group entry, or per-staff.
+
+- [x] **10.0 Triage spike** (`spikes/video_test_triage.py`, kept):
+      freeze the enumeration — unknown-SVG-class census, part/staff
+      structure, tie warnings — that established the root causes; write
+      "which features the prior two fixtures never exercised" into
+      `spikes/NOTES.md`. Verify: the script reproduces exactly the four
+      failure points above, in order.
+      As built (2026-07-13): six sections — A part/staff structure
+      (pins the music21 contract: a multi-staff part splits into
+      adjacent `PartStaff`s with ids `'<score-part-id>-Staff<k>'`, the
+      ONLY parts whose id survives), B SVG-class census, C ledger
+      census (the failing dash is REST ink), D tie-continuation table
+      (end-system rule closes every count; 6 ink-less MEI ties), E
+      condense demonstration (auto condenses at 2 groups; encoded
+      byte-identical at 0/1), F the four failures reproduced in order
+      (each reports "no longer raises" post-fix). Corrected root
+      causes recorded in `spikes/NOTES.md`.
+- [x] **10.1 Multi-staff part model**: teach prep / ScoreModel / adapter
+      that one `<score-part>` may own N staves; fix the part↔staff join
+      so an 8-vs-7 count is correct by construction, not an error.
+      Verify: `build_score_model(video_test)` succeeds; piano notes
+      carry the right part with staff 1/2; existing fixtures unchanged.
+      As built (2026-07-13): prep and the adapter identity chain were
+      ALREADY multi-staff-aware (`PartInfo.staff_count`/`first_staff`,
+      `part_for_staff`, part-local `staff_local` in ids) — the entire
+      fix lives in `build_score_model`: expected music21 part count =
+      `sum(staff_count)`; grouped consume (each PartInfo takes its next
+      `staff_count` music21 parts) with a loud PartStaff-id contract
+      check; per-note `staff` = the PartStaff's 1-based slot (music21
+      files notes by MusicXML `<staff>`, the same source as MEI
+      `@staff`, so both sides agree by construction — the video join is
+      a complete 1368/1368 bijection). `_measures(parts[0])` unchanged.
+      This chart's piano LH holds only rests/chord symbols, so staff-2
+      NOTES don't occur; staff-2 identity minting is pinned via its
+      MRESTs/scaffold (`P5:m*:s2:*`). Tests: tests/test_video_score.py.
+- [x] **10.2 Ledger-dash attribution across staves** — mechanism
+      corrected: the m12 dash belongs to a two-voice REST displaced off
+      the staff (staff 2 = Ten/Bari, not even the piano); the
+      (page, measure, staff) scope was already right, the candidate
+      pool lacked rests. As built: two-tier attribution in
+      `_attribute_ledger_dashes` — noteheads first, RESTS only when no
+      notehead matches (same overlap+side rule; onset from the
+      timemap's restsOn, layer from SVG nesting) — so testscore is
+      byte-identical by construction (its rest tier is never
+      consulted; the 90-dash pin untouched). Verified: the m12 dash
+      inherits the rest's (onset 42.0, voice 1); all 355 video dashes
+      carry onset+voice; STAFF_LINES exactly 5 paths on all 360 staves.
+- [x] **10.3 Grand-staff tie/spanner continuation** — mechanism
+      corrected: not grand-staff-specific; Verovio draws tie
+      continuation ink ONLY in the tie's END system, and drops 6 ties
+      outright. As built: class-aware crossing predicate in
+      `_attribute_spanner_segments` (ties/lv: end==n; slurs/hairpins:
+      start<n<=end, unchanged); count mismatches pair up to the
+      shorter list + `LoadWarning("segment-count-mismatch")` instead
+      of raising; `_build_elements` skips unmatched continuations with
+      `LoadWarning("unattributed-continuation")`. Dropped spanners
+      detected STRUCTURALLY (MEI spanner with no inked accumulator —
+      empty <g>s; no log parsing) → `LoadWarning("dropped-spanner")`
+      with musical coordinates only (rule 4). Warning seam:
+      `LoadWarning` (types.py) + `EngravedScore.warnings` (appended
+      field); `load()` still returns bare Layout; the status bar shows
+      the count. Pinned: video = exactly 6 dropped-spanner warnings, 0
+      mismatches, sys-4's six `:seg1`s at extent q29.5→q30.0;
+      testscore's 5 known open ties (Phase 0) and the spanner
+      fixture's 3 (Phase 5) now flag the same way — no longer silent.
+- [x] **10.4 Decomposer class coverage**: two staff groups load on
+      `testscore`; `video_test`'s new classes never reach the guard;
+      N≥2 pinned by test. As built (2026-07-13): root fix is
+      `condense:"encoded"` in the fixed toolkit options — auto-condense
+      HID EMPTY STAVES at 2+ groups (7/3/6/3/5 staff rows) besides
+      drawing the divider; encoded keeps 7×5 rows, 10 span-keyed
+      grpSyms, ZERO dividers, byte-identical 0/1-group renders.
+      `ElementKind.SYSTEM_DIVIDER` still added defensively (ruling a):
+      id-less `_walk` branch + `score:sys{n}:systemdivider:{seq}` ids,
+      covered by a synthetic-SVG unit test since no fixture draws one
+      anymore. `bracketSpan` → OTHER, `mSpace` → containers. grpSym
+      identity became GEOMETRIC (which staves the symbol's bbox spans →
+      part span via `part_for_staff`), replacing injected-slot
+      ordinals: Verovio SUPPRESSES a native brace when an injected
+      group overlaps its part, so slot bookkeeping can't work. Phase 8
+      ids reproduce verbatim (`score:sys{n}:grpsym:P1-P2`); a native
+      grand-staff brace mints its part id alone
+      (`score:sys{n}:grpsym:P5` × 15 on video); the `x{seq}` fallback
+      is gone. Tests: tests/test_adapter_groups.py (two-group load,
+      N=2 id stability, divider statics + synthetic decomposition).
+- [x] **10.5 End-to-end + fixture promotion**: `video_test.musicxml`
+      promoted to the permanent fixtures (`VIDEO_SCORE` +
+      `engraved_video`/`video_score_model`/`video_join_mapping`
+      session fixtures); tests/test_video_score.py pins the census
+      (4661 elements, 7 pages, 1368 note records, complete join), new
+      notation kinds, reload determinism, and grouped-id stability
+      WITH a native brace in play (adding P1–P2 adds exactly its 15
+      grpSym ids). Scripted exit run 20/20 on the offscreen
+      MainWindow: opens (join complete, 6 warnings in the status bar),
+      animates (4038 crossings, stateless scrub), exports (transparent
+      PNG frame with ink), two brackets added live — 30 then 45
+      grpSyms — undoable to zero with the native brace intact and
+      musical ids stable across every re-engrave. Review artifact with
+      all 7 fully-lit pages + the two-bracket render delivered.
+
+**Exit criteria**: `video_test.musicxml` loads, plays, and exports
+cleanly; two or more staff-group brackets can be added in-app,
+undoable, with stable ElementIds; `pytest` green with the new fixture
+in the suite. Build complete 2026-07-13 — 387 tests green incl.
+`test_no_qt_in_core.py`, 20/20 scripted exit checks. The user's review
+of the rendered output REQUIRED FOUR FIXES (hidden staves, animate
+everything, the m44 artifacts, systems-mode framing/never-clip) —
+**superseded by Phase 10R below**; acceptance rides its exit.
+
+## Phase 10R — Review fixes (2026-07-13)
+
+The Phase 10 exit review required four fixes. Build complete
+2026-07-13 (405 headless tests green; 16/16 scripted exit checks on
+the real MainWindow offscreen; updated review artifact with the
+hidden-layout pages, the m44 before/after, and a systems-mode frame).
+Rulings at plan review (2026-07-13): hide-empty-staves is a per-score
+toggle DEFAULT ON for new documents (v≤3 projects load OFF — look
+unchanged); meter signatures ANIMATE (literal reading: only barlines +
+clef/key stay static among notation); page furniture (part labels,
+labelAbbr, pgHead/pgFoot, measure numbers) stays static; **rule 7
+amended as the user directed** ("we must allow for page breaks
+ourselves") — never clip, repaginate when encoded pages can't hold
+their systems, hide-empty-staves as an engraving input. Spike facts in
+`spikes/NOTES.md` "Phase 10R" (`spikes/phase10r_spike.py`, kept).
+
+- [x] **10R.0 Spike**: the two-pass MEI-optimize load is id- AND
+      timemap-transparent (4959 ids, 215 timemap entries identical; no
+      double-transpose; +0.12 s); `optimize` is the ONLY hidden-staff
+      switch Verovio honors; condensed layouts draw systemDividers
+      unless `systemDivider:"none"` (adopted — Dorico's look); the
+      native brace follows staff visibility (3 grpSyms on video
+      hide-ON, incl. one-staff braces); testscore hide-ON would hide
+      its drum staff mid-slash-region (the fallback exists for this),
+      video loses no slash staff; `<print new-page>` injection in part
+      1 alone controls pagination; attach-onset census (fermata/trill
+      = @startid, dir/tempo/harm/dynam = @tstamp, nothing bare).
+- [x] **10R.1 Hide empty staves**: two-pass load in the adapter
+      (`_make_toolkit` + `_set_scoredef_optimize`;
+      `load_detailed(..., hide_empty_staves=)` — a separate arg like
+      groups/texts, rule-5 reasoning); slash contingency AS REFINED at
+      plan review: only when a slash-region staff actually vanishes
+      does the load redo flat (+"hide-unavailable") — video (which HAS
+      slash regions) keeps hiding, testscore degrades safely. Schema
+      v4 (`hide_empty_staves`, version-gated read); `SetHideEmptyStaves`
+      command; Parts-menu checkable action riding the Phase 8
+      re-engrave diff-guard (`_applied_hide_empty`). Pinned:
+      tests/test_hide_empty_staves.py (staves/system
+      8,2,2,4,2,2,5,4,5,4×6; note_records identical to flat; zero
+      overflow; grpSym P5×3; determinism; the testscore fallback),
+      serialize v4 tests, command test.
+- [x] **10R.2 Animate everything**: ANIMATED_KINDS += TEXT,
+      CHORD_SYMBOL, LYRIC, METER_SIG — `is_animated`'s onset gate does
+      the rest; the adapter mints page furniture onset-less
+      (`_STATIC_TEXT_CLASSES` guard on the measure-start fallback) and
+      resolves attach onsets for fermata/trill/mordent/turn/dir/tempo/
+      reh/harm (`attach_startid` + `_attach_onset`; a chord @startid
+      resolves through its first member — build find). dir/harm gained
+      exact @tstamp attach. TINTED/ANCHOR/REVEALED sets unchanged
+      (attachments, ruling D stands). Pinned: schedule census rewrite +
+      video attach-onset pins.
+- [x] **10R.3 Implausible-tie suppression (the m44 fix)**: Verovio
+      force-matches 13 unclosable ties to distant same-pitch notes
+      (10.5–148.5 quarters; real ties ≤4) whose stacked curves drew as
+      ovals around m44. `_flag_implausible_ties` (after segment
+      matching — bogus sources stay in the pairing pool — before
+      element construction): extent > 2× start-measure duration →
+      source AND continuation ink suppressed, one "implausible-tie"
+      warning each. Pinned: no surviving tie exceeds the threshold,
+      the q17.5→q166 id gone, seg-counter re-derived (system 15's ink
+      was entirely bogus), testscore/spanner zero-suppressed.
+- [x] **10R.4 Systems framing + never-clip**: the frame KEEPS the
+      page's aspect in BOTH live and export — StageView fits a
+      page-sized window centered on the band (view sceneRect widened so
+      near-edge systems center instead of clamping — build find);
+      FrameRenderer sizes system mode exactly like paged
+      (`even_size(page, height)`), renders the page-wide window, clips
+      to the band's projected strip; ExportSpec.width and the system
+      W×H dialog controls REMOVED (one height field, both modes).
+      Never-clip: `plan_page_breaks` (pure greedy planner, measured
+      margins, 2% drift pad — the re-engrave placed one system 2 units
+      lower than measured) + `_repaginate` at the prep seam (strip
+      encoded new-page, inject at planned system starts, part 1 only)
+      + the measure-verify-retry loop in `load_detailed`
+      ("repaginated" warning; defensive "system-overflow" post-check).
+      video FLAT: 8/15 systems used to overflow (worst y 6071/2967) →
+      now 15 pages, zero clipped. Pinned: tests/test_repagination.py,
+      re-shaped export tests, stage page-frame test.
+- [x] **10R.5 Docs + fixtures + exit**: rule-7 amendment (CLAUDE.md;
+      ARCHITECTURE adapter rulings 7/8/9 + taxonomy + schema v4);
+      fixture strategy — testscore family and `engraved_video` stay
+      hide-OFF (the flat fixture now exercises suppression AND
+      repagination in one load), `engraved_video_hidden` pins the
+      new-document default. Scripted exit run 16/16 offscreen: default
+      hidden layout (7 pages, no overflow), m44 clean, animate-all
+      census, toggle-off → 15-page repagination → undo, page-shaped
+      systems frame live + export (transparent outside the band).
+
+**Exit criteria**: video_test opens on the hidden-staff layout with
+nothing clipped in either layout; m44 reads clean; texts/trills/
+chords/meters animate while barlines/clefs/keys/furniture stay static;
+systems mode keeps the page frame with the system centered, live and
+exported. Build complete 2026-07-13 — 405 tests green incl.
+`test_no_qt_in_core.py`.
+
+Post-review fixes (2026-07-13, from the user's run): a page-follow jump
+(bar 3 → page 4 and back) traced to Verovio REUSING SVG group ids
+across element types under condensed layout — a note-owned fragment's
+own id collided with a distant note's, so `_identity_for` picked up a
+late onset and the schedule stamped a stray page/system on that beat.
+Fix: onset lookups are gated by svg_class (only notes/rests read
+onset_by_id by id; spanner classes the spanner table; "beam" the beam
+table; note-owned fragments use owner_onset) — corrects BOTH paged
+page-follow and systems-mode system-follow (the same stray stamps).
+The systems-mode "canvas changes size" report was the same bug's
+visible face in system mode (a wrong-system jump); the frame itself was
+already page-constant since 10R.4 — now pinned end-to-end (identical
+export pixels across the walk; identical live zoom across systems).
+409 tests green. **PASSED pending the user's visual review** (review
+artifact updated in place).
+
+## Phase 11 — Dorico robustness: any export loads (complex1)
+
+Planned 2026-07-19 from `docs/PHASE11_BRIEF.md` (Cowork planning
+session, 2026-07-15). The brief's diagnosis was re-verified against the
+real files by the triage spike (`spikes/complex1_triage.py`, kept)
+before planning — the failure chain, censuses, and shim results all
+reproduce, and the spike corrected four brief details (below).
+Milestone: `testdata/complex1.musicxml` (14 single-staff parts, 3
+pages, 921 notes) loads, animates, and exports. **Stepping stone to
+Phase 12** (orchestral complex2, `docs/PHASE12_BRIEF.md`): the
+decomposer/geometry fixes here are exactly what complex2 needs to get
+through decomposition at all — Phase 11's exit only requires complex2
+to *load* (with its 20 system-overflow warnings); laying it out is
+Phase 12's problem.
+
+Rulings already made — recorded here, not re-opened:
+
+- **Graceful degradation (Marcus, 2026-07-15, Cowork session):** an
+  unknown drawable SVG class in the app path no longer fails the load —
+  it mints a static OTHER element plus `LoadWarning("unknown-class")`,
+  never a silent skip and never a crash (the status bar counts it,
+  stderr names the class). Tests stay strict: a fail-fast flag,
+  default on under pytest and the doctor's `--strict`, preserves the
+  Phase 10 discipline so coverage gaps keep surfacing loudly in
+  development.
+- **The grace/appoggiatura join fix is Phase 12 task 12.1, NOT this
+  phase** (2026-07-15): complex2 showed the join needs an order-based
+  rewrite, not a grace tolerance — one fix covers both files. Phase 11
+  only PINS complex1's join gap so regressions surface.
+
+Spike corrections to the brief (2026-07-19, all frozen in
+`spikes/complex1_triage.py`):
+
+- **The container treatment of bTrem is not clean.** The tremolo
+  stroke glyph (SMuFL E222) is a DIRECT child of the id-bearing
+  `<g class="bTrem">`, not nested inside the note/stem groups. A
+  container shim loads, but the stroke silently folds into the
+  enclosing static STAFF_LINES scaffold (complex1's P9 m7 staff gains
+  a 6th primitive) — the BACKLOG-6 ledger-line bug shape. bTrem must
+  EMIT its own element; ruling (a) below is therefore a real choice,
+  not something that falls out for free.
+- **fTrem occurs in NEITHER file** — all 85 complex2 tremolos are
+  bTrem. fTrem coverage lands defensively via a synthetic-SVG unit
+  test only (the SYSTEM_DIVIDER precedent).
+- **The 22 unmatched joins are NOT the grace notes.** All 26 graces
+  match via join.py's existing onset-excluded grace tier. The
+  unmatched are the PRINCIPAL notes carrying the graces: Verovio's
+  timemap delays each principal by the grace duration (+0.0957 q,
+  exactly, on every pair; both sides flag grace=False) while music21
+  keeps the notated beat, so the exact-onset key misses. Identical
+  appoggiatura semantics to complex2's 1882/9546 collapse, at
+  acciaccatura scale — confirming the one-rewrite-in-12.1 call.
+- Minor: complex2's beamSpan raises on page 5, BEFORE its rotates
+  (pages 8 and 16 in the raw render — the brief said page 5; all are
+  exactly −90°). MEI `beamSpan` carries @startid/@endid but is not in
+  the layer-beam table, so a bare kind-mapping yields an onset-less
+  beam — 11.1 resolves its onset/extent from startid/endid. And
+  because the stroke ink stops folding into the staff, complex1's
+  element census becomes **3491, not the brief's shimmed 3490** (the
+  bTrem element is new); 11.5 pins the as-built number.
+
+Rulings at plan review (Marcus, 2026-07-19): **(a)** tremolo stroke
+ink ANIMATES with the owning note — the bTrem element carries its
+child note's onset (chord-member style) and joins the
+opacity-triggered set; it is playing ink under the Phase 10R
+animate-everything taxonomy (tint scope unchanged). **(b)** all four
+spike corrections above accepted — the plan builds on the corrected
+mechanisms (census pin 3491; fTrem defensive-only; join gap pinned as
+the grace-delayed principals; beamSpan onset from @startid/@endid).
+
+Build complete 2026-07-19 (430 headless tests green incl.
+`test_no_qt_in_core.py`; 13/13 scripted exit checks on the offscreen
+render pipeline; review artifact with complex1's three rendered pages
+delivered). **Exit criteria PASSED 2026-07-19** — full pytest green,
+score-doctor PASS on all four permanent fixtures, complex2 loads
+through decomposition (42,615 elements, 20 pages, 20 system-overflow
+warnings — layout is Phase 12), complex1 opens/animates/exports a
+transparent frame with ink. Build facts: the offscreen `MainWindow`
+hangs in headless runs (no event loop), so the scripted exit drives
+`ScoreScenes` + `FrameRenderer` directly (the render_page_png idiom);
+one bTrem in complex1 (P9 m7, onset 24.0) — the census is 3491, not
+the brief's shimmed 3490, because the stroke stops folding into the
+staff.
+
+- [x] **11.0 Score-doctor CLI**
+      (`python -m scoreanim.tools.check_score <file-or-dir>`): headless
+      load of any MusicXML; prints PASS (element/page/note counts,
+      warning census, join completeness) or the exact failure point;
+      batch mode over a folder; `--strict` fail-fast (the 11.4 flag).
+      This is the engine of the "any Dorico file" goal: every new
+      score becomes one-command triage, and the loop (doctor →
+      smallest fix → fixture) becomes routine. Verify: doctor PASSes
+      testscore, the spanner fixture, and video_test; on complex1 it
+      reports the bTrem failure point (pre-11.1) instead of a
+      traceback.
+      As built (2026-07-19): `scoreanim/tools/check_score.py` — a total
+      triage function `check(path, *, strict)` returning a `_Report`
+      (PASS census or a named failure STAGE, never a traceback), a CLI
+      with batch-a-folder and `--strict` (non-strict is the default,
+      the app path), non-zero exit on any FAIL. Threads a `strict` load
+      param through `load_detailed`/`_engrave_prepared`/`_LoadState`
+      (inert until 11.4). Tests: tests/test_check_score.py.
+- [x] **11.1 Decomposer/geometry coverage**: `bTrem` (and `fTrem`
+      defensively) as EMITTING kinds per ruling (a) — the stroke ink
+      is claimed by the tremolo element, never the staff scaffold;
+      `beamSpan` → BEAM with onset/extent from MEI @startid/@endid
+      (the layer-beam table cannot serve it); rotate transforms parsed
+      into the Affine matrix + `apply_rect` rewritten to map all four
+      corners (exact for 90° multiples, conservative otherwise), the
+      "Verovio never rotates" docstring assumption dropped. Verify:
+      synthetic-SVG unit tests per class; complex1 decomposes past
+      page 2; complex2 decomposes end-to-end; existing fixtures
+      byte-identical.
+      As built (2026-07-19): `ElementKind.TREMOLO` (added to
+      ANIMATED_KINDS only — tint scope unchanged); bTrem/fTrem in
+      `_KIND_BY_CLASS`, onset propagated in the walk from
+      `_MeiIndex.tremolo_note_ids` (chord-member style). `beamSpan` →
+      BEAM with `_MeiIndex.beamspan_ends` (@startid/@endid) in a new
+      `_identity_for` branch. `svg_geom.parse_transform` grew a
+      `rotate(a[,cx,cy])` case; the `matrix` case dropped its
+      is_axis_aligned raise; `Affine.apply_rect` corner-maps (reduces
+      to the old two-corner result when axis-aligned). complex2 loads
+      end-to-end (42,615 = 42,530 + 85 real tremolos). Tests:
+      tests/test_adapter_coverage.py, updated
+      test_svg_geom/test_core_types.
+- [x] **11.2 mRest ledger tier**: whole-bar rests join the Phase 10.2
+      rest tier in `_attribute_ledger_dashes` (same geometry rule —
+      complex1 p3 m13 staff 8's two-voice measure displaces its mRest
+      onto a ledger dash). Verify: complex1 loads past page 3, the
+      x=1277 dash carries the mRest's (onset, voice); testscore and
+      video_test byte-identical by construction (the tier is consulted
+      only on a notehead miss).
+      As built (2026-07-19): one-line change —
+      `elif acc.svg_class in ("rest", "mRest"):` in the rests_by_scope
+      pass. complex1 loads fully (3491 elements, 899/921). Adds the
+      engraved_complex1/complex1_score_model conftest fixtures. Tests:
+      tests/test_complex1.py.
+- [x] **11.3 Join gap pinned, not fixed**: complex1 joins 899/921; a
+      fixture test pins the 22 unmatched as EXACTLY the grace-delayed
+      principal set from the triage spike (ids pinned; all 26 graces
+      matched; every unmatched pair off by exactly the +0.0957 grace
+      delta) so any regression — or the Phase 12.1 fix — moves a
+      pinned number. Verify: headless test against the promoted
+      fixture.
+      As built (2026-07-19): tests/test_complex1.py pins the 22
+      unmatched-layout ids (`_GRACE_DELAYED_PRINCIPALS`), all 26 graces
+      matched, nothing unmatched is itself a grace, and every pair the
+      same pitch off by +0.0957 q.
+- [x] **11.4 Graceful degradation** (ruled, above): unknown drawable
+      SVG class → static OTHER element + `LoadWarning("unknown-class")`
+      in the app path; strict mode (pytest default, doctor `--strict`)
+      keeps today's raise. Verify: synthetic unknown-class SVG
+      degrades with the warning in app mode and raises in strict;
+      no known fixture triggers it after 11.1.
+      As built (2026-07-19): the decomposer's unknown-class guard is
+      gated on `st.strict` — strict raises; non-strict mints a static
+      OTHER accumulator claiming the drawables, appends the warning,
+      names the class on stderr. main_window's load/reload passes
+      `strict=False`. Tests: tests/test_adapter_coverage.py.
+- [x] **11.5 Fixture promotion + exit**: complex1 joins the permanent
+      fixtures with census pins (3491 elements, 3 pages, 921 note
+      records, join 899/921 with the pinned grace-principal set, 3
+      dropped-spanner warnings); scripted exit run on the offscreen
+      MainWindow: open, animate, export a frame. Docs close out the
+      established way (CLAUDE.md testdata note + unknown-class rule
+      text, ARCHITECTURE.md §3 tremolo/beamSpan/rotate rulings +
+      LoadWarning code list, BACKLOG.md robustness note). Verify: full
+      pytest; doctor PASS on all four fixtures AND "loads with 20
+      system-overflow warnings" for complex2.
+      As built (2026-07-19): census + notation-coverage pins
+      (tremolo element animates untinted, unpitched percussion, reload
+      determinism) in tests/test_complex1.py. Scripted exit 13/13 on
+      the offscreen render pipeline (MainWindow hangs headless — no
+      event loop — so it drives ScoreScenes + FrameRenderer, the
+      render_page_png idiom). complex2 stays OUT of the pytest suite
+      (~20 s/load); the score-doctor is its check. Docs closed out per
+      the checklist.
+
+**Exit criteria**: complex1 loads, plays, and exports cleanly (join
+gap = exactly the pinned grace-principal set); the score-doctor
+reports PASS for the four permanent fixtures and complex2 loads
+through decomposition with only overflow-class warnings; `pytest`
+green including `test_no_qt_in_core.py`.
+
+## Phase 12 — Orchestral robustness: complex2 loads usably
+
+Planned 2026-07-21 from `docs/PHASE12_BRIEF.md` (Cowork planning
+session, 2026-07-15). **Phase 11 was the stepping stone and is closed.**
+The brief's diagnosis was re-verified against the real files during
+planning (join pipeline read against `core/score/join.py`; two
+read-only complex2 censuses; the condense-render spike
+`spikes/condense_prep.py`, kept) — and **corrected the brief on two
+points** (below). Milestone: `testdata/complex2.musicxml` (36 parts /
+37 staves, 159 measures, 5.7 MB, 11 transposed parts, Dorico-condensed
+in the PDF, bar repeats; companion `complex2.pdf`) **loads, renders
+usably via load-time user choices, animates, and exports.** complex2
+already loads through decomposition (Phase 11: 42,615 elements, 20
+pages) but is structurally unusable — every one of the 20 systems
+overflows its page (a 37-staff system is taller than one page;
+repagination cannot fix a single over-tall system). The user must be
+able to reduce staff count at load time (condense / hide / bracket).
+
+Reconciliation with rulings that post-date the brief (now in CLAUDE.md):
+
+- **Animation is a DENYLIST** (`schedule.STATIC_KINDS`; `ANIMATED_KINDS`
+  is derived). A new `ElementKind` animates by default, so 12.2's
+  synthesized `BAR_REPEAT` elements enter the animated set with ZERO
+  allowlist edits — the adapter only mints them with an onset and keeps
+  them out of `STATIC_KINDS`. The brief's "the kind census has no repeat
+  kind" is a non-issue. Tint scope unchanged (repeat symbols tint like
+  slashes — playing ink).
+- **No-audio playback (WallClock) exists.** The Score Setup dialog
+  re-engraves via the existing `_reengrave` diff-guard (preserves
+  page/system/zoom); 12.4/12.5 must verify it does NOT reset the
+  no-audio transport/WallClock anchoring (the controller picks the clock
+  by `transport.has_media()`). A "don't break it" check, not new work.
+
+Rulings at plan review (Marcus, 2026-07-21):
+
+- **(a) Trigger timing for notes after appoggiaturas — Verovio
+  performance qstamp**, not the notated beat. The principal lights when
+  it actually sounds (Verovio delays it by the grace duration),
+  consistent with how graces already fire (Phase 3.3) and the sync
+  contract (ink lands on the audible onset). 12.1's order-based join
+  keeps both onsets derivable, so the choice is reversible.
+- **(b) Bar-repeat granularity — per measure.** One synthesized repeat
+  symbol (SMuFL `repeat1Bar` U+E500) per repeated bar, onset at the
+  bar's downbeat. (Verovio draws no glyph at all — full synthesis; a
+  measure-repeat is one symbol per bar, so per-beat has no ink to draw.)
+- **(c) Score Setup dialog — batch on OK.** The dialog gathers all
+  choices; OK applies ONE command (the "fat apply" idiom — there is no
+  generic macro command) = one undo step + exactly one re-engrave.
+  Chosen because complex2 re-engraves in ~20 s (vs 0.6 s on the
+  fixtures), so the existing per-action live-re-engrave dialog model
+  (Staff Groups) would stall repeatedly. The Setup dialog is therefore a
+  BATCH editor (deferred apply), unlike the per-action Parts dialogs.
+- **(d) Condense scope — v1 as designed** (naive shared-staff two-voice
+  merge; one voice per player; combined label; NO a2 unison collapse, NO
+  divisi logic). Confirmed by the render spike: the naive Flute 1.2
+  merge renders cleanly (correct stem/rest/beam separation, no
+  collisions) on both unison and divergent passages; the only cost is
+  doubled noteheads in unison (a2-collapse deferred to BACKLOG). Merging
+  two flutes took that staff 5 pages → 3.
+
+Spike corrections to the brief (2026-07-21, `spikes/NOTES.md` Phase 12):
+
+- **Verovio draws NOTHING for `<measure-repeat>`.** Its MusicXML
+  importer has no measure-repeat support — repeat bars import as
+  invisible `<space>`; there are ZERO `mRpt`/`beatRpt` glyphs in the MEI
+  or the SVG. The brief's "Verovio draws the mRpt symbol" is wrong. →
+  12.2 FULLY SYNTHESIZES the % symbol (the slash-region shape), not
+  "map the glyph."
+- **3 regions / ~32 bars, not "6 regions."** The 6 `<measure-repeat>`
+  tags are 3 `[start, stop)` spans (Bongos mm.2–12 & mm.14–24, Drum Set
+  mm.98–107) — the same half-open convention `_slash_regions` uses.
+- **12.1 join is surgical.** `_match_voice` already sorts+zips both
+  sides by document order within a bucket; the ONLY onset dependence is
+  `_note_key` embedding `round(onset*4096)` for non-graces. Dropping
+  that term is the whole fix; the grace tier already works this way.
+
+Build complete 2026-07-21 (475 headless tests green incl.
+`test_no_qt_in_core.py`; scripted offscreen exit on complex2 passes).
+**Exit criteria PASSED 2026-07-21.** One plan deviation, ruled during
+the exit (Marcus, 2026-07-21): **condense + hide could NOT clear
+complex2's overflow** — hide-empty-staves is a no-op on complex2 (its
+percussion slash/repeat staves import as `<space>`, so Verovio's
+`optimize` would hide them → the rule-10 fallback disables hiding
+globally, `hide-unavailable`), and v1 contiguous condensing only reaches
+~26 staves while the tutti needs far fewer to fit the Dorico-condensed
+page. The real lever is **engraving SCALE**: the adapter rendered at
+Verovio's default 100%, giving 7302-tall systems on a 4195 page (the
+source of the 20 overflow warnings since Phase 11). The fix is **auto
+scale-to-fit as the never-clip completion (rule 7)**: when a system still
+overflows after repagination, scale the engraving down uniformly so the
+tallest fits (a rastral-size reduction, not window reflow). complex2 now
+renders at 54% with ZERO overflow, nothing clipped; condense/hide became
+readability tools, not the overflow fix. As-built exit: complex2
+condensed (wind/brass/choir pairs → 25 staves) + auto scale-to-fit = 20
+pages, 0 overflow, join 9546/9546, 33,320 animated elements; load
+~25 s + 1.8 s scene build (one-time; no optimization needed).
+
+- [x] **12.0 Spikes** (kept — findings in `spikes/NOTES.md`): (a)
+      condense-merge prep rewrite (`spikes/condense_prep.py`) — Flute
+      1/2 → one staff two voices, rendered before/after, viability
+      confirmed (ruling d); (b) measure-repeat census — Verovio draws
+      nothing, 3 `[start,stop)` regions / ~32 bars; (c) appoggiatura
+      timemap semantics — principal delayed +grace-dur, order-based
+      `(pitch, order)` join handles chord-graces. DONE during planning.
+- [x] **12.1 Order-based join**: rewrite `_note_key` so plain notes key
+      on `pitch_key` only (drop the `round(onset*4096)` term) — pairing
+      falls to `(pitch, document order)` within `(part, measure, staff,
+      voice)`, onset as tiebreak, the shape the grace tier already uses.
+      Verify: complex1 joins 921/921 (the 22 grace-delayed principals
+      now match); complex2's join completes; testscore + video_test
+      mappings BYTE-IDENTICAL (re-pin). Update `tests/test_complex1.py`
+      (`_GRACE_DELAYED_PRINCIPALS` → complete bijection) and the
+      `tools/check_score.py` counts. Trigger stays the qstamp (ruling a
+      — no retiming; the fix only closes the match).
+- [x] **12.2 Bar-repeat synthesis**: `ElementKind.BAR_REPEAT` (animates
+      by default under the denylist; tinted like SLASH). Detect
+      `<measure-repeat>` regions at the prep seam (`_repeat_regions`, a
+      `[start, stop)` twin of `_slash_regions`; `RepeatRegion` on
+      `PreparedScore`). Synthesize in the adapter (`_synthesize_repeats`,
+      a twin of `_synthesize_slashes`): one `repeat1Bar` symbol centered
+      per repeated bar, positioned from `staff_geo`, onset =
+      `measure_start[m]` (per-measure, ruling b). Extend the slash
+      hide-retry guard so a repeat staff is not hidden out. Verify:
+      complex2's 3 regions (~32 bars) light on the downbeat; existing
+      fixtures byte-identical (no measure-repeats there).
+- [x] **12.3 Prep-seam condensing + schema v5**: `PartCondenseSpec`
+      (neutral prep-seam twin beside `PartGroupSpec`) — contiguous like
+      parts to merge + combined label ("Flute 1.2"). `_apply_condense`
+      in `musicxml_prep`: merge N contiguous `<score-part>` + `<part>`
+      bodies into one part, one `<voice>` per player on a shared staff
+      (append behind a `<backup>` of the measure's voice cursor, relabel
+      voices, force `<staff>1`), combined `<part-name>`/-display; keep
+      `PartInfo.staff_count`/`part_for_staff` consistent. v1 naive
+      (ruling d): NO a2-collapse, NO divisi → BACKLOG. Decide the
+      absorbed-part `<direction>` handling (take primary only vs accept
+      doubling on divergent bars). Doc: `condense_groups` field +
+      Add/Edit/RemoveCondenseGroup commands (the StaffGroup triad).
+      **Schema v5** (one bump; `_READABLE_VERSIONS = 1..5`, writer emits
+      5, version-gated read). Thread `condense_groups` through
+      `provider.load`/`load_detailed`/`prepare` + the main_window
+      conversion + a fourth `_applied_condense` diff-guard clause.
+      ElementIds shift when condensing changes (part identity is an
+      engraving input, like renames) — overrides re-derive; pin id
+      behavior. Verify: merged part loads through the adapter + join;
+      undo restores; round-trip.
+- [x] **12.4 Score Setup dialog**: triggered at LOAD when the flat
+      render overflows (inspect `engraved.warnings` for
+      `code == "system-overflow"` after `load_detailed` in the load path
+      — `open_score`/`open_project`/`_load_score`, NOT on every
+      `_reengrave`) and on demand via **Parts → Score Setup…**. A
+      per-part list with three controls: condense-group, staff-group
+      (existing), hide-empty-staves (existing). BATCH editor: OK applies
+      one command = one undo step + one re-engrave via the diff-guard
+      (ruling c). Verify: complex2 opens → dialog offered; the no-audio
+      transport survives the re-engrave (WallClock reconciliation);
+      undoable.
+- [x] **12.5 Scale + fixture promotion + exit**: perf numbers recorded
+      (load, scene build, tick cost on a dense page — no optimization
+      unless targets miss). complex2 promoted to the permanent fixtures
+      with censuses pinned (kept OUT of the ~20 s pytest path per the
+      Phase 11 precedent — the score-doctor is its check). Scripted
+      offscreen exit (ScoreScenes + FrameRenderer idiom — the offscreen
+      MainWindow hangs headless): open complex2 → Setup choices (condense
+      wind/brass pairs + hide empty) until zero system-overflow →
+      animate → export frames. Docs close-out the established way
+      (CLAUDE.md rule-10 family + testdata note + a condensing rule;
+      ARCHITECTURE §3 mRpt synthesis + appoggiatura semantics, §4 schema
+      v5, §7 Setup dialog, §8 orchestral-scale risk; BACKLOG divisi/a2 +
+      per-passage condensing). Review artifact: rendered complex2 pages
+      next to `complex2.pdf` pages, plus the bar-repeat and appoggiatura
+      measures up close (fidelity target "usable and clean", not
+      PDF-identical — the user's condense choices differ from Dorico's).
+
+**Exit criteria**: complex2 opens with the Setup dialog and, with
+reasonable choices, renders with zero system-overflow (auto scale-to-fit
+completes never-clip when condensing/pagination cannot), animates in
+sync, and exports; join complete on all six fixtures; `pytest` green
+including `test_no_qt_in_core.py`. **PASSED 2026-07-21.**
+
+## Field fixes (post-Phase 12)
+
+Robustness fixes found by using the app on real charts, on the
+`phase-10-robustness` branch. Each is a smallest root-cause fix behind
+the `EngravingProvider` boundary (rule 4), with a regression test that
+fails without it.
+
+- [x] **Cross-system stray-path leak (2026-07-21, bigband1)**. In LIVE
+      playback, tie/slur curves from a later system appeared solid-black
+      bars ahead of the playhead (most visible at ghost floor 0). Root
+      cause: under hide-empty-staves (default ON) Verovio's
+      scoreDef@optimize round-trip REUSES one xml:id across element types
+      and emits a later system's spanner `<path>` INSIDE an earlier
+      note's `<g class="stem|flag|artic">` whose id collides; the
+      decomposer absorbed that path into the early element, which reveals
+      with its (early) system while its ink sits a system down — breaking
+      the per-(system, part) reveal invariant. NOT a reveal/applier bug:
+      the leaking ink is not a spanner element at all (so slur/tie/hairpin
+      attribution checks miss it) and its owning element's onset is
+      on-time by its own (wrong) attribution. Fix: `_rehome_stray_paths`
+      partitions each page into per-system vertical strips and splits any
+      path drawn in a foreign system into its own element attributed by
+      GEOMETRY — a reveal-clip TIE (onset-less, grows in with the sweep
+      at its own x; a first cut re-homed to a measure-start OTHER that
+      still popped at the downbeat, moving the leak from m21 to m26 —
+      corrected to reveal-clip) when a staff/part underlies it, else a
+      measure-start OTHER. No ink dropped (rule 7); `LoadWarning
+      "stray-path"` per re-homed element. ARCHITECTURE §3 item 11.
+      Tests: `tests/test_stray_path_rehome.py` (invariant + re-homing +
+      live-applier symptom by geometry, all three fail without the fix);
+      `bigband1.musicxml` fixture; `video_test` hidden census +1
+      stray-path (a system-14 hairpin path in the id-colliding system-13
+      group). 478 headless green; score-doctor 8/9 (bigband1 --strict
+      FAILs only on a pre-existing unknown `gliss` class — separate gap).
+
+## Phase R — Refactor: verovio_adapter → pipeline-stage package
+
+Planned 2026-07-22 from `docs/REFACTOR_BRIEF.md` (Cowork planning
+session, 2026-07-21). The brief's map was re-verified against the
+working tree before planning: the adapter is unchanged since the brief
+(1823 lines; every claimed line band holds), and the import graph
+confirmed with one addition (`spikes/part_label.py` imports the
+provider, function-local). Goal: split
+`core/engraving/verovio_adapter.py` into `core/engraving/verovio/` —
+one module per pipeline stage behind the same public API — with a
+golden-snapshot safety net captured and committed BEFORE the first
+move, then surface and fix latent defects under the behavior-change
+policy. Rule 4 unchanged: Verovio types/ids/SVG never leak past the
+adapter PACKAGE. Out of scope: the live-playback spanner early-reveal
+bug (render/applier path, verified 2026-07-21 — its own session),
+provider-seam redesign, any new abstraction beyond the module
+boundaries themselves (no strategy patterns, no pipeline framework),
+`_LoadState` narrowing and the `_identity_for` onset-chain table
+(BACKLOG).
+
+Behavior-change policy (ruled by Marcus 2026-07-21 — recorded, not
+re-opened): (1) mechanical moves are byte-identical to the goldens,
+full pytest green, per commit, no exceptions — a move that "needs" a
+tweak isn't a move; the tweak is logged as a finding. (2) Hardening
+with no output change (messages, invariants, defensive checks) is
+free in its OWN commits — the goldens prove the claim. (3) Behavior
+fixes (any fixture's output differs) are LOGGED to
+`docs/REFACTOR_FINDINGS.md` during R.1–R.3, never fixed inline; fixed
+in R.4 one per commit with (i) the golden before/after diff, (ii) a
+test pinning the new behavior, (iii) the baseline re-captured in the
+same commit. Fixes changing animation semantics or rendered output
+flag-and-stop for Marcus's ruling; pure crash/robustness fixes
+proceed and report their diffs at stage end. A move and a fix never
+share a commit.
+
+Rulings at plan review (Marcus, 2026-07-22):
+
+- **(a) Import sites — update all and delete.** Temporary shim during
+  R.1 only; R.3 repoints every import site (app, four tools, join.py,
+  conftest + 12 test modules, spikes/part_label.py) to
+  `core/engraving/verovio/` and DELETES `verovio_adapter.py`. No
+  permanent shim — it would freeze the old structure in place.
+- **(b) Triage spikes — update their patch lines**, in the same
+  commit as the move that breaks each seam: move (4) repoints
+  complex1_triage's patch to `verovio.decompose.parse_transform`;
+  move (7) repoints both spikes' ledger-dash patches to
+  `verovio.attribution._attribute_ledger_dashes`. Both spikes stay
+  runnable throughout.
+- **(c) Module split — nine modules, approved as proposed:**
+  `kinds.py` (~150: namespace constants, _KIND_BY_CLASS,
+  _CONTAINER_CLASSES, _ID_TAG, _SPANNER_CLASSES,
+  _STATIC_TEXT_CLASSES, _DEFAULT_SCALE/_FIT_MARGIN,
+  _TIMEMAP_CLASSES, _BOLD/_ITALIC_TEXT_CLASSES, _ACCID_TO_ALTER —
+  tables only, no logic); `mei_index.py` (~230: _MeiNote, _MeiIndex,
+  _int_or, _parse_mei, _walk_layer, plus the two pure-XML helpers the
+  brief left unplaced, _set_scoredef_optimize and _container_ns);
+  `records.py` (~75: AdapterNoteRecord, EngravedScore, _LoadState +
+  glyph_bbox); `decompose.py` (~395: _ElementAccumulator,
+  _PageDecomposer, _RunAttrs); `attribution.py` (~390:
+  _attribute_ledger_dashes, _attribute_spanner_segments,
+  _rehome_stray_paths, _flag_implausible_ties, _tstamp2_end_measure,
+  _tstamp_extent); `identity.py` (~310: _build_elements,
+  _chord_group, _attach_onset, _identity_for); `synthesis.py` (~110:
+  _SLASH_D, _synthesize_slashes, _REPEAT_D, _synthesize_repeats);
+  `provider.py` (~265: VerovioEngravingProvider with load /
+  load_detailed retry loops / _make_toolkit, and _engrave_prepared);
+  `__init__.py` (package docstring carrying the current file-head
+  contract — identity minted from musical position, fixed xmlIdSeed,
+  rule-4 boundary — plus the public re-exports).
+
+Facts the plan builds on (verified this session): the pipeline order
+lives in `_engrave_prepared` (toolkit → loadData → optional
+hide-empty MEI round-trip → `_parse_mei` → timemap → onset/measure
+tables → `_LoadState` → `_container_ns` → per-page `_PageDecomposer`
+→ staff_centers_by_system → REHOME STRAYS → LEDGER DASHES → SPANNER
+SEGMENTS → IMPLAUSIBLE TIES → `_build_elements` → hide-vanish guard
+→ synthesize slashes → repeats), while the hide/repagination/
+scale-to-fit retry loops live in the CALLER, `load_detailed` — one
+function up from where the brief placed them. File definition order
+≠ call order (rehome is defined third among the post-passes but runs
+first). The proposed module graph is ACYCLIC (kinds ← mei_index ←
+records ← decompose ← attribution ← identity; synthesis → records;
+provider → all) with three runtime cross-module deps that must be
+real imports, never TYPE_CHECKING-only: attribution constructs
+`_ElementAccumulator` (rehome's split-out elements), identity calls
+`_tstamp_extent`, decompose calls `_int_or`. The spikes' monkeypatch
+seams break at specific move commits — the decompose move breaks
+complex1_triage's `parse_transform` patch LOUDLY (unpatched rotate
+raises); the provider move breaks both `_attribute_ledger_dashes`
+patches SILENTLY (the real function runs, no error) — handled per
+ruling (b) in those same commits. The package name `verovio` does
+not shadow the pip `import verovio` (absolute imports), and
+`verovio/provider.py` must import the base seam absolutely
+(`scoreanim.core.engraving.provider`), never `from .provider`.
+
+- [x] **R.0 Golden harness + baselines**: `tests/golden.py` (pure
+      serializer: EngravedScore → JSON) + `tests/test_golden_layouts.py`
+      + committed `tests/goldens/<name>.json`. Per element, in LAYOUT
+      ORDER (deterministic — accumulator order over membership-only
+      sets; stricter than the brief's "sorted", and order is
+      downstream-visible): element_id, kind.name, page, system, part,
+      part_name, staff, voice, onset, extent, text_class, x, y, bbox,
+      anchor (exact float reprs), path/text counts, and a sha256 glyph
+      hash over exact reprs of every PathPrimitive (d, transform,
+      fill, stroke, stroke_width) and TextPrimitive/TextRun (content,
+      position, styling) — counts alone would let the styling branches
+      the split moves (fill-opacity→none, currentColor defaults,
+      bold/italic mapping, `_RunAttrs` inheritance) regress
+      undetected. Plus all AdapterNoteRecord fields, all
+      (code, message) warning pairs, page geometries, and a sha256 of
+      `prepared.canonical_xml`. Baseline fixtures (12 loads, reusing
+      the session fixtures; complex2 stays OUT — ~20 s, the doctor is
+      its check): testscore, broken_hairpin_and_slur_test, video_test
+      flat + hidden, complex1, bigband1 hidden (strict=False),
+      complex3 hidden (test_phantom_slur's module fixture promoted to
+      a session conftest fixture, skip-if-absent kept), pickup_min,
+      bar_repeat_min, condense_min flat + one-condense-group variant,
+      tall_system_min (the scale-to-fit path). Verify: baselines
+      committed; a comparator unit test proves a removed element, a
+      mutated float, and a changed glyph hash each FAIL; a second
+      fresh capture is byte-identical; full pytest green.
+- [x] **R.1 Mechanical split — seven move commits, zero logic edits**:
+      create `core/engraving/verovio/` with `__init__.py`;
+      `verovio_adapter.py` becomes a thin shim DURING the split,
+      re-exporting the external surface by EXPLICIT name (star-import
+      skips underscore names): `_LoadState`, `_MeiIndex`,
+      `_PageDecomposer`, `_identity_for`, `_CONTAINER_CLASSES`,
+      `_KIND_BY_CLASS`, `_attribute_ledger_dashes`, `parse_transform`,
+      VerovioEngravingProvider, EngravedScore, AdapterNoteRecord.
+      Move order (one commit each): (1) kinds.py; (2) mei_index.py
+      incl. `_set_scoredef_optimize` + `_container_ns`;
+      (3) records.py; (4) decompose.py — repoint complex1_triage's
+      `parse_transform` patch per ruling (b) in this commit;
+      (5) attribution.py; (6) identity.py + synthesis.py;
+      (7) provider.py, importing stage modules AS MODULES
+      (`attribution._attribute_ledger_dashes(...)`) so the pipeline
+      reads module-qualified and monkeypatching stays possible —
+      repoint both spikes' ledger-dash patches per ruling (b) in this
+      commit. Verify EVERY commit: full pytest green +
+      test_golden_layouts byte-identical. After (7):
+      verovio_adapter.py contains only the shim.
+- [x] **R.2 Seams made explicit, minimally**: `_engrave_prepared` IS
+      the pipeline function — keep it; add the WHY-order comment
+      block (staff_centers built before rehome because rehome and
+      identity read them; rehome BEFORE ledger/spanner attribution so
+      re-homed ink is never claimed by them; implausible-ties AFTER
+      segment matching so bogus sources stay in the pairing pool;
+      build before synthesis so synthesized elements never enter the
+      post-passes) and module docstrings stating each stage's
+      inputs/outputs and which `_LoadState` fields it reads/writes.
+      No signature changes beyond what the moves forced. Verify:
+      comment/docstring-only diff; pytest green; goldens
+      byte-identical.
+- [x] **R.3 Tooling migration** (per rulings a/b): repoint
+      ui/main_window.py, the four tools (check_score, dump_notes,
+      render_page_png, bbox_overlay), core/score/join.py, conftest +
+      the 12 adapter-importing test modules (incl. the private imports
+      in test_adapter_coverage/test_adapter_groups), and
+      spikes/part_label.py to the package; DELETE the shim (ruling a).
+      Verify: `grep -rn verovio_adapter scoreanim/ tests/ spikes/`
+      shows only comment-text remnants; pytest green; goldens
+      byte-identical; both triage spikes RUN end-to-end.
+- [x] **R.4 Findings pass**: work `docs/REFACTOR_FINDINGS.md` under
+      the policy — category-2 hardening freely in its own commits
+      (goldens prove no output change); category-3 fixes one per
+      commit with golden before/after diff + pinning test + baseline
+      re-capture in the same commit; flag-and-stop on anything that
+      changes animation semantics or rendered output; out-of-scope or
+      too-large findings → BACKLOG.md with a one-line rationale.
+      Verify: every finding dispositioned (fixed / backlogged /
+      ruled-out); each fix commit contains its golden diff and test.
+- [x] **R.5 Docs close-out + exit**: CLAUDE.md (rule 4 path → the
+      package; package-layout tree lists the modules one line each);
+      ARCHITECTURE.md §3 module map + pipeline order + one line on
+      why the order is fixed; BACKLOG.md (deferred: `_LoadState`
+      narrowing, `_identity_for` onset table, perf; goldens noted as
+      the standing regression net); spikes/NOTES.md package-split
+      note; PHASES.md as-built incl. the findings list and each
+      finding's fate. Exit run: full pytest; the golden suite; the
+      score-doctor over all testdata fixtures; a scripted offscreen
+      open+animate+export-frame run on bigband1 and complex1
+      (ScoreScenes + FrameRenderer idiom). Report per-module line
+      counts and every behavior change that landed, with its golden
+      diff. Verify: all green; no file under scoreanim/ imports
+      verovio_adapter.
+
+**Exit criteria**: the package is in place; full pytest green;
+goldens byte-identical to the R.0 baselines except where an R.4 fix
+commit deliberately re-captured them; score-doctor passes across
+testdata as before; the findings list is fully dispositioned; docs
+closed out. The goldens remain in the suite permanently as the
+standing regression net for adapter work.
+
+**As built (2026-07-22, all exit criteria passed).** Twelve commits
+(plus the plan-docs commit):
+R.0 (golden harness + 12 committed baselines, 500 tests), seven R.1
+moves (each pytest-green, goldens byte-identical; move 6's first run
+omitted an import that the golden suite caught pre-commit on
+video_test_hidden — the net working exactly as designed), R.2
+(comment/docstring-only), R.3 (all import sites repointed, shim
+DELETED, both triage spikes run end-to-end), R.4 + R.5. Final module
+sizes: kinds 144, mei_index 218, records 84, decompose 416,
+attribution 400, identity 335, synthesis 118, provider 292,
+__init__ 23 — the old 1823-line file is gone. Findings (all
+dispositioned, none flag-and-stop): F1 move-defect fixed pre-commit;
+F2 text-anchor KeyError and F3 whitespace-@staff IndexError hardened
+in R.4 with pinning tests (category 2 — goldens prove no output
+change); F4 redundant re-prepare in the scale-to-fit path backlogged
+(perf, out of scope). NO category-3 behavior change landed: every
+golden baseline is byte-identical to its R.0 capture — there are no
+golden diffs to report. Exit run: 502 headless green; score-doctor
+11/11 PASS over testdata (same censuses as Phase 12 close);
+offscreen open+animate+export-frame on bigband1 (hidden,
+strict=False, 4592 elements) and complex1 (strict, 3491 elements)
+each rendered a correct mid-reveal frame; `grep -rn verovio_adapter
+scoreanim/` shows no imports (comment-text remnants only).
+
+## Live-timing diagnosis (2026-07-22 — docs/LIVE_TIMING_BRIEF.md)
+
+Diagnosis session, NO fixes. Harness built: `scoreanim/tools/live_oracle.py`
+(offscreen doctor-style CLI, checks D1–D4 per the brief) +
+`tests/test_live_oracle.py` (21 passing pins, 8 strict-xfail finding
+pins). Brief facts F1–F5 all verified against head. Run on testscore,
+bigband1 (hidden), complex3 (hidden). **bigband1 is fully clean** (its
+old early-reveal leak really was the stray-path mechanism, fixed
+2026-07-21). **D3 and D4 PASS on all three fixtures, STEPPED and
+CONTINUOUS: the live path (applier caches, clip transforms, diff-apply
+cursor, backward seeks) faithfully applies its input data — every
+symptom is L0 (data), none is L1/L2.** "It only happens live" was an
+illusion of the whole-page render tests' single-t view.
+
+Findings, for per-mechanism fix rulings (brief prompt 2):
+
+- **FINDING-1 (L0, score model / schedule rule 1) — beat-domain shear
+  on irregular-length bars. The prime mechanism: symptoms 1, 2 AND 3.**
+  complex3 has three irregular bars: m1 (the X0 pickup — engraved span
+  1 beat vs model nominal 4), m37 (12 beats vs 4), m52 (4.5 vs 4).
+  music21-side beat accounting diverges from Verovio's timemap there —
+  and from ITSELF: 714 of 4834 ScoreNotes sit outside their own
+  measure's [start, start+quarter_length) span (e.g. P2 m78 onset 312.0
+  vs span [319.75, 323.75)). Because a notehead's trigger is its joined
+  ScoreNote.onset (schedule rule 1) while graces, sig glyphs,
+  measure-start fallbacks and synthesized elements carry engraved-
+  domain onsets, the schedule mixes both domains. Trigger−onset deltas
+  are piecewise-constant, delimited exactly by the irregular bars:
+  **+3.00 beats (late) over m2..m37, −5.00 (early) over m38..m52,
+  −5.50 over m53..m85** (oracle `trigger-onset-shift` clusters, e.g.
+  P6 staff 1: 622 elements at +3.00). Consequences: notes light up to
+  ~1.5 measures late/early varying by part/voice/measure (symptom 2);
+  88 (system, part) reveal tracks contain SAME-VOICE anchor beat-vs-x
+  inversions up to 6.5 beats (e.g. P14:m84:s1:v1:note:1 beat 336 drawn
+  right of v1:note:0 beat 341.5), dragging the reveal edge right early
+  so slurs/ties left of it paint before their music (symptom 1); sig
+  glyphs light at engraved-domain measure starts, ~5.5–7.75 beats
+  (≈1.5–2 measures) AFTER the −5.5-shifted note stream around them
+  (symptom 3, `sig-onset-vs-measure-start`, 24 measures). Fix locus:
+  build_score_model's onset/measure accounting for irregular bars (one
+  consistent beat domain), NOT the live path. Pins:
+  test_d2_triggers_match_engraved_onsets[complex3],
+  test_d2_model_consistent_with_itself_and_engraving[complex3],
+  test_d2_reveal_anchors_monotone_in_x[complex3],
+  test_d2_sig_onsets_match_model_measure_starts[complex3].
+- **FINDING-2 (L0, reveal coverage — brief F1 confirmed live):**
+  `P2:m69:s1:v0:hairpin:0:seg1` (sys 18) matches NO reveal curve — P2
+  has tracks in every system except 18 (no anchor-kind P2 events
+  there) — so its clip edge is never set and it is fully visible from
+  t=0, silently (RevealPathItem's None-clip = fully-revealed default).
+  The only curve-less revealed element across all three fixtures; the
+  fix direction the brief names (default-hidden + loud warning) awaits
+  ruling. Pin: test_d1_every_revealed_item_has_a_curve[complex3].
+- **FINDING-3 (accepted limit, BACKLOG 10 evidence):** testscore sys 5
+  P7 — v5 note (beat 66) drawn right of v6 rest (trigger 68.5): the
+  per-part edge reveals the rest region 2.5 beats before its
+  resolution. Cross-voice x/time interleave, the known per-part-not-
+  per-voice granularity. Pin (xfail, flip only if BACKLOG 10 is built):
+  test_d2_reveal_anchors_monotone_in_x[testscore].
+- **FINDING-4 (L0, adapter F4 — cautionary sig nesting):** mid-score
+  meter changes draw a cautionary glyph nested in the PREVIOUS measure
+  (testscore m4 for the m5 change; complex3 m26 for m27, m52, m54, m69
+  — 32 glyphs), so they light a measure early at the nesting measure's
+  downbeat (on complex3, compounded by FINDING-1's shear). End-of-
+  system courtesy key/clef restatements are correctly nested (early
+  reports of those were an oracle heuristic bug, fixed: system starts
+  derive from ANCHOR_KINDS only, since cross-system spanner segments
+  carry their start measure's ordinal into the next system). Pins:
+  test_d2_sig_nesting_measures[testscore, complex3].
+
+Standing rule from here: any "it looks wrong in live playback" report
+starts with `python -m scoreanim.tools.live_oracle testdata/<file>` —
+the output names the layer and the proving elements.
+
+## Live-timing fix 1 — FINDING-1: one beat domain (2026-07-22)
+
+Ruling (Marcus, 2026-07-22): the ENGRAVED domain — Verovio's timemap
+qstamps — is the single beat authority for the whole app; the score
+model's beat accounting is reconciled to it, never the reverse. The
+session's audit found the shear leaking beyond triggers into seconds:
+the TempoMap is model-anchored (sidecar/tap positions from
+MeasureInfo.start), so every engraved-domain trigger (sigs, clefs,
+graces, synthesized slashes/bar-repeats, group fallbacks, rest floors)
+resolves to wall-clock through the wrong domain; the rule-3 fresh test
+and rule-4 rest caps mix domains inside one expression; export
+measure-ranges, no-audio durations, score_end, tap labels, tempo-lane
+gridlines and swing extents are all model-nominal. Reframing finding:
+the "12-beat m37" is a 2-bar REPEAT (printed m35–36) — Verovio's
+timemap is playback-EXPANDED (second-pass clone ids `…-rend2` dropped
+by the measure_by_id guard), so the engraved axis is PERFORMANCE time.
+Ruled: performance axis accepted (repeated bars light on the first
+pass and stay lit; a repeat-skipping recording needs a tempo-map
+workaround — BACKLOG). The three FINDING-1 deltas decompose exactly:
++3.00 = music21 pads the X0 pickup to nominal 4 (engraved 1.0);
+−8.00 more = the unexpanded repeat; −0.50 more = the genuine 4.5-beat
+ordinal 52. Fix shape: rebase the model at the source
+(onset = timeline.starts[ordinal] + el.offset); schedule/reveal/
+timing/render/ui are untouched — every crossing heals by data. On
+all-regular fixtures the rebase is a numeric no-op, so exact-value
+pins (test_schedule, test_reveal, complex1's 0.0957 grace delta)
+hold. Rulings: timeline REQUIRED on build_score_model (an
+unreconciled model is structurally impossible); goldens extended
+with the timeline in a separate step. Accepted staleness (rule-5
+precedent): saved tempo maps/taps/swing authored on
+irregular-bar/repeat scores shift.
+
+- [x] **T1.0 Spike — engraved-timeline census** (spikes/beat_domain.py,
+      findings in spikes/NOTES.md): 1:1 ordinal coverage holds on all
+      11 fixtures; the only dropped measureOn ids are complex3's two
+      `-rend2` repeat clones; irregular spans are exactly the pickup,
+      the repeat, half-beat bars (complex3 m52 AND — previously
+      unknown — complex2 m8/m120, so complex2 sheared too, +0.5/+1.0),
+      genuine 6/4 bars (consistent both sides), music21 part-0
+      self-divergence (+7.75 by complex3 m78), and one NEW fact: a
+      trailing event-less bar (bar_repeat_min's final bar-repeat) has
+      no timemap end → engraved span 0, handled by flooring the LAST
+      measure's span with its notated length.
+- [x] **T1.1 Expose the timeline**: frozen `MeasureTimeline` (starts,
+      durations, score_end) in core/engraving/types.py;
+      `EngravedScore.timeline` built in provider._engrave_prepared
+      with the loud invariant (every MEI ordinal has a timemap start,
+      else ValueError).
+- [x] **T1.2 Rebase the model**: `build_score_model(source, timeline)`
+      — timeline REQUIRED; ScoreNote.onset = starts[ordinal] +
+      music21's intra-measure offset (verified trustworthy: pickup
+      notes sit at offset 0 under both paddingLeft styles);
+      MeasureInfo.start/quarter_length = the engraved values
+      (quarter_length now the actual performance-axis span; final-bar
+      nominal floor). All call sites repointed: main_window,
+      check_score, live_oracle, conftest (complex1/video model
+      fixtures now derive from their engraved fixtures — the
+      "independent of engraving" contract is dead), test_measure_
+      identity, test_condense, test_reveal_apply, test_stray_path_
+      rehome, both triage spikes (run end-to-end).
+- [x] **T1.3 Pins flipped + before/after oracle**: the four _XF1
+      strict-xfails all XPASSed and their marks are removed — now
+      plain regression pins; _XF2/_XF3/_XF4 stay xfail. Oracle CLI
+      over all 11 fixtures, before → after: complex3 D2 277 → 32
+      findings (88 anchor inversions, 117 trigger-shift clusters, 14
+      note-outside-measure, 2 irregular-bar, 24 sig-onset: ALL gone;
+      the 32 = FINDING-4 sig-nesting), pickup_min 1 → 0 (clean),
+      complex2 29 → 9 (19 sig-onset + 1 trigger-shift gone; 9
+      pre-existing cross-voice inversions remain, unchanged count),
+      every all-regular fixture byte-identical output; 4/11 → 5/11
+      clean, and NO FINDING-1-category finding remains anywhere.
+      D1/D3/D4 statuses unchanged (STEPPED and CONTINUOUS).
+- [x] **T1.4 Golden timeline section**: tests/golden.py emits
+      measure_timeline (per-ordinal start/duration + score_end); all
+      12 baselines re-captured — the diff is additions-only (0
+      removed lines; existing sections byte-identical, verified by a
+      full-suite pass BEFORE the serializer change); a
+      mutated-timeline comparator guard added.
+- [x] **T1.5 Docs**: CLAUDE.md rule 12; ARCHITECTURE §2 layer map,
+      §3 adapter item 14, §5 TempoMap note; BACKLOG (repeat-skipping
+      recordings; second-pass cosmetics); spikes/NOTES.md census;
+      this section.
+
+**Exit run (all criteria met)**: full pytest 528 passed + 4 xfailed
+(the remaining FINDING-2/3/4 pins); goldens green post-re-capture;
+score-doctor 11/11 PASS with joins complete everywhere (the join never
+keyed on onset, so the rebase is join-transparent); oracle CLI diff as
+recorded in T1.3; both triage spikes end-to-end.
+
+## Live-timing fix 2 — FINDING-2: fail-safe reveal default (2026-07-22)
+
+Pre-census (post-FINDING-1, all three symptom fixtures): every
+remaining early-reveal element classified into known findings, nothing
+new — complex3: 1 curve-less key (`P2:m69:s1:v0:hairpin:0:seg1`,
+sys 18 — FINDING-2, the only one anywhere) + 32 sig-nesting
+(FINDING-4), zero anchor inversions; complex2: D1 clean, 9 cross-voice
+anchor-inversion clusters (all P26/P27 v1-vs-v2 / s1-vs-s2 —
+FINDING-3); testscore: D1 clean, 1 inversion (P7 v5/v6 — the
+FINDING-3 pin) + 7 sig-nesting (FINDING-4).
+
+Fix, render-side only (adapter/core data untouched, goldens
+unaffected): (a) `RevealPathItem._clip_right` now constructs at
+`-inf` (fully hidden) instead of `None` (fully revealed) — a clip
+child that never receives an edge fails SAFE as invisible ink over
+its floor-opacity ghost; `None` still means saturated/fully revealed,
+and covered items are unaffected (every resolved curve fans its edge
+out on the applier's construction-time refresh). (b)
+`AnimationApplier.__init__` compares revealed-item (system, part)
+keys against the reveal tracks and emits one loud stderr line per
+uncovered key (`reveal warning [curve-less-key]: … stay hidden: <ids>`,
+the load-warning idiom), exposing `uncovered_reveal_keys` for tests.
+(c) Oracle D1 reports a curve-less/system-less revealed item as a
+NOTE ("caught: default-hidden + applier warning"), no longer a
+finding; D3 gained the containment check (`curveless-not-hidden`): a
+curve-less item must be hidden at EVERY grid t, so a regression to
+visible-from-t0 fails D3 on any fixture.
+
+Pins: test_d1_every_revealed_item_has_a_curve[complex3] xfail
+REMOVED (passes; also asserts the note census), new
+test_finding2_curveless_spanner_hidden_and_warned (uncovered key set,
+stderr warning, hidden at t=0 / mid / past-end). After-census: all
+three fixtures byte-identical to the pre-census except complex3 D1
+FAIL→PASS (+ the caught note); FINDING-3 (9+1 inversions) and
+FINDING-4 (32+7 sig-nesting) counts unchanged, left on BACKLOG.
+Full pytest 530 passed + 3 xfailed (FINDING-3/4); D3/D4 green
+STEPPED and CONTINUOUS everywhere; oracle CLI end-to-end over all 11
+fixtures.
+
+## Live-timing fix 3 — FINDING-4: courtesy sigs light with their change measure (2026-07-23)
+
+Ruling (Marcus, 2026-07-23): a key/meter sig restated at the END of a
+system — the courtesy announcing the change at the start of the NEXT
+system — lights WITH the change measure it announces, not at its drawn
+position. Pre-fix census (fresh oracle run, all 11 fixtures): every
+flagged glyph is METER_SIG, nests in the LAST measure m of a system, is
+neither a change measure nor a system start, and its change is at
+exactly m+1, which starts the next system — complex3 m26→27 (×14) +
+m52→53 (×18) = 32; testscore m4→5 (×7); video_test m17→18 (×2);
+broken_hairpin_and_slur_test m4→5 (×2); the other 7 fixtures clean. No
+KEY_SIG/CLEF findings anywhere; mid-system changes draw in place (in
+the change measure) and were never wrong. The derivation was
+unambiguous on every fixture, so no flag-and-stop and no spike.
+
+Fix shape (adapter onset data, brief F4; ARCHITECTURE §3 item 15):
+change measures per (kind, part) parse from the canonical MusicXML
+`<attributes>` at the provider seam (`_sig_change_measures` →
+`_LoadState.sig_changes`; the oracle keeps its own independent copy of
+the parse as arbiter); last-of-system derives from `system_of_measure`
+— the element-free measure-group nesting map, so the cross-system
+spanner `:seg` ordinal hazard that bit the diagnosis heuristic cannot
+recur (the oracle's element-based derivations keep their ANCHOR_KINDS
+filter, with a new max-based `_system_last_measures` twin). In
+`_identity_for`'s measure-start fallback, a SIG_KINDS glyph with
+`m ∈ last_of_system`, `m ∉ changes(kind, part)`, `m+1 ∈ changes(kind,
+part)` takes `onset = measure_start[m+1]`. Ids keep `:m{m}:` (drawn-
+position identity; retiming the measure would renumber the change
+measure's own sig seq counters); no LoadWarning (courtesy sigs are
+normal engraving); KEY_SIG/CLEF are covered by the same predicate even
+though only METER_SIG fires on current fixtures. A sig matching no
+shape keeps the drawn downbeat and stays a loud D2 sig-nesting
+finding. Known limit (shared with the oracle's sys-start gate): a
+courtesy drawn in a measure that is itself a system START is
+indistinguishable from the restatement beside it without geometry and
+is not retimed — no fixture exercises it.
+
+**Scope note (one step beyond the adapter, forced by the ruling):** a
+retimed courtesy is FRESH in its trigger bucket (its onset IS the
+retimed beat) while drawn on the previous system/page, so
+`min(fresh_pages)` dragged the change-downbeat trigger's page hint
+back to the courtesy's page and the live/export page turn landed one
+event late (caught by test_fresh_elements_of_a_trigger_share_one_page
+on testscore). Fix: a **displaced** sig — onset ≠ its own drawn
+measure's start, detected in `schedule._displaced_sig` over the new
+`schedule.SIG_KINDS` policy set (STATIC_KINDS precedent — adapter and
+oracle import it) — is excluded from the fresh hint sets; its page
+still counts in the no-fresh fallback. A first, blanket
+all-sigs-excluded attempt was caught BY the before/after trigger-table
+diff and reverted: at rest-heavy system starts the system-start
+restatement sigs are the only fresh elements (bigband1 m9 t=32,
+complex2 m48 t=188.5), so excluding them hinted the PREVIOUS system.
+Final trigger-table diff over all 11 fixtures: page/system hints
+byte-identical everywhere; the only differences are the 43 courtesy
+sig ids moving from their drawn-measure bucket to their change-measure
+bucket.
+
+- [x] **T4.0** `_sig_change_measures` (provider) + `_LoadState.
+      sig_changes` / `last_of_system`; stage docstrings updated.
+- [x] **T4.1** the retime in identity.py's measure-start fallback
+      (`_sig_changes_for` helper; part=None unions parts, oracle idiom).
+- [x] **T4.2** oracle `audit_signatures` expected-measure logic (own m
+      for in-place/system-start, m+1 for courtesy, else sig-nesting);
+      `sig-onset-vs-measure-start` compares against the EXPECTED start.
+- [x] **T4.3** pins: `_XF4` strict-xfails removed (both XPASSed first);
+      new `test_finding4_courtesy_sig_lights_with_change` (courtesy
+      onset == starts[5] across P1–P7, in-place m5 sig and system-start
+      key restatement unchanged); `SIG_KINDS` + `_displaced_sig` in
+      schedule, the fresh-page invariant test amended to fresh
+      non-displaced elements.
+- [x] **T4.4** goldens: the 5 affected baselines re-captured
+      (testscore 7, complex3_hidden 32, video_test_flat 8 — flat draws
+      the P3–P7 staves hiding removes, video_test_hidden 2,
+      broken_hairpin_and_slur_test 2); diff verified onset-only on
+      meter_sig rows (0 non-sig lines; every line pairs exactly with
+      its counterpart once onset is stripped); other 7 byte-identical.
+- [x] **T4.5** before/after oracle CLI over all 11 fixtures + docs
+      (this section; ARCHITECTURE §3 item 15 + resolution-order
+      clause; CLAUDE.md untouched).
+
+**Exit run**: full pytest 533 passed + 1 xfailed (FINDING-3 only, left
+on BACKLOG 10); goldens green post-re-capture; oracle CLI end-to-end
+on all 11 fixtures — sig-nesting 32/7/2/2 → 0, D1/D3/D4 statuses
+unchanged (STEPPED and CONTINUOUS), all-regular fixtures byte-identical
+output; score-doctor 11/11 PASS; trigger-table diff clean per the
+scope note.
+
 ## Later (explicitly not now)
 
 Continuous-scroll presentation mode; glow (needs perf spike); audio-to-
 score auto-alignment provider; custom engraving provider; MIDI input;
-richer effect editor; arbitrary-exporter MusicXML robustness.
+richer effect editor; arbitrary-exporter MusicXML robustness (Dorico
+robustness advanced in Phase 11 — the score-doctor loop + graceful
+degradation; other exporters remain future work).
 (In-app score-text editing graduated to Phase 9; brackets/grouping to
-Phase 8 — 2026-07-12.)
+Phase 8 — 2026-07-12. Multi-staff-part & decomposer-coverage robustness
+to Phase 10 — 2026-07-13. Dorico robustness / complex1 to Phase 11 —
+2026-07-19; orchestral complex2 layout + order-based join planned as
+Phase 12 — 2026-07-21, rulings recorded, spikes done, ready to build.)

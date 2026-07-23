@@ -1,14 +1,21 @@
 """Identity join: ScoreModel notes ⇄ adapter note records (plan D2).
 
 There are no shared ids between music21 and the engraving provider, so
-notes are matched on musical identity — (part, measure, voice, onset,
-pitch) — in tiers with an explicit rule per edge case:
+notes are matched on musical identity — (part, measure, voice, pitch) —
+paired in document order, in tiers with an explicit rule per edge case:
 
-- plain notes: exact key match (pitch is safe because both sides parse
-  the same canonical bytes at concert pitch);
+- plain notes: keyed by pitch only, paired by document order within the
+  voice (pitch is safe because both sides parse the same canonical bytes
+  at concert pitch). Onset is NOT in the key: Verovio's timemap delays a
+  note that follows an appoggiatura by the grace's duration while music21
+  keeps the notated beat (verified on complex1/complex2), so an
+  exact-onset key misses every such principal. Document order — which
+  both sides carry (ScoreNote.order / AdapterNoteRecord.order_in_voice)
+  and follows time within a voice — pairs them correctly instead
+  (Phase 12.1);
 - chord members / unisons: same key, paired in document order;
-- grace notes: onset is excluded (the two libraries time graces
-  differently, by design) — paired by pitch in document order;
+- grace notes: their own tier (a grace never pairs with a same-pitch
+  principal) — also paired by pitch in document order;
 - unpitched (drums): staff position instead of pitch;
 - voices: matched by number when both sides agree, by document order
   as a safety net when the label sets differ.
@@ -22,11 +29,9 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
-from scoreanim.core.engraving.verovio_adapter import AdapterNoteRecord
+from scoreanim.core.engraving.verovio import AdapterNoteRecord
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.score.model import ScoreModel, ScoreNote
-
-_ONSET_QUANT = 4096              # exact for binary subdivisions
 
 
 @dataclass(frozen=True)
@@ -57,10 +62,16 @@ def _pitch_key(step: str | None, octave: int | None,
     return (step, octave)
 
 
-def _note_key(grace: bool, onset: float, pitch_key: tuple) -> tuple:
+def _note_key(grace: bool, pitch_key: tuple) -> tuple:
+    """Onset is deliberately NOT in the key. Within a (part, measure,
+    staff, voice) the two sides are paired in document order
+    (`_match_voice` sorts by order / order_in_voice), so a note whose
+    Verovio qstamp is shifted off its notated beat — every principal
+    after an appoggiatura — still matches (Phase 12.1). Graces keep their
+    own tier so a grace never pairs with a same-pitch principal."""
     if grace:
-        return ("grace", pitch_key)     # onset excluded for graces
-    return (round(onset * _ONSET_QUANT), pitch_key)
+        return ("grace", pitch_key)
+    return pitch_key
 
 
 def _align_voices(score_labels: list[str | None],
@@ -83,8 +94,11 @@ def join_notes(model: ScoreModel,
     for note in model.notes:
         score_groups[(note.part, note.measure, note.staff)].append(note)
     layout_groups: dict[tuple, list[AdapterNoteRecord]] = defaultdict(list)
+    staves_by_part: dict[str, set[int]] = defaultdict(set)
     for rec in records:
         layout_groups[(rec.part, rec.measure, rec.staff)].append(rec)
+        staves_by_part[rec.part].add(rec.staff)
+    multi_staff_parts = {p for p, s in staves_by_part.items() if len(s) > 1}
 
     matched: list[tuple[ElementId, ScoreNote]] = []
     unmatched_score: list[ScoreNote] = []
@@ -115,9 +129,49 @@ def join_notes(model: ScoreModel,
             _match_voice(by_voice_s.get(voice, []), by_voice_l.get(voice, []),
                          matched, unmatched_score, unmatched_layout)
 
+    unmatched_score, unmatched_layout = _cross_staff_fallback(
+        unmatched_score, unmatched_layout, multi_staff_parts, matched)
+
     return JoinReport(matched=tuple(matched),
                       unmatched_score=tuple(unmatched_score),
                       unmatched_layout=tuple(unmatched_layout))
+
+
+def _cross_staff_fallback(
+        unmatched_score: list[ScoreNote],
+        unmatched_layout: list[AdapterNoteRecord],
+        multi_staff_parts: set[str],
+        matched: list) -> tuple[list[ScoreNote], list[AdapterNoteRecord]]:
+    """A multi-staff part can have a note music21 files on one staff and
+    Verovio on another (cross-staff notation); the per-(part, measure,
+    staff) buckets split such a pair. Re-match the LEFTOVERS within
+    (part, measure) across staves/voices by (pitch, document order).
+
+    Multi-staff parts only, so single-staff joins are untouched
+    (byte-identical), and only notes already unmatched by the primary
+    pass are reconsidered — a same-pitch cross-staff partner is a strictly
+    better outcome than leaving both unmatched (Phase 12.1)."""
+    if not multi_staff_parts or not (unmatched_score or unmatched_layout):
+        return unmatched_score, unmatched_layout
+
+    s_left: dict[tuple, list[ScoreNote]] = defaultdict(list)
+    for n in unmatched_score:
+        if n.part in multi_staff_parts:
+            s_left[(n.part, n.measure)].append(n)
+    l_left: dict[tuple, list[AdapterNoteRecord]] = defaultdict(list)
+    for r in unmatched_layout:
+        if r.part in multi_staff_parts:
+            l_left[(r.part, r.measure)].append(r)
+
+    still_s: list[ScoreNote] = []
+    still_l: list[AdapterNoteRecord] = []
+    for key in set(s_left) | set(l_left):
+        _match_voice(s_left.get(key, []), l_left.get(key, []),
+                     matched, still_s, still_l)
+
+    kept_s = [n for n in unmatched_score if n.part not in multi_staff_parts]
+    kept_l = [r for r in unmatched_layout if r.part not in multi_staff_parts]
+    return kept_s + still_s, kept_l + still_l
 
 
 def _match_voice(s_notes: list[ScoreNote], l_recs: list[AdapterNoteRecord],
@@ -127,11 +181,11 @@ def _match_voice(s_notes: list[ScoreNote], l_recs: list[AdapterNoteRecord],
     pair equal keys in document order (breaks unison ties)."""
     s_map: dict[tuple, list[ScoreNote]] = defaultdict(list)
     for n in sorted(s_notes, key=lambda n: n.order):
-        s_map[_note_key(n.grace, n.onset,
+        s_map[_note_key(n.grace,
                         _pitch_key(n.pitch_step, n.octave, n.staff_loc))].append(n)
     l_map: dict[tuple, list[AdapterNoteRecord]] = defaultdict(list)
     for r in sorted(l_recs, key=lambda r: r.order_in_voice):
-        l_map[_note_key(r.grace, r.onset,
+        l_map[_note_key(r.grace,
                         _pitch_key(r.pitch_step, r.octave, r.staff_loc))].append(r)
 
     for key in set(s_map) | set(l_map):

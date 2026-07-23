@@ -124,16 +124,23 @@ class RevealPathItem(QGraphicsPathItem):
     paint() — no shape()/boundingRect() games, no scene re-indexing per
     move, repaint cost is this one path. The edge is clamped to the
     path's own bounds so a fully-hidden or fully-shown spanner is a
-    cached no-op; ``None`` means unclipped (fully revealed)."""
+    cached no-op; ``None`` means unclipped (fully revealed).
+
+    Construction starts at ``-inf`` (fully HIDDEN): a child whose
+    (system, part) key never receives an edge fails safe as invisible
+    ink over its floor-opacity ghost, instead of painting fully from
+    t=0 (the FINDING-2 silent early-reveal, fixed 2026-07-22). The
+    applier warns loudly about such curve-less keys."""
 
     def __init__(self, *args) -> None:
         super().__init__(*args)
-        self._clip_right: float | None = None
+        self._clip_right: float | None = float("-inf")
         self._inverse = None                 # lazily inverted transform
 
     @property
     def clip_right(self) -> float | None:
-        """Local-coords clip edge; None = fully revealed."""
+        """Local-coords clip edge; None = fully revealed, -inf = the
+        never-edged construction default (fully hidden)."""
         return self._clip_right
 
     @property

@@ -9,8 +9,8 @@ from scoreanim.core.animation.reveal import (ANCHOR_KINDS, REVEALED_KINDS,
                                              SystemRevealTrack,
                                              build_reveal_tracks, is_revealed,
                                              reveal_x)
-from scoreanim.core.animation.schedule import (ANIMATED_KINDS, Trigger,
-                                               TriggerSchedule,
+from scoreanim.core.animation.schedule import (ANIMATED_KINDS, STATIC_KINDS,
+                                               Trigger, TriggerSchedule,
                                                build_trigger_schedule,
                                                is_animated, quantize_beats)
 from scoreanim.core.animation.state import element_state
@@ -21,8 +21,8 @@ __all__ = [
     "ANCHOR_KINDS", "ANIMATED_KINDS", "DEFAULT_EFFECT", "Easing", "Effect",
     "ElementStyle", "Envelope", "FLOOR_OPACITY", "Keyframe", "OPACITY",
     "PRESETS", "PropertyId", "REVEALED_KINDS", "RevealCurve", "RevealMode",
-    "SCALE", "StyleRules", "SystemRevealTrack", "TINTED_KINDS", "Trigger",
-    "TriggerSchedule",
+    "SCALE", "STATIC_KINDS", "StyleRules", "SystemRevealTrack",
+    "TINTED_KINDS", "Trigger", "TriggerSchedule",
     "appear", "build_presets", "build_reveal_tracks",
     "build_trigger_schedule",
     "effect_for", "element_state", "is_animated", "is_revealed",

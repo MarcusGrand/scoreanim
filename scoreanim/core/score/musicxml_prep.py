@@ -23,6 +23,7 @@ plus facts extracted from the raw XML that neither library exposes:
 
 from __future__ import annotations
 
+import copy
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -64,6 +65,26 @@ class PartTextSpec:
 
 
 @dataclass(frozen=True)
+class PartCondenseSpec:
+    """Prep-seam input to merge contiguous like parts onto ONE staff as one
+    voice per source player (Phase 12.3). Neutral twin of the document's
+    CondenseGroup intent (core/project may import core/score, never the
+    reverse — the PartGroupSpec precedent); the UI converts at the seam.
+
+    Verovio cannot condense from MusicXML, so condensing is a canonical
+    rewrite BEFORE engraving: the first part is kept, each later part's
+    voice flow is appended behind a <backup> and relabelled to its own
+    voice, and the label becomes the combined name. v1 is deliberately
+    naive (ruling d): shared staff, one voice per player, NO a2 unison
+    collapse and NO divisi logic (BACKLOG). Parts must be contiguous in
+    score order and single-staff — validated here as defense behind the
+    Add/Edit/RemoveCondenseGroup commands."""
+    parts: tuple[PartId, ...]    # >= 2, contiguous; parts[0] is kept
+    name: str                    # combined part-name, e.g. "Flute 1.2"
+    abbreviation: str = ""       # combined abbreviation, e.g. "Fl. 1.2"
+
+
+@dataclass(frozen=True)
 class PartInfo:
     index: int                   # 0-based document order (music21 parts order)
     part_id: PartId              # MusicXML id, e.g. "P1"
@@ -83,6 +104,21 @@ class SlashRegion:
 
 
 @dataclass(frozen=True)
+class RepeatRegion:
+    """A <measure-repeat> span. Verovio's MusicXML importer has no
+    measure-repeat support — the repeat bars import as empty <space>
+    (verified, spikes/NOTES.md Phase 12) — so like slash regions they are
+    scanned here and the % symbol is synthesized in the adapter. [start,
+    stop): a measure carrying <measure-repeat type="stop"> is a real fill,
+    NOT a repeat. v1 handles single-bar repeats (Dorico's `<measure-repeat
+    type="start">1`); `bar_span` records the pattern width for defense."""
+    part: PartId
+    start_measure: int           # inclusive
+    stop_measure: int            # exclusive
+    bar_span: int = 1            # measures per repeat pattern (1 = single-bar)
+
+
+@dataclass(frozen=True)
 class CreditText:
     credit_type: str | None      # "title", "composer", …; None if untyped
     text: str
@@ -99,6 +135,7 @@ class PreparedScore:
     canonical_xml: str
     parts: tuple[PartInfo, ...]
     slash_regions: tuple[SlashRegion, ...]
+    repeat_regions: tuple[RepeatRegion, ...]
     credits: tuple[CreditText, ...]
     page_width: float            # page units (1/10 mm)
     page_height: float
@@ -109,6 +146,35 @@ class PreparedScore:
             if p.first_staff <= staff_n < p.first_staff + p.staff_count:
                 return p
         raise KeyError(f"no part owns staff {staff_n}")
+
+
+def _repaginate(root: ET.Element, break_measures: tuple[int, ...]) -> None:
+    """Replace the encoded PAGE breaks with our own (Phase 10R, rule-7
+    amendment): keep every encoded system break, strip all new-page
+    attributes, and set new-page="yes" at the given system-start
+    measures. Part 1 only — Verovio reads print layout from the first
+    part (spike section D). Called only when the measured first pass
+    overflowed; the plan is derived data, never stored (rule 5)."""
+    parts = root.findall("part")
+    if not parts:
+        return
+    for part in parts:
+        for measure in part.findall("measure"):
+            pr = measure.find("print")
+            if pr is not None and pr.get("new-page"):
+                del pr.attrib["new-page"]
+    wanted = set(break_measures)
+    # Measure identity is the 1-based document-order ordinal everywhere (see
+    # verovio.mei_index._parse_mei): `break_measures` come from the adapter's
+    # ordinal-keyed system_of_measure, so match by ordinal here — the printed
+    # `number` is neither unique nor consistent (Dorico's "X0"/"X1" bars).
+    for ordinal, measure in enumerate(parts[0].findall("measure"), start=1):
+        if ordinal in wanted:
+            pr = measure.find("print")
+            if pr is None:
+                pr = ET.Element("print")
+                measure.insert(0, pr)
+            pr.set("new-page", "yes")
 
 
 def _neutralize_octave_only_transposes(root: ET.Element) -> None:
@@ -284,14 +350,10 @@ def _parts(root: ET.Element) -> tuple[PartInfo, ...]:
     return tuple(infos)
 
 
-def _measure_number(measure: ET.Element, ordinal: int) -> int:
-    try:
-        return int(measure.get("number", ""))
-    except ValueError:
-        return ordinal
-
-
 def _slash_regions(root: ET.Element) -> tuple[SlashRegion, ...]:
+    # Region bounds are 1-based document-order ordinals — the same measure
+    # identity the adapter keys staff_geo/measure_start by (never the printed
+    # `number`, which collides for Dorico's "X0"/"X1" bars).
     regions: list[SlashRegion] = []
     for part in root.findall("part"):
         pid = PartId(part.get("id", ""))
@@ -299,7 +361,7 @@ def _slash_regions(root: ET.Element) -> tuple[SlashRegion, ...]:
         open_unit = 1.0
         last_n = 0
         for ordinal, measure in enumerate(part.findall("measure"), start=1):
-            n = _measure_number(measure, ordinal)
+            n = ordinal
             last_n = n
             for slash in measure.iter("slash"):
                 unit = _SLASH_UNIT_QUARTERS.get(
@@ -319,26 +381,147 @@ def _slash_regions(root: ET.Element) -> tuple[SlashRegion, ...]:
     return tuple(regions)
 
 
+def _repeat_regions(root: ET.Element) -> tuple[RepeatRegion, ...]:
+    """Scan <measure-repeat> spans (twin of _slash_regions). [start, stop)
+    with stop-before-start within a measure, so a bar carrying both closes
+    the old region and opens a new one."""
+    regions: list[RepeatRegion] = []
+    for part in root.findall("part"):
+        pid = PartId(part.get("id", ""))
+        open_start: int | None = None
+        open_span = 1
+        last_n = 0
+        for ordinal, measure in enumerate(part.findall("measure"), start=1):
+            n = ordinal
+            last_n = n
+            for mr in measure.iter("measure-repeat"):
+                if mr.get("type") == "stop" and open_start is not None:
+                    regions.append(RepeatRegion(pid, open_start, n, open_span))
+                    open_start = None
+            for mr in measure.iter("measure-repeat"):
+                if mr.get("type") == "start":
+                    open_start = n
+                    try:
+                        open_span = max(1, int((mr.text or "1").strip()))
+                    except ValueError:
+                        open_span = 1
+        if open_start is not None:
+            regions.append(RepeatRegion(pid, open_start, last_n + 1, open_span))
+    return tuple(regions)
+
+
+def _voice_cursor(measure: ET.Element) -> int:
+    """Net time-cursor advance of a measure's voice-1 flow, in divisions
+    (chord members and graces carry no duration; backup rewinds)."""
+    cur = 0
+    for el in measure:
+        if el.tag == "note":
+            if el.find("chord") is not None or el.find("grace") is not None:
+                continue
+            cur += int(el.findtext("duration") or 0)
+        elif el.tag == "forward":
+            cur += int(el.findtext("duration") or 0)
+        elif el.tag == "backup":
+            cur -= int(el.findtext("duration") or 0)
+    return cur
+
+
+def _apply_condense(root: ET.Element,
+                    specs: tuple[PartCondenseSpec, ...]) -> None:
+    """Merge each spec's contiguous parts onto the first part's staff, one
+    voice per source player (Phase 12.3). Runs FIRST in prepare so every
+    downstream pass (labels, _parts, slash/repeat scans, groups) sees the
+    condensed part-list. The rewrite mirrors spikes/condense_prep.py, which
+    verified the naive two-voice merge renders cleanly."""
+    if not specs:
+        return
+    part_list = root.find("part-list")
+    if part_list is None:
+        raise ValueError("MusicXML has no <part-list>")
+
+    for spec in specs:
+        if len(spec.parts) < 2:
+            raise ValueError(f"condense group needs >= 2 parts, got {spec.parts}")
+        parts_by_id = {p.get("id", ""): p for p in root.findall("part")}
+        sp_by_id = {sp.get("id", ""): sp
+                    for sp in part_list.findall("score-part")}
+        score_part_ids = [sp.get("id", "")
+                          for sp in part_list.findall("score-part")]
+        for pid in spec.parts:
+            if pid not in score_part_ids:
+                raise ValueError(f"condense group names unknown part {pid!r}")
+            staves = [int(s.text) for s in parts_by_id[pid].iter("staves")
+                      if s.text]
+            if staves and max(staves) > 1:
+                raise ValueError(f"condense of multi-staff part {pid!r} is "
+                                 "not supported in v1")
+        indices = [score_part_ids.index(pid) for pid in spec.parts]
+        if indices != list(range(min(indices), min(indices) + len(indices))):
+            raise ValueError("condense group parts must be contiguous in "
+                             f"score order, got {spec.parts}")
+
+        keep = str(spec.parts[0])
+        keep_part = parts_by_id[keep]
+        keep_measures = keep_part.findall("measure")
+        if spec.name:        # "" keeps the first part's own label
+            _set_part_text(sp_by_id[keep], "part-name", "part-name-display",
+                           spec.name)
+        if spec.abbreviation:
+            _set_part_text(sp_by_id[keep], "part-abbreviation",
+                           "part-abbreviation-display", spec.abbreviation)
+
+        for offset, absorb in enumerate(spec.parts[1:], start=1):
+            absorb_part = parts_by_id[str(absorb)]
+            for km, am in zip(keep_measures, absorb_part.findall("measure")):
+                cursor = _voice_cursor(km)     # measure start (stays == dur:
+                                               # each appended player nets 0)
+                if cursor > 0:
+                    bk = ET.SubElement(km, "backup")
+                    ET.SubElement(bk, "duration").text = str(cursor)
+                for el in am:
+                    if el.tag not in ("note", "backup", "forward", "direction"):
+                        continue          # skip attributes/print/barline
+                    e = copy.deepcopy(el)
+                    v = e.find("voice")
+                    if v is not None and v.text and v.text.isdigit():
+                        v.text = str(int(v.text) + offset)
+                    st = e.find("staff")
+                    if st is not None:
+                        st.text = "1"     # shared staff
+                    km.append(e)
+            root.remove(absorb_part)
+            part_list.remove(sp_by_id[str(absorb)])
+
+
 def prepare(score_path: Path,
             groups: tuple[PartGroupSpec, ...] = (),
-            texts: tuple[PartTextSpec, ...] = ()) -> PreparedScore:
+            texts: tuple[PartTextSpec, ...] = (),
+            condense: tuple[PartCondenseSpec, ...] = (),
+            page_break_measures: tuple[int, ...] = ()) -> PreparedScore:
     root = ET.fromstring(score_path.read_bytes())
     if root.tag != "score-partwise":
         raise ValueError(f"expected score-partwise MusicXML, got <{root.tag}>")
 
+    _apply_condense(root, condense)      # FIRST: rewrite the part-list so
+                                         # every downstream pass sees the
+                                         # condensed structure (Phase 12.3)
     _apply_text_overrides(root, texts)   # before _parts: PartInfo carries
                                          # the EFFECTIVE names (Phase 9.3)
     parts = _parts(root)
     slash_regions = _slash_regions(root)
+    repeat_regions = _repeat_regions(root)
     credits = _credits(root)
     width, height, units_per_tenth = _page_size(root)
     _neutralize_octave_only_transposes(root)
     _inject_part_groups(root, groups)
+    if page_break_measures:
+        _repaginate(root, page_break_measures)
 
     return PreparedScore(
         canonical_xml=ET.tostring(root, encoding="unicode"),
         parts=parts,
         slash_regions=slash_regions,
+        repeat_regions=repeat_regions,
         credits=credits,
         page_width=width,
         page_height=height,

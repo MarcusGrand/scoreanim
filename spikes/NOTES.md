@@ -1,5 +1,174 @@
 # Spike & build notes
 
+## Phase 12 — Orchestral robustness planning (2026-07-21)
+
+Verified the PHASE12_BRIEF diagnosis against the real files during
+planning; **the brief was corrected on two points.** Verovio 6.2.x.
+
+- **Verovio draws NOTHING for `<measure-repeat>`** (census, read-only).
+  Its MusicXML importer has no measure-repeat support: the repeat bars
+  import as invisible `<space>` (Bongos staff 25, m2: two `<space
+  dur=2>`), and there are ZERO `mRpt`/`beatRpt` glyphs in the MEI or the
+  rendered SVG (`mRest`/`space`/`mSpace` only). The brief's "Verovio
+  draws the mRpt symbol but produces no animated elements" is WRONG —
+  it draws nothing. → 12.2 must FULLY SYNTHESIZE the % symbol (SMuFL
+  `repeat1Bar` U+E500) in the slash-region shape, not map a drawn glyph.
+- **3 regions / ~32 bars, not "6 regions."** The 6 `<measure-repeat>`
+  tags are 3 `[start, stop)` spans: Bongos mm.2–12 & mm.14–24, Drum Set
+  mm.98–107 — the same half-open convention `_slash_regions` uses.
+  (`type="start">1` = single-bar repeat, spanning to the matching stop.)
+- **Appoggiatura join is surgical.** `join.py::_match_voice` already
+  sorts+zips both sides by document order (`ScoreNote.order` /
+  `AdapterNoteRecord.order_in_voice`) within a pitch bucket; the ONLY
+  onset dependence is `_note_key` embedding `round(onset*4096)` for
+  non-graces. Verovio delays the appoggiatura's principal by the grace
+  duration (+0.0957 q, complex1) while music21 keeps the notated beat →
+  the quantized onsets differ → the principal misses. Dropping the onset
+  term (12.1) is the whole fix; the grace tier already works this way.
+  Chord-graces fall out for free (distinct pitch + order per member).
+  Ruling: trigger stays the Verovio qstamp (performance time); the join
+  fix only closes the match, no retiming.
+
+- **Condensing is viable as designed** (`spikes/condense_prep.py`,
+  kept). Naive prep-seam merge of Flute 1 (P1) + Flute 2 (P2) into one
+  staff as two voices — append P2's voice flow behind a `<backup>` of
+  the measure's voice cursor, relabel voice → +1, force `<staff>1`,
+  combine the label to "Flute 1.2". Verified: merged part = 159
+  measures, 642 real notes (= 321+321), m64 balances (v1=80, v2=80);
+  renders cleanly (Verovio auto-assigns v1 stems up / v2 down; separate
+  beams/rests; ties/trills/graces survive) with NO collisions on both
+  unison (mm.84–92, collapses to one doubled line) and divergent
+  (mm.60–63 staccato) passages. Only cost: doubled noteheads in unison
+  (a2-collapse deferred to BACKLOG). Merging the two flutes took that
+  staff 5 pages → 3. Build note: the spike also folds P2's `<direction>`
+  (dynamics) in — harmless on unison, doubles on divergent bars; 12.3
+  decides (primary-only vs accept). SVG→PNG for review via `qlmanage`
+  (only rasterizer on the box; no cairosvg/rsvg/resvg).
+
+## Phase 11 — Dorico robustness (`spikes/complex1_triage.py`, 2026-07-19)
+
+Triage spike verified the PHASE11_BRIEF diagnosis against the real
+`complex1`/`complex2` files and corrected four brief details; the plan
+built on the corrected mechanisms. Findings, verovio 6.2.x:
+
+- **bTrem is NOT a clean container.** The tremolo stroke glyph (SMuFL
+  E222) is a DIRECT `<use>` child of the id-bearing `<g class="bTrem">`
+  (which also wraps the id-bearing note). Treating bTrem as a
+  transparent container loads but the stroke folds into the enclosing
+  STAFF_LINES scaffold (complex1 P9 m7 gains a 6th primitive — the
+  BACKLOG-6 shape). So bTrem must EMIT (ElementKind.TREMOLO); ruling (a)
+  is a real choice, not free. The nested note keeps its own timemap
+  onset; the tremolo inherits the note's onset (chord-member style).
+- **fTrem occurs in NEITHER file** — all 85 complex2 tremolos render as
+  bTrem. fTrem coverage is defensive (synthetic unit test only).
+- **beamSpan** is id-bearing with direct `<polygon>` children (the beam
+  quads); MEI `beamSpan` carries @startid/@endid but is NOT in the
+  layer-beam table, so onset/extent come from those note ids. complex2
+  has one, on raw-render page 5.
+- **Verovio DOES rotate.** complex2 pages 8 & 16 (raw encoded-breaks
+  render) carry `rotate(-90 cx cy)` on measure `<g>`s (vertical text) —
+  the brief's "page 5" was a different pagination. All are exactly −90°,
+  so corner-mapped `apply_rect` is exact. The "Verovio never rotates"
+  svg_geom assumption is dropped.
+- **The 22 unmatched joins are the grace-carrying PRINCIPALS, not the
+  graces.** All 26 graces match via join.py's onset-excluded grace tier;
+  the principals miss because Verovio's timemap delays each by the grace
+  duration (+0.0957 q exactly, both sides grace=False) while music21
+  keeps the notated beat. Same appoggiatura semantics as complex2's
+  1882/9546 collapse — one order-based join rewrite (Phase 12.1) fixes
+  both; Phase 11 only PINS the gap.
+- Census under the real (emitting) fix: complex1 = **3491** elements
+  (not the brief's shimmed 3490 — the bTrem element is new). complex2 =
+  **42,615** (42,530 + 85 real tremolos), 20 pages, 20 system-overflow.
+
+Build note: the offscreen `MainWindow` hangs in headless runs (no event
+loop), so the scripted exit drives `ScoreScenes` + `FrameRenderer`
+directly (the render_page_png idiom) — open/animate/export, 13/13.
+
+## Phase 10R — review-fix spike (`spikes/phase10r_spike.py`, 2026-07-13)
+
+Marcus's Phase 10 exit review required four fixes (hidden empty staves,
+animate-everything, the m44 tie artifacts, page-frame systems mode +
+never-clip). Library facts the fixes stand on, verovio 6.2.1:
+
+- **Two-pass load is id- and timemap-transparent**: loadData(MusicXML)
+  → getMEI() → set `optimize="true"` on the first `<scoreDef>` → fresh
+  toolkit → loadData(MEI) preserves all 4959 xml:ids AND the exact
+  timemap (215 entries, qstamps/on/restsOn/measureOn identical);
+  `transposeToSoundingPitch` on pass 2 does NOT double-transpose
+  (pnames identical — the MEI is already sounding pitch and Verovio
+  re-transposing is a no-op). Cost: 0.12s → 0.24s on video_test.
+- **`optimize` is the hide-empty-staves switch Verovio actually honors**
+  (with `condense:"encoded"`); `staff-details print-object="no"` and
+  `staffDef@visible="false"` are both IGNORED for rendering; plain
+  `condense:"auto"` condenses only scores with 2+ top-level staffGrps.
+  video_test hide-ON staves/system: 8,2,2,4,2,2,5,4,5,4,4,4,4,4,4
+  (first system full — engraving convention). ALL Phase 10R page
+  overflow disappears under hiding (max system bottom 21416/29670).
+- **Condensed layouts draw systemDividers (8 on video hide-ON) unless
+  `systemDivider:"none"`** — adopted as a fixed option (Dorico's
+  default draws none); the Phase 10 SYSTEM_DIVIDER decomposer support
+  stays as defense. testscore + 2 injected groups + hide-ON: 7/3/6/3/5
+  staff rows, 0 dividers — optimize and injected groups compose.
+- **The native grand-staff brace follows staff visibility**: 3 grpSyms
+  on video hide-ON (only the piano-visible systems), including systems
+  where just ONE piano staff survives — the brace draws over one staff;
+  the geometric identity's `first is last and staff_count > 1` branch
+  covers it (span "P5").
+- **Slash regions vs hiding**: Verovio judges slash measures (MEI
+  `<space>`) empty. testscore hide-ON HIDES the drum staff across slash
+  measures mm5–8/13–16 → the adapter's fallback (redo without optimize
+  + LoadWarning "hide-unavailable") exists for exactly this;
+  video_test loses no slash staff (other content keeps staves 7/8
+  visible in its slash systems).
+- **`<print new-page="yes">` injection in PART 1 ONLY controls
+  pagination** (stripped encoded new-page + 7 injected breaks → exactly
+  8 pages). Verovio's own ids re-roll on the input change (4589/4959
+  common) — as always, OUR musical ids are the stable ones.
+- **Attach-onset census (video)**: fermata ×6 and trill ×1 carry
+  `@startid`; dir ×3, tempo ×1, harm ×9, dynam ×24 carry `@tstamp`;
+  nothing carries neither. The 15 other onset-less OTHER elements are
+  the per-system systemic-barline elements (scaffold, correctly
+  static); the 7 onset-less TEXTs are the page-1 part labels (ruled
+  static furniture).
+
+Phase 10R build finds (2026-07-13):
+
+- **A fermata's `@startid` may reference a CHORD id**, which is not in
+  the timemap — attach-onset resolution goes through
+  `chord_members[first]` (3 of video's 6 fermatas).
+- **Repagination drift**: the re-engraved layout placed one system
+  2 page units lower than the measured first pass predicted (greedy
+  plan said fit-by-11) — `plan_page_breaks` carries a 2% safety pad;
+  never-clip beats an occasional extra page.
+- **QGraphicsView clamps scrolling to the scene rect**: the page-sized
+  system frame extends past the page for systems near its top/bottom,
+  so `fitInView` silently re-centered on the page instead of the band —
+  StageView widens the VIEW's sceneRect to frame∪page (the overhang
+  renders as view background = letterbox, which is correct).
+- **Verovio's tie matching differs under condensed layout**: the P4 m41
+  open tie (dropped flat) DRAWS under optimize, producing a
+  continuation segment with no resolvable source in system 13 — the
+  tolerant pairing skips it with "unattributed-continuation"
+  (hide-ON warning census: 5 dropped + 13 implausible + 1 mismatch +
+  1 unattributed; flat: 6 dropped + 13 implausible + 1 repaginated).
+- **Condensed layout REUSES SVG group ids across element types** (the
+  page-jump bug, fixed 2026-07-13): an m1 stem's `<g>` and an m44
+  note's `<g>` can carry the same xml:id (e.g. `c1ax32bj`), so a naive
+  `onset_by_id[vid]` / spanner-table lookup on a note-owned fragment's
+  OWN id returned the distant note's late onset (145.5 for an m1 stem).
+  That poisoned the trigger schedule's page/system stamps (a bar-3
+  trigger stamped page 4 / system 10), which follow-mode read as a jump
+  to page 4 and back. 182 stray fragments on video hide-ON; 0 on flat
+  (no condense → no reuse). Fix: onset lookups in `_identity_for` are
+  GATED BY svg_class — only notes/rests consult `onset_by_id` by id,
+  only spanner classes the spanner table, only "beam" the beam table;
+  everything note-owned falls to `owner_onset`. A no-op on any load
+  without id reuse (flat unchanged), robust to Verovio's id hygiene.
+  The MEI xml:id SET is still round-trip-stable (spike A) — the reuse
+  is in the rendered SVG, not the MEI, so the set check didn't catch
+  it.
+
 ## Phase 9 — part-label overrides (`spikes/part_label.py`, 2026-07-12)
 
 Task 9.3's opening spike. Verovio 6.2.1 against
@@ -616,3 +785,141 @@ nests an inner `<svg>` element and QtSvg skips it → blank output. Chrome
 renders it fine. Phase 1/2 plan (decompose SVG into per-element QGraphicsItems
 via QPainterPath) is unaffected, but "just hand the whole SVG to QtSvg" is
 not a viable shortcut.
+
+## Phase 10 — triage spike (`spikes/video_test_triage.py`, 2026-07-13)
+
+Task 10.0: the proper freeze of the session triage below, with THREE
+mechanism corrections found while planning (verified against the real
+files; the spike pins all of them and reproduces the four failure points
+in order — section F). The fixes' shape follows these, not the earlier
+hypotheses:
+
+- **music21 PartStaff contract (10.1)**: a `<staves>2</staves>` part
+  splits into adjacent `PartStaff` objects, document order, in the
+  score-part's slot, ids `'<score-part-id>-Staff<k>'` — the ONLY parts
+  whose original id survives (plain Parts get their id replaced by the
+  part NAME). music21 also emits a `layout.StaffGroup(symbol='brace')`
+  over the pair. So `sum(prep staff_count) == len(score.parts)` and a
+  grouped positional zip reconciles 8-vs-7 by construction. The
+  note-empty `P5-Staff2` still carries all 45 Measure streams.
+- **The m12 "ledger dash matches no notehead" is a REST, not
+  cross-staff (10.2)**: staff 2 (Ten/Bari — not even the piano) has two
+  voices in m12; the voice-1 half rest is displaced off the staff and
+  Verovio draws a ledger dash through it. The (page, measure, staff)
+  scope key is already right; the candidate pool just lacks rests.
+  Score-wide: 351 dashes note-owned, 4 attributable only to a rest.
+- **Tie continuation ink is drawn ONLY in the tie's END system (10.3)**:
+  the Phase 5 spike only ever saw 2-system spanners, where end system ==
+  the only continuation system. On video_test the old
+  `start < n <= end` predicate over-counts pass-through ties (per-system
+  drawn/old/end-rule: sys4 6/9/6, sys7 4/9/4, sys11 10/17/10, sys12
+  9/18/9, sys13 14/25/14, sys15 11/11/11); the end-system rule closes
+  every count. Separately, **6 MEI ties produce NO ink** — all render as
+  id-bearing 0-path `<g>`s (the testscore open-tie shape, NOT absent
+  groups): 5 with no `@endid` ("5 ties left open") + 1 cross-staff tie
+  whose end precedes its start (m41 staff 3 → m38 staff 4, "tie
+  ignored... start does not occur temporally before end"). Detection is
+  structural (id-bearing spanner group with zero drawables), no log
+  parsing.
+- **The systemDivider root cause is Verovio's `condense` option,
+  default `"auto"` (10.4)**: at ≥2 staff-groups Verovio silently switches
+  to condensed layout — hides empty staves per system (testscore 2-group:
+  7/3/6/3/5 staff rows vs 7×5) and draws id-less `systemDivider` glyphs
+  (2 polygons, direct child of `system`). `condense: "encoded"` restores
+  the encoded layout: 2 groups → 10 grpSyms, ZERO dividers, and the
+  0-group and 1-group renders are byte-identical to `auto`. That makes
+  it a rule-7-reinforcing fixed adapter option (the
+  transposeToSoundingPitch shape). SYSTEM_DIVIDER stays mapped anyway
+  (ruling a) as defense.
+- **Native-brace suppression**: video_test's piano brace is ONE grpSym
+  per system (15 total); injecting a group that overlaps P5 (e.g.
+  P4–P5) SUPPRESSES the native brace — still 1 symbol/system. Slot
+  bookkeeping for grpSym identity would need suppression rules;
+  geometric identity (which staves the symbol's bbox spans) is
+  self-identifying (10.4).
+- `bracketSpan` (1) and `mSpace` (2) are id-bearing, EMPTY `<g>`s on
+  video_test — non-guard-fatal today; 10.4 registers them defensively.
+
+## Phase 10 — video_test.musicxml triage (2026-07-13)
+
+`testdata/video_test.musicxml` (real production score) does not load.
+Both open defects (multi-bracket + this file) are the SAME class of bug:
+the adapter was built against `testscore` and `broken_hairpin_and_slur_test`,
+neither of which exercises multi-staff parts, system dividers, or several
+notation classes. Root causes reproduced against the real files:
+
+- **Multi-staff part (load-bearing).** Piano is `<staves>2</staves>` — ONE
+  `<score-part id="P5">`, two staves. music21 splits it into `P5-Staff1` /
+  `P5-Staff2` (8 parts); prep counts 7 score-parts. This single fact cascades:
+  1. `build_score_model` raises `music21 sees 8 parts, prep sees 7`.
+  2. `_attribute_ledger_dashes` raises: `page 2 m12 staff 2: ledger dash at
+     x=674 matches no notehead` (attribution assumes single-staff geometry).
+  3. `_attribute_spanner_segments` raises: `system 4: 6 tie continuation
+     segment(s) but 9 crossing source spanner(s)`, then `_build_elements`
+     raises `continuation tie segment in system 4 has no source element`.
+     Verovio also warns "5 ties left open" / "tie ignored, start does not
+     occur temporally before end" — grand-staff tie matching.
+
+- **systemDivider (multi-bracket).** Injecting two disjoint part-groups into
+  `testscore` validates and produces correct part-list XML, but Verovio then
+  draws a `<g class="systemDivider">` (drawable) that the decomposer whitelist
+  rejects → `ValueError: page 2: unknown SVG class 'systemDivider'`. One group
+  never draws a divider. Reproduce: load testscore with two PartGroupSpecs.
+
+- **New SVG classes, non-blocking.** `bracketSpan` and `mSpace` appear but are
+  NON-drawable (don't hit the guard today); add to the container/ignore set
+  defensively. New notation present — trill/`wavy-line`, `fermata`,
+  `ornaments`, `strong-accent`, `ppp`, `wedge`, chord-symbol `bass` — maps to
+  classes already whitelisted; renders once the load succeeds (verify visually).
+
+Fixtures the prior two never exercised: multi-staff (grand-staff) parts;
+two+ part-groups in a system (systemDivider); `ppp` dynamics; `wedge`
+hairpins in this configuration; trill wavy-lines; chord-symbol bass notes.
+
+## Phase R (2026-07-22) — adapter package split
+
+`core/engraving/verovio_adapter.py` (1823 lines) was decomposed into the
+`core/engraving/verovio/` package, one module per pipeline stage (kinds /
+mei_index / records / decompose / attribution / identity / synthesis /
+provider) and DELETED — imports repoint to the package. For spike
+authors: the monkeypatch seams moved with the code. Patch
+`verovio.decompose.parse_transform` (complex1_triage's rotate shim) and
+`verovio.attribution._attribute_ledger_dashes` (both triage spikes) —
+the provider calls stages module-qualified, so patching the old
+verovio_adapter attributes would silently do nothing. Both triage spikes
+were updated in the same commits that broke their seams and run
+end-to-end. The golden suite (tests/goldens/, 12 loads byte-for-byte) is
+the standing regression net for any adapter change.
+
+## Beat-domain census (2026-07-22) — spikes/beat_domain.py
+
+FINDING-1 fix groundwork: per fixture, the engraved timemap's measure
+starts/spans (derived exactly as the provider derives them) against
+music21's `measure.offset` / `barDuration`. Facts the fix builds on:
+
+- **1:1 ordinal coverage holds everywhere**: every MEI measure ordinal
+  has a timemap `measureOn` start on all 11 fixtures — the loud
+  provider invariant is safe.
+- **The timemap is playback-EXPANDED**: complex3's repeat (printed
+  m35–36) emits second-pass clone measure ids (`e1jy649-rend2` at
+  q147, `qa3bpe5-rend2` at q151) which the `measure_by_id` guard
+  drops; the kept ordinal-37 span is 12 = 4 notated + 8 repeat pass.
+  music21 never expands → −8 shear after the repeat. No duplicate
+  note ids in `on`/`restsOn` — repeated bars' notes keep FIRST-pass
+  qstamps.
+- **music21 pads the X0 pickup to nominal length** (complex3 m1:
+  engraved 1 beat, model 4 → +3 shear; pickup_min parses correctly
+  with `paddingLeft=3`, so the padding behavior is export-dependent).
+  Intra-measure note offsets start at 0 in BOTH cases — the rebase
+  formula `starts[ordinal] + el.offset` needs no padding correction.
+- **Half-beat bars round down in music21**: complex3 m52 (4.5 vs 4),
+  complex2 m8 and m120 (4.5 vs 4) — so complex2 shears too (+0.5,
+  then +1.0), previously unnoticed (the diagnosis never ran complex2).
+- **music21 per-part accumulation self-diverges**: complex3 part 0
+  drifts +7.75 beats from every other part by m78 (the 714
+  notes-outside-measure finding). Per-ordinal rebasing erases it.
+- **A trailing event-less bar has no timemap end**: bar_repeat_min's
+  final bar-repeat measure gets engraved span 0 (score_end stops at
+  its downbeat) → build_score_model floors the LAST measure's span
+  with its notated length. Mid-score empty bars are safe (spans are
+  next-downbeat deltas).

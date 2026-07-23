@@ -43,7 +43,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
-from scoreanim.core.animation.schedule import (TriggerSchedule,
+from scoreanim.core.animation.schedule import (REVEALED_KINDS, TriggerSchedule,
                                                quantize_beats)
 from scoreanim.core.engraving.types import Layout
 from scoreanim.core.score.identity import (Beats, ElementKind, PartId)
@@ -54,15 +54,15 @@ from scoreanim.core.timing.tempo_map import TempoMap
 # sounding EVENTS. Rests joined per ruling B (2026-07-12); dynamics
 # deliberately absent (attachments).
 ANCHOR_KINDS = frozenset({ElementKind.NOTEHEAD, ElementKind.SLASH,
+                          ElementKind.BAR_REPEAT,
                           ElementKind.REST, ElementKind.MREST})
 
 # Spanner kinds revealed by clip-grow at the reveal edge (Phase 5.2
 # ruling: grow REPLACES the Phase 3 step-appear for SLUR/TIE and newly
 # covers HAIRPIN per the 5.2 task text; the dynamic letters animate via
 # opacity instead — ruling B). Spanner opacity stays 1.0 — the clip
-# does all revealing.
-REVEALED_KINDS = frozenset({ElementKind.SLUR, ElementKind.TIE,
-                            ElementKind.HAIRPIN})
+# does all revealing. Defined in schedule.py (so is_animated can exclude
+# it) and re-exported here.
 
 
 def is_revealed(kind: ElementKind) -> bool:
@@ -142,24 +142,6 @@ def build_reveal_tracks(layout: Layout, schedule: TriggerSchedule,
     system — Layout carries no durations."""
     triggers: Mapping = schedule.beats_by_element
 
-    # Chain-start lookup for tie ink: notehead groups keyed
-    # (part, staff, voice, quantized notated onset) → min member trigger
-    # (an all-tied group's members all carry the chain start; min is the
-    # conservative pick for mixed groups — the tie belongs to the tied
-    # note).
-    group_start: dict[tuple, Beats] = {}
-    for el in layout.elements:
-        ident = el.identity
-        if ident.kind is not ElementKind.NOTEHEAD or ident.onset is None:
-            continue
-        trigger = triggers.get(ident.element_id)
-        if trigger is None:
-            continue
-        key = (ident.part, ident.staff, ident.voice,
-               quantize_beats(ident.onset))
-        prev = group_start.get(key)
-        group_start[key] = trigger if prev is None else min(prev, trigger)
-
     # (system, part) → {quantized trigger → (beats, max x2)}, plus the
     # shared per-system hull
     anchors: dict[tuple[int, PartId | None],
@@ -174,15 +156,16 @@ def build_reveal_tracks(layout: Layout, schedule: TriggerSchedule,
         if ident.part is None or ident.onset is None:
             continue
         if ident.kind in ANCHOR_KINDS:
+            # The struck/silence anchors now carry NOTATED triggers (tie
+            # retiming removed, schedule rule 1 revised 2026-07-22), so the
+            # edge sweeps across a held note's re-notated barline noteheads
+            # with the playhead — and the tie ink over them grows with it.
             beat = triggers.get(ident.element_id, ident.onset)
-        elif ident.kind is ElementKind.TIE:
-            # fold the chain's tie ink (incl. broken :seg segments,
-            # which inherit the source identity) into its chain-start
-            # bucket in the system THEY sit in
-            key = (ident.part, ident.staff, ident.voice,
-                   quantize_beats(ident.onset))
-            beat = group_start.get(key, ident.onset)
         else:
+            # Ties (and other REVEALED spanners) do NOT anchor the edge —
+            # they are clip-revealed BY it. Folding a tie's far
+            # (next-tied-note) x onto the chain start is what drew a long
+            # held-note tie to the system end at once.
             continue
         bucket = anchors[(el.system, ident.part)]
         qb = quantize_beats(beat)

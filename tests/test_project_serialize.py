@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -100,7 +101,9 @@ def test_file_round_trip_with_relative_paths(tmp_path: Path) -> None:
 
 def test_defaults_for_absent_optional_fields() -> None:
     doc = from_dict({"version": 1})
-    assert doc == ProjectDoc()
+    # identical to a fresh doc EXCEPT hide_empty_staves, which is
+    # deliberately version-gated (v<=3 predates the option → OFF)
+    assert doc == replace(ProjectDoc(), hide_empty_staves=False)
     assert doc.timing.tempo_events == (TempoEvent(0.0, 120.0),)
     assert doc.style.reveal_mode is RevealMode.STEPPED
 
@@ -118,7 +121,7 @@ def test_reveal_mode_round_trip_and_legacy_default() -> None:
 
 def test_v1_part_colors_fold_into_style_rules() -> None:
     """A Phase 4 project file (version 1, style.part_colors) loads with
-    its tints intact as part color rules; version 4 is refused."""
+    its tints intact as part color rules; version 6 is refused."""
     legacy = from_dict({"version": 1,
                         "style": {"part_colors": {"P1": "#cc2222",
                                                   "P4": "#1c4fd6"}}})
@@ -128,10 +131,25 @@ def test_v1_part_colors_fold_into_style_rules() -> None:
     }
     assert legacy.style.reveal_mode is RevealMode.STEPPED
     assert legacy.style.elements == {}
-    # new files declare version 3; a build from the future is refused
-    assert to_dict(ProjectDoc())["version"] == 3
+    # new files declare version 5; a build from the future is refused
+    assert to_dict(ProjectDoc())["version"] == 5
     with pytest.raises(ValueError, match="version"):
-        from_dict({"version": 4})
+        from_dict({"version": 6})
+
+
+def test_v4_hide_empty_staves() -> None:
+    """v4 (Phase 10R): hide_empty_staves round-trips; files saved at
+    v<=3 predate the option and load OFF (their look is unchanged);
+    new documents default ON."""
+    assert ProjectDoc().hide_empty_staves is True
+    off = ProjectDoc(hide_empty_staves=False)
+    assert to_dict(off)["hide_empty_staves"] is False
+    assert from_dict(to_dict(off)).hide_empty_staves is False
+    assert from_dict(to_dict(ProjectDoc())).hide_empty_staves is True
+    assert from_dict({"version": 3}).hide_empty_staves is False
+    assert from_dict({"version": 2}).hide_empty_staves is False
+    # a v4 file missing the key (hand-edited) gets the new-doc default
+    assert from_dict({"version": 4}).hide_empty_staves is True
 
 
 def test_v2_file_loads_with_v3_defaults() -> None:
@@ -217,4 +235,5 @@ def test_never_persists_derived_data() -> None:
     payload = to_dict(_full_doc("/s.musicxml", "/a.wav"))
     assert set(payload) == {"version", "score", "audio", "engraving",
                             "layout_overrides", "timing", "style", "stage",
-                            "staff_groups", "text_overrides"}
+                            "staff_groups", "text_overrides",
+                            "hide_empty_staves", "condense_groups"}

@@ -25,6 +25,23 @@ See `spikes/NOTES.md` for the full investigation of each.
    (which also discharges item 5's "verify" note).
    **CLOSED 2026-07-12**: Phase 8 exit criteria passed (user's
    interactive run, accepted).
+   **RE-OPENED → Phase 10 (2026-07-13)**: only ONE group works; adding
+   a second makes Verovio draw a `systemDivider` glyph the decomposer's
+   SVG-class whitelist rejects (raises "unknown SVG class"). The
+   grouping logic itself is correct (two disjoint groups validate and
+   inject cleanly — verified); this is a decomposer-coverage gap, fixed
+   as Phase 10 task 10.4. N-group loading pinned by test at close.
+   **CLOSED 2026-07-13 (Phase 10.4)**: root cause was deeper than the
+   whitelist — Verovio's `condense:"auto"` default silently switches
+   to condensed layout at 2+ staff groups, HIDING empty staves per
+   system (testscore: 7/3/6/3/5 staff rows) and drawing the divider.
+   The adapter now pins `condense:"encoded"` (rule-7-reinforcing fixed
+   option, the transposeToSoundingPitch shape; 0/1-group renders
+   byte-identical — triage spike section E). Two groups → 10 span-keyed
+   grpSyms, zero dividers, all staves; `SYSTEM_DIVIDER` mapped
+   defensively anyway (static kind, synthetic-SVG test). N≥2 loading +
+   two-group id stability pinned in tests/test_adapter_groups.py;
+   in-app two-bracket add/undo verified in the Phase 10 exit run.
 2. **m. 19 guitar slash notehead renders wrong** (stack of strokes instead
    of a slash). Priority: medium, cosmetic.
 3. **"Swing ♩ = 120" renders with a tofu box** before the note glyph.
@@ -171,9 +188,88 @@ See `spikes/NOTES.md` for the full investigation of each.
     frames/s at 1526×2160 on the fixture), so this is a perf option,
     not a need. Revisit for long scores or 4K-height exports.
 
+## Dorico robustness (Phase 11 progress, 2026-07-19)
+
+Phase 11 made the loader robust to arbitrary Dorico exports, using
+`testdata/complex1.musicxml` (14 parts, 921 notes) as the milestone:
+
+- The **score-doctor** (`python -m scoreanim.tools.check_score`) is the
+  standing triage tool — one command loads any MusicXML and prints PASS
+  with a census or the exact failure stage. The routine loop for a new
+  export is doctor → smallest fix → fixture.
+- **Graceful degradation**: an unknown drawable SVG class degrades to a
+  warned static element in the app path (`unknown-class`); strict loads
+  (pytest / doctor `--strict`) still raise (CLAUDE.md rule 4).
+- Decomposer/geometry coverage landed: tremolo strokes (bTrem/fTrem —
+  animate untinted, ruling a), beamSpan, rotate transforms, and the
+  mRest ledger tier.
+- **complex2** (orchestral, `docs/PHASE12_BRIEF.md`) loads through
+  decomposition (42,615 elements) but overflows every system — its
+  layout, and the order-based grace/appoggiatura join rewrite (which
+  fixes complex1's pinned 899/921 gap too), are **Phase 12 (task 12.1)**.
+- Tremolo animation polish (the stroke dims/lights with its note but
+  stays black — untinted per ruling a): if a tinted-stroke look is ever
+  wanted, it is a one-line TINTED_KINDS add, parked here.
+
+## Phase 12 (orchestral robustness) — deferrals
+
+Built 2026-07-21: complex2 lays out (order-based join, bar-repeat
+synthesis, prep-seam condensing + schema v5, Score Setup dialog, auto
+scale-to-fit). Parked:
+
+- **Condensing sophistication.** v1 is naive (shared staff, one voice per
+  player). No **a2 unison collapse** (a unison passage draws doubled
+  noteheads/stems), no **divisi** logic, no per-passage condensing (a
+  group is condensed for the whole piece or not at all). These are the
+  Dorico-condensing features that would make the merged look match the
+  PDF; v1's target is "usable and clean", and the user picks sane pairs.
+- **Hide-empty-staves is a no-op on scores with percussion slash/repeat
+  regions.** Those staves import as `<space>`, so Verovio's `optimize`
+  would hide them → the rule-10 fallback disables hiding globally
+  (`hide-unavailable`). Scale-to-fit (rule-7 amendment c) now guarantees
+  the layout regardless, so hiding is a readability nicety here, not the
+  overflow fix. A proper fix (keep slash/repeat staves visible under
+  optimize by filling their region measures with invisible rests so
+  hiding can thin the genuinely-empty staves) is parked.
+- **Condensing multi-staff parts** (e.g. two grand-staff keyboards) is
+  rejected in v1 (raises); needs a per-staff merge design.
+
+## Phase R (adapter package split) — deferrals
+
+- **`_LoadState` narrowing** into per-stage inputs: every stage module
+  now documents which fields it reads/writes, but the type is still one
+  shared mutable dataclass. Explicitly deferred by the refactor brief.
+- **`_identity_for` onset-chain table**: the svg_class-gated if/elif
+  chain works and is pinned by the goldens; restructuring it into a
+  dispatch table is deferred (brief).
+- **Redundant re-prepare in the scale-to-fit path** (R.4 finding F4):
+  when systems overflow but `plan_page_breaks` returns no breaks,
+  `load_detailed` re-runs `prepare()` with identical inputs before the
+  scaled engrave — wasted work, output unaffected. Perf work is out of
+  the refactor's scope (brief).
+- **Golden snapshots are the standing regression net** for all future
+  adapter work: `tests/goldens/` pins 12 loads byte-for-byte
+  (`SCOREANIM_UPDATE_GOLDENS=1` re-captures after a deliberate change —
+  commit the diff with the change that caused it).
+
+## One beat domain (FINDING-1 fix, 2026-07-22) — deferrals
+
+- **Repeat-skipping recordings.** The beat axis is performance time
+  (playback-expanded timemap, CLAUDE.md rule 12), which syncs with a
+  recording that TAKES the repeats. A recording that skips a repeat
+  currently needs an ugly tempo-map workaround (a near-infinite-bpm
+  region over the skipped pass); a proper affordance (per-repeat
+  "played/skipped" toggle compressing the timeline) is future work.
+- **Second-pass cosmetics.** During a repeat's later passes the tap
+  label reads as extra beats of the repeated bar (e.g. "m37 beat 6"
+  in a 4/4 bar) and the tempo lane draws no gridlines inside the
+  expanded span (clone downbeats carry no measure ordinal). Accepted
+  for v1; fixing needs an expansion map from the timemap clones.
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score
 auto-alignment provider; custom engraving provider; MIDI input; richer
-effect editor; arbitrary-exporter MusicXML robustness. (In-app editable
-score texts — item 5 — graduated to Phase 9, 2026-07-12.)
+effect editor; arbitrary-exporter MusicXML robustness (Dorico robustness
+advanced in Phase 11 — see above). (In-app editable score texts — item
+5 — graduated to Phase 9, 2026-07-12.)

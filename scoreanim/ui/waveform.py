@@ -8,7 +8,7 @@ change; the per-frame overlay (playhead, tap markers) is a few lines.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QMenu, QSizePolicy, QWidget
 
@@ -24,6 +24,7 @@ _RMS = QColor("#7fa8d4")
 _MIDLINE = QColor("#33363d")
 _PLAYHEAD = QColor("#e8b34a")
 _TAP = QColor("#5fd47f")
+_EMPTY_TEXT = QColor("#6a6d75")     # no-audio hint (FIX 2)
 
 
 class WaveformView(QWidget):
@@ -90,6 +91,13 @@ class WaveformView(QWidget):
                     painter.setPen(rms_pen)
                     painter.drawLine(QPointF(x + 0.5, mid - rms * half),
                                      QPointF(x + 0.5, mid + rms * half))
+        elif w > 0:
+            # no recording loaded: an explicit empty state — playback still
+            # runs off the tempo map (FIX 2)
+            painter.setPen(QPen(_EMPTY_TEXT, 1))
+            painter.drawText(QRectF(0, 0, w, h),
+                             Qt.AlignmentFlag.AlignCenter,
+                             "No audio — playback follows the tempo map")
         painter.end()
         return pixmap
 

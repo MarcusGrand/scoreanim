@@ -30,10 +30,20 @@ class ElementKind(enum.Enum):
     HAIRPIN = enum.auto()
     ACCIDENTAL = enum.auto()
     ARTICULATION = enum.auto()
+    TREMOLO = enum.auto()                # tremolo stroke ink (Phase 11);
+                                         # animates with its owning note
+                                         # (ruling a), untinted
     DYNAMIC = enum.auto()
     REST = enum.auto()
     MREST = enum.auto()                  # whole-measure rest
     SLASH = enum.auto()                  # synthesized (CLAUDE.md rule 10)
+    BAR_REPEAT = enum.auto()             # synthesized % measure-repeat
+                                         # symbol (Phase 12.2) — Verovio
+                                         # draws nothing for <measure-repeat>
+                                         # (imports as empty <space>), so
+                                         # the adapter synthesizes it like
+                                         # a slash; one per repeated bar,
+                                         # onset on the downbeat (ruling b)
     CLEF = enum.auto()
     KEY_SIG = enum.auto()
     METER_SIG = enum.auto()
@@ -41,6 +51,9 @@ class ElementKind(enum.Enum):
     STAFF_LINES = enum.auto()
     GROUP_SYMBOL = enum.auto()           # staff-group bracket/brace ink
                                          # (Phase 8) — static, untinted
+    SYSTEM_DIVIDER = enum.auto()         # between-system divider glyph
+                                         # (Phase 10 ruling a) — static by
+                                         # construction, like GROUP_SYMBOL
     LEDGER_LINES = enum.auto()           # per-dash, note-owned (BACKLOG 6)
     LYRIC = enum.auto()
     CHORD_SYMBOL = enum.auto()
@@ -54,7 +67,8 @@ class ElementIdentity:
     kind: ElementKind
     part: PartId | None                  # None for score-level elements
     part_name: str | None
-    staff: int | None                    # 1-based staff number within the score
+    staff: int | None                    # part-local, 1-based (a grand
+                                         # staff is staff 1/2 of its part)
     voice: int | None
     onset: Beats | None                  # None for non-timed elements
     extent: tuple[Beats, Beats] | None = None   # spanners: (start, end)
