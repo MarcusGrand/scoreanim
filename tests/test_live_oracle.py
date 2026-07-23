@@ -33,6 +33,17 @@ Findings (full table in docs/PHASES.md, "Live-timing diagnosis"):
   end-of-system courtesy to its CHANGE measure's start; the nesting
   pins pass and test_finding4_courtesy_sig_lights_with_change pins
   the retime.
+- FINDING-5 (L0, adapter D5, diagnosed 2026-07-23): under the
+  hide-empty-staves MEI round-trip Verovio reuses one xml:id across
+  element types AND draws a slur/tie's curve inside the foreign group
+  carrying its id (the spanner's own <g> in the right measure renders
+  EMPTY). Decompose's subtree claim then folds the curve into that
+  stem/flag/dots/barline/text element, so the curve fires at the
+  host's onset in the host's measure — the recurring early-slur, live
+  and export (complex3: 23 absorbed spanners over 6 fixtures; the
+  same reuse masks the dropped-spanner warning and, via the
+  last-writer identity_by_vid, mints continuation segments under
+  foreign stem identities). D5 pins below are xfail until the fix.
 """
 from __future__ import annotations
 
@@ -45,12 +56,14 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from scoreanim.core.animation import RevealMode
-from scoreanim.tools.live_oracle import (audit_join,
+from scoreanim.tools.live_oracle import (audit_join, audit_kind_purity,
                                          audit_model_consistency,
                                          audit_reveal_anchors,
-                                         audit_signatures, audit_triggers,
-                                         build_bundle, check_d1, check_d3,
-                                         check_d4)
+                                         audit_signatures,
+                                         audit_spanner_coverage,
+                                         audit_triggers, build_bundle,
+                                         check_d1, check_d3, check_d4,
+                                         check_d5)
 
 TESTDATA = Path(__file__).resolve().parent.parent / "testdata"
 
@@ -209,3 +222,77 @@ def test_d3_refresh_matches_pure_expectation(qapp, request, fixture, mode):
 def test_d4_ticking_equals_fresh_refresh(qapp, request, fixture, mode):
     findings = check_d4(_bundle(request, fixture), mode, [])
     assert findings == []
+
+
+# -- D5: kind/ink purity (adapter, FINDING-5) --------------------------------
+#
+# These bundles load FRESH (no engraved= reuse): the spanner-coverage
+# sub-check audits the raw page SVG and MEI captured DURING the load,
+# which the session-cached engravings cannot provide.
+
+_XF5 = ("FINDING-5: Verovio id reuse under hide-empty-staves absorbs "
+        "slur/tie curve ink into foreign stem/flag/dots/barline/text "
+        "groups (D5, 2026-07-23)")
+
+
+@pytest.fixture(scope="session")
+def bundle_testscore_captured():
+    return build_bundle(TESTDATA / "testscore.musicxml")
+
+
+@pytest.fixture(scope="session")
+def bundle_bigband_captured():
+    return build_bundle(TESTDATA / "bigband1.musicxml", strict=False)
+
+
+@pytest.fixture(scope="session")
+def bundle_complex3_captured():
+    if not (TESTDATA / "complex3.musicxml").exists():
+        pytest.skip("complex3.musicxml fixture not present")
+    return build_bundle(TESTDATA / "complex3.musicxml")
+
+
+@pytest.mark.parametrize("fixture", [
+    "testscore_captured",
+    "bigband_captured",       # its stolen curves are cross-system: rehome
+                              # already split the INK out, so purity is
+                              # clean — coverage below still fails
+    pytest.param("complex3_captured",
+                 marks=pytest.mark.xfail(reason=_XF5, strict=True)),
+])
+def test_d5_kind_ink_purity(request, fixture):
+    """No straight-ink kind carries a bézier; no compact kind exceeds
+    its sane bbox bounds."""
+    assert audit_kind_purity(_bundle(request, fixture)) == []
+
+
+@pytest.mark.parametrize("fixture", [
+    "testscore_captured",
+    pytest.param("bigband_captured",
+                 marks=pytest.mark.xfail(reason=_XF5, strict=True)),
+    pytest.param("complex3_captured",
+                 marks=pytest.mark.xfail(reason=_XF5, strict=True)),
+])
+def test_d5_spanner_coverage(request, fixture):
+    """Every MEI slur/tie the engraver inked yields exactly one
+    SLUR/TIE element attributed to its own staff's part."""
+    assert audit_spanner_coverage(_bundle(request, fixture)) == []
+
+
+def test_d5_names_the_absorbed_viola_slurs(bundle_complex3_captured):
+    """The concrete complex3 symptom, pinned mechanically while the bug
+    exists: the viola (P14) m66-68 slur ids are reported absorbed and
+    the named hosts carry the stolen ink. The FINDING-5 fix session
+    REPLACES this test with the positive pin (slur elements exist on
+    P14, hosts hold one straight path each)."""
+    findings = check_d5(bundle_complex3_captured)
+    absorbed = {f.element_id for f in findings
+                if f.code == "spanner-absorbed"}
+    assert {"x15guzva", "efon8na", "e1rex54i", "n11z1ce2",
+            "g1b4p4u5"} <= absorbed
+    hosts = {f.element_id for f in findings
+             if f.code in ("kind-curve-ink", "kind-bbox-oversize")}
+    assert {"P2:m65:s1:v1:stem:1", "P12:m65:s1:v1:stem:0",
+            "P13:m65:s1:v1:stem:1", "P3:m66:s1:v1:stem:0",
+            "P5:m66:s1:v1:stem:5", "P13:m66:s1:v1:stem:3",
+            "P3:m72:s1:v1:flag:0"} <= hosts
