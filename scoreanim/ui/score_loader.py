@@ -59,16 +59,19 @@ class ScoreLoader:
         self._applied_groups: tuple = ()   # staff groups the engrave used
         self._applied_text_overrides: dict = {}   # label overrides ditto
         self._applied_hide_empty = False   # hide-empty-staves ditto
+        self._applied_hide_first = False   # hide-first-system ditto
         self._applied_condense: tuple = ()   # condense groups ditto
 
     def needs_reengrave(self, doc: ProjectDoc) -> bool:
-        """Staff groups, part-label overrides, hide-empty-staves, and
-        condense groups are engraving inputs: a change (execute, undo,
-        OR redo) re-derives the engraved world. The diff keeps every
-        other command at its current cost."""
+        """Staff groups, part-label overrides, hide-empty-staves (and
+        its first-system extension), and condense groups are engraving
+        inputs: a change (execute, undo, OR redo) re-derives the
+        engraved world. The diff keeps every other command at its
+        current cost."""
         return (doc.staff_groups != self._applied_groups
                 or dict(doc.text_overrides) != self._applied_text_overrides
                 or doc.hide_empty_staves != self._applied_hide_empty
+                or doc.hide_first_system != self._applied_hide_first
                 or doc.condense_groups != self._applied_condense)
 
     def load(self, path: Path, params: EngravingParams,
@@ -77,7 +80,8 @@ class ScoreLoader:
              groups: tuple = (),
              text_overrides: dict | None = None,
              hide_empty_staves: bool = False,
-             condense_groups: tuple = ()) -> LoadedScore:
+             condense_groups: tuple = (),
+             hide_first_system: bool = False) -> LoadedScore:
         """Engrave + decompose + join + wire the animation. `groups` is
         doc.staff_groups — injected as <part-group> at the prep seam;
         `text_overrides` is doc.text_overrides — part labels rewritten
@@ -103,7 +107,8 @@ class ScoreLoader:
         # open. The status bar shows the warning count.
         engraved = VerovioEngravingProvider().load_detailed(
             path, params, specs, text_specs, hide_empty_staves,
-            condense_specs, strict=False)
+            condense_specs, strict=False,
+            hide_first_system=hide_first_system)
         t1 = time.perf_counter()
         if stage is None:
             stage = default_stage_config(engraved.prepared,
@@ -151,6 +156,7 @@ class ScoreLoader:
         self._applied_groups = groups
         self._applied_text_overrides = text_overrides
         self._applied_hide_empty = hide_empty_staves
+        self._applied_hide_first = hide_first_system
         self._applied_condense = condense_groups
 
         return LoadedScore(

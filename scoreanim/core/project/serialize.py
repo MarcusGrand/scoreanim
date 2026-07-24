@@ -46,8 +46,13 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 # unchanged; new documents default ON (document.py).
 # 5 (Phase 12.3): condense_groups. No read gate needed — a missing key
 # defaults to () (no condensing), the correct look for older files.
-PROJECT_VERSION = 5
-_READABLE_VERSIONS = (1, 2, 3, 4, 5)
+# 6 (beta, 2026-07-24): hide_first_system — hide empty staves on the
+# first system too. No read gate: missing key → False, the pre-option
+# look. The bump keeps the frozen alpha refusing beta files instead of
+# silently dropping the flag on a resave (the v2 rationale; ROADMAP's
+# "M4 → v6" plan shifts by one).
+PROJECT_VERSION = 6
+_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6)
 SUFFIX = ".scoreanim"
 
 
@@ -114,6 +119,7 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
             for p, o in sorted(doc.text_overrides.items())
         },
         "hide_empty_staves": doc.hide_empty_staves,
+        "hide_first_system": doc.hide_first_system,
         "condense_groups": [
             {"parts": [str(p) for p in g.parts], "name": g.name,
              "abbreviation": g.abbreviation}
@@ -192,6 +198,9 @@ def from_dict(data: dict[str, Any],
             # v<=3 predates the option: load OFF so the file's look is
             # unchanged; a v4 file missing the key gets the new default
             hide_empty_staves=data.get("hide_empty_staves", version >= 4),
+            # v6: missing key → False (first system full), the pre-option
+            # look for every older file
+            hide_first_system=data.get("hide_first_system", False),
             condense_groups=tuple(
                 CondenseGroup(parts=tuple(PartId(p) for p in g["parts"]),
                               name=g.get("name", ""),

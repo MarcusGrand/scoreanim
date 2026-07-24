@@ -17,8 +17,8 @@ from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QPixmap
 from PySide6.QtWidgets import QColorDialog, QMenu, QWidget
 
 from scoreanim.core.animation import DEFAULT_EFFECT, PRESETS
-from scoreanim.core.project import (SetHideEmptyStaves, SetPartColor,
-                                    SetPartEffect)
+from scoreanim.core.project import (SetHideEmptyStaves, SetHideFirstSystem,
+                                    SetPartColor, SetPartEffect)
 from scoreanim.core.score.identity import PartId
 
 if TYPE_CHECKING:
@@ -48,6 +48,7 @@ class PartsMenu:
         self._open_staff_groups = open_staff_groups
         self._open_part_names = open_part_names
         self._hide_staves_action: QAction | None = None
+        self._hide_first_action: QAction | None = None
         self._color_actions: dict[PartId, dict] = {}
         self._effect_actions: dict[PartId, dict] = {}
 
@@ -83,6 +84,19 @@ class PartsMenu:
             lambda checked: self._app_state.execute(
                 SetHideEmptyStaves(checked)))
         menu.addAction(self._hide_staves_action)
+        # the first-system extension (2026-07-24): meaningful only while
+        # hiding is on, so it enables with the parent toggle
+        self._hide_first_action = QAction(
+            "Hide Empty Staves on First System", menu)
+        self._hide_first_action.setCheckable(True)
+        self._hide_first_action.setChecked(
+            self._app_state.doc.hide_first_system)
+        self._hide_first_action.setEnabled(
+            self._app_state.doc.hide_empty_staves)
+        self._hide_first_action.toggled.connect(
+            lambda checked: self._app_state.execute(
+                SetHideFirstSystem(checked)))
+        menu.addAction(self._hide_first_action)
         menu.addSeparator()
         for info in parts:
             pid = PartId(info.part_id)
@@ -167,12 +181,17 @@ class PartsMenu:
             action.blockSignals(False)
 
     def sync_from_document(self, doc) -> None:
-        """Resync Hide Empty Staves — execute, undo, and redo all arrive
+        """Resync the hide toggles — execute, undo, and redo all arrive
         here via the window's document-changed pass."""
         if self._hide_staves_action is not None:
             self._hide_staves_action.blockSignals(True)
             self._hide_staves_action.setChecked(doc.hide_empty_staves)
             self._hide_staves_action.blockSignals(False)
+        if self._hide_first_action is not None:
+            self._hide_first_action.blockSignals(True)
+            self._hide_first_action.setChecked(doc.hide_first_system)
+            self._hide_first_action.setEnabled(doc.hide_empty_staves)
+            self._hide_first_action.blockSignals(False)
 
     def _pick_part_color(self, pid: PartId) -> None:
         rule = self._app_state.doc.style.parts.get(pid)

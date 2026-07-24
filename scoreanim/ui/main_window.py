@@ -330,7 +330,8 @@ class MainWindow(QMainWindow):
                          stage=doc.stage, groups=doc.staff_groups,
                          text_overrides=doc.text_overrides,
                          hide_empty_staves=doc.hide_empty_staves,
-                         condense_groups=doc.condense_groups)
+                         condense_groups=doc.condense_groups,
+                         hide_first_system=doc.hide_first_system)
         self._project_path = path
         self._score_name = path.name
         self._tempo_path = None
@@ -355,13 +356,15 @@ class MainWindow(QMainWindow):
                     groups: tuple = (),
                     text_overrides: dict | None = None,
                     hide_empty_staves: bool = HIDE_EMPTY_STAVES_DEFAULT,
-                    condense_groups: tuple = ()
+                    condense_groups: tuple = (),
+                    hide_first_system: bool = False
                     ) -> StageConfig:
         """Fresh-load entry: engrave + wire, then reset to page 1."""
         loaded = self.loader.load(path, params, stage,
                                   self.app_state.doc.style, groups,
                                   text_overrides or {},
-                                  hide_empty_staves, condense_groups)
+                                  hide_empty_staves, condense_groups,
+                                  hide_first_system)
         self._install(loaded)
         self._page = 1
         self._system = 1
@@ -376,7 +379,7 @@ class MainWindow(QMainWindow):
         loaded = self.loader.load(Path(doc.score.path), doc.engraving,
                                   doc.stage, doc.style, doc.staff_groups,
                                   doc.text_overrides, doc.hide_empty_staves,
-                                  doc.condense_groups)
+                                  doc.condense_groups, doc.hide_first_system)
         self._install(loaded)
         self._show_current()             # install the fresh scene
 

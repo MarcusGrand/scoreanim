@@ -121,7 +121,7 @@ def test_condense_groups_round_trip_v5():
         CondenseGroup(parts=("P1", "P2"), name="Flute 1.2",
                       abbreviation="Fl. 1.2"),))
     payload = to_dict(doc)
-    assert payload["version"] == 5
+    assert payload["version"] >= 5           # the field arrived at v5
     back = from_dict(payload)
     assert back.condense_groups == doc.condense_groups
 

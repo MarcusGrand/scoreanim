@@ -111,6 +111,11 @@ class ProjectDoc:
     # Intent only (rule 5): whether staves empty for a whole system are
     # hidden; the hidden layout is re-derived at every engrave.
     hide_empty_staves: bool = HIDE_EMPTY_STAVES_DEFAULT
+    # Also hide on the FIRST system (schema v6, Marcus 2026-07-24) —
+    # off by default: first-system-full is the engraving convention the
+    # Phase 10R hide deliberately kept. Meaningful only with
+    # hide_empty_staves; rides the same re-engrave.
+    hide_first_system: bool = False
     # Contiguous like parts merged onto one staff (schema v5, consumed
     # Phase 12.3); the merged part-list is re-derived at the prep seam.
     condense_groups: tuple[CondenseGroup, ...] = ()

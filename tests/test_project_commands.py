@@ -301,6 +301,34 @@ def test_set_hide_empty_staves(doc) -> None:
     assert stack.redo() == d1
 
 
+def test_set_hide_first_system(doc) -> None:
+    from scoreanim.core.project import SetHideFirstSystem
+
+    assert doc.hide_first_system is False        # convention: first full
+    out = SetHideFirstSystem(True).apply(doc)
+    assert out.hide_first_system is True
+    assert doc.hide_first_system is False
+    assert SetHideFirstSystem(True).describe() \
+        == "hide empty staves on first system"
+    assert SetHideFirstSystem(False).describe() \
+        == "show staves on first system"
+    with pytest.raises(CommandError):
+        SetHideFirstSystem("yes").apply(doc)  # type: ignore[arg-type]
+    stack = UndoStack()
+    d1 = stack.execute(SetHideFirstSystem(True), doc)
+    assert stack.undo() == doc
+    assert stack.redo() == d1
+
+
+def test_score_setup_carries_hide_first_system(doc) -> None:
+    from scoreanim.core.project import ApplyScoreSetup
+
+    out = ApplyScoreSetup((), (), True, (), True).apply(doc)
+    assert out.hide_first_system is True
+    assert ApplyScoreSetup((), (), True, ()).apply(doc) \
+        .hide_first_system is False              # default: convention kept
+
+
 def test_floor_opacity_undo_round_trip(doc) -> None:
     from scoreanim.core.project import SetFloorOpacity
 

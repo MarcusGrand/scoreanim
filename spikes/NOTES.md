@@ -923,3 +923,25 @@ music21's `measure.offset` / `barDuration`. Facts the fix builds on:
   its downbeat) → build_score_model floors the LAST measure's span
   with its notated length. Mid-score empty bars are safe (spans are
   next-downbeat deltas).
+
+## Hide empty staves on the FIRST system (2026-07-24, during M1)
+
+`spikes/hide_first_system.py`, verovio 6.2.1 — Marcus asked for an
+option that drops the first-system-full convention:
+
+- **`condenseFirstPage: true` is the knob**: on the Phase 10R optimize
+  round-trip it extends empty-staff hiding to the first system —
+  video_test staves/system goes 8,2,2,4,… → **4**,2,2,4,… with every
+  other row and the page count unchanged. Despite the name it acts on
+  the first SYSTEM group in our encoded-breaks setup.
+- **Id- and timemap-transparent**: xml:ids and the timemap are
+  identical with and without the option (both fixtures) — overrides,
+  goldens, and the join are unaffected. The adapter still sets it only
+  when the option is on, so default renders stay byte-identical.
+- **Without optimize the option is inert** (nothing is being
+  condensed); the adapter gates it on hide_empty_staves anyway, and
+  the hide-unavailable fallback (slash regions, rule 10) drops both
+  flags together.
+- bigband1 shows no change (no staff is empty for a whole first
+  system there) — the option only removes the convention exemption;
+  which staves qualify stays Verovio's per-system emptiness rule.

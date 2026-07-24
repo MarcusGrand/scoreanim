@@ -436,6 +436,23 @@ class SetHideEmptyStaves(Command):
         return "hide empty staves" if self.value else "show empty staves"
 
 
+@dataclass(frozen=True)
+class SetHideFirstSystem(Command):
+    """Also hide empty staves on the FIRST system (2026-07-24) — off by
+    default, since first-system-full is the engraving convention.
+    Meaningful only while hide_empty_staves is on; same re-engrave seam."""
+    value: bool
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not isinstance(self.value, bool):
+            raise CommandError(f"bad hide_first_system {self.value!r}")
+        return replace(doc, hide_first_system=self.value)
+
+    def describe(self) -> str:
+        return ("hide empty staves on first system" if self.value
+                else "show staves on first system")
+
+
 _TEXT_ANCHORS = frozenset({"start", "middle", "end"})
 
 
@@ -754,6 +771,7 @@ class ApplyScoreSetup(Command):
     staff_groups: tuple[StaffGroup, ...]
     hide_empty_staves: bool
     part_order: tuple[PartId, ...]
+    hide_first_system: bool = False
 
     def apply(self, doc: ProjectDoc) -> ProjectDoc:
         return replace(
@@ -762,6 +780,7 @@ class ApplyScoreSetup(Command):
                 self.condense_groups, self.part_order),
             staff_groups=_validated_groups(self.staff_groups, self.part_order),
             hide_empty_staves=self.hide_empty_staves,
+            hide_first_system=self.hide_first_system,
         )
 
     def describe(self) -> str:

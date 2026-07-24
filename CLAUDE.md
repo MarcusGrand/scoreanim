@@ -84,7 +84,13 @@ frozen v0.1-alpha build history — reference, never appended to.)
    MusicXML itself carries no hidden-staff info) — default ON for new
    documents, OFF for pre-v4 projects, undoable, an engraving input
    like staff groups. Slash regions win over hiding (rule 10;
-   `LoadWarning "hide-unavailable"`). (c) When a single system is still
+   `LoadWarning "hide-unavailable"`). Amendment (Marcus, 2026-07-24,
+   schema v6): a second per-score option, **Hide Empty Staves on First
+   System**, extends the hiding to system 1 (Verovio
+   `condenseFirstPage` on the same round-trip — id- and
+   timemap-transparent, spikes/hide_first_system.py); default OFF, so
+   first-system-full remains the convention, and inert unless hiding
+   is on. (c) When a single system is still
    taller than its page after (a)/(b) and condensing — pagination cannot
    split one system — the adapter **scales the whole engraving down
    uniformly so the tallest system fits** (`LoadWarning "scaled-to-fit"`;

@@ -59,7 +59,9 @@ def test_rebuild_static_head_and_part_submenus(built) -> None:
     parts_menu, _, menu, opened = built
     texts = [a.text() for a in menu.actions() if not a.isSeparator()]
     assert texts == ["Score Setup…", "Staff Groups…", "Part Names…",
-                     "Hide Empty Staves", "Flute", "Viola"]
+                     "Hide Empty Staves",
+                     "Hide Empty Staves on First System",
+                     "Flute", "Viola"]
     for action in menu.actions()[:3]:
         action.trigger()
     assert opened == ["setup", "groups", "names"]
@@ -135,3 +137,24 @@ def test_hide_staves_commits_and_resync_never_reexecutes(built) -> None:
     parts_menu.sync_from_document(state.doc)         # the resync pass
     assert hide.isChecked() == state.doc.hide_empty_staves
     assert not state.can_undo                        # resync added nothing
+
+
+def test_hide_first_system_commits_and_enables_with_parent(built) -> None:
+    parts_menu, state, menu, _ = built
+    first = next(a for a in menu.actions()
+                 if a.text() == "Hide Empty Staves on First System")
+    assert first.isEnabled() == state.doc.hide_empty_staves
+    assert not first.isChecked()                     # convention default
+    first.trigger()
+    assert state.doc.hide_first_system is True
+    assert state.undo_text() == "hide empty staves on first system"
+    state.undo()
+    parts_menu.sync_from_document(state.doc)
+    assert not first.isChecked()
+    assert not state.can_undo
+    # the toggle enables/disables with its parent option
+    hide = next(a for a in menu.actions()
+                if a.text() == "Hide Empty Staves")
+    hide.trigger()                                   # flip hide_empty_staves
+    parts_menu.sync_from_document(state.doc)
+    assert first.isEnabled() == state.doc.hide_empty_staves

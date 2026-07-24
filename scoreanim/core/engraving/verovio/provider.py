@@ -67,16 +67,20 @@ class VerovioEngravingProvider(EngravingProvider):
              texts: tuple[PartTextSpec, ...] = (),
              hide_empty_staves: bool = False,
              condense: tuple[PartCondenseSpec, ...] = (),
-             strict: bool = True) -> Layout:
+             strict: bool = True,
+             hide_first_system: bool = False) -> Layout:
         return self.load_detailed(score_path, params, groups, texts,
-                                  hide_empty_staves, condense, strict).layout
+                                  hide_empty_staves, condense, strict,
+                                  hide_first_system).layout
 
     def load_detailed(self, score_path: Path, params: EngravingParams,
                       groups: tuple[PartGroupSpec, ...] = (),
                       texts: tuple[PartTextSpec, ...] = (),
                       hide_empty_staves: bool = False,
                       condense: tuple[PartCondenseSpec, ...] = (),
-                      strict: bool = True) -> records.EngravedScore:
+                      strict: bool = True,
+                      hide_first_system: bool = False
+                      ) -> records.EngravedScore:
         # strict (Phase 11.4): when False (the app path) an unknown
         # drawable SVG class degrades to a static OTHER element plus a
         # "unknown-class" warning instead of raising; True (the default,
@@ -85,7 +89,8 @@ class VerovioEngravingProvider(EngravingProvider):
         extra: list[LoadWarning] = []
         effective_hide = hide_empty_staves
         engraved, first_measure = self._engrave_prepared(
-            score_path, prep, params, effective_hide, strict)
+            score_path, prep, params, effective_hide, strict,
+            hide_first_system=hide_first_system)
         if engraved is None:
             # Hiding made a slash- or bar-repeat-region staff vanish
             # (Verovio judges both empty — MEI <space>). Both are
@@ -97,7 +102,8 @@ class VerovioEngravingProvider(EngravingProvider):
                 "a slash- or bar-repeat-region staff would be hidden; "
                 "empty-staff hiding skipped for this score"))
             engraved, first_measure = self._engrave_prepared(
-                score_path, prep, params, effective_hide, strict)
+                score_path, prep, params, effective_hide, strict,
+                hide_first_system=hide_first_system)
             assert engraved is not None
 
         # Never-clip guard (Phase 10R, rule-7 amendment): when the
@@ -115,7 +121,8 @@ class VerovioEngravingProvider(EngravingProvider):
                 prep = prepare(score_path, groups, texts, condense,
                                page_break_measures=breaks)
                 engraved, _ = self._engrave_prepared(
-                    score_path, prep, params, effective_hide, strict)
+                    score_path, prep, params, effective_hide, strict,
+                    hide_first_system=hide_first_system)
                 assert engraved is not None    # same flag that succeeded
                 extra.append(LoadWarning(
                     "repaginated",
@@ -138,7 +145,7 @@ class VerovioEngravingProvider(EngravingProvider):
                                page_break_measures=breaks)
                 engraved, _ = self._engrave_prepared(
                     score_path, prep, params, effective_hide, strict,
-                    scale=fit)
+                    scale=fit, hide_first_system=hide_first_system)
                 assert engraved is not None
                 extra.append(LoadWarning(
                     "scaled-to-fit",
@@ -158,7 +165,8 @@ class VerovioEngravingProvider(EngravingProvider):
     @staticmethod
     def _make_toolkit(prep: PreparedScore,
                       params: EngravingParams,
-                      scale: int | None = None) -> "verovio.toolkit":
+                      scale: int | None = None,
+                      condense_first: bool = False) -> "verovio.toolkit":
         tk = verovio.toolkit()
         tk.setOptions({
             "breaks": "encoded",
@@ -194,20 +202,32 @@ class VerovioEngravingProvider(EngravingProvider):
         # window reflow). None keeps Verovio's default (100).
         if scale is not None:
             tk.setOptions({"scale": scale})
+        # Hide-first-system (2026-07-24): Verovio keeps the first system
+        # full under optimize (the engraving convention) unless told to
+        # condense the first page too. Set only when the option is on —
+        # inert without optimize, but the default path stays byte-
+        # identical to the alpha renders (goldens). Id- and timemap-
+        # transparent either way (spikes/hide_first_system.py).
+        if condense_first:
+            tk.setOptions({"condenseFirstPage": True})
         return tk
 
     def _engrave_prepared(self, score_path: Path, prep: PreparedScore,
                           params: EngravingParams,
                           hide_empty_staves: bool,
                           strict: bool = True,
-                          scale: int | None = None
+                          scale: int | None = None,
+                          hide_first_system: bool = False
                           ) -> tuple[records.EngravedScore | None, dict[int, int]]:
         """One full engrave+decompose; also returns the first measure
         of every system (for the repagination planner). The score is
         None only when hide_empty_staves hid a slash-region staff (the
         caller retries flat). `scale` (Phase 12.5) shrinks the engraving
-        uniformly so a too-tall system fits the page (never-clip)."""
-        tk = self._make_toolkit(prep, params, scale)
+        uniformly so a too-tall system fits the page (never-clip).
+        `hide_first_system` gates on hide_empty_staves: without the
+        optimize round-trip there is nothing to extend."""
+        condense_first = hide_empty_staves and hide_first_system
+        tk = self._make_toolkit(prep, params, scale, condense_first)
         if not tk.loadData(prep.canonical_xml):
             raise ValueError(f"Verovio failed to load {score_path}")
         if hide_empty_staves:
@@ -216,7 +236,7 @@ class VerovioEngravingProvider(EngravingProvider):
             # staffDef@visible are ignored). The round-trip is id- and
             # timemap-transparent (Phase 10R spike, section A).
             mei_text = mei_index._set_scoredef_optimize(tk.getMEI())
-            tk = self._make_toolkit(prep, params, scale)
+            tk = self._make_toolkit(prep, params, scale, condense_first)
             if not tk.loadData(mei_text):
                 raise ValueError(
                     f"Verovio failed to reload optimized MEI for "

@@ -71,6 +71,7 @@ def test_needs_reengrave_trips_on_prep_seam_inputs_only(
     assert loader.needs_reengrave(replace(doc, staff_groups=(
         StaffGroup(parts=(PartId("P1"), PartId("P2")), symbol="bracket",
                    join_barlines=True),)))
+    assert loader.needs_reengrave(replace(doc, hide_first_system=True))
     # a non-engraving change (timing, style, stage) never trips it
     assert not loader.needs_reengrave(
         replace(doc, style=replace(doc.style, floor_opacity=0.9)))
