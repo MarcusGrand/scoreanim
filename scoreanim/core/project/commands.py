@@ -370,6 +370,66 @@ class SetElementStyle(Command):
 
 
 @dataclass(frozen=True)
+class SetDefaultEffect(Command):
+    """Document-wide default effect (M4, schema v7): the name every
+    element resolves to when its element override and part rule are
+    both silent. None clears it (back to "appear" via the fail-soft).
+    The name is intent — an unknown name is legal here and fails soft
+    at resolution (the effect-name precedent)."""
+    effect: str | None
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if self.effect is not None and not self.effect.strip():
+            raise CommandError("empty effect name")
+        return replace(doc, style=replace(doc.style,
+                                          default_effect=self.effect))
+
+    def describe(self) -> str:
+        return "set default effect"
+
+
+@dataclass(frozen=True)
+class SetEffectParam(Command):
+    """One knob of one preset (M4, schema v7): sparse
+    {preset: {key: value}} — value None deletes the key and an emptied
+    param dict drops (the _merge_rule sparse idiom). Validation is
+    type/finiteness ONLY; ranges are clamped at consumption
+    (presets.build_presets), so a future preset reuses this command
+    unchanged."""
+    preset: str
+    key: str
+    value: float | int | bool | None
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not self.preset.strip():
+            raise CommandError("empty preset name")
+        if not self.key.strip():
+            raise CommandError("empty parameter key")
+        if self.value is not None:
+            if not isinstance(self.value, (bool, int, float)):
+                raise CommandError(f"bad parameter value {self.value!r}")
+            if (not isinstance(self.value, bool)
+                    and not math.isfinite(self.value)):
+                raise CommandError(f"parameter value {self.value!r} "
+                                   f"is not finite")
+        params = {name: dict(entry)
+                  for name, entry in doc.style.effect_params.items()}
+        entry = params.get(self.preset, {})
+        if self.value is None:
+            entry.pop(self.key, None)
+        else:
+            entry[self.key] = self.value
+        if entry:
+            params[self.preset] = entry
+        else:
+            params.pop(self.preset, None)
+        return replace(doc, style=replace(doc.style, effect_params=params))
+
+    def describe(self) -> str:
+        return "set effect parameter"
+
+
+@dataclass(frozen=True)
 class SetRevealMode(Command):
     mode: RevealMode
 

@@ -51,8 +51,16 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 # look. The bump keeps the frozen alpha refusing beta files instead of
 # silently dropping the flag on a resave (the v2 rationale; ROADMAP's
 # "M4 → v6" plan shifts by one).
-PROJECT_VERSION = 6
-_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6)
+# 7 (M4 Effects, 2026-07-25): style.default_effect (omitted when None)
+# + style.effect_params (sparse {preset: {key: value}}, round-tripped
+# raw — presets/keys this build doesn't consume survive a save/load
+# cycle untouched). No read gate: v5/v6 files load with
+# default_effect=None and effect_params={} — unchanged look. The bump
+# keeps v0.2-beta.1 (a TAGGED v6 reader) refusing loudly instead of
+# silently dropping both keys on a resave. M5's ROADMAP "v7" shifts
+# to v8.
+PROJECT_VERSION = 7
+_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7)
 SUFFIX = ".scoreanim"
 
 
@@ -98,6 +106,15 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
                       for p, s in sorted(doc.style.parts.items())},
             "elements": {str(e): _style_out(s)
                          for e, s in sorted(doc.style.elements.items())},
+            # v7: default_effect omitted when None; effect_params
+            # round-trips RAW (a preset/key this build doesn't consume
+            # is written back verbatim) and is omitted when empty
+            **({"default_effect": doc.style.default_effect}
+               if doc.style.default_effect is not None else {}),
+            **({"effect_params": {
+                    name: dict(entry) for name, entry
+                    in sorted(doc.style.effect_params.items())}}
+               if doc.style.effect_params else {}),
         },
         "stage": {
             "mode": doc.stage.mode.name.lower(),
@@ -266,6 +283,10 @@ def _style_rules_in(style: dict[str, Any]) -> StyleRules:
         parts=parts,
         elements={ElementId(e): _style_in(s)
                   for e, s in style.get("elements", {}).items()},
+        # v7 keys; absent in v<=6 files → None / {} (unchanged look)
+        default_effect=style.get("default_effect"),
+        effect_params={str(name): dict(entry) for name, entry
+                       in style.get("effect_params", {}).items()},
     )
 
 
