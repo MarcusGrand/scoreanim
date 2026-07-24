@@ -38,6 +38,38 @@ pattern.
   the start, not grown into one window class — M1 sets the pattern by
   decomposing `main_window.py`.
 
+## Development setup — running alpha alongside beta
+
+The frozen alpha stays runnable in its own folder via a git **worktree**,
+so beta development never disturbs a working build. One repository, two
+checked-out folders sharing the same history.
+
+One-time setup (native terminal, from `~/Documents/scoreanim`):
+
+```
+git worktree add ../scoreanim-alpha v0.1-alpha   # frozen alpha, sibling folder
+cd ../scoreanim-alpha
+python3.11 -m venv .venv && source .venv/bin/activate   # your Python 3.11+
+pip install -e .
+python -m scoreanim        # the frozen alpha — always runnable
+```
+
+Day to day:
+
+- `~/Documents/scoreanim` (branch `main`, feature branches `beta/mN-*`)
+  — beta development.
+- `~/Documents/scoreanim-alpha` (detached at `v0.1-alpha`) — the frozen
+  alpha; run it, never commit to it.
+- Each folder has its **own `.venv`**, so a beta dependency change can't
+  affect the alpha.
+- Beta bumps the project schema (M4 → v6, M5 → v7). The alpha build
+  **refuses to open a newer project file by design** (strict-by-version
+  gate), so keep separate test projects for beta work.
+
+Each milestone merges to `main` and tags `v0.2-beta.N`. Advancing the
+alpha to a newer frozen baseline later is a retag + `git worktree`
+move, but usually the alpha just stays put.
+
 ## Milestone overview
 
 | # | Name | One-liner |
