@@ -11,45 +11,29 @@ diffs part tints — views never talk to each other.
 
 from __future__ import annotations
 
-import sys
-import time
 from dataclasses import replace as _dc_replace
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
-from scoreanim.core.animation import (FLOOR_OPACITY,
-                                      build_reveal_tracks,
-                                      build_trigger_schedule,
-                                      takes_part_color)
-from scoreanim.core.engraving.systems import system_bands
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.engraving.verovio import VerovioEngravingProvider
-from scoreanim.core.project import (DEFAULT_BPM,
-                                    HIDE_EMPTY_STAVES_DEFAULT, SUFFIX,
+from scoreanim.core.project import (HIDE_EMPTY_STAVES_DEFAULT, SUFFIX,
                                     ApplyTaps, FileRef,
                                     ImportTempoSetup,
                                     PresentationMode,
                                     ProjectDoc,
-                                    StageConfig, check_ref,
-                                    default_stage_config, load_project,
+                                    StageConfig, check_ref, load_project,
                                     page_content_top, sha256_of)
 from scoreanim.core.project import save_project as write_project_file
-from scoreanim.core.score.identity import PartId
-from scoreanim.core.score.join import join_notes
-from scoreanim.core.score.musicxml_prep import (PartCondenseSpec,
-                                                PartGroupSpec, PartTextSpec)
-from scoreanim.core.score.model import build_score_model
-from scoreanim.core.timing import (TempoEvent, TempoMap, parse_tempo_file,
-                                   resolve_seconds)
+from scoreanim.core.timing import TempoMap, parse_tempo_file, resolve_seconds
 from scoreanim.core.timing.taps import (TapSession, derive_tempo_events,
                                         start_residual)
 from scoreanim.render.animate import AnimationApplier
 from scoreanim.render.export import AnimationInputs
 from scoreanim.render.scene import ScoreScenes
 from scoreanim.ui.app_state import AppState
+from scoreanim.ui.document_sync import DocumentSync
 from scoreanim.ui.export_dialog import ExportDialog
 from scoreanim.ui.inspector import Inspector
 from scoreanim.ui.menus import MainMenus
@@ -57,16 +41,13 @@ from scoreanim.ui.parts_menu import PartsMenu
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.part_names_dialog import PartNamesDialog
+from scoreanim.ui.score_loader import LoadedScore, ScoreLoader
 from scoreanim.ui.score_setup_dialog import ScoreSetupDialog
 from scoreanim.ui.staff_groups_dialog import StaffGroupsDialog
 from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.texts_dialog import TextsDialog
 from scoreanim.ui.taps import TapRecorder
 from scoreanim.ui.transport import LowerZone
-
-# FLOOR_OPACITY moved to core/animation/presets.py in Phase 5.3 (the
-# ghost floor is preset data, not UI policy); imported above for the
-# spanner-ghost layers.
 
 
 class MainWindow(QMainWindow):
@@ -83,20 +64,11 @@ class MainWindow(QMainWindow):
         self._system = 1
         self._band_by_system: dict = {}              # derived, never saved
         self._applied_mode = PresentationMode.PAGED  # what the view shows
-        self._applied_groups: tuple = ()   # staff groups the engrave used
-        self._applied_text_overrides: dict = {}   # label overrides ditto
-        self._applied_hide_empty = False   # hide-empty-staves ditto
-        self._applied_condense: tuple = ()   # condense groups ditto
         self._last_overflow = False          # last load overflowed a page
-        self._applied_stage_texts: tuple = ()   # stage texts on the scenes
-        self._applied_hidden: dict = {}    # ElementId → applied hidden flag
         self._parts: tuple = ()            # PartInfos of the loaded score
         self._score_name: str | None = None
         self._project_path: Path | None = None
         self._tempo_path: Path | None = None
-        self._applied_colors: dict[PartId, str | None] = {}
-        self._applied_overrides: dict = {}     # ElementId → applied color
-        self._applied_floor = FLOOR_OPACITY    # ghost opacity on the scenes
 
         self.app_state = AppState(self)
         self.playback = PlaybackController(self)
@@ -156,6 +128,11 @@ class MainWindow(QMainWindow):
             self.menus.score_menu, self.app_state, self,
             self._open_score_setup_dialog, self._open_staff_groups_dialog,
             self._open_part_names_dialog)
+        # load pipeline + document→scene diff-sync (M1.7): the loader
+        # returns a LoadedScore bundle _install adopts; the sync owns
+        # the applied caches the document-changed pass diffs against
+        self.loader = ScoreLoader()
+        self.doc_sync = DocumentSync(self.parts_menu)
 
         if score_path is not None:
             self.open_score(score_path)
@@ -263,23 +240,22 @@ class MainWindow(QMainWindow):
 
     def _on_document_changed(self) -> None:
         doc = self.app_state.doc
-        # staff groups and part-label overrides are engraving inputs: a
-        # change (execute, undo, OR redo — all arrive here) re-derives
-        # the engraved world FIRST, so the sync below re-pushes
-        # timing/tints/floor/stage/hidden onto the fresh scenes in the
-        # same pass. The diff keeps every other command at its current
-        # cost.
+        # engraving inputs changed (execute, undo, OR redo — all arrive
+        # here): re-derive the engraved world FIRST, so the sync below
+        # re-pushes timing/tints/floor/stage/hidden onto the fresh
+        # scenes in the same pass
         if (self._scenes is not None and doc.score is not None
-                and (doc.staff_groups != self._applied_groups
-                     or dict(doc.text_overrides)
-                     != self._applied_text_overrides
-                     or doc.hide_empty_staves != self._applied_hide_empty
-                     or doc.condense_groups != self._applied_condense)):
+                and self.loader.needs_reengrave(doc)):
             self._reengrave(doc)
         self.playback.set_timing_config(*self._timing_config(doc))
-        self._sync_styles(doc)
-        self._sync_stage(doc)
-        self._sync_hidden(doc)
+        self.doc_sync.sync_styles(doc)
+        if self.doc_sync.sync_stage(doc) \
+                and self._animation_inputs is not None:
+            # a stage-text edit must reach export too — inputs.stage is
+            # otherwise a load-time snapshot (Phase 7 staleness gotcha)
+            self._animation_inputs = _dc_replace(self._animation_inputs,
+                                                 stage=doc.stage)
+        self.doc_sync.sync_hidden(doc)
         self.playback.set_style(doc.style)
         self.lower_zone.strip.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
@@ -294,84 +270,6 @@ class MainWindow(QMainWindow):
         redo.setEnabled(self.app_state.can_redo)
         redo.setText(f"Redo {redo_text}" if redo_text else "Redo")
         self._sync_title()
-
-    def _sync_stage(self, doc: ProjectDoc) -> None:
-        """Diff the document's stage texts onto the scene (Phase 9.1).
-        A text edit rebuilds just the stage-text layer — never a
-        re-engrave — and refreshes the retained AnimationInputs so
-        export follows the edit (inputs.stage is otherwise a load-time
-        snapshot, the Phase 7 staleness gotcha)."""
-        if self._scenes is None \
-                or doc.stage.texts == self._applied_stage_texts:
-            return
-        self._scenes.set_stage_texts(doc.stage.texts)
-        self._applied_stage_texts = doc.stage.texts
-        if self._animation_inputs is not None:
-            self._animation_inputs = _dc_replace(self._animation_inputs,
-                                                 stage=doc.stage)
-
-    def _sync_hidden(self, doc: ProjectDoc) -> None:
-        """Diff LayoutOverride.hidden onto the scene (Phase 9.2: tempo
-        overlays hide the engraved mark). Execute, undo, and redo all
-        arrive here — hide and un-hide ride the same pass."""
-        if self._scenes is None:
-            return
-        hidden = {eid: True for eid, o in doc.layout_overrides.items()
-                  if o.hidden}
-        for eid in list(self._applied_hidden):
-            if eid not in hidden:
-                self._scenes.set_element_hidden(eid, False)
-                del self._applied_hidden[eid]
-        for eid in hidden:
-            if eid not in self._applied_hidden:
-                self._scenes.set_element_hidden(eid, True)
-                self._applied_hidden[eid] = True
-
-    def _sync_styles(self, doc: ProjectDoc) -> None:
-        """Diff the document's StyleRules onto the scene: part tints,
-        then per-element color overrides on top (a part re-tint touches
-        every item of the part, so overrides re-apply after it). The
-        ghost floor rides along: the trigger-animated side updates via
-        playback.set_style → applier re-resolve; the static spanner
-        ghosts need this push."""
-        if self._scenes is None:
-            return
-        if self._applied_floor != doc.style.floor_opacity:
-            self._scenes.set_ghost_opacity(doc.style.floor_opacity)
-            self._applied_floor = doc.style.floor_opacity
-        parts_retinted = set()
-        for pid in self.parts_menu.part_ids():
-            rule = doc.style.parts.get(pid)
-            color = rule.color if rule is not None else None
-            if self._applied_colors.get(pid) != color:
-                self._scenes.set_part_color(
-                    pid, QColor(color) if color else None)
-                self._applied_colors[pid] = color
-                parts_retinted.add(pid)
-            self.parts_menu.sync_checks(pid, rule)
-
-        overrides = {eid: st.color for eid, st in doc.style.elements.items()
-                     if st.color is not None}
-        for eid, prev in list(self._applied_overrides.items()):
-            item = self._scenes.items.get(eid)
-            if item is None:
-                del self._applied_overrides[eid]
-                continue
-            ident = item.identity
-            retinted = ident is not None and ident.part in parts_retinted
-            if eid not in overrides:                 # override removed →
-                part_color = self._applied_colors.get(       # part color
-                    ident.part if ident else None)
-                item.set_color(QColor(part_color) if part_color else None)
-                del self._applied_overrides[eid]
-            elif retinted:
-                del self._applied_overrides[eid]     # re-apply below
-        for eid, color in overrides.items():
-            if self._applied_overrides.get(eid) != color:
-                item = self._scenes.items.get(eid)
-                if item is not None and takes_part_color(item.identity):
-                    item.set_color(QColor(color))
-                    self._applied_overrides[eid] = color
 
     def _sync_title(self) -> None:
         star = " *" if self.app_state.is_dirty else ""
@@ -460,12 +358,14 @@ class MainWindow(QMainWindow):
                     condense_groups: tuple = ()
                     ) -> StageConfig:
         """Fresh-load entry: engrave + wire, then reset to page 1."""
-        stage = self._engrave_and_wire(path, params, stage, groups,
-                                       text_overrides or {},
-                                       hide_empty_staves, condense_groups)
+        loaded = self.loader.load(path, params, stage,
+                                  self.app_state.doc.style, groups,
+                                  text_overrides or {},
+                                  hide_empty_staves, condense_groups)
+        self._install(loaded)
         self._page = 1
         self._system = 1
-        return stage
+        return loaded.stage
 
     def _reengrave(self, doc: ProjectDoc) -> None:
         """Re-derive the engraved world after a staff-group, part-label,
@@ -473,116 +373,30 @@ class MainWindow(QMainWindow):
         view.fit, no position reset). ~0.6 s on the GUI thread per call
         (engrave + scene rebuild), so these commands must arrive via
         execute(), never preview()."""
-        self._engrave_and_wire(Path(doc.score.path), doc.engraving,
-                               doc.stage, doc.staff_groups,
-                               doc.text_overrides, doc.hide_empty_staves,
-                               doc.condense_groups)
+        loaded = self.loader.load(Path(doc.score.path), doc.engraving,
+                                  doc.stage, doc.style, doc.staff_groups,
+                                  doc.text_overrides, doc.hide_empty_staves,
+                                  doc.condense_groups)
+        self._install(loaded)
         self._show_current()             # install the fresh scene
 
-    def _engrave_and_wire(self, path: Path, params: EngravingParams,
-                          stage: StageConfig | None,
-                          groups: tuple = (),
-                          text_overrides: dict | None = None,
-                          hide_empty_staves: bool = False,
-                          condense_groups: tuple = ()) -> StageConfig:
-        """Engrave + decompose + join + wire the animation. Returns the
-        stage config used (seeded from the score's credits when None).
-        `groups` is doc.staff_groups — injected as <part-group> at the
-        prep seam; `text_overrides` is doc.text_overrides — part labels
-        rewritten there (Phase 9.3); `condense_groups` is
-        doc.condense_groups — contiguous like parts merged onto one staff
-        there (Phase 12.3); geometry re-derives, musical ids survive
-        (rule 5, Phases 8/9/12)."""
-        text_overrides = dict(text_overrides or {})
-        specs = tuple(PartGroupSpec(parts=g.parts, symbol=g.symbol,
-                                    join_barlines=g.join_barlines)
-                      for g in groups)
-        text_specs = tuple(PartTextSpec(part=pid, name=o.name,
-                                        abbreviation=o.abbreviation)
-                           for pid, o in sorted(text_overrides.items()))
-        condense_specs = tuple(
-            PartCondenseSpec(parts=g.parts, name=g.name,
-                             abbreviation=g.abbreviation)
-            for g in condense_groups)
-        t0 = time.perf_counter()
-        # strict=False (app path, Phase 11.4): an unknown drawable SVG
-        # class degrades to a warned static element instead of failing the
-        # open. The status bar shows the warning count.
-        engraved = VerovioEngravingProvider().load_detailed(
-            path, params, specs, text_specs, hide_empty_staves,
-            condense_specs, strict=False)
-        t1 = time.perf_counter()
-        if stage is None:
-            stage = default_stage_config(engraved.prepared,
-                                         page_content_top(engraved.layout))
-        # Constructed at the default; reset_document fires
-        # _on_document_changed right after load, and _sync_styles
-        # corrects the ghosts to a project-saved floor (same pattern as
-        # the applier, built with the pre-reset style then set_style'd).
-        self._scenes = ScoreScenes(engraved.layout, stage,
-                                   ghost_opacity=FLOOR_OPACITY)
-        self._applied_floor = FLOOR_OPACITY
-        self._applied_stage_texts = stage.texts
-        self._applied_hidden = {}    # fresh scenes: the post-engrave sync
-                                     # pass re-applies doc hidden flags
-        t2 = time.perf_counter()
-
-        model = build_score_model(engraved.prepared, engraved.timeline)
-        report = join_notes(model, engraved.note_records)
-        join_note = ""
-        if not report.is_complete:
-            join_note = (f" · JOIN INCOMPLETE ({len(report.unmatched_score)}"
-                         f"/{len(report.unmatched_layout)} unmatched)")
-        if engraved.warnings:
-            # flag-and-continue (Phase 10 ruling b): e.g. ties the
-            # engraver dropped — the score loads, the anomaly is visible
-            join_note += f" · {len(engraved.warnings)} load warning(s)"
-            for w in engraved.warnings:
-                print(f"load warning [{w.code}]: {w.message}",
-                      file=sys.stderr)
-        schedule = build_trigger_schedule(engraved.layout, report.mapping,
-                                          model.measures)
-        score_end = max((m.start + m.quarter_length for m in model.measures),
-                        default=0.0)
-        reveal_tracks = build_reveal_tracks(engraved.layout, schedule,
-                                            score_end)
-        # retained for export: the private export scenes+applier build
-        # from the SAME inputs as the live ones (render/export.py)
-        self._animation_inputs = AnimationInputs(
-            engraved.layout, stage, schedule, tuple(reveal_tracks))
+    def _install(self, loaded: LoadedScore) -> None:
+        """Adopt one load's derived world and point every consumer at
+        it: view scenes, export inputs, playback animation, the shared
+        measure axis, the per-load Score menu."""
+        self._scenes = loaded.scenes
+        self._animation_inputs = loaded.animation_inputs
+        self._applier = loaded.applier
+        self.doc_sync.bind_scenes(loaded.scenes, loaded.stage.texts)
         self.menus.export_action.setEnabled(True)
         self.menus.texts_action.setEnabled(True)
-        applier = AnimationApplier(self._scenes.items, schedule,
-                                   TempoMap([TempoEvent(0.0, DEFAULT_BPM)]),
-                                   self.app_state.doc.style, reveal_tracks)
-        self._applier = applier
-        self.playback.set_animation(applier, model.measures)
-        # per-system band rects for system-at-a-time framing (Phase 7.4)
-        # — derived from the Layout, never persisted (rule 5)
-        self._band_by_system = {b.system: b
-                                for b in system_bands(engraved.layout)}
-        self.app_state.set_measures(model.measures)
-        t3 = time.perf_counter()
-
-        self._parts = engraved.prepared.parts
-        self.parts_menu.rebuild(engraved.prepared.parts)
-        self._applied_colors = {}    # fresh scenes carry no tints — the
-        self._applied_overrides = {}  # sync pass below re-applies the doc's
-        self._applied_groups = groups
-        self._applied_text_overrides = text_overrides
-        self._applied_hide_empty = hide_empty_staves
-        self._applied_condense = condense_groups
-        # a system still overflowing its page after repagination means the
-        # score needs staff-count reduction — the Score Setup trigger (12.4)
-        self._last_overflow = any(w.code == "system-overflow"
-                                  for w in engraved.warnings)
-
-        self.statusBar().showMessage(
-            f"engrave+decompose {t1 - t0:.2f}s · scene build {t2 - t1:.2f}s · "
-            f"animation prep {t3 - t2:.2f}s · "
-            f"{len(self._scenes.items)} elements on "
-            f"{self._scenes.page_count} pages{join_note}")
-        return stage
+        self.playback.set_animation(loaded.applier, loaded.measures)
+        self._band_by_system = loaded.band_by_system
+        self.app_state.set_measures(loaded.measures)
+        self._parts = loaded.parts
+        self.parts_menu.rebuild(loaded.parts)
+        self._last_overflow = loaded.overflow
+        self.statusBar().showMessage(loaded.status_line)
 
     # -- staff groups ------------------------------------------------------------
 
