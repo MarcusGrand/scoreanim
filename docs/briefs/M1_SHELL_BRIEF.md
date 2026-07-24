@@ -28,15 +28,6 @@ never document state (rule 5 untouched).
 - **The top toolbar stays, slimmed**: ◀ page-label ▶ and Fit. "Open
   Score…" drops off it (File menu covers it). The page/system readout
   stays window-owned, next to the stage it describes.
-- **Time fields live on the transport strip** (Marcus, 2026-07-24,
-  during the M1.3 build — supersedes §1c's inspector targets for
-  three rows): everything time-related — Tempo, Offset, Swing — sits
-  in the lower zone with the transport it configures, as labeled
-  fields on the strip (prefixes retired there, not in M1.4). The
-  strip owns their commit handlers and a `sync_from_document(doc)`
-  resync the window calls. M1.4's *Playback & Sync* section
-  accordingly holds only the Follow/Systems toggles; Floor opacity
-  and Sweep proceed to *Appearance & Effects* unchanged.
 
 ## 1. Current state — the complete re-homing inventory
 
