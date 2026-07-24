@@ -266,6 +266,21 @@ scale-to-fit). Parked:
   expanded span (clone downbeats carry no measure ordinal). Accepted
   for v1; fixing needs an expansion map from the timemap clones.
 
+## M1 Shell (2026-07-24) — deferrals
+
+- **Systems toggle has no menu home** (brief flag 4): the roadmap's
+  View menu lists fit/prev/next/dock toggles and Playback lists Follow,
+  but neither lists Systems. M1 leaves it inspector-only; a View-menu
+  item is a one-liner if wanted.
+- **Lower-zone lane heights are not persisted.** `QMainWindow.saveState`
+  does not cover the waveform/tempo-lane QSplitter inside the dock;
+  M1.8's scope was geometry + dock state + section expansion. A
+  `saveState()`-of-the-splitter one-liner in `ui/window_state.py` if
+  wanted.
+- **`render/export.py` comments still say `_load_score`** (renamed
+  `MainWindow.load_score` in the M1.9 split). Comment-only staleness
+  left in place because M1's boundary forbade touching `render/`.
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

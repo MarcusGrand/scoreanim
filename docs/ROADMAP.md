@@ -137,6 +137,22 @@ the new chrome (interactive run-through: load complex2, tint a part,
 tap, change swing/bpm/floor/offset from the inspector, undo through
 all of it, export). Window layout survives restart. Full suite green.
 
+**CLOSED 2026-07-24** (built M1.0–M1.9 on `beta/m1-shell` per
+`docs/briefs/M1_SHELL_BRIEF.md`; tagged `v0.2-beta.1` at the merge).
+Chrome rulings recorded during the build (Marcus, 2026-07-24): the
+lower zone is a **bottom QDockWidget**, not a splitter pane (matches
+the inspector; `toggleViewAction()` lands in the View menu; one
+`saveState` pair persists both docks); the **top toolbar stays,
+slimmed** to ◀ page-label ▶ · Fit; and **time fields (Tempo, Offset,
+Swing) live on the transport strip** with the transport they
+configure, so the inspector's *Playback & Sync* holds only the
+Follow/Systems toggles. The window decomposed further than the design
+sketch above (nine `ui/` modules — see ARCHITECTURE §7); none is over
+~400 lines. Exit finding, fixed in M1.9: the Phase 12.4
+Score-Setup-on-open trigger had gone dead when Phase 12.5's
+scale-to-fit started rescuing formerly-overflowing loads; it now fires
+on `scaled-to-fit` too.
+
 ---
 
 ## M2 — Selection (click-to-select on the live stage)

@@ -802,6 +802,19 @@ Views never talk to each other — only observe/mutate AppState via signals
 and commands. Window orientation (portrait/landscape panel arrangement) is
 a QSplitter/dock concern, orthogonal to the stage's aspect.
 
+Since M1 Shell (2026-07-24) the window is a composition root, not a
+widget owner: the stage alone is central, the transport strip + lanes
+live in a bottom-dock lower zone (`ui/transport.py`), the collapsible
+inspector is a right dock (`ui/inspector.py`), and static chrome, the
+dynamic Score menu, the load pipeline, document→scene diff-sync, and
+file/project handlers are components (`ui/menus.py`, `ui/parts_menu.py`,
+`ui/score_loader.py`, `ui/document_sync.py`, `ui/file_actions.py`) that
+receive AppState (plus the playback controller where needed) and never
+reach into each other. QSettings (`ui/window_state.py`) persists window
+geometry, dock layout, and section expansion — UI state only, saved on
+accepted close; nothing document-derived enters it and nothing of it
+enters the document (rule 5).
+
 ## 8. Known risks (spike before building on them)
 
 1. Dorico MusicXML → Verovio fidelity with breaks honored — **resolved
