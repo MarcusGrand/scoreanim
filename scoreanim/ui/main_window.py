@@ -21,7 +21,7 @@ from PySide6.QtGui import (QAction, QActionGroup, QColor, QIcon,
                            QKeySequence, QPixmap)
 from PySide6.QtWidgets import (QColorDialog, QDoubleSpinBox, QFileDialog,
                                QLabel, QMainWindow, QMenu, QMessageBox,
-                               QSlider, QSplitter, QToolBar)
+                               QToolBar)
 
 from scoreanim.core.animation import (DEFAULT_EFFECT, FLOOR_OPACITY, PRESETS,
                                       RevealMode, build_reveal_tracks,
@@ -62,15 +62,13 @@ from scoreanim.ui.export_dialog import ExportDialog
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.part_names_dialog import PartNamesDialog
-from scoreanim.ui.readouts import (format_time, global_swing_ratio,
-                                   initial_tempo_event)
+from scoreanim.ui.readouts import global_swing_ratio, initial_tempo_event
 from scoreanim.ui.score_setup_dialog import ScoreSetupDialog
 from scoreanim.ui.staff_groups_dialog import StaffGroupsDialog
 from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.texts_dialog import TextsDialog
 from scoreanim.ui.taps import TapRecorder
-from scoreanim.ui.tempo_lane import TempoLaneView
-from scoreanim.ui.waveform import WaveformView
+from scoreanim.ui.transport import LowerZone
 
 # FLOOR_OPACITY moved to core/animation/presets.py in Phase 5.3 (the
 # ghost floor is preset data, not UI policy); imported above for the
@@ -123,19 +121,15 @@ class MainWindow(QMainWindow):
             lambda msg: self.statusBar().showMessage(msg))
         self.tap_recorder.session_finished.connect(self._on_tap_session)
 
-        # stage above, timeline views below, one splitter (ARCHITECTURE §7)
+        # stage central and alone; the timeline area is the lower-zone
+        # bottom dock (M1.3) — the dock cannot swallow the central widget,
+        # which carries over the old splitter's collapsible=False guarantee
         self.view = StageView()
-        self.waveform = WaveformView(self.app_state)
-        self.tempo_lane = TempoLaneView(self.app_state)
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(self.view)
-        splitter.addWidget(self.waveform)
-        splitter.addWidget(self.tempo_lane)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
-        splitter.setStretchFactor(2, 0)
-        splitter.setCollapsible(0, False)
-        self.setCentralWidget(splitter)
+        self.setCentralWidget(self.view)
+        self.lower_zone = LowerZone(self.app_state, self.playback,
+                                    self.tap_recorder, self)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
+                           self.lower_zone)
 
         self.peaks.progress.connect(
             lambda: self.app_state.set_peaks(self.peaks.cache))
@@ -150,9 +144,9 @@ class MainWindow(QMainWindow):
         self.playback.status_message.connect(
             lambda msg: self.statusBar().showMessage(msg))
         self.playback.time_changed.connect(self._on_time)
-        # play-state and duration come from the CONTROLLER, not the audio
-        # wrapper, so no-audio playback (FIX 2) drives the same UI paths
-        self.playback.playing_changed.connect(self._on_playing)
+        # duration comes from the CONTROLLER, not the audio wrapper, so
+        # no-audio playback (FIX 2) drives the same UI paths; play-state
+        # feedback (button text, tap disarm) lives on the transport strip
         self.playback.duration_changed.connect(
             self.app_state.axis.set_duration)
 
@@ -162,7 +156,6 @@ class MainWindow(QMainWindow):
             lambda msg: self.statusBar().showMessage(msg))
 
         self._build_actions()
-        self._build_transport_bar()
 
         if score_path is not None:
             self.open_score(score_path)
@@ -248,15 +241,23 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self._prev)
         view_menu.addAction(self._next)
         menubar.addMenu(self._parts_menu)
-        # window-level so shortcuts fire regardless of focus
-        self.addAction(self._undo)
-        self.addAction(self._redo)
-        self.addAction(save_action)
 
-    def _build_transport_bar(self) -> None:
-        bar = QToolBar("Transport")
-        bar.setMovable(False)
-        self.addToolBar(Qt.ToolBarArea.BottomToolBarArea, bar)
+        # Playback menu (its M1.5 home, opened early: the bottom toolbar
+        # is gone as of M1.3 and these actions must stay reachable at
+        # every checkpoint). Play is the STRIP's action — menu, strip
+        # button, and window-level shortcut share one QAction, so text
+        # and state cannot diverge; Follow shares likewise with the
+        # M1.4 inspector toggle (brief flag 3).
+        strip = self.lower_zone.strip
+        playback_menu = menubar.addMenu("&Playback")
+        playback_menu.addAction(strip.play_action)
+
+        self._follow = QAction("Follow", self)
+        self._follow.setCheckable(True)
+        self._follow.setChecked(True)
+        self._follow.toggled.connect(self.playback.set_follow)
+        playback_menu.addAction(self._follow)
+        playback_menu.addSeparator()
 
         open_audio = QAction("Open Audio…", self)
         open_audio.triggered.connect(self._open_audio_dialog)
@@ -265,16 +266,27 @@ class MainWindow(QMainWindow):
         reload_tempo = QAction("Reload Tempo", self)
         reload_tempo.setShortcut("F5")
         reload_tempo.triggered.connect(self._reload_tempo)
+        playback_menu.addAction(open_audio)
+        playback_menu.addAction(open_tempo)
+        playback_menu.addAction(reload_tempo)
 
-        self._play = QAction("▶ Play", self)
-        self._play.setShortcut(Qt.Key.Key_Space)
-        self._play.triggered.connect(self.playback.toggle_play)
+        # window-level so shortcuts fire regardless of focus
+        self.addAction(self._undo)
+        self.addAction(self._redo)
+        self.addAction(save_action)
+        self.addAction(strip.play_action)
+        self.addAction(strip.arm_taps_action)
+        self.addAction(strip.tap_action)
+        self.addAction(reload_tempo)
 
-        self._follow = QAction("Follow", self)
-        self._follow.setCheckable(True)
-        self._follow.setChecked(True)
-        self._follow.toggled.connect(self.playback.set_follow)
+        self._build_interim_fields(toolbar)
 
+    def _build_interim_fields(self, toolbar: QToolBar) -> None:
+        """Interim home (M1.3): the four sync/appearance fields and the
+        Sweep/Systems toggles sit on the top toolbar until M1.4 moves
+        them into the inspector as labeled fields — no capability may go
+        homeless between checkpoints. Construction and commit wiring are
+        the alpha transport bar's, verbatim (prefixes retire in M1.4)."""
         # PresentationMode toggle (Phase 7.4): checked = one system at a
         # time. Document intent → command, like Sweep.
         self._systems_mode = QAction("Systems", self)
@@ -295,24 +307,6 @@ class MainWindow(QMainWindow):
         self._sweep.toggled.connect(
             lambda checked: self.app_state.execute(SetRevealMode(
                 RevealMode.CONTINUOUS if checked else RevealMode.STEPPED)))
-
-        self._arm_taps = QAction("● Arm Taps", self)
-        self._arm_taps.setCheckable(True)
-        self._arm_taps.setShortcut("Shift+T")
-        self._arm_taps.toggled.connect(self.tap_recorder.set_armed)
-        tap_action = QAction("Tap", self)
-        tap_action.setShortcut("T")
-        tap_action.setAutoRepeat(False)
-        tap_action.triggered.connect(self.tap_recorder.tap)
-
-        self._slider = QSlider(Qt.Orientation.Horizontal)
-        self._slider.setRange(0, 0)
-        self._slider.setSingleStep(100)        # ms
-        self._slider.setPageStep(2000)
-        self._slider.sliderMoved.connect(
-            lambda ms: self.playback.seek(ms / 1000.0))
-        self._slider.valueChanged.connect(self._on_slider_value)
-        self._time_label = QLabel(" 0:00.0 / 0:00.0 ")
 
         # initial tempo (FIX 2): edits the beat-0 tempo event through the
         # existing tempo-map machinery (MoveTempoEvent) — not a parallel
@@ -357,26 +351,13 @@ class MainWindow(QMainWindow):
         self._floor_spin.setKeyboardTracking(False)
         self._floor_spin.editingFinished.connect(self._commit_floor)
 
-        bar.addAction(open_audio)
-        bar.addAction(open_tempo)
-        bar.addAction(reload_tempo)
-        bar.addSeparator()
-        bar.addAction(self._play)
-        bar.addWidget(self._slider)
-        bar.addWidget(self._time_label)
-        bar.addWidget(self._bpm_spin)
-        bar.addWidget(self._offset_spin)
-        bar.addWidget(self._swing_spin)
-        bar.addWidget(self._floor_spin)
-        bar.addAction(self._sweep)
-        bar.addAction(self._arm_taps)
-        bar.addAction(self._follow)
-        bar.addAction(self._systems_mode)
-        # window-level so shortcuts fire regardless of focus
-        self.addAction(self._play)
-        self.addAction(reload_tempo)
-        self.addAction(self._arm_taps)
-        self.addAction(tap_action)
+        toolbar.addSeparator()
+        toolbar.addWidget(self._bpm_spin)
+        toolbar.addWidget(self._offset_spin)
+        toolbar.addWidget(self._swing_spin)
+        toolbar.addWidget(self._floor_spin)
+        toolbar.addAction(self._sweep)
+        toolbar.addAction(self._systems_mode)
 
     def _open_dialog(self) -> None:
         name, _ = QFileDialog.getOpenFileName(
@@ -446,24 +427,9 @@ class MainWindow(QMainWindow):
     # -- playback feedback -----------------------------------------------------
 
     def _on_time(self, audio_seconds: float, duration: float) -> None:
-        self._time_label.setText(
-            f" {format_time(audio_seconds)} / {format_time(duration)} ")
-        if not self._slider.isSliderDown():
-            self._slider.blockSignals(True)
-            self._slider.setRange(0, int(duration * 1000))
-            self._slider.setValue(int(audio_seconds * 1000))
-            self._slider.blockSignals(False)
+        # slider + time label feedback lives on the transport strip
+        # (M1.3); the window keeps the playhead push to the shared axis
         self.app_state.set_playhead(audio_seconds)
-
-    def _on_slider_value(self, ms: int) -> None:
-        # keyboard/page-step changes (sliderMoved covers drags)
-        if not self._slider.isSliderDown():
-            self.playback.seek(ms / 1000.0)
-
-    def _on_playing(self, playing: bool) -> None:
-        self._play.setText("⏸ Pause" if playing else "▶ Play")
-        if not playing and self.tap_recorder.armed:
-            self._arm_taps.setChecked(False)     # pause ends the session
 
     def _on_tap_session(self, session: TapSession) -> None:
         doc = self.app_state.doc
