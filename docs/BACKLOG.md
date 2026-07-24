@@ -281,6 +281,20 @@ scale-to-fit). Parked:
   `MainWindow.load_score` in the M1.9 split). Comment-only staleness
   left in place because M1's boundary forbade touching `render/`.
 
+## M4 Effects (2026-07-25)
+
+- **Per-part effect authoring gap (until M3).** The Effects panel
+  covers the DOCUMENT default only, and M4 dropped the Score-menu
+  per-part effect radio group (brief F5). A per-part effect deviation
+  in a saved project is still honored and round-tripped (part rules
+  untouched) but cannot be authored in the UI until M3's Selection
+  panel.
+- **Pre-swell-on-floor-ghost variant.** Peak offset is a uniform
+  signed trigger shift (brief F3): at a negative offset the note also
+  BECOMES VISIBLE early. If appearance-on-beat with a pre-swell of the
+  floor ghost is ever wanted, that is signed `t_rel` keyframes — a new
+  preset and a real model change, not the existing knob.
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

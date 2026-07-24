@@ -62,7 +62,9 @@ Day to day:
   alpha; run it, never commit to it.
 - Each folder has its **own `.venv`**, so a beta dependency change can't
   affect the alpha.
-- Beta bumps the project schema (M4 → v6, M5 → v7). The alpha build
+- Beta bumps the project schema (M4 → v7, M5 → v8 — the plan said
+  v6/v7, but hide_empty-staves-on-first-system took v6 on 2026-07-24
+  before M4 landed; brief F4). The alpha build
   **refuses to open a newer project file by design** (strict-by-version
   gate), so keep separate test projects for beta work.
 
@@ -245,6 +247,32 @@ full suite green.
 
 ## M4 — Effects (the pop you can actually use)
 
+**Status — CLOSED (built 2026-07-25 on `beta/m4-effects`, M4.1–M4.8
+per docs/briefs/M4_EFFECTS_BRIEF.md; awaiting Marcus's interactive
+exit run and the merge/tag).** The build's rulings, where reality
+amended this section (details in the brief §0/§5):
+
+- **F1/durations**: the engraved timemap's `off`/`restsOff` arrays are
+  the duration source — `EngravedScore.note_durations`, resolved to
+  animated elements by the `core/animation/durations.py` seam, carried
+  as `TriggerSchedule.duration_by_element`. No next-onset inference
+  anywhere; a tied notehead stretches over its OWN segment. Rests do
+  not stretch (retrospective triggers).
+- **F2/window**: the conservative per-trigger window was accepted PLUS
+  a two-line expiry guard (measured ~2× mean saving); cost tracks
+  elements genuinely mid-transition.
+- **F3/peak offset**: a UNIFORM signed trigger shift for both signs
+  (deviating from this section's positive-as-envelope reading) — the
+  whole effect moves as one unit, so at −100 ms the note also appears
+  that early (tooltipped verbatim). Page/system cursors stay on
+  unshifted seconds. The positive-side envelope swell, if ever wanted,
+  is a new preset, not this knob.
+- **F4/schema**: v7, not v6 (v6 was taken); v5/v6 files load with
+  unchanged look; unknown presets/params round-trip byte-identically.
+- **F5**: the per-part effect submenu dropped as planned — per-part
+  effect rules remain honored/round-tripped but unauthorable until
+  M3's Selection panel (BACKLOG).
+
 **Status — pulled forward, re-scoped (2026-07-24).** Moved ahead of
 M2/M3 at Marcus's request and widened with three new controls
 (amplitude, note-value relax, peak offset). The dependency note above
@@ -371,9 +399,9 @@ re-engraves with the break — the app's first *layout-intent* edit.
 
 **Design.**
 
-- **Document**: `system_break_overrides` (schema **v7**, or folded
-  into v6 if M4/M5 land in one bump — decide at the brief; the v3
-  precedent favors one designed bump): a sparse map of measure
+- **Document**: `system_break_overrides` (schema **v8** — M4 took v7,
+  2026-07-25; the "folded bump" option is gone since M4 shipped
+  alone): a sparse map of measure
   ordinal → FORCE_BREAK | SUPPRESS_BREAK. User intent only; the
   resulting layout re-derives (rule 5). Keyed by measure ordinal
   (adapter item 12), never printed number.
