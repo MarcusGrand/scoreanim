@@ -147,6 +147,27 @@ class SetEffectParam(Command):
 
 
 @dataclass(frozen=True)
+class ResetEffectSettings(Command):
+    """Restore the pre-M4 effect defaults in ONE undo step (Marcus,
+    2026-07-25): default_effect cleared (back to "appear" via the
+    fail-soft) and the preset's params dropped entirely — the built-in
+    defaults reassert at consumption. Other presets' params (possibly
+    from a newer build) survive untouched, the raw-round-trip
+    guarantee."""
+    preset: str = "pop"
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        params = {name: dict(entry)
+                  for name, entry in doc.style.effect_params.items()
+                  if name != self.preset}
+        return replace(doc, style=replace(doc.style, default_effect=None,
+                                          effect_params=params))
+
+    def describe(self) -> str:
+        return "reset effect settings"
+
+
+@dataclass(frozen=True)
 class SetRevealMode(Command):
     mode: RevealMode
 

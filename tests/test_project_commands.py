@@ -287,6 +287,27 @@ def test_set_effect_param_validates_type_and_finiteness_only(doc) -> None:
         .style.effect_params["pop"]["scale"] == 99.0
 
 
+def test_reset_effect_settings_one_step_keeps_foreign_presets(doc) -> None:
+    from scoreanim.core.project import ResetEffectSettings, SetDefaultEffect
+
+    stack = UndoStack()
+    d = stack.execute(SetDefaultEffect("pop"), doc)
+    d = stack.execute(SetEffectParam("pop", "scale", 2.0), d)
+    d = stack.execute(SetEffectParam("pop", "note_value", True), d)
+    d = stack.execute(SetEffectParam("shimmer", "wobble", 1.5), d)
+    before_reset = d
+    d = stack.execute(ResetEffectSettings(), d)
+    # pre-M4 defaults reassert: no default, no pop params — but a
+    # foreign preset's params survive (raw-round-trip guarantee)
+    assert d.style.default_effect is None
+    assert d.style.effect_params == {"shimmer": {"wobble": 1.5}}
+    # ONE undo step restores every knob at once
+    assert stack.undo() == before_reset
+    assert before_reset.style.default_effect == "pop"
+    assert before_reset.style.effect_params["pop"] == {"scale": 2.0,
+                                                       "note_value": True}
+
+
 def test_effect_param_undo_restores_the_prior_value(doc) -> None:
     stack = UndoStack()
     d1 = stack.execute(SetEffectParam("pop", "scale", 2.0), doc)

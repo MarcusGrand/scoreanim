@@ -132,6 +132,83 @@ def test_floor_and_sweep_moved_in_verbatim(panel) -> None:
     assert not state.can_undo
 
 
+def test_pop_knobs_gray_until_pop_is_in_use(panel) -> None:
+    """Obsolete options gray out (Marcus, 2026-07-25): while nothing in
+    the document resolves to pop — no default, no part/element rule —
+    the four pop knobs are inert and disabled."""
+    widget, state = panel
+    assert not widget._amplitude_spin.isEnabled()
+    assert not widget._settle_spin.isEnabled()
+    assert not widget._note_value_box.isEnabled()
+    assert not widget._peak_spin.isEnabled()
+    widget._effect_combo.setCurrentText("pop")
+    widget._commit_effect()
+    assert widget._amplitude_spin.isEnabled()
+    assert widget._settle_spin.isEnabled()
+    assert widget._note_value_box.isEnabled()
+    assert widget._peak_spin.isEnabled()
+    # a PART rule alone also makes the knobs live (params apply to it)
+    from scoreanim.core.project import SetPartEffect
+    from scoreanim.core.score.identity import PartId
+    state.undo()
+    widget.sync_from_document(state.doc)
+    assert not widget._amplitude_spin.isEnabled()
+    state.execute(SetPartEffect(PartId("P1"), "pop"))
+    widget.sync_from_document(state.doc)
+    assert widget._amplitude_spin.isEnabled()
+
+
+def test_settle_grays_while_note_value_is_on(panel) -> None:
+    widget, state = panel
+    widget._effect_combo.setCurrentText("pop")
+    widget._commit_effect()
+    assert widget._settle_spin.isEnabled()
+    widget._note_value_box.setChecked(True)      # commits + regrays
+    assert not widget._settle_spin.isEnabled()
+    assert widget._amplitude_spin.isEnabled()    # only Settle is obsolete
+    assert widget._peak_spin.isEnabled()
+    widget._note_value_box.setChecked(False)
+    assert widget._settle_spin.isEnabled()
+    # the resync path drives the same state
+    state.execute(SetEffectParam("pop", "note_value", True))
+    widget.sync_from_document(state.doc)
+    assert not widget._settle_spin.isEnabled()
+
+
+def test_reset_restores_pre_m4_defaults_in_one_step(panel) -> None:
+    widget, state = panel
+    assert not widget._reset_button.isEnabled()  # already at defaults
+    widget._commit_reset()
+    assert not state.can_undo                    # no-op ran no command
+    widget._effect_combo.setCurrentText("pop")
+    widget._commit_effect()
+    widget._amplitude_spin.setValue(2.0)
+    widget._commit_amplitude()
+    widget._note_value_box.setChecked(True)
+    widget._peak_spin.setValue(-100)
+    widget._commit_peak()
+    assert widget._reset_button.isEnabled()
+    depth_before = 4
+    widget._commit_reset()
+    # the doc is back at the pre-M4 defaults and the panel shows them
+    assert state.doc.style.default_effect is None
+    assert state.doc.style.effect_params == {}
+    assert widget._effect_combo.currentText() == DEFAULT_EFFECT
+    assert widget._amplitude_spin.value() == 1.25
+    assert not widget._note_value_box.isChecked()
+    assert widget._peak_spin.value() == 0
+    assert not widget._reset_button.isEnabled()
+    assert state.undo_text() == "reset effect settings"
+    state.undo()                                 # ONE step restores all
+    assert state.doc.style.default_effect == "pop"
+    assert state.doc.style.effect_params["pop"]["scale"] == 2.0
+    depth = 0
+    while state.can_undo:
+        state.undo()
+        depth += 1
+    assert depth == depth_before
+
+
 def test_five_knob_undo_walk(panel) -> None:
     """The §4 exit shape: default effect, amplitude, settle, note-value,
     peak offset — five gestures, five individual undo steps."""
