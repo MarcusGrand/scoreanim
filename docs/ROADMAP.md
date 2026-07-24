@@ -77,7 +77,7 @@ move, but usually the alpha just stays put.
 | M1 | **Shell** | Professional chrome: inspector dock + lower zone, labeled parameter fields, menu reorganization. No new features. |
 | M2 | **Selection** | Click-to-select on the live stage: hit-testing, selection state, highlight, identity readout. |
 | M3 | **Direct edit** | Double-click text editing in place; drag-to-nudge (consumes dx/dy); per-element style overrides from selection. |
-| M4 | **Effects** | Effects panel: global default effect ("pop for everything"), tunable pop strength/speed, floor + reveal controls rehomed. |
+| M4 | **Effects** | Effects panel: global default effect ("pop for everything"), tunable pop amplitude / settle / peak offset / note-value relax, floor + reveal controls rehomed. **Pulled forward — runs alongside M2.** |
 | M5 | **Breaks** | System-break authoring: select a barline, toggle a system break; prep-seam re-engrave. |
 
 Dependency shape: M1 first (every later control lands in its chrome).
@@ -245,10 +245,20 @@ full suite green.
 
 ## M4 — Effects (the pop you can actually use)
 
-**Goal.** Effects become a first-class, tunable, *global-by-default*
-system with a proper UI home — the Appearance & Effects panel.
+**Status — pulled forward, re-scoped (2026-07-24).** Moved ahead of
+M2/M3 at Marcus's request and widened with three new controls
+(amplitude, note-value relax, peak offset). The dependency note above
+already sanctioned the move: M4 needs only M1, and it lands in
+`core/animation/` + the Appearance & Effects panel while M2 lands in
+hit-testing + the Selection panel — near-disjoint, so the two branches
+can run concurrently. Branch `beta/m4-effects` off the same base M2
+used; expect one small merge in the inspector-dock container.
 
-**Design.**
+**Goal.** Effects become a first-class, tunable, *global-by-default*
+system with a proper UI home — and pop becomes shapeable: how strong,
+how long, and *when* it peaks.
+
+### Design — the settled parts
 
 - **Global default effect** (the "pop applies to all staves" ask):
   resolution order becomes element override > part rule > **document
@@ -257,23 +267,100 @@ system with a proper UI home — the Appearance & Effects panel.
   gate). `SetDefaultEffect` command. The panel's Effect dropdown sets
   it; per-part deviations remain possible (Parts menu / part rules)
   but are no longer the only path.
-- **Tunable pop**: pop strength (scale factor) and speed (settle
-  seconds) become document intent — `StyleRules.effect_params`
-  (sparse mapping, schema v6 alongside default_effect). Presets stay
-  data (rule 6): `build_presets(floor)` grows to
-  `build_presets(floor, params)`; the evaluator and applier change
-  not at all. Labeled fields + sliders in the panel, live preview on
-  commit (a retime, same cost as the floor spinbox today).
-  Parameters an unknown future preset doesn't consume round-trip
-  untouched (the effect-name precedent).
-- Floor opacity and Sweep controls (already in the panel from M1)
-  visually group with this. The per-part effect submenu entries drop
-  out of the Score menu once the panel covers them.
+- **Amplitude / intensity**: `_POP_SCALE` (1.25 today) becomes
+  document intent. Pure preset data — `build_presets(floor)` grows to
+  `build_presets(floor, params)` and nothing downstream notices.
+- **Settle speed**: likewise `_POP_SETTLE_S` (0.25 today) — the
+  LINEAR keyframe's `t_rel`. Pure preset data.
+- **Storage**: `StyleRules.effect_params`, a sparse
+  `{preset_name: {param_key: value}}` map (schema v6 alongside
+  `default_effect`). Params an unknown future preset doesn't consume
+  round-trip untouched — the effect-name precedent. One command class,
+  `SetEffectParam(preset, key, value)`, coalescing on drag the way the
+  existing spinbox commits do.
+- Floor opacity and Sweep (already in the panel from M1) group
+  visually with these. The per-part effect submenu drops out of the
+  Score menu once the panel covers it.
+
+### Design — the two that need a ruling first
+
+The original M4 text claimed "the evaluator and applier change not at
+all." **That is no longer true** and the claim is withdrawn here.
+Amplitude and settle speed are still pure data; the two below are not.
+Both are flag-and-stop items for the brief — surface them, do not
+work around them.
+
+- **"Animate entire note value"** (settle lasts the note's own
+  duration: a whole note relaxes slowly, an eighth pops and settles).
+  Envelopes are keyed on `t_rel` seconds and one `Effect` is one fixed
+  shape shared by every element, so this needs a **per-element time
+  scale**. Recommended shape: the kernel looks up
+  `(t - trigger) / timescale` instead of `t - trigger`, with
+  `timescale = 1.0` when the toggle is off — a multiply, not a branch,
+  so rule 6 survives. (Alternative to name and reject or accept: mint
+  bucketed effect variants keyed by quantized duration — no signature
+  change, but quantization is visible and the window problem below is
+  unchanged.) Three consequences to settle in the brief:
+  1. `Effect.duration` currently defines the applier's single cached
+     transition window `[trigger, trigger + duration]`. With per-
+     element scaling the real window is `duration * timescale`.
+     Recommended: keep ONE window, computed conservatively as
+     `duration * max_timescale`; short notes re-evaluate past their
+     settle into a no-op state. Cheap, and the applier keeps its
+     shape. Measure it before accepting.
+  2. **Where does note duration come from?** Rule 12 — the engraved
+     timemap is the beat authority — so durations come from there, not
+     from a music21 re-derivation. First thing to check: whether the
+     timemap exposes durations or only onsets. If only onsets, say so
+     and stop rather than inferring duration from the next onset in
+     the voice (wrong across rests, chords, and voice splits).
+  3. Duration in seconds is tempo-dependent: it must route through the
+     one swing-aware `resolve_seconds` seam and re-time on bpm/swing
+     change, on the same retime path a floor-opacity commit uses.
+- **Peak offset** (max pop before or after the onset). The two signs
+  are not symmetric:
+  - *Positive* (peak lands after the beat) is pure envelope data:
+    scale ramps 1.0 → peak at `t_rel = offset` → 1.0 at
+    `offset + settle`. All keyframes stay ≥ 0; `duration` grows by
+    `offset` and already handles it.
+  - *Negative* (peak before the beat) needs `t_rel < 0`, which the
+    envelope model does not represent — `initial` covers everything
+    before the first keyframe, and `duration` as max-`t_rel` would
+    misreport the window. Recommended: implement offset as a signed
+    shift of the **trigger**, not of the keyframes — the whole effect
+    (opacity step and scale peak together) moves early or late, every
+    keyframe stays ≥ 0, and "the pop happens ahead of the beat" is
+    what it looks like. The cost, which must be stated in the UI: at a
+    negative offset the note also *appears* that much early. If what's
+    wanted instead is appearance-on-beat with a pre-swell on the floor
+    ghost, that is signed `t_rel` and a real model change — flag it,
+    do not assume it.
+  - UI naming: the transport already has an "offset" (audio sync).
+    This one is **"Peak offset"** in the Effects panel so the two
+    never read as the same knob.
+
+### Invariants to hold
+
+Rule 5 — params are intent; note durations are derived and never
+stored. Rule 6 — a timescale scalar is an input, not a branch; the
+moment anyone writes `if effect.name == "pop"` inside the evaluator,
+stop. Rule 1 — no Qt in `core/`. Rule 12 — durations from the engraved
+timemap. No-monoliths — the Effects panel is its own module under
+`ui/panels/`, and the duration lookup is its own seam, not a limb
+grafted onto the applier. ARCHITECTURE §5 — this work legitimately
+edits `core/animation/`, but the timescale must ride the shared
+`AnimationInputs` seam so export inherits it with **zero** exporter
+edits; needing to touch the exporter is the flag.
 
 **Exit criteria.** Fresh document: choose "pop" in the panel — every
-part pops with no per-part setup; raise strength, halve speed, and see
-it live and in export; save/reload round-trips v6 (and a v5 file loads
-with unchanged look); undo steps through each knob. Suite green.
+part pops with no per-part setup. Raise amplitude, halve settle, and
+see it live and in export. Toggle "animate entire note value" on a
+score with mixed durations: a whole note visibly relaxes over its full
+length while an eighth settles at once, and both stay correct after a
+tempo change. Set peak offset ±100 ms and see the peak move relative
+to the beat. Save/reload round-trips v6 (and a v5 file loads with
+unchanged look); undo steps through each knob individually. Suite
+green, exported frames match the stage at every setting.
 
 ---
 
