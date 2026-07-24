@@ -84,7 +84,13 @@ frozen v0.1-alpha build history — reference, never appended to.)
    MusicXML itself carries no hidden-staff info) — default ON for new
    documents, OFF for pre-v4 projects, undoable, an engraving input
    like staff groups. Slash regions win over hiding (rule 10;
-   `LoadWarning "hide-unavailable"`). (c) When a single system is still
+   `LoadWarning "hide-unavailable"`). Amendment (Marcus, 2026-07-24,
+   schema v6): a second per-score option, **Hide Empty Staves on First
+   System**, extends the hiding to system 1 (Verovio
+   `condenseFirstPage` on the same round-trip — id- and
+   timemap-transparent, spikes/hide_first_system.py); default OFF, so
+   first-system-full remains the convention, and inert unless hiding
+   is on. (c) When a single system is still
    taller than its page after (a)/(b) and condensing — pagination cannot
    split one system — the adapter **scales the whole engraving down
    uniformly so the tallest system fits** (`LoadWarning "scaled-to-fit"`;
@@ -187,7 +193,18 @@ scoreanim/
     animation/             # properties, Envelope, Effect, RevealMode, state(t)
     project/               # Project document, commands/undo, serialization
   render/                  # Qt only: Layout → QGraphicsItems, property application
-  ui/                      # windows, stage view, tempo lane, waveform, transport
+  ui/                      # Qt shell (M1: window = composition root):
+                           #   main_window.py   composition + page/system routing
+                           #   menus.py         static chrome + shortcuts
+                           #   parts_menu.py    dynamic Score-menu content
+                           #   inspector.py     right dock (collapsible.py sections)
+                           #   transport.py     lower zone: strip + lanes dock
+                           #   file_actions.py  open/save/import/export handlers
+                           #   score_loader.py  engrave→scene load pipeline
+                           #   document_sync.py document→scene diff-sync
+                           #   window_state.py  QSettings UI-state persistence
+                           #   + stage view, tempo lane, waveform, playback,
+                           #     app_state, dialogs
   app.py
 tests/                     # headless: core logic tested without any GUI
 testdata/                  # testscore.musicxml (Dorico export) + companion
@@ -223,8 +240,11 @@ docs/
   to bottom. Treat a file approaching ~400 lines, or one that has started
   doing two jobs, as a refactor signal: split it along a real seam BEFORE
   adding more, not "later". This holds for existing code as much as new —
-  `ui/main_window.py` (~1170 lines) is the current worst offender and M1
-  Shell decomposes it. Readability, maintainability, and robustness beat
+  M1 Shell (2026-07-24) decomposed the former worst offender,
+  `ui/main_window.py` (~1170 lines), into the component seams named in
+  the package layout below; keep every `ui/` module under that line
+  (the M1 exit audit enforced it). Readability, maintainability, and
+  robustness beat
   expedience everywhere: no god-objects, narrow interfaces between
   modules, pure logic factored out of Qt so it can be tested headless
   (rule 1 already forces this seam for core/). When a change would bloat a

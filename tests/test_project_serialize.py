@@ -131,10 +131,10 @@ def test_v1_part_colors_fold_into_style_rules() -> None:
     }
     assert legacy.style.reveal_mode is RevealMode.STEPPED
     assert legacy.style.elements == {}
-    # new files declare version 5; a build from the future is refused
-    assert to_dict(ProjectDoc())["version"] == 5
+    # new files declare version 6; a build from the future is refused
+    assert to_dict(ProjectDoc())["version"] == 6
     with pytest.raises(ValueError, match="version"):
-        from_dict({"version": 6})
+        from_dict({"version": 7})
 
 
 def test_v4_hide_empty_staves() -> None:
@@ -150,6 +150,19 @@ def test_v4_hide_empty_staves() -> None:
     assert from_dict({"version": 2}).hide_empty_staves is False
     # a v4 file missing the key (hand-edited) gets the new-doc default
     assert from_dict({"version": 4}).hide_empty_staves is True
+
+
+def test_v6_hide_first_system() -> None:
+    """v6 (beta, 2026-07-24): hide_first_system round-trips; every
+    older file (and a v6 file missing the key) loads OFF — the
+    first-system-full look is unchanged."""
+    assert ProjectDoc().hide_first_system is False
+    on = ProjectDoc(hide_first_system=True)
+    assert to_dict(on)["hide_first_system"] is True
+    assert from_dict(to_dict(on)).hide_first_system is True
+    assert from_dict(to_dict(ProjectDoc())).hide_first_system is False
+    for version in (1, 2, 3, 4, 5, 6):
+        assert from_dict({"version": version}).hide_first_system is False
 
 
 def test_v2_file_loads_with_v3_defaults() -> None:
@@ -236,4 +249,5 @@ def test_never_persists_derived_data() -> None:
     assert set(payload) == {"version", "score", "audio", "engraving",
                             "layout_overrides", "timing", "style", "stage",
                             "staff_groups", "text_overrides",
-                            "hide_empty_staves", "condense_groups"}
+                            "hide_empty_staves", "hide_first_system",
+                            "condense_groups"}

@@ -73,6 +73,33 @@ def test_hidden_load_warning_census(engraved_video_hidden):
         "reclaimed-spanner-ink": 2, "stray-path": 1}
 
 
+def test_hide_first_system_extends_hiding_to_system_one(
+        engraved_video_hidden):
+    """The per-score first-system option (2026-07-24): Verovio's
+    condenseFirstPage on the optimize round-trip drops the
+    first-system-full convention — system 1 hides its empty staves like
+    every other system; nothing else changes, and musical content is
+    untouched (spikes/hide_first_system.py: ids and timemap identical)."""
+    first = VerovioEngravingProvider().load_detailed(
+        VIDEO_SCORE, EngravingParams(), hide_empty_staves=True,
+        hide_first_system=True)
+    assert _staves_per_system(first) == [4] + EXPECTED_ROWS[1:]
+    assert first.note_records == engraved_video_hidden.note_records
+
+
+def test_hide_first_system_inert_without_hiding(engraved_video):
+    """Without hide_empty_staves there is no optimize pass to extend —
+    the flag must not disturb the flat load."""
+    flat_first = VerovioEngravingProvider().load_detailed(
+        VIDEO_SCORE, EngravingParams(), hide_empty_staves=False,
+        hide_first_system=True)
+    assert _staves_per_system(flat_first) == _staves_per_system(
+        engraved_video)
+    assert [str(e.identity.element_id) for e in flat_first.layout.elements] \
+        == [str(e.identity.element_id)
+            for e in engraved_video.layout.elements]
+
+
 def test_hidden_load_is_deterministic():
     p = VerovioEngravingProvider()
     a = p.load_detailed(VIDEO_SCORE, EngravingParams(),

@@ -54,6 +54,13 @@ class ScoreSetupDialog(QDialog):
 
         self._hide = QCheckBox("Hide staves that are empty for a whole system")
         self._hide.setChecked(doc.hide_empty_staves)
+        # the first-system extension (2026-07-24): indented under its
+        # parent and enabled with it — meaningless while hiding is off
+        self._hide_first = QCheckBox("Also hide on the first system")
+        self._hide_first.setChecked(doc.hide_first_system)
+        self._hide_first.setEnabled(doc.hide_empty_staves)
+        self._hide_first.setStyleSheet("margin-left: 18px")
+        self._hide.toggled.connect(self._hide_first.setEnabled)
 
         self._condense_list = QListWidget()
         self._groups_list = QListWidget()
@@ -63,6 +70,7 @@ class ScoreSetupDialog(QDialog):
             "Reduce the staff count so the score lays out: condense like "
             "parts onto one staff, and/or hide empty staves."))
         root.addWidget(self._hide)
+        root.addWidget(self._hide_first)
         root.addWidget(self._make_manager(
             "Condensed parts (merged onto one staff)", self._condense_list,
             self._on_condense_add, self._on_condense_edit,
@@ -176,7 +184,8 @@ class ScoreSetupDialog(QDialog):
         """One command → one undo step → one re-engrave (ruling c)."""
         if self._app_state.execute(ApplyScoreSetup(
                 tuple(self._condense), tuple(self._groups),
-                self._hide.isChecked(), self._order)):
+                self._hide.isChecked(), self._order,
+                self._hide_first.isChecked())):
             self.accept()
         # a validation error keeps the dialog open (status bar shows why)
 
