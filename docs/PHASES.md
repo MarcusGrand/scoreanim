@@ -1,4 +1,12 @@
-# ScoreAnim — Phased build plan
+# ScoreAnim — Alpha build history (FROZEN)
+
+> **FROZEN 2026-07-24.** Phases 0–12, Phase R, and the live-timing
+> epic are complete: this file is the **v0.1-alpha** build history.
+> Nothing is added here anymore. Current scope lives in
+> `docs/ROADMAP.md` (named beta milestones, same
+> task-plus-verification discipline); per-milestone task breakdowns
+> live in `docs/briefs/`. This file remains the reference for HOW the
+> alpha was built and where each ruling closed.
 
 Rules: one phase at a time. Every task ends with a concrete verification.
 A phase is done when its exit criteria pass. Do not start UI polish, extra

@@ -5,8 +5,11 @@ Desktop app (Python/PySide6) that animates an already-formatted music score
 (wav/mp3), for overlay on performance video.
 
 Read `docs/ARCHITECTURE.md` before making design decisions.
-Read `docs/PHASES.md` to see what is in scope right now. Do not build ahead
-of the current phase.
+Read `docs/ROADMAP.md` to see what is in scope right now — beta work is
+organized there as named milestones (M1 Shell, M2 Selection, …), one at
+a time, each expanded into a brief in `docs/briefs/` before building.
+Do not build ahead of the current milestone. (`docs/PHASES.md` is the
+frozen v0.1-alpha build history — reference, never appended to.)
 
 ## Non-negotiable rules (the load-bearing walls)
 
@@ -215,8 +218,21 @@ docs/
 
 ## Working style
 
-- Small, verifiable steps. Each task in `docs/PHASES.md` ends with a
-  concrete check ("run X, see Y"). Do the check before moving on.
+- **No monoliths — this is a hard rule (Marcus, 2026-07-24).** Every
+  module has ONE clear responsibility and stays small enough to read top
+  to bottom. Treat a file approaching ~400 lines, or one that has started
+  doing two jobs, as a refactor signal: split it along a real seam BEFORE
+  adding more, not "later". This holds for existing code as much as new —
+  `ui/main_window.py` (~1170 lines) is the current worst offender and M1
+  Shell decomposes it. Readability, maintainability, and robustness beat
+  expedience everywhere: no god-objects, narrow interfaces between
+  modules, pure logic factored out of Qt so it can be tested headless
+  (rule 1 already forces this seam for core/). When a change would bloat a
+  module, stop and split first — flag-and-stop applies to code hygiene,
+  not just architecture.
+- Small, verifiable steps. Each task in the current milestone brief
+  (`docs/briefs/`, planned from `docs/ROADMAP.md`) ends with a concrete
+  check ("run X, see Y"). Do the check before moving on.
 - Write headless tests for core logic as you build it, not after. Core
   must be testable with plain `pytest`, no display server.
 - Type hints everywhere in `core/`. Frozen dataclasses for model types.
