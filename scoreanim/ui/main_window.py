@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import replace as _dc_replace
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRectF, QSettings, Qt
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
 from scoreanim.core.engraving.types import EngravingParams
@@ -48,13 +48,18 @@ from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.texts_dialog import TextsDialog
 from scoreanim.ui.taps import TapRecorder
 from scoreanim.ui.transport import LowerZone
+from scoreanim.ui.window_state import (default_settings,
+                                       restore_window_state,
+                                       save_window_state)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, score_path: Path | None = None) -> None:
+    def __init__(self, score_path: Path | None = None,
+                 settings: QSettings | None = None) -> None:
         super().__init__()
         self.setWindowTitle("ScoreAnim")
-        self.resize(1000, 1200)
+        self._settings = settings if settings is not None \
+            else default_settings()
 
         self._scenes: ScoreScenes | None = None
         self._animation_inputs: AnimationInputs | None = None
@@ -133,6 +138,11 @@ class MainWindow(QMainWindow):
         # the applied caches the document-changed pass diffs against
         self.loader = ScoreLoader()
         self.doc_sync = DocumentSync(self.parts_menu)
+
+        # shell layout (M1.8): restore once docks + toolbar exist; a
+        # fresh store yields the first-run default size. UI state only —
+        # nothing document-derived lives in the settings (rule 5).
+        restore_window_state(self, self.inspector.sections, self._settings)
 
         if score_path is not None:
             self.open_score(score_path)
@@ -499,6 +509,8 @@ class MainWindow(QMainWindow):
             elif answer == QMessageBox.StandardButton.Cancel:
                 event.ignore()
                 return
+        # accepted close only — a cancelled close saves nothing (M1.8)
+        save_window_state(self, self.inspector.sections, self._settings)
         event.accept()
 
     def show_page(self, page: int) -> None:
