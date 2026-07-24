@@ -33,12 +33,12 @@ from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.project import (DEFAULT_BPM,
                                     HIDE_EMPTY_STAVES_DEFAULT, SUFFIX,
                                     ApplyTaps, FileRef,
-                                    ImportTempoSetup, MoveTempoEvent,
+                                    ImportTempoSetup,
                                     PresentationMode,
                                     ProjectDoc,
-                                    SetFloorOpacity, SetGlobalSwing,
+                                    SetFloorOpacity,
                                     SetHideEmptyStaves,
-                                    SetOffset, SetPartColor,
+                                    SetPartColor,
                                     SetPartEffect, SetPresentationMode,
                                     SetRevealMode,
                                     StageConfig, check_ref,
@@ -62,7 +62,6 @@ from scoreanim.ui.export_dialog import ExportDialog
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.part_names_dialog import PartNamesDialog
-from scoreanim.ui.readouts import global_swing_ratio, initial_tempo_event
 from scoreanim.ui.score_setup_dialog import ScoreSetupDialog
 from scoreanim.ui.staff_groups_dialog import StaffGroupsDialog
 from scoreanim.ui.stage_view import StageView
@@ -282,11 +281,13 @@ class MainWindow(QMainWindow):
         self._build_interim_fields(toolbar)
 
     def _build_interim_fields(self, toolbar: QToolBar) -> None:
-        """Interim home (M1.3): the four sync/appearance fields and the
-        Sweep/Systems toggles sit on the top toolbar until M1.4 moves
-        them into the inspector as labeled fields — no capability may go
-        homeless between checkpoints. Construction and commit wiring are
-        the alpha transport bar's, verbatim (prefixes retire in M1.4)."""
+        """Interim home (M1.3): the floor field and the Sweep/Systems
+        toggles sit on the top toolbar until M1.4 moves them into the
+        inspector as labeled fields — no capability may go homeless
+        between checkpoints. (Tempo/Offset/Swing are NOT here: time
+        fields live on the transport strip by ruling 2026-07-24.)
+        Construction and commit wiring are the alpha transport bar's,
+        verbatim (the floor prefix retires in M1.4)."""
         # PresentationMode toggle (Phase 7.4): checked = one system at a
         # time. Document intent → command, like Sweep.
         self._systems_mode = QAction("Systems", self)
@@ -308,39 +309,6 @@ class MainWindow(QMainWindow):
             lambda checked: self.app_state.execute(SetRevealMode(
                 RevealMode.CONTINUOUS if checked else RevealMode.STEPPED)))
 
-        # initial tempo (FIX 2): edits the beat-0 tempo event through the
-        # existing tempo-map machinery (MoveTempoEvent) — not a parallel
-        # path. With no audio it sets the no-audio playback pace; the
-        # offset is simply 0 then.
-        self._bpm_spin = QDoubleSpinBox()
-        self._bpm_spin.setPrefix("bpm ")
-        self._bpm_spin.setDecimals(1)
-        self._bpm_spin.setSingleStep(1.0)
-        self._bpm_spin.setRange(20.0, 400.0)
-        self._bpm_spin.setKeyboardTracking(False)
-        self._bpm_spin.setToolTip("Initial tempo — drives no-audio "
-                                  "playback and the tempo map")
-        self._bpm_spin.editingFinished.connect(self._commit_bpm)
-
-        self._offset_spin = QDoubleSpinBox()
-        self._offset_spin.setPrefix("offset ")
-        self._offset_spin.setSuffix(" s")
-        self._offset_spin.setDecimals(2)
-        self._offset_spin.setSingleStep(0.05)
-        self._offset_spin.setRange(-60.0, 3600.0)
-        self._offset_spin.setKeyboardTracking(False)
-        self._offset_spin.editingFinished.connect(self._commit_offset)
-
-        # global swing ratio (ruling 2026-07-11): 0.50 straight … 0.67
-        # triplet, one value for the whole piece; regions later (BACKLOG 7)
-        self._swing_spin = QDoubleSpinBox()
-        self._swing_spin.setPrefix("swing ")
-        self._swing_spin.setDecimals(2)
-        self._swing_spin.setSingleStep(0.01)
-        self._swing_spin.setRange(0.50, 0.75)
-        self._swing_spin.setKeyboardTracking(False)
-        self._swing_spin.editingFinished.connect(self._commit_swing)
-
         # ghost floor (Phase 7.2): document intent, 0 allowed — scaffold
         # stays visible, unrevealed animated ink goes fully invisible
         self._floor_spin = QDoubleSpinBox()
@@ -352,9 +320,6 @@ class MainWindow(QMainWindow):
         self._floor_spin.editingFinished.connect(self._commit_floor)
 
         toolbar.addSeparator()
-        toolbar.addWidget(self._bpm_spin)
-        toolbar.addWidget(self._offset_spin)
-        toolbar.addWidget(self._swing_spin)
         toolbar.addWidget(self._floor_spin)
         toolbar.addAction(self._sweep)
         toolbar.addAction(self._systems_mode)
@@ -482,17 +447,7 @@ class MainWindow(QMainWindow):
         self._sweep.setChecked(doc.style.reveal_mode
                                is RevealMode.CONTINUOUS)
         self._sweep.blockSignals(False)
-        self._offset_spin.blockSignals(True)
-        self._offset_spin.setValue(doc.timing.offset_seconds)
-        self._offset_spin.blockSignals(False)
-        first_tempo = initial_tempo_event(doc)
-        self._bpm_spin.blockSignals(True)
-        self._bpm_spin.setValue(first_tempo.bpm if first_tempo
-                                else DEFAULT_BPM)
-        self._bpm_spin.blockSignals(False)
-        self._swing_spin.blockSignals(True)
-        self._swing_spin.setValue(global_swing_ratio(doc))
-        self._swing_spin.blockSignals(False)
+        self.lower_zone.strip.sync_from_document(doc)
         self._floor_spin.blockSignals(True)
         self._floor_spin.setValue(doc.style.floor_opacity)
         self._floor_spin.blockSignals(False)
@@ -716,33 +671,6 @@ class MainWindow(QMainWindow):
         star = " *" if self.app_state.is_dirty else ""
         name = f" — {self._score_name}{star}" if self._score_name else ""
         self.setWindowTitle(f"ScoreAnim{name}")
-
-    def _commit_offset(self) -> None:
-        value = self._offset_spin.value()
-        if abs(value - self.app_state.doc.timing.offset_seconds) > 1e-9:
-            self.app_state.execute(SetOffset(value))
-
-    def _commit_bpm(self) -> None:
-        """Set the initial (beat-0) tempo through the existing tempo-map
-        machinery — MoveTempoEvent on the first event, so a tempo curve's
-        later events survive. Drives no-audio playback (FIX 2)."""
-        first = initial_tempo_event(self.app_state.doc)
-        value = self._bpm_spin.value()
-        if first is None or abs(value - first.bpm) < 1e-9:
-            return
-        self.app_state.execute(
-            MoveTempoEvent(first.position, first.position, value))
-
-    def _commit_swing(self) -> None:
-        value = self._swing_spin.value()
-        doc = self.app_state.doc
-        if abs(value - global_swing_ratio(doc)) < 1e-9:
-            return
-        measures = self.app_state.measures
-        if not measures:
-            return
-        end_beat = measures[-1].start + measures[-1].quarter_length
-        self.app_state.execute(SetGlobalSwing(value, end_beat))
 
     def _commit_floor(self) -> None:
         value = self._floor_spin.value()

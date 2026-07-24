@@ -59,7 +59,7 @@ def qapp():
 def strip(qapp):
     playback = FakePlayback()
     taps = FakeTapRecorder()
-    return TransportStrip(playback, taps), playback, taps
+    return TransportStrip(AppState(), playback, taps), playback, taps
 
 
 def test_actions_drive_controller(strip) -> None:
@@ -109,6 +109,47 @@ def test_playing_flips_text_and_pause_disarms(strip) -> None:
     assert widget.play_action.text() == "▶ Play"
     assert not widget.arm_taps_action.isChecked()
     assert not taps.armed                        # pause ended the session
+
+
+def test_time_fields_commit_one_command_each(qapp) -> None:
+    """Tempo/Offset/Swing live on the strip (ruling 2026-07-24) with the
+    alpha commit wiring: epsilon no-op guard, one undoable command."""
+    state = AppState()
+    widget = TransportStrip(state, FakePlayback(), FakeTapRecorder())
+
+    widget._offset_spin.setValue(1.25)
+    widget._commit_offset()
+    assert state.doc.timing.offset_seconds == 1.25
+    widget._commit_offset()                      # same value → no-op
+    state.undo()
+    assert state.doc.timing.offset_seconds == 0.0
+    assert not state.can_undo                    # exactly one command
+
+    widget._bpm_spin.setValue(96.0)
+    widget._commit_bpm()
+    assert state.doc.timing.tempo_events[0].bpm == 96.0
+    state.undo()
+    assert not state.can_undo
+
+    # swing with no measures loaded: guarded no-op (no end beat to span)
+    widget._swing_spin.setValue(0.67)
+    widget._commit_swing()
+    assert not state.can_undo
+
+
+def test_sync_from_document_never_reexecutes(qapp) -> None:
+    state = AppState()
+    widget = TransportStrip(state, FakePlayback(), FakeTapRecorder())
+    widget._offset_spin.setValue(1.25)
+    widget._commit_offset()
+    widget.sync_from_document(state.doc)         # the resync pass
+    assert widget._offset_spin.value() == 1.25
+    assert widget._bpm_spin.value() == state.doc.timing.tempo_events[0].bpm
+    assert widget._swing_spin.value() == 0.5     # no regions → straight
+    state.undo()                                 # resync added no command
+    assert not state.can_undo
+    widget.sync_from_document(state.doc)
+    assert widget._offset_spin.value() == 0.0
 
 
 def test_lower_zone_is_a_fixed_bottom_dock(qapp) -> None:
