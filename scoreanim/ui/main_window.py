@@ -19,12 +19,11 @@ from pathlib import Path
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import (QAction, QActionGroup, QColor, QIcon,
                            QKeySequence, QPixmap)
-from PySide6.QtWidgets import (QColorDialog, QDoubleSpinBox, QFileDialog,
-                               QLabel, QMainWindow, QMenu, QMessageBox,
-                               QToolBar)
+from PySide6.QtWidgets import (QColorDialog, QFileDialog, QLabel,
+                               QMainWindow, QMenu, QMessageBox)
 
 from scoreanim.core.animation import (DEFAULT_EFFECT, FLOOR_OPACITY, PRESETS,
-                                      RevealMode, build_reveal_tracks,
+                                      build_reveal_tracks,
                                       build_trigger_schedule,
                                       takes_part_color)
 from scoreanim.core.engraving.systems import system_bands
@@ -36,11 +35,9 @@ from scoreanim.core.project import (DEFAULT_BPM,
                                     ImportTempoSetup,
                                     PresentationMode,
                                     ProjectDoc,
-                                    SetFloorOpacity,
                                     SetHideEmptyStaves,
                                     SetPartColor,
-                                    SetPartEffect, SetPresentationMode,
-                                    SetRevealMode,
+                                    SetPartEffect,
                                     StageConfig, check_ref,
                                     default_stage_config, load_project,
                                     page_content_top, sha256_of)
@@ -59,6 +56,7 @@ from scoreanim.render.export import AnimationInputs
 from scoreanim.render.scene import ScoreScenes
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.export_dialog import ExportDialog
+from scoreanim.ui.inspector import Inspector
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.part_names_dialog import PartNamesDialog
@@ -129,6 +127,11 @@ class MainWindow(QMainWindow):
                                     self.tap_recorder, self)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
                            self.lower_zone)
+        # right-hand inspector (M1.4): Follow/Systems, floor + Sweep,
+        # Selection placeholder; resynced in _on_document_changed
+        self.inspector = Inspector(self.app_state, self.playback, self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,
+                           self.inspector)
 
         self.peaks.progress.connect(
             lambda: self.app_state.set_peaks(self.peaks.cache))
@@ -245,17 +248,12 @@ class MainWindow(QMainWindow):
         # is gone as of M1.3 and these actions must stay reachable at
         # every checkpoint). Play is the STRIP's action — menu, strip
         # button, and window-level shortcut share one QAction, so text
-        # and state cannot diverge; Follow shares likewise with the
-        # M1.4 inspector toggle (brief flag 3).
+        # and state cannot diverge; Follow is the INSPECTOR's action
+        # likewise (brief flag 3).
         strip = self.lower_zone.strip
         playback_menu = menubar.addMenu("&Playback")
         playback_menu.addAction(strip.play_action)
-
-        self._follow = QAction("Follow", self)
-        self._follow.setCheckable(True)
-        self._follow.setChecked(True)
-        self._follow.toggled.connect(self.playback.set_follow)
-        playback_menu.addAction(self._follow)
+        playback_menu.addAction(self.inspector.follow_action)
         playback_menu.addSeparator()
 
         open_audio = QAction("Open Audio…", self)
@@ -277,52 +275,6 @@ class MainWindow(QMainWindow):
         self.addAction(strip.arm_taps_action)
         self.addAction(strip.tap_action)
         self.addAction(reload_tempo)
-
-        self._build_interim_fields(toolbar)
-
-    def _build_interim_fields(self, toolbar: QToolBar) -> None:
-        """Interim home (M1.3): the floor field and the Sweep/Systems
-        toggles sit on the top toolbar until M1.4 moves them into the
-        inspector as labeled fields — no capability may go homeless
-        between checkpoints. (Tempo/Offset/Swing are NOT here: time
-        fields live on the transport strip by ruling 2026-07-24.)
-        Construction and commit wiring are the alpha transport bar's,
-        verbatim (the floor prefix retires in M1.4)."""
-        # PresentationMode toggle (Phase 7.4): checked = one system at a
-        # time. Document intent → command, like Sweep.
-        self._systems_mode = QAction("Systems", self)
-        self._systems_mode.setCheckable(True)
-        self._systems_mode.setToolTip("Stage one system at a time; "
-                                      "unchecked shows whole pages")
-        self._systems_mode.toggled.connect(
-            lambda checked: self.app_state.execute(SetPresentationMode(
-                PresentationMode.SYSTEM if checked
-                else PresentationMode.PAGED)))
-
-        # RevealMode toggle: checked = CONTINUOUS sweep, unchecked =
-        # STEPPED (jumps at musical onsets). Document intent → command.
-        self._sweep = QAction("Sweep", self)
-        self._sweep.setCheckable(True)
-        self._sweep.setToolTip("Continuous reveal sweep; unchecked steps "
-                               "at musical onsets")
-        self._sweep.toggled.connect(
-            lambda checked: self.app_state.execute(SetRevealMode(
-                RevealMode.CONTINUOUS if checked else RevealMode.STEPPED)))
-
-        # ghost floor (Phase 7.2): document intent, 0 allowed — scaffold
-        # stays visible, unrevealed animated ink goes fully invisible
-        self._floor_spin = QDoubleSpinBox()
-        self._floor_spin.setPrefix("floor ")
-        self._floor_spin.setDecimals(2)
-        self._floor_spin.setSingleStep(0.05)
-        self._floor_spin.setRange(0.0, 1.0)
-        self._floor_spin.setKeyboardTracking(False)
-        self._floor_spin.editingFinished.connect(self._commit_floor)
-
-        toolbar.addSeparator()
-        toolbar.addWidget(self._floor_spin)
-        toolbar.addAction(self._sweep)
-        toolbar.addAction(self._systems_mode)
 
     def _open_dialog(self) -> None:
         name, _ = QFileDialog.getOpenFileName(
@@ -443,18 +395,8 @@ class MainWindow(QMainWindow):
         self._sync_stage(doc)
         self._sync_hidden(doc)
         self.playback.set_style(doc.style)
-        self._sweep.blockSignals(True)
-        self._sweep.setChecked(doc.style.reveal_mode
-                               is RevealMode.CONTINUOUS)
-        self._sweep.blockSignals(False)
         self.lower_zone.strip.sync_from_document(doc)
-        self._floor_spin.blockSignals(True)
-        self._floor_spin.setValue(doc.style.floor_opacity)
-        self._floor_spin.blockSignals(False)
-        self._systems_mode.blockSignals(True)
-        self._systems_mode.setChecked(doc.stage.mode
-                                      is PresentationMode.SYSTEM)
-        self._systems_mode.blockSignals(False)
+        self.inspector.sync_from_document(doc)
         if self._hide_staves_action is not None:
             self._hide_staves_action.blockSignals(True)
             self._hide_staves_action.setChecked(doc.hide_empty_staves)
@@ -671,12 +613,6 @@ class MainWindow(QMainWindow):
         star = " *" if self.app_state.is_dirty else ""
         name = f" — {self._score_name}{star}" if self._score_name else ""
         self.setWindowTitle(f"ScoreAnim{name}")
-
-    def _commit_floor(self) -> None:
-        value = self._floor_spin.value()
-        if abs(value - self.app_state.doc.style.floor_opacity) < 1e-9:
-            return
-        self.app_state.execute(SetFloorOpacity(value))
 
     # -- score / project --------------------------------------------------------
 

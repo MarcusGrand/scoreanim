@@ -133,7 +133,6 @@ class ExportDialog(QDialog):
         for spin, value in ((self._span_from, numbers[0]),
                             (self._span_to, numbers[-1])):
             spin.setRange(numbers[0], numbers[-1])
-            spin.setPrefix("m")
             spin.setValue(value)
             spin.setEnabled(False)
         span_row = QHBoxLayout()
