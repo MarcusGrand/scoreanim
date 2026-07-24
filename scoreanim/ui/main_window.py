@@ -17,10 +17,9 @@ from dataclasses import replace as _dc_replace
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import (QAction, QActionGroup, QColor, QIcon,
-                           QKeySequence, QPixmap)
-from PySide6.QtWidgets import (QColorDialog, QFileDialog, QLabel,
-                               QMainWindow, QMenu, QMessageBox)
+from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QPixmap
+from PySide6.QtWidgets import (QColorDialog, QFileDialog,
+                               QMainWindow, QMessageBox)
 
 from scoreanim.core.animation import (DEFAULT_EFFECT, FLOOR_OPACITY, PRESETS,
                                       build_reveal_tracks,
@@ -57,6 +56,7 @@ from scoreanim.render.scene import ScoreScenes
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.export_dialog import ExportDialog
 from scoreanim.ui.inspector import Inspector
+from scoreanim.ui.menus import MainMenus
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.part_names_dialog import PartNamesDialog
@@ -87,7 +87,6 @@ class MainWindow(QMainWindow):
         self._applier: AnimationApplier | None = None
         self._export_settings: dict | None = None    # session memory (R3)
         self._page = 1
-        self._page_label = QLabel("–/–")
         self._system = 1
         self._band_by_system: dict = {}              # derived, never saved
         self._applied_mode = PresentationMode.PAGED  # what the view shows
@@ -157,140 +156,31 @@ class MainWindow(QMainWindow):
         self.app_state.status.connect(
             lambda msg: self.statusBar().showMessage(msg))
 
-        self._build_actions()
+        # static chrome (M1.5): the five menus, the slim toolbar, and
+        # window-level shortcut registration; the window keeps the refs
+        # it mutates (undo text, enable-on-load, page readout)
+        self.menus = MainMenus(self)
 
         if score_path is not None:
             self.open_score(score_path)
 
-    # -- chrome --------------------------------------------------------------
+    # -- file dialogs (menu handlers) ----------------------------------------
 
-    def _build_actions(self) -> None:
-        toolbar = self.addToolBar("Main")
-        toolbar.setMovable(False)
-
-        open_action = QAction("Open Score…", self)
-        open_action.setShortcut(QKeySequence.StandardKey.Open)
-        open_action.triggered.connect(self._open_dialog)
-
-        open_project_action = QAction("Open Project…", self)
-        open_project_action.setShortcut("Ctrl+Shift+O")
-        open_project_action.triggered.connect(self._open_project_dialog)
-
-        save_action = QAction("Save Project", self)
-        save_action.setShortcut(QKeySequence.StandardKey.Save)
-        save_action.triggered.connect(self.save_project)
-
-        save_as_action = QAction("Save Project As…", self)
-        save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
-        save_as_action.triggered.connect(self.save_project_as)
-
-        self._export_action = QAction("Export Video…", self)
-        self._export_action.setShortcut("Ctrl+E")
-        self._export_action.setEnabled(False)        # needs a loaded score
-        self._export_action.triggered.connect(self._open_export_dialog)
-
-        # prev/next step the presentation unit: pages in paged mode,
-        # systems in system mode
-        self._prev = QAction("◀", self)
-        self._prev.setShortcut(QKeySequence.StandardKey.MoveToPreviousPage)
-        self._prev.triggered.connect(lambda: self._step(-1))
-        self._next = QAction("▶", self)
-        self._next.setShortcut(QKeySequence.StandardKey.MoveToNextPage)
-        self._next.triggered.connect(lambda: self._step(+1))
-
-        fit = QAction("Fit", self)
-        fit.setShortcut("Ctrl+0")
-        fit.triggered.connect(self.view.fit)
-
-        toolbar.addAction(open_action)
-        toolbar.addSeparator()
-        toolbar.addAction(self._prev)
-        toolbar.addWidget(self._page_label)
-        toolbar.addAction(self._next)
-        toolbar.addSeparator()
-        toolbar.addAction(fit)
-
-        self._undo = QAction("Undo", self)
-        self._undo.setShortcut(QKeySequence.StandardKey.Undo)
-        self._undo.setEnabled(False)
-        self._undo.triggered.connect(self.app_state.undo)
-        self._redo = QAction("Redo", self)
-        self._redo.setShortcut(QKeySequence.StandardKey.Redo)
-        self._redo.setEnabled(False)
-        self._redo.triggered.connect(self.app_state.redo)
-
-        self._parts_menu = QMenu("&Parts", self)
-        menubar = self.menuBar()
-        file_menu = menubar.addMenu("&File")
-        file_menu.addAction(open_action)
-        file_menu.addAction(open_project_action)
-        file_menu.addSeparator()
-        file_menu.addAction(save_action)
-        file_menu.addAction(save_as_action)
-        file_menu.addSeparator()
-        file_menu.addAction(self._export_action)
-        self._texts_action = QAction("Texts…", self)
-        self._texts_action.setEnabled(False)         # needs a loaded score
-        self._texts_action.triggered.connect(self._open_texts_dialog)
-
-        edit_menu = menubar.addMenu("&Edit")
-        edit_menu.addAction(self._undo)
-        edit_menu.addAction(self._redo)
-        edit_menu.addSeparator()
-        edit_menu.addAction(self._texts_action)
-        view_menu = menubar.addMenu("&View")
-        view_menu.addAction(fit)
-        view_menu.addAction(self._prev)
-        view_menu.addAction(self._next)
-        menubar.addMenu(self._parts_menu)
-
-        # Playback menu (its M1.5 home, opened early: the bottom toolbar
-        # is gone as of M1.3 and these actions must stay reachable at
-        # every checkpoint). Play is the STRIP's action — menu, strip
-        # button, and window-level shortcut share one QAction, so text
-        # and state cannot diverge; Follow is the INSPECTOR's action
-        # likewise (brief flag 3).
-        strip = self.lower_zone.strip
-        playback_menu = menubar.addMenu("&Playback")
-        playback_menu.addAction(strip.play_action)
-        playback_menu.addAction(self.inspector.follow_action)
-        playback_menu.addSeparator()
-
-        open_audio = QAction("Open Audio…", self)
-        open_audio.triggered.connect(self._open_audio_dialog)
-        open_tempo = QAction("Import Tempo…", self)
-        open_tempo.triggered.connect(self._open_tempo_dialog)
-        reload_tempo = QAction("Reload Tempo", self)
-        reload_tempo.setShortcut("F5")
-        reload_tempo.triggered.connect(self._reload_tempo)
-        playback_menu.addAction(open_audio)
-        playback_menu.addAction(open_tempo)
-        playback_menu.addAction(reload_tempo)
-
-        # window-level so shortcuts fire regardless of focus
-        self.addAction(self._undo)
-        self.addAction(self._redo)
-        self.addAction(save_action)
-        self.addAction(strip.play_action)
-        self.addAction(strip.arm_taps_action)
-        self.addAction(strip.tap_action)
-        self.addAction(reload_tempo)
-
-    def _open_dialog(self) -> None:
+    def open_score_dialog(self) -> None:
         name, _ = QFileDialog.getOpenFileName(
             self, "Open MusicXML score", "",
             "MusicXML (*.musicxml *.xml);;All files (*)")
         if name:
             self.open_score(Path(name))
 
-    def _open_project_dialog(self) -> None:
+    def open_project_dialog(self) -> None:
         name, _ = QFileDialog.getOpenFileName(
             self, "Open project", "",
             f"ScoreAnim projects (*{SUFFIX});;All files (*)")
         if name:
             self.open_project(Path(name))
 
-    def _open_audio_dialog(self) -> None:
+    def open_audio_dialog(self) -> None:
         name, _ = QFileDialog.getOpenFileName(
             self, "Open recording", "",
             "Audio (*.wav *.mp3 *.m4a *.flac);;All files (*)")
@@ -311,7 +201,7 @@ class MainWindow(QMainWindow):
         self.app_state.set_peaks(None)
         self.statusBar().showMessage(f"waveform unavailable: {message}")
 
-    def _open_tempo_dialog(self) -> None:
+    def open_tempo_dialog(self) -> None:
         name, _ = QFileDialog.getOpenFileName(
             self, "Import tempo file", "",
             "Tempo files (*.tempo *.txt);;All files (*)")
@@ -334,7 +224,7 @@ class MainWindow(QMainWindow):
                 f"tempo: {path.name} — offset {setup.offset_seconds:.2f}s, "
                 f"{len(setup.events)} event(s)")
 
-    def _reload_tempo(self) -> None:
+    def reload_tempo(self) -> None:
         if self._tempo_path is None:
             QMessageBox.warning(self, "Tempo file",
                                 "no tempo file imported (Import Tempo… first)")
@@ -404,10 +294,12 @@ class MainWindow(QMainWindow):
         self._sync_presentation_mode(doc.stage.mode)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
-        self._undo.setEnabled(self.app_state.can_undo)
-        self._undo.setText(f"Undo {undo_text}" if undo_text else "Undo")
-        self._redo.setEnabled(self.app_state.can_redo)
-        self._redo.setText(f"Redo {redo_text}" if redo_text else "Redo")
+        undo = self.menus.undo_action
+        redo = self.menus.redo_action
+        undo.setEnabled(self.app_state.can_undo)
+        undo.setText(f"Undo {undo_text}" if undo_text else "Undo")
+        redo.setEnabled(self.app_state.can_redo)
+        redo.setText(f"Redo {redo_text}" if redo_text else "Redo")
         self._sync_title()
 
     def _sync_stage(self, doc: ProjectDoc) -> None:
@@ -510,36 +402,37 @@ class MainWindow(QMainWindow):
     def _build_parts_menu(self, parts) -> None:
         """One submenu per part: color swatches (palette + Custom… +
         No Color) and an effect radio group enumerated from the preset
-        registry — adding a preset needs no menu code."""
-        self._parts_menu.clear()
+        registry — adding a preset needs no menu code. Populates the
+        Score menu (renamed Parts, M1.5 — content preserved)."""
+        score_menu = self.menus.score_menu
+        score_menu.clear()
         self._part_color_actions = {}
         self._part_effect_actions = {}
         self._applied_colors = {}
         self._applied_overrides = {}
-        setup_action = QAction("Score Setup…", self._parts_menu)
+        setup_action = QAction("Score Setup…", score_menu)
         setup_action.triggered.connect(self._open_score_setup_dialog)
-        self._parts_menu.addAction(setup_action)
-        groups_action = QAction("Staff Groups…", self._parts_menu)
+        score_menu.addAction(setup_action)
+        groups_action = QAction("Staff Groups…", score_menu)
         groups_action.triggered.connect(self._open_staff_groups_dialog)
-        self._parts_menu.addAction(groups_action)
-        names_action = QAction("Part Names…", self._parts_menu)
+        score_menu.addAction(groups_action)
+        names_action = QAction("Part Names…", score_menu)
         names_action.triggered.connect(self._open_part_names_dialog)
-        self._parts_menu.addAction(names_action)
+        score_menu.addAction(names_action)
         # an engraving input like the two above (Phase 10R): toggling
         # re-engraves via the _applied_hide_empty diff, one undo step
-        self._hide_staves_action = QAction("Hide Empty Staves",
-                                           self._parts_menu)
+        self._hide_staves_action = QAction("Hide Empty Staves", score_menu)
         self._hide_staves_action.setCheckable(True)
         self._hide_staves_action.setChecked(
             self.app_state.doc.hide_empty_staves)
         self._hide_staves_action.toggled.connect(
             lambda checked: self.app_state.execute(
                 SetHideEmptyStaves(checked)))
-        self._parts_menu.addAction(self._hide_staves_action)
-        self._parts_menu.addSeparator()
+        score_menu.addAction(self._hide_staves_action)
+        score_menu.addSeparator()
         for info in parts:
             pid = PartId(info.part_id)
-            menu = self._parts_menu.addMenu(info.name)
+            menu = score_menu.addMenu(info.name)
 
             color_group = QActionGroup(menu)
             color_actions: dict = {}
@@ -786,8 +679,8 @@ class MainWindow(QMainWindow):
         # from the SAME inputs as the live ones (render/export.py)
         self._animation_inputs = AnimationInputs(
             engraved.layout, stage, schedule, tuple(reveal_tracks))
-        self._export_action.setEnabled(True)
-        self._texts_action.setEnabled(True)
+        self.menus.export_action.setEnabled(True)
+        self.menus.texts_action.setEnabled(True)
         applier = AnimationApplier(self._scenes.items, schedule,
                                    TempoMap([TempoEvent(0.0, DEFAULT_BPM)]),
                                    self.app_state.doc.style, reveal_tracks)
@@ -841,7 +734,7 @@ class MainWindow(QMainWindow):
 
     # -- texts ---------------------------------------------------------------------
 
-    def _open_texts_dialog(self) -> None:
+    def open_texts_dialog(self) -> None:
         if self._animation_inputs is None:
             return
         # band = the free space above the top staff, re-derived from the
@@ -856,7 +749,7 @@ class MainWindow(QMainWindow):
 
     # -- export --------------------------------------------------------------------
 
-    def _open_export_dialog(self) -> None:
+    def open_export_dialog(self) -> None:
         if self._animation_inputs is None:
             return
         self.playback.pause()                # no live tick under the modal
@@ -923,9 +816,11 @@ class MainWindow(QMainWindow):
             return
         self._page = max(1, min(page, self._scenes.page_count))
         self.view.show_scene(self._scenes.scene_for_page(self._page))
-        self._page_label.setText(f" {self._page}/{self._scenes.page_count} ")
-        self._prev.setEnabled(self._page > 1)
-        self._next.setEnabled(self._page < self._scenes.page_count)
+        self.menus.page_label.setText(
+            f" {self._page}/{self._scenes.page_count} ")
+        self.menus.prev_action.setEnabled(self._page > 1)
+        self.menus.next_action.setEnabled(
+            self._page < self._scenes.page_count)
 
     def show_system(self, system: int) -> None:
         """Frame one system's band (Phase 7.4): the band's page scene,
@@ -939,12 +834,13 @@ class MainWindow(QMainWindow):
         self.view.show_system_band(
             self._scenes.scene_for_page(band.page),
             QRectF(rect.x, rect.y, rect.w, rect.h))
-        self._page_label.setText(
+        self.menus.page_label.setText(
             f" sys {self._system}/{len(self._band_by_system)} ")
-        self._prev.setEnabled(self._system > 1)
-        self._next.setEnabled(self._system < len(self._band_by_system))
+        self.menus.prev_action.setEnabled(self._system > 1)
+        self.menus.next_action.setEnabled(
+            self._system < len(self._band_by_system))
 
-    def _step(self, delta: int) -> None:
+    def step(self, delta: int) -> None:
         """Prev/next in the current presentation unit."""
         if self._applied_mode is PresentationMode.SYSTEM:
             self.show_system(self._system + delta)
