@@ -45,24 +45,24 @@ class MainMenus:
         # -- File ------------------------------------------------------------
         open_score = QAction("Open Score…", window)
         open_score.setShortcut(QKeySequence.StandardKey.Open)
-        open_score.triggered.connect(window.open_score_dialog)
+        open_score.triggered.connect(window.files.open_score_dialog)
 
         open_project = QAction("Open Project…", window)
         open_project.setShortcut("Ctrl+Shift+O")
-        open_project.triggered.connect(window.open_project_dialog)
+        open_project.triggered.connect(window.files.open_project_dialog)
 
         save = QAction("Save Project", window)
         save.setShortcut(QKeySequence.StandardKey.Save)
-        save.triggered.connect(window.save_project)
+        save.triggered.connect(window.files.save_project)
 
         save_as = QAction("Save Project As…", window)
         save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
-        save_as.triggered.connect(window.save_project_as)
+        save_as.triggered.connect(window.files.save_project_as)
 
         self.export_action = QAction("Export Video…", window)
         self.export_action.setShortcut("Ctrl+E")
         self.export_action.setEnabled(False)         # needs a loaded score
-        self.export_action.triggered.connect(window.open_export_dialog)
+        self.export_action.triggered.connect(window.files.open_export_dialog)
 
         # -- Edit ------------------------------------------------------------
         self.undo_action = QAction("Undo", window)
@@ -97,12 +97,12 @@ class MainMenus:
 
         # -- Playback --------------------------------------------------------
         open_audio = QAction("Open Audio…", window)
-        open_audio.triggered.connect(window.open_audio_dialog)
+        open_audio.triggered.connect(window.files.open_audio_dialog)
         open_tempo = QAction("Import Tempo…", window)
-        open_tempo.triggered.connect(window.open_tempo_dialog)
+        open_tempo.triggered.connect(window.files.open_tempo_dialog)
         reload_tempo = QAction("Reload Tempo", window)
         reload_tempo.setShortcut("F5")
-        reload_tempo.triggered.connect(window.reload_tempo)
+        reload_tempo.triggered.connect(window.files.reload_tempo)
 
         # -- menubar ---------------------------------------------------------
         strip = window.lower_zone.strip

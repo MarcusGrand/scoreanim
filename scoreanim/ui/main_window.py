@@ -15,18 +15,13 @@ from dataclasses import replace as _dc_replace
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, QSettings, Qt
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
+from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.project import (HIDE_EMPTY_STAVES_DEFAULT, SUFFIX,
-                                    ApplyTaps, FileRef,
-                                    ImportTempoSetup,
-                                    PresentationMode,
-                                    ProjectDoc,
-                                    StageConfig, check_ref, load_project,
-                                    page_content_top, sha256_of)
-from scoreanim.core.project import save_project as write_project_file
-from scoreanim.core.timing import TempoMap, parse_tempo_file, resolve_seconds
+from scoreanim.core.project import (HIDE_EMPTY_STAVES_DEFAULT, ApplyTaps,
+                                    PresentationMode, ProjectDoc,
+                                    StageConfig, page_content_top)
+from scoreanim.core.timing import TempoMap
 from scoreanim.core.timing.taps import (TapSession, derive_tempo_events,
                                         start_residual)
 from scoreanim.render.animate import AnimationApplier
@@ -34,7 +29,7 @@ from scoreanim.render.export import AnimationInputs
 from scoreanim.render.scene import ScoreScenes
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.document_sync import DocumentSync
-from scoreanim.ui.export_dialog import ExportDialog
+from scoreanim.ui.file_actions import FileActions
 from scoreanim.ui.inspector import Inspector
 from scoreanim.ui.menus import MainMenus
 from scoreanim.ui.parts_menu import PartsMenu
@@ -62,18 +57,14 @@ class MainWindow(QMainWindow):
             else default_settings()
 
         self._scenes: ScoreScenes | None = None
-        self._animation_inputs: AnimationInputs | None = None
+        self.animation_inputs: AnimationInputs | None = None
         self._applier: AnimationApplier | None = None
-        self._export_settings: dict | None = None    # session memory (R3)
         self._page = 1
         self._system = 1
         self._band_by_system: dict = {}              # derived, never saved
         self._applied_mode = PresentationMode.PAGED  # what the view shows
-        self._last_overflow = False          # last load overflowed a page
+        self.last_overflow = False           # last load overflowed a page
         self._parts: tuple = ()            # PartInfos of the loaded score
-        self._score_name: str | None = None
-        self._project_path: Path | None = None
-        self._tempo_path: Path | None = None
 
         self.app_state = AppState(self)
         self.playback = PlaybackController(self)
@@ -103,7 +94,9 @@ class MainWindow(QMainWindow):
             lambda: self.app_state.set_peaks(self.peaks.cache))
         self.peaks.finished.connect(
             lambda: self.app_state.set_peaks(self.peaks.cache))
-        self.peaks.failed.connect(self._on_peaks_failed)
+        # file/project/export menu handlers + file-session state (M1.9
+        # split); connects peaks.failed itself
+        self.files = FileActions(self)
 
         # follow reports page AND system; the window routes by the
         # document's presentation mode (Phase 7.4)
@@ -131,7 +124,7 @@ class MainWindow(QMainWindow):
         # state re-derived from the document by the sync passes below
         self.parts_menu = PartsMenu(
             self.menus.score_menu, self.app_state, self,
-            self._open_score_setup_dialog, self._open_staff_groups_dialog,
+            self.open_score_setup_dialog, self._open_staff_groups_dialog,
             self._open_part_names_dialog)
         # load pipeline + document→scene diff-sync (M1.7): the loader
         # returns a LoadedScore bundle _install adopts; the sync owns
@@ -145,74 +138,7 @@ class MainWindow(QMainWindow):
         restore_window_state(self, self.inspector.sections, self._settings)
 
         if score_path is not None:
-            self.open_score(score_path)
-
-    # -- file dialogs (menu handlers) ----------------------------------------
-
-    def open_score_dialog(self) -> None:
-        name, _ = QFileDialog.getOpenFileName(
-            self, "Open MusicXML score", "",
-            "MusicXML (*.musicxml *.xml);;All files (*)")
-        if name:
-            self.open_score(Path(name))
-
-    def open_project_dialog(self) -> None:
-        name, _ = QFileDialog.getOpenFileName(
-            self, "Open project", "",
-            f"ScoreAnim projects (*{SUFFIX});;All files (*)")
-        if name:
-            self.open_project(Path(name))
-
-    def open_audio_dialog(self) -> None:
-        name, _ = QFileDialog.getOpenFileName(
-            self, "Open recording", "",
-            "Audio (*.wav *.mp3 *.m4a *.flac);;All files (*)")
-        if name:
-            self.open_audio(Path(name))
-
-    def open_audio(self, path: Path) -> None:
-        """Audio binding: outside the undo stack (ruling 2026-07-11)."""
-        path = path.resolve()        # refs are absolute at runtime,
-        self.app_state.bind_audio(FileRef(path=str(path),  # relative on disk
-                                          sha256=sha256_of(path)))
-        self.playback.open_audio(path)
-        self.app_state.set_peaks(None)       # clear stale waveform
-        self.peaks.start(path)
-
-    def _on_peaks_failed(self, message: str) -> None:
-        """No waveform is a degraded view, never a blocker for playback."""
-        self.app_state.set_peaks(None)
-        self.statusBar().showMessage(f"waveform unavailable: {message}")
-
-    def open_tempo_dialog(self) -> None:
-        name, _ = QFileDialog.getOpenFileName(
-            self, "Import tempo file", "",
-            "Tempo files (*.tempo *.txt);;All files (*)")
-        if name:
-            self._import_tempo(Path(name))
-
-    def _import_tempo(self, path: Path) -> None:
-        """Sidecar import — one undoable command replacing offset + all
-        tempo events (the file's semantics)."""
-        try:
-            setup = parse_tempo_file(path.read_text(),
-                                     self.app_state.measures)
-        except (OSError, ValueError) as exc:
-            QMessageBox.warning(self, "Tempo file", f"{path.name}: {exc}")
-            return
-        self._tempo_path = path
-        if self.app_state.execute(ImportTempoSetup(
-                setup.offset_seconds, setup.events, path.name)):
-            self.statusBar().showMessage(
-                f"tempo: {path.name} — offset {setup.offset_seconds:.2f}s, "
-                f"{len(setup.events)} event(s)")
-
-    def reload_tempo(self) -> None:
-        if self._tempo_path is None:
-            QMessageBox.warning(self, "Tempo file",
-                                "no tempo file imported (Import Tempo… first)")
-            return
-        self._import_tempo(self._tempo_path)
+            self.files.open_score(score_path)
 
     # -- playback feedback -----------------------------------------------------
 
@@ -240,7 +166,7 @@ class MainWindow(QMainWindow):
 
     # -- document → world -------------------------------------------------------
 
-    def _timing_config(self, doc: ProjectDoc) -> tuple[float, TempoMap, tuple]:
+    def timing_config(self, doc: ProjectDoc) -> tuple[float, TempoMap, tuple]:
         """THE construction of (offset, TempoMap, swing) from document
         intent — one expression shared by live retiming and export, so
         the two paths cannot diverge."""
@@ -257,14 +183,14 @@ class MainWindow(QMainWindow):
         if (self._scenes is not None and doc.score is not None
                 and self.loader.needs_reengrave(doc)):
             self._reengrave(doc)
-        self.playback.set_timing_config(*self._timing_config(doc))
+        self.playback.set_timing_config(*self.timing_config(doc))
         self.doc_sync.sync_styles(doc)
         if self.doc_sync.sync_stage(doc) \
-                and self._animation_inputs is not None:
+                and self.animation_inputs is not None:
             # a stage-text edit must reach export too — inputs.stage is
             # otherwise a load-time snapshot (Phase 7 staleness gotcha)
-            self._animation_inputs = _dc_replace(self._animation_inputs,
-                                                 stage=doc.stage)
+            self.animation_inputs = _dc_replace(self.animation_inputs,
+                                                stage=doc.stage)
         self.doc_sync.sync_hidden(doc)
         self.playback.set_style(doc.style)
         self.lower_zone.strip.sync_from_document(doc)
@@ -283,85 +209,13 @@ class MainWindow(QMainWindow):
 
     def _sync_title(self) -> None:
         star = " *" if self.app_state.is_dirty else ""
-        name = f" — {self._score_name}{star}" if self._score_name else ""
-        self.setWindowTitle(f"ScoreAnim{name}")
+        name = self.files.score_name
+        self.setWindowTitle(f"ScoreAnim — {name}{star}" if name
+                            else "ScoreAnim")
 
     # -- score / project --------------------------------------------------------
 
-    def open_score(self, path: Path) -> None:
-        """Fresh document from a bare score (undo stack reset — ruling
-        2026-07-11). A sibling .tempo sidecar auto-imports as a command."""
-        path = path.resolve()        # refs are absolute at runtime
-        stage = self._load_score(path, EngravingParams(), stage=None)
-        doc = ProjectDoc(score=FileRef(path=str(path),
-                                       sha256=sha256_of(path)),
-                         stage=stage)
-        self._project_path = None
-        self._score_name = path.name
-        self._tempo_path = None
-        self.app_state.reset_document(doc)   # → _on_document_changed
-        self._show_current()
-        self.view.fit()
-        # a score that overflows its page needs staff-count reduction —
-        # offer the Score Setup dialog on open (Phase 12.4)
-        if self._last_overflow:
-            self._open_score_setup_dialog()
-
-        sidecar = path.with_suffix(".tempo")
-        if sidecar.exists():
-            self._import_tempo(sidecar)
-
-    def open_project(self, path: Path) -> None:
-        """Re-derive everything from the saved intent: engrave the
-        referenced score with the saved params/stage, install the doc,
-        rebind audio. Hash mismatches warn; a missing score aborts
-        (nothing to display); a project never auto-loads a sidecar."""
-        try:
-            doc = load_project(path)
-        except (OSError, ValueError) as exc:
-            QMessageBox.warning(self, "Open project", str(exc))
-            return
-        if doc.score is None:
-            QMessageBox.warning(self, "Open project",
-                                f"{path.name}: no score reference")
-            return
-        warnings = []
-        score_warning = check_ref(doc.score)
-        if score_warning is not None:
-            if "missing" in score_warning:
-                QMessageBox.warning(self, "Open project", score_warning)
-                return
-            warnings.append(score_warning)
-
-        # groups + label overrides + hide flag engrave here once; the
-        # reset_document below finds the _applied_* caches already equal
-        # — no double engrave
-        self._load_score(Path(doc.score.path), doc.engraving,
-                         stage=doc.stage, groups=doc.staff_groups,
-                         text_overrides=doc.text_overrides,
-                         hide_empty_staves=doc.hide_empty_staves,
-                         condense_groups=doc.condense_groups,
-                         hide_first_system=doc.hide_first_system)
-        self._project_path = path
-        self._score_name = path.name
-        self._tempo_path = None
-        self.app_state.reset_document(doc)
-        self._show_current()
-        self.view.fit()
-
-        if doc.audio is not None:
-            audio_warning = check_ref(doc.audio)
-            if audio_warning is not None:
-                warnings.append(audio_warning)
-            if audio_warning is None or "missing" not in audio_warning:
-                audio_path = Path(doc.audio.path)
-                self.playback.open_audio(audio_path)
-                self.app_state.set_peaks(None)
-                self.peaks.start(audio_path)
-        if warnings:
-            QMessageBox.warning(self, "Open project", "\n".join(warnings))
-
-    def _load_score(self, path: Path, params: EngravingParams,
+    def load_score(self, path: Path, params: EngravingParams,
                     stage: StageConfig | None,
                     groups: tuple = (),
                     text_overrides: dict | None = None,
@@ -391,14 +245,14 @@ class MainWindow(QMainWindow):
                                   doc.text_overrides, doc.hide_empty_staves,
                                   doc.condense_groups, doc.hide_first_system)
         self._install(loaded)
-        self._show_current()             # install the fresh scene
+        self.show_current()              # install the fresh scene
 
     def _install(self, loaded: LoadedScore) -> None:
         """Adopt one load's derived world and point every consumer at
         it: view scenes, export inputs, playback animation, the shared
         measure axis, the per-load Score menu."""
         self._scenes = loaded.scenes
-        self._animation_inputs = loaded.animation_inputs
+        self.animation_inputs = loaded.animation_inputs
         self._applier = loaded.applier
         self.doc_sync.bind_scenes(loaded.scenes, loaded.stage.texts)
         self.menus.export_action.setEnabled(True)
@@ -408,7 +262,7 @@ class MainWindow(QMainWindow):
         self.app_state.set_measures(loaded.measures)
         self._parts = loaded.parts
         self.parts_menu.rebuild(loaded.parts)
-        self._last_overflow = loaded.overflow
+        self.last_overflow = loaded.overflow
         self.statusBar().showMessage(loaded.status_line)
 
     # -- staff groups ------------------------------------------------------------
@@ -418,7 +272,7 @@ class MainWindow(QMainWindow):
             return
         StaffGroupsDialog(self.app_state, self._parts, parent=self).exec()
 
-    def _open_score_setup_dialog(self) -> None:
+    def open_score_setup_dialog(self) -> None:
         if not self._parts:
             return
         ScoreSetupDialog(self.app_state, self._parts, parent=self).exec()
@@ -435,65 +289,19 @@ class MainWindow(QMainWindow):
     # -- texts ---------------------------------------------------------------------
 
     def open_texts_dialog(self) -> None:
-        if self._animation_inputs is None:
+        if self.animation_inputs is None:
             return
         # band = the free space above the top staff, re-derived from the
         # CURRENT engraved layout (runtime data for the header refit —
         # the doc stores intent only)
-        layout = self._animation_inputs.layout
+        layout = self.animation_inputs.layout
         band = page_content_top(layout)
         tempo_elements = tuple(el for el in layout.elements
                                if el.text_class == "tempo")
         TextsDialog(self.app_state, band=band,
                     tempo_elements=tempo_elements, parent=self).exec()
 
-    # -- export --------------------------------------------------------------------
-
-    def open_export_dialog(self) -> None:
-        if self._animation_inputs is None:
-            return
-        self.playback.pause()                # no live tick under the modal
-        doc = self.app_state.doc
-        offset, tempo_map, swing = self._timing_config(doc)
-        duration = self.playback.transport.duration_seconds()
-        if duration <= 0.0:                  # no audio loaded: score length
-            score_end = max((m.start + m.quarter_length
-                             for m in self.app_state.measures), default=0.0)
-            duration = offset + resolve_seconds([score_end], tempo_map,
-                                                swing)[0]
-        dialog = ExportDialog(self._animation_inputs, doc.style, tempo_map,
-                              swing, self.app_state.measures, offset,
-                              duration, self._score_name or "score",
-                              mode=doc.stage.mode,   # live doc, not the
-                              overrides=dict(doc.layout_overrides),  # ditto
-                              settings=self._export_settings,
-                              parent=self)
-        dialog.exec()
-        self._export_settings = {**(self._export_settings or {}),
-                                 **dialog.remembered()}
-
-    # -- save / load --------------------------------------------------------------
-
-    def save_project(self) -> bool:
-        if self._project_path is None:
-            return self.save_project_as()
-        write_project_file(self.app_state.doc, self._project_path)
-        self.app_state.mark_saved()
-        self.statusBar().showMessage(f"saved {self._project_path.name}")
-        return True
-
-    def save_project_as(self) -> bool:
-        name, _ = QFileDialog.getSaveFileName(
-            self, "Save project", "",
-            f"ScoreAnim projects (*{SUFFIX})")
-        if not name:
-            return False
-        path = Path(name)
-        if path.suffix != SUFFIX:
-            path = path.with_suffix(SUFFIX)
-        self._project_path = path
-        self._score_name = path.name
-        return self.save_project()
+    # -- close ---------------------------------------------------------------------
 
     def closeEvent(self, event) -> None:  # noqa: N802
         if self.app_state.is_dirty:
@@ -503,7 +311,7 @@ class MainWindow(QMainWindow):
                 | QMessageBox.StandardButton.Discard
                 | QMessageBox.StandardButton.Cancel)
             if answer == QMessageBox.StandardButton.Save:
-                if not self.save_project():
+                if not self.files.save_project():
                     event.ignore()
                     return
             elif answer == QMessageBox.StandardButton.Cancel:
@@ -549,7 +357,7 @@ class MainWindow(QMainWindow):
         else:
             self.show_page(self._page + delta)
 
-    def _show_current(self) -> None:
+    def show_current(self) -> None:
         """(Re-)show the current position in the current mode — the
         mode-aware version of the old show_page(1) after a load."""
         if self._applied_mode is PresentationMode.SYSTEM:

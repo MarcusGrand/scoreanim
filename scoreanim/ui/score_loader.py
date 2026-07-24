@@ -164,10 +164,13 @@ class ScoreLoader:
             animation_inputs=animation_inputs, applier=applier,
             measures=model.measures, parts=engraved.prepared.parts,
             band_by_system=band_by_system, warnings=engraved.warnings,
-            # a system still overflowing its page after repagination means
-            # the score needs staff-count reduction — the Score Setup
-            # trigger (Phase 12.4)
-            overflow=any(w.code == "system-overflow"
+            # a system taller than its page means the score needs
+            # staff-count reduction — the Score Setup trigger (Phase
+            # 12.4). Since Phase 12.5 such a load is rescued by
+            # scale-to-fit and "system-overflow" is defensive-only, so
+            # the trigger matches both codes (M1.9 finding: matching
+            # only system-overflow had left it dead)
+            overflow=any(w.code in ("scaled-to-fit", "system-overflow")
                          for w in engraved.warnings),
             status_line=(
                 f"engrave+decompose {t1 - t0:.2f}s · "
