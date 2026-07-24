@@ -310,6 +310,122 @@ def test_scrubbing_stateless_with_timed_effect(qapp, engraved, schedule,
     assert walked == visual_state(fresh_scenes)
 
 
+# -- M4.6: note-value timescales, peak offset, retimed windows ---------------
+
+def _visual_state(sc):
+    return {eid: (item.opacity(), item.scale())
+            for eid, item in sc.items.items()}
+
+
+@pytest.fixture(scope="module")
+def schedule_nv(engraved, join_mapping, score_model):
+    """The M4.7 wiring shape: durations resolved and carried by the
+    schedule."""
+    from scoreanim.core.animation import resolve_durations
+    durs = resolve_durations(engraved.layout, join_mapping,
+                             engraved.note_durations, score_model.measures)
+    return build_trigger_schedule(engraved.layout, join_mapping,
+                                  score_model.measures, durs)
+
+
+_NV_RULES = StyleRules(default_effect="pop",
+                       effect_params={"pop": {"note_value": True}})
+
+
+def _head_with_duration(scenes, schedule, beats: float):
+    from scoreanim.core.score.identity import ElementKind
+    return next(
+        eid for eid, d in schedule.duration_by_element.items()
+        if d == beats
+        and scenes.items[eid].identity.kind is ElementKind.NOTEHEAD)
+
+
+def test_note_value_stretches_by_engraved_length(scenes,
+                                                 schedule_nv) -> None:
+    """At 120 bpm a dotted half (3 beats — testscore's longest note)
+    settles over 1.5 s — still mid-scale at +1.0 s — where an eighth
+    (0.25 s = the authored settle) has settled at once (F7:
+    timescale = dur_seconds / effect.duration)."""
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, _NV_RULES)
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    eighth = _head_with_duration(scenes, schedule_nv, 0.5)
+    for eid in (long_head, eighth):
+        trig_s = TEMPO.seconds_at(schedule_nv.beats_by_element[eid])
+        applier.refresh(trig_s + 1.0)
+        item = scenes.items[eid]
+        if eid is long_head:             # 1.5 s window: 2/3 through
+            assert item.scale() == pytest.approx(1.25 - 0.25 * (2 / 3))
+        else:                            # 0.25 s window: long settled
+            assert item.scale() == pytest.approx(1.0)
+        assert item.opacity() == pytest.approx(1.0)
+
+
+def test_scrub_through_stretched_settle_is_stateless(qapp, engraved,
+                                                     schedule_nv,
+                                                     scenes) -> None:
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, _NV_RULES)
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    mid = TEMPO.seconds_at(schedule_nv.beats_by_element[long_head]) + 1.0
+    rng = random.Random(31)
+    t = 0.0
+    for _ in range(60):
+        t = max(-2.0, t + rng.uniform(-9.0, 11.0))
+        applier.apply_at(t)
+    applier.apply_at(mid)                       # land mid-stretch
+    walked = _visual_state(scenes)
+
+    fresh_scenes = ScoreScenes(engraved.layout, default_stage_config(
+        engraved.prepared, page_content_top(engraved.layout)))
+    AnimationApplier(fresh_scenes.items, schedule_nv, TEMPO,
+                     _NV_RULES).refresh(mid)
+    assert walked == _visual_state(fresh_scenes)
+
+
+def test_negative_shift_lights_early_page_cursor_unmoved(
+        scenes, schedule) -> None:
+    """F3: at peak offset −100 ms the whole effect — including the
+    appearance — moves early, but the page cursor bisects UNSHIFTED
+    trigger seconds, so the page turn does not move. A backward scrub
+    un-lights the early ink (the lead window stays stateless)."""
+    rules = StyleRules(default_effect="pop",
+                       effect_params={"pop": {"peak_offset": -0.1}})
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    i2 = next(i for i, tr in enumerate(schedule.triggers) if tr.page == 2)
+    tr_s = TEMPO.seconds_at(schedule.triggers[i2].beats)
+    applier.refresh(tr_s - 1.0)                 # settle far before
+    applier.apply_at(tr_s - 0.05)               # inside the shifted window
+    for eid in schedule.triggers[i2].element_ids:
+        assert scenes.items[eid].opacity() == pytest.approx(1.0), eid
+    assert applier.current_page() == 1          # trigger NOT crossed
+    applier.apply_at(tr_s - 0.5)                # scrub back out of the lead
+    for eid in schedule.triggers[i2].element_ids:
+        assert scenes.items[eid].opacity() == pytest.approx(FLOOR), eid
+
+
+def test_bpm_change_retimes_the_stretch(qapp, engraved,
+                                        schedule_nv, scenes) -> None:
+    """set_timing recomputes note-value windows: after a tempo change
+    the walked scene equals a FRESH applier built at the new tempo."""
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, _NV_RULES)
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    slow = TempoMap([TempoEvent(0.0, 60.0)])    # 3 beats now 3.0 s
+    mid = slow.seconds_at(schedule_nv.beats_by_element[long_head]) + 1.0
+    applier.apply_at(mid)                       # state under the OLD map
+    applier.set_timing(slow)
+    applier.refresh(mid)
+    walked = _visual_state(scenes)
+    # a third through the 3 s window: lerp 1/3 done
+    assert scenes.items[long_head].scale() == pytest.approx(
+        1.25 - 0.25 * (1 / 3))
+
+    fresh_scenes = ScoreScenes(engraved.layout, default_stage_config(
+        engraved.prepared, page_content_top(engraved.layout)))
+    fresh = AnimationApplier(fresh_scenes.items, schedule_nv, slow,
+                             _NV_RULES)
+    fresh.refresh(mid)
+    assert walked == _visual_state(fresh_scenes)
+
+
 def test_tinted_note_still_dims_and_appears(scenes, schedule) -> None:
     """Color and opacity are independent: tint mutates child brushes,
     animation opacity sits on the parent — a tinted note still floors
