@@ -62,6 +62,18 @@ class Envelope:
 class Effect:
     name: str
     tracks: Mapping[PropertyId, Envelope]
+    # M4 scalar data the applier consumes GENERICALLY (rule 6 amendment):
+    # neither is ever branched on by effect name.
+    # Signed seconds the WHOLE effect (opacity step and scale peak as one
+    # unit) moves relative to the trigger — the "Peak offset" knob (F3):
+    # negative shifts everything early, including when the note appears.
+    # Absolute seconds, applied BEFORE any timescale division.
+    trigger_shift: float = 0.0
+    # When True the applier stretches this effect's settle to each
+    # element's own engraved note value (timescale = dur_seconds /
+    # duration, resolved per element — F7); the kernel itself only ever
+    # sees the resulting scalar.
+    settle_to_note_value: bool = False
 
     def state_at(self, t_rel: float) -> dict[PropertyId, float]:
         return {pid: env.value_at(t_rel) for pid, env in self.tracks.items()}
