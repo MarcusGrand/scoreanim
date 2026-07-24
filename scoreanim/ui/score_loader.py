@@ -19,7 +19,8 @@ from pathlib import Path
 
 from scoreanim.core.animation import (FLOOR_OPACITY, StyleRules,
                                       build_reveal_tracks,
-                                      build_trigger_schedule)
+                                      build_trigger_schedule,
+                                      resolve_durations)
 from scoreanim.core.engraving.systems import system_bands
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio import VerovioEngravingProvider
@@ -134,8 +135,13 @@ class ScoreLoader:
             for w in engraved.warnings:
                 print(f"load warning [{w.code}]: {w.message}",
                       file=sys.stderr)
+        # per-element engraved durations (M4): resolved once here, carried
+        # by the schedule so live AND export read the same seam
+        durations = resolve_durations(engraved.layout, report.mapping,
+                                      engraved.note_durations,
+                                      model.measures)
         schedule = build_trigger_schedule(engraved.layout, report.mapping,
-                                          model.measures)
+                                          model.measures, durations)
         score_end = max((m.start + m.quarter_length for m in model.measures),
                         default=0.0)
         reveal_tracks = build_reveal_tracks(engraved.layout, schedule,
