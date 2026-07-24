@@ -9,6 +9,7 @@ which fields it reads and writes. Plain data; no Verovio types (rule 4).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from scoreanim.core.engraving.svg_geom import path_bbox
@@ -49,6 +50,12 @@ class EngravedScore:
     # (ruling 2026-07-22, FINDING-1 fix). build_score_model REQUIRES it;
     # the model's beat accounting is reconciled to these qstamps.
     timeline: MeasureTimeline
+    # Per-element engraved durations in beats (M4.1): timemap off − on
+    # for every note AND rest element, on the same performance axis as
+    # every onset (rule 12 — no next-onset inference, no new authority).
+    # A tied notehead's entry is its OWN segment length, not the chain
+    # end. Absent id → no entry.
+    note_durations: Mapping[ElementId, Beats] = field(default_factory=dict)
     # Non-fatal load anomalies (Phase 10 ruling b): dropped spanners,
     # continuation-attribution gaps. Empty on clean loads.
     warnings: tuple[LoadWarning, ...] = ()
@@ -63,6 +70,11 @@ class _LoadState:
     measure_duration: dict[int, Beats]       # from timemap start deltas
     staff_n_by_id: dict[str, int]
     layer_n_by_id: dict[str, int]
+    # notes and rests → timemap off qstamp (M4.1) — the on-side's exact
+    # symmetric partner; identity's element construction turns the pair
+    # into per-element durations. Defaulted so synthetic test states
+    # (which never resolve durations) construct unchanged.
+    off_by_id: dict[str, Beats] = field(default_factory=dict)
     # system → {global staff n → staff-lines y center}, built after
     # decomposition; grpSym identity reads which staves a symbol spans
     # (geometric — Phase 10; slot bookkeeping broke on native braces,

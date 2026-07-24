@@ -9,11 +9,13 @@ constructs continuation-segment elements under their source's ":seg<k>"
 ids in a second pass.
 
 Inputs: the attributed accumulator list + _LoadState. Outputs:
-RenderedElements, AdapterNoteRecords, and the staff-lines geometry map
-synthesis positions from. _LoadState READS: prep, mei, onset_by_id,
-measure_start, staff_centers_by_system (grpSym span),
-suppressed_spanners, sig_changes + last_of_system (courtesy-sig
-retime, FINDING-4). WRITES: warnings ("unattributed-continuation").
+RenderedElements, AdapterNoteRecords, the staff-lines geometry map
+synthesis positions from, and per-element note/rest durations (M4.1:
+timemap off − on, keyed by minted ElementId). _LoadState READS: prep,
+mei, onset_by_id, off_by_id, measure_start, staff_centers_by_system
+(grpSym span), suppressed_spanners, sig_changes + last_of_system
+(courtesy-sig retime, FINDING-4). WRITES: warnings
+("unattributed-continuation").
 """
 
 from __future__ import annotations
@@ -47,7 +49,8 @@ def _build_elements(
     accumulators: list[tuple[int, _ElementAccumulator]],
     st: _LoadState,
 ) -> tuple[list[RenderedElement], list[AdapterNoteRecord],
-           dict[tuple, tuple[int, int | None, Rect]]]:
+           dict[tuple, tuple[int, int | None, Rect]],
+           dict[ElementId, Beats]]:
     counters: dict[tuple, int] = defaultdict(int)
     elements: list[RenderedElement] = []
     note_records: list[AdapterNoteRecord] = []
@@ -57,6 +60,9 @@ def _build_elements(
     # (part_id, measure, staff_local) → (page, system, staff-lines bbox),
     # for slash synthesis
     staff_geo: dict[tuple, tuple[int, int | None, Rect]] = {}
+    # minted ElementId → engraved duration in beats (timemap off − on),
+    # notes and rests only — a tied notehead gets its OWN segment length
+    note_durations: dict[ElementId, Beats] = {}
 
     for page, acc in accumulators:
         if acc.continuation:
@@ -74,6 +80,16 @@ def _build_elements(
         # came later (FINDING-5; complex3 minted stem:N:seg1 elements).
         if acc.verovio_id and acc.svg_class in _SPANNER_CLASSES:
             identity_by_vid[acc.verovio_id] = identity
+
+        # Engraved duration (M4.1): off − on, gated by svg_class exactly
+        # like onset resolution below — only a note/rest may consult the
+        # timemap tables, so an id-colliding fragment never mints one.
+        if (acc.svg_class in _TIMEMAP_CLASSES
+                and acc.verovio_id in st.onset_by_id
+                and acc.verovio_id in st.off_by_id):
+            note_durations[identity.element_id] = (
+                st.off_by_id[acc.verovio_id]
+                - st.onset_by_id[acc.verovio_id])
 
         if acc.bbox is None:
             continue
@@ -155,7 +171,7 @@ def _build_elements(
                                   texts=tuple(acc.texts)),
             system=acc.system,
         ))
-    return elements, note_records, staff_geo
+    return elements, note_records, staff_geo, note_durations
 
 
 def _chord_group(mei_note: _MeiNote, st: _LoadState,
