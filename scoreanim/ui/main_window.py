@@ -62,6 +62,8 @@ from scoreanim.ui.export_dialog import ExportDialog
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.part_names_dialog import PartNamesDialog
+from scoreanim.ui.readouts import (format_time, global_swing_ratio,
+                                   initial_tempo_event)
 from scoreanim.ui.score_setup_dialog import ScoreSetupDialog
 from scoreanim.ui.staff_groups_dialog import StaffGroupsDialog
 from scoreanim.ui.stage_view import StageView
@@ -444,10 +446,8 @@ class MainWindow(QMainWindow):
     # -- playback feedback -----------------------------------------------------
 
     def _on_time(self, audio_seconds: float, duration: float) -> None:
-        def fmt(s: float) -> str:
-            s = max(0.0, s)
-            return f"{int(s // 60)}:{int(s % 60):02d}.{int(s * 10 % 10)}"
-        self._time_label.setText(f" {fmt(audio_seconds)} / {fmt(duration)} ")
+        self._time_label.setText(
+            f" {format_time(audio_seconds)} / {format_time(duration)} ")
         if not self._slider.isSliderDown():
             self._slider.blockSignals(True)
             self._slider.setRange(0, int(duration * 1000))
@@ -519,13 +519,13 @@ class MainWindow(QMainWindow):
         self._offset_spin.blockSignals(True)
         self._offset_spin.setValue(doc.timing.offset_seconds)
         self._offset_spin.blockSignals(False)
-        first_tempo = self._initial_tempo_event(doc)
+        first_tempo = initial_tempo_event(doc)
         self._bpm_spin.blockSignals(True)
         self._bpm_spin.setValue(first_tempo.bpm if first_tempo
                                 else DEFAULT_BPM)
         self._bpm_spin.blockSignals(False)
         self._swing_spin.blockSignals(True)
-        self._swing_spin.setValue(self._global_swing_ratio(doc))
+        self._swing_spin.setValue(global_swing_ratio(doc))
         self._swing_spin.blockSignals(False)
         self._floor_spin.blockSignals(True)
         self._floor_spin.setValue(doc.style.floor_opacity)
@@ -756,34 +756,21 @@ class MainWindow(QMainWindow):
         if abs(value - self.app_state.doc.timing.offset_seconds) > 1e-9:
             self.app_state.execute(SetOffset(value))
 
-    @staticmethod
-    def _initial_tempo_event(doc: ProjectDoc):
-        events = doc.timing.tempo_events
-        return min(events, key=lambda e: e.position) if events else None
-
     def _commit_bpm(self) -> None:
         """Set the initial (beat-0) tempo through the existing tempo-map
         machinery — MoveTempoEvent on the first event, so a tempo curve's
         later events survive. Drives no-audio playback (FIX 2)."""
-        first = self._initial_tempo_event(self.app_state.doc)
+        first = initial_tempo_event(self.app_state.doc)
         value = self._bpm_spin.value()
         if first is None or abs(value - first.bpm) < 1e-9:
             return
         self.app_state.execute(
             MoveTempoEvent(first.position, first.position, value))
 
-    @staticmethod
-    def _global_swing_ratio(doc: ProjectDoc) -> float:
-        """v1 reads the single global region; a multi-region doc (from a
-        later build or hand edit) shows its first ratio, and committing
-        the spinbox collapses it to one global region."""
-        regions = doc.timing.swing_regions
-        return regions[0].ratio if regions else 0.5
-
     def _commit_swing(self) -> None:
         value = self._swing_spin.value()
         doc = self.app_state.doc
-        if abs(value - self._global_swing_ratio(doc)) < 1e-9:
+        if abs(value - global_swing_ratio(doc)) < 1e-9:
             return
         measures = self.app_state.measures
         if not measures:
