@@ -17,11 +17,10 @@ from dataclasses import replace as _dc_replace
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QPixmap
-from PySide6.QtWidgets import (QColorDialog, QFileDialog,
-                               QMainWindow, QMessageBox)
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
-from scoreanim.core.animation import (DEFAULT_EFFECT, FLOOR_OPACITY, PRESETS,
+from scoreanim.core.animation import (FLOOR_OPACITY,
                                       build_reveal_tracks,
                                       build_trigger_schedule,
                                       takes_part_color)
@@ -34,9 +33,6 @@ from scoreanim.core.project import (DEFAULT_BPM,
                                     ImportTempoSetup,
                                     PresentationMode,
                                     ProjectDoc,
-                                    SetHideEmptyStaves,
-                                    SetPartColor,
-                                    SetPartEffect,
                                     StageConfig, check_ref,
                                     default_stage_config, load_project,
                                     page_content_top, sha256_of)
@@ -57,6 +53,7 @@ from scoreanim.ui.app_state import AppState
 from scoreanim.ui.export_dialog import ExportDialog
 from scoreanim.ui.inspector import Inspector
 from scoreanim.ui.menus import MainMenus
+from scoreanim.ui.parts_menu import PartsMenu
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.part_names_dialog import PartNamesDialog
@@ -70,10 +67,6 @@ from scoreanim.ui.transport import LowerZone
 # FLOOR_OPACITY moved to core/animation/presets.py in Phase 5.3 (the
 # ghost floor is preset data, not UI policy); imported above for the
 # spanner-ghost layers.
-
-# Part-color swatch palette for the Parts menu (Custom… covers the rest).
-_PART_COLORS = ["#cc2222", "#1a7a2e", "#1c4fd6", "#b26b00",
-                "#8422b8", "#0b7f7f", "#c22276"]
 
 
 class MainWindow(QMainWindow):
@@ -95,7 +88,6 @@ class MainWindow(QMainWindow):
         self._applied_hide_empty = False   # hide-empty-staves ditto
         self._applied_condense: tuple = ()   # condense groups ditto
         self._last_overflow = False          # last load overflowed a page
-        self._hide_staves_action: QAction | None = None
         self._applied_stage_texts: tuple = ()   # stage texts on the scenes
         self._applied_hidden: dict = {}    # ElementId → applied hidden flag
         self._parts: tuple = ()            # PartInfos of the loaded score
@@ -105,8 +97,6 @@ class MainWindow(QMainWindow):
         self._applied_colors: dict[PartId, str | None] = {}
         self._applied_overrides: dict = {}     # ElementId → applied color
         self._applied_floor = FLOOR_OPACITY    # ghost opacity on the scenes
-        self._part_color_actions: dict[PartId, dict] = {}
-        self._part_effect_actions: dict[PartId, dict] = {}
 
         self.app_state = AppState(self)
         self.playback = PlaybackController(self)
@@ -160,6 +150,12 @@ class MainWindow(QMainWindow):
         # window-level shortcut registration; the window keeps the refs
         # it mutates (undo text, enable-on-load, page readout)
         self.menus = MainMenus(self)
+        # dynamic Score-menu content (M1.6): rebuilt per load; check
+        # state re-derived from the document by the sync passes below
+        self.parts_menu = PartsMenu(
+            self.menus.score_menu, self.app_state, self,
+            self._open_score_setup_dialog, self._open_staff_groups_dialog,
+            self._open_part_names_dialog)
 
         if score_path is not None:
             self.open_score(score_path)
@@ -287,10 +283,7 @@ class MainWindow(QMainWindow):
         self.playback.set_style(doc.style)
         self.lower_zone.strip.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
-        if self._hide_staves_action is not None:
-            self._hide_staves_action.blockSignals(True)
-            self._hide_staves_action.setChecked(doc.hide_empty_staves)
-            self._hide_staves_action.blockSignals(False)
+        self.parts_menu.sync_from_document(doc)
         self._sync_presentation_mode(doc.stage.mode)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
@@ -347,7 +340,7 @@ class MainWindow(QMainWindow):
             self._scenes.set_ghost_opacity(doc.style.floor_opacity)
             self._applied_floor = doc.style.floor_opacity
         parts_retinted = set()
-        for pid in self._part_color_actions:
+        for pid in self.parts_menu.part_ids():
             rule = doc.style.parts.get(pid)
             color = rule.color if rule is not None else None
             if self._applied_colors.get(pid) != color:
@@ -355,7 +348,7 @@ class MainWindow(QMainWindow):
                     pid, QColor(color) if color else None)
                 self._applied_colors[pid] = color
                 parts_retinted.add(pid)
-            self._check_part_menu(pid, rule)
+            self.parts_menu.sync_checks(pid, rule)
 
         overrides = {eid: st.color for eid, st in doc.style.elements.items()
                      if st.color is not None}
@@ -379,128 +372,6 @@ class MainWindow(QMainWindow):
                 if item is not None and takes_part_color(item.identity):
                     item.set_color(QColor(color))
                     self._applied_overrides[eid] = color
-
-    def _check_part_menu(self, pid: PartId, rule) -> None:
-        color = rule.color if rule is not None else None
-        effect = rule.effect if rule is not None else None
-        color_actions = self._part_color_actions.get(pid, {})
-        for key, action in color_actions.items():
-            action.blockSignals(True)
-            if key == "custom":
-                action.setChecked(color is not None
-                                  and color not in color_actions)
-            else:
-                action.setChecked(color == key)
-            action.blockSignals(False)
-        effect_actions = self._part_effect_actions.get(pid, {})
-        known = effect in effect_actions
-        for key, action in effect_actions.items():
-            action.blockSignals(True)
-            action.setChecked(effect == key if known else key is None)
-            action.blockSignals(False)
-
-    def _build_parts_menu(self, parts) -> None:
-        """One submenu per part: color swatches (palette + Custom… +
-        No Color) and an effect radio group enumerated from the preset
-        registry — adding a preset needs no menu code. Populates the
-        Score menu (renamed Parts, M1.5 — content preserved)."""
-        score_menu = self.menus.score_menu
-        score_menu.clear()
-        self._part_color_actions = {}
-        self._part_effect_actions = {}
-        self._applied_colors = {}
-        self._applied_overrides = {}
-        setup_action = QAction("Score Setup…", score_menu)
-        setup_action.triggered.connect(self._open_score_setup_dialog)
-        score_menu.addAction(setup_action)
-        groups_action = QAction("Staff Groups…", score_menu)
-        groups_action.triggered.connect(self._open_staff_groups_dialog)
-        score_menu.addAction(groups_action)
-        names_action = QAction("Part Names…", score_menu)
-        names_action.triggered.connect(self._open_part_names_dialog)
-        score_menu.addAction(names_action)
-        # an engraving input like the two above (Phase 10R): toggling
-        # re-engraves via the _applied_hide_empty diff, one undo step
-        self._hide_staves_action = QAction("Hide Empty Staves", score_menu)
-        self._hide_staves_action.setCheckable(True)
-        self._hide_staves_action.setChecked(
-            self.app_state.doc.hide_empty_staves)
-        self._hide_staves_action.toggled.connect(
-            lambda checked: self.app_state.execute(
-                SetHideEmptyStaves(checked)))
-        score_menu.addAction(self._hide_staves_action)
-        score_menu.addSeparator()
-        for info in parts:
-            pid = PartId(info.part_id)
-            menu = score_menu.addMenu(info.name)
-
-            color_group = QActionGroup(menu)
-            color_actions: dict = {}
-            for c in _PART_COLORS:
-                action = QAction(c, menu)
-                action.setCheckable(True)
-                pm = QPixmap(12, 12)
-                pm.fill(QColor(c))
-                action.setIcon(QIcon(pm))
-                action.triggered.connect(
-                    lambda _=False, p=pid, col=c:
-                    self.app_state.execute(SetPartColor(p, col)))
-                color_group.addAction(action)
-                menu.addAction(action)
-                color_actions[c] = action
-            custom = QAction("Custom…", menu)
-            custom.setCheckable(True)
-            custom.triggered.connect(
-                lambda _=False, p=pid: self._pick_part_color(p))
-            color_group.addAction(custom)
-            menu.addAction(custom)
-            color_actions["custom"] = custom
-            no_color = QAction("No Color", menu)
-            no_color.setCheckable(True)
-            no_color.setChecked(True)
-            no_color.triggered.connect(
-                lambda _=False, p=pid:
-                self.app_state.execute(SetPartColor(p, None)))
-            color_group.addAction(no_color)
-            menu.addAction(no_color)
-            color_actions[None] = no_color
-            self._part_color_actions[pid] = color_actions
-
-            menu.addSeparator()
-            effect_group = QActionGroup(menu)
-            effect_actions: dict = {}
-            default_action = QAction(f"Effect: {DEFAULT_EFFECT} (default)",
-                                     menu)
-            default_action.setCheckable(True)
-            default_action.setChecked(True)
-            default_action.triggered.connect(
-                lambda _=False, p=pid:
-                self.app_state.execute(SetPartEffect(p, None)))
-            effect_group.addAction(default_action)
-            menu.addAction(default_action)
-            effect_actions[None] = default_action
-            for name in sorted(PRESETS):
-                if name == DEFAULT_EFFECT:
-                    continue
-                action = QAction(f"Effect: {name}", menu)
-                action.setCheckable(True)
-                action.triggered.connect(
-                    lambda _=False, p=pid, n=name:
-                    self.app_state.execute(SetPartEffect(p, n)))
-                effect_group.addAction(action)
-                menu.addAction(action)
-                effect_actions[name] = action
-            self._part_effect_actions[pid] = effect_actions
-
-    def _pick_part_color(self, pid: PartId) -> None:
-        rule = self.app_state.doc.style.parts.get(pid)
-        initial = QColor(rule.color) if rule is not None and rule.color \
-            else QColor(_PART_COLORS[0])
-        color = QColorDialog.getColor(initial, self, "Part color")
-        if color.isValid():
-            self.app_state.execute(SetPartColor(pid, color.name()))
-        else:                                  # cancelled: restore checks
-            self._sync_styles(self.app_state.doc)
 
     def _sync_title(self) -> None:
         star = " *" if self.app_state.is_dirty else ""
@@ -694,7 +565,9 @@ class MainWindow(QMainWindow):
         t3 = time.perf_counter()
 
         self._parts = engraved.prepared.parts
-        self._build_parts_menu(engraved.prepared.parts)
+        self.parts_menu.rebuild(engraved.prepared.parts)
+        self._applied_colors = {}    # fresh scenes carry no tints — the
+        self._applied_overrides = {}  # sync pass below re-applies the doc's
         self._applied_groups = groups
         self._applied_text_overrides = text_overrides
         self._applied_hide_empty = hide_empty_staves

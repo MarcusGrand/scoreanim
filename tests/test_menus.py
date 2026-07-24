@@ -119,7 +119,7 @@ def test_shortcut_sweep_assignments(window) -> None:
 
 
 def test_score_menu_is_the_parts_menu_home(window) -> None:
-    """Empty until a load; _build_parts_menu repopulates it (M1.6 will
-    extract the builder — the menu itself lives in the chrome)."""
+    """Empty until a load; PartsMenu.rebuild repopulates it (M1.6 —
+    the menu itself lives in the chrome, its content in ui/parts_menu)."""
     assert window.menuBar().actions()[3].text() == "&Score"
     assert not window.menus.score_menu.actions()
