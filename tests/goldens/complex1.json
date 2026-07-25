@@ -1,5 +1,5 @@
 {
-"canonical_xml_sha256": "a413dc9dc62697b434f1f95ec0cc7fb16c2b59ba855097b06940af147f0e2c63",
+"canonical_xml_sha256": "0c22d75ca176149acb1049f8e40e8d741679e4fa9fb13e95e80dc8f59691ad35",
 "pages": [
 {"number": 1, "width": 2966.8527378999997, "height": 4194.53162745},
 {"number": 2, "width": 2966.8527378999997, "height": 4194.53162745},
@@ -4422,9 +4422,9 @@
 {"element_id": "P14:m15:s1:v1:note:2", "part": "P14", "measure": 15, "staff": 1, "voice": 1, "onset": 58.0, "grace": false, "pitch_step": "D", "pitch_alter": 0.0, "octave": 3, "staff_loc": null, "chord_group": null, "order_in_voice": 2}
 ],
 "warnings": [
-{"code": "dropped-spanner", "message": "tie from P11 m14 s1 was not drawn by the engraver"},
 {"code": "dropped-spanner", "message": "tie from P10 m14 s1 was not drawn by the engraver"},
-{"code": "dropped-spanner", "message": "tie from P12 m14 s1 was not drawn by the engraver"}
+{"code": "dropped-spanner", "message": "tie from P12 m14 s1 was not drawn by the engraver"},
+{"code": "dropped-spanner", "message": "tie from P11 m14 s1 was not drawn by the engraver"}
 ],
 "measure_timeline": [
 {"ordinal": 1, "start": 0.0, "duration": 4.0},

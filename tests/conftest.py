@@ -62,11 +62,25 @@ COMPLEX3_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
 # 3-bar "X0"-pickup unit fixture for the measure-identity invariant.
 PICKUP_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
     "pickup_min.musicxml"
+# 13-bar, 3-part chart whose chord symbols sit on measures' last notes:
+# Dorico's <backup>/<forward> harmony positioning leaves redundant trailing
+# forwards, which Verovio materializes as phantom trailing <space>s that
+# lengthen the engraved measures (P3 mm.5/7/9/13 → 6 beats instead of 4)
+# and corrupt the timemap beat authority. The redundant-trailing-forward
+# regression fixture (hotfix 2026-07-25).
+GRIEG_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
+    "grieg_short.musicxml"
 
 
 @pytest.fixture(scope="session")
 def engraved() -> EngravedScore:
     return VerovioEngravingProvider().load_detailed(TESTSCORE, EngravingParams())
+
+
+@pytest.fixture(scope="session")
+def engraved_grieg() -> EngravedScore:
+    return VerovioEngravingProvider().load_detailed(GRIEG_SCORE,
+                                                    EngravingParams())
 
 
 @pytest.fixture(scope="session")

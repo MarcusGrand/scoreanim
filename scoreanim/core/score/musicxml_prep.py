@@ -410,6 +410,52 @@ def _repeat_regions(root: ET.Element) -> tuple[RepeatRegion, ...]:
     return tuple(regions)
 
 
+def _drop_redundant_trailing_forwards(root: ET.Element) -> int:
+    """Dorico positions <harmony> with a <backup>/<forward> pair. When the
+    last chord symbol of a measure sits on that measure's last note, the
+    closing <forward> is the measure's final timed element: musically a
+    no-op (nothing follows it), but Verovio's MusicXML importer
+    materializes it as a trailing <space>, which LENGTHENS the engraved
+    measure and corrupts the timemap the whole app treats as the beat
+    authority (rule 12).
+
+    Only REDUNDANT trailing forwards are dropped — ones landing at or
+    before the measure's already-filled length. A trailing forward that
+    advances past it is real content (a bar-repeat measure is exactly one
+    such forward, rule 10) and is left alone. <harmony> is untouched.
+    Returns how many were removed.
+    """
+    removed = 0
+    for measure in root.iter("measure"):
+        while True:
+            cursor = 0
+            filled = 0
+            last_forward = None
+            for el in measure:
+                if el.tag == "note":
+                    if (el.find("chord") is not None
+                            or el.find("grace") is not None):
+                        continue
+                    cursor += int(el.findtext("duration") or 0)
+                    filled = max(filled, cursor)
+                elif el.tag == "backup":
+                    cursor -= int(el.findtext("duration") or 0)
+                elif el.tag == "forward":
+                    last_forward = (el, cursor + int(el.findtext("duration")
+                                                     or 0))
+                    cursor = last_forward[1]
+            timed = [el for el in measure
+                     if el.tag in ("note", "backup", "forward")]
+            if (last_forward is not None and timed
+                    and timed[-1] is last_forward[0]
+                    and last_forward[1] <= filled):
+                measure.remove(last_forward[0])
+                removed += 1
+            else:
+                break
+    return removed
+
+
 def _voice_cursor(measure: ET.Element) -> int:
     """Net time-cursor advance of a measure's voice-1 flow, in divisions
     (chord members and graces carry no duration; backup rewinds)."""
@@ -502,6 +548,8 @@ def prepare(score_path: Path,
     if root.tag != "score-partwise":
         raise ValueError(f"expected score-partwise MusicXML, got <{root.tag}>")
 
+    _drop_redundant_trailing_forwards(root)  # BEFORE condense:
+                                             # _voice_cursor counts forwards
     _apply_condense(root, condense)      # FIRST: rewrite the part-list so
                                          # every downstream pass sees the
                                          # condensed structure (Phase 12.3)
