@@ -13,6 +13,9 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from scoreanim.core.project import (AddTempoEvent, FileRef,  # noqa: E402
                                     MoveTempoEvent, ProjectDoc, SetOffset,
                                     TimingConfig)
+from scoreanim.core.score.identity import (ElementId,  # noqa: E402
+                                           ElementIdentity,
+                                           ElementKind, PartId)
 from scoreanim.core.timing import TempoEvent  # noqa: E402
 from scoreanim.ui.app_state import AppState, TimeAxis  # noqa: E402
 
@@ -163,3 +166,58 @@ def test_playhead_and_seek_signals(state) -> None:
     state.request_seek(7.5)
     assert heads == [(3.25,)] and seeks == [(7.5,)]
     assert state.playhead == 3.25
+
+
+# -- selection (transient UI state, M2.2) -------------------------------------
+
+def _ident(eid: str = "P1:m1:s1:v1:note:0") -> ElementIdentity:
+    return ElementIdentity(ElementId(eid), ElementKind.NOTEHEAD,
+                           PartId("P1"), "Flute", 1, 1, 0.0)
+
+
+def test_selection_starts_empty(state) -> None:
+    assert state.selected is None
+
+
+def test_set_selection_holds_and_fires(state) -> None:
+    hits = _count(state.selection_changed)
+    ident = _ident()
+    state.set_selection(ident)
+    assert state.selected == ident
+    assert len(hits) == 1
+
+
+def test_setting_the_same_selection_again_is_silent(state) -> None:
+    state.set_selection(_ident())
+    hits = _count(state.selection_changed)
+    state.set_selection(_ident())              # equal frozen dataclass
+    assert hits == []
+    assert state.selected == _ident()
+
+
+def test_clearing_selection_fires_once(state) -> None:
+    state.set_selection(_ident())
+    hits = _count(state.selection_changed)
+    state.set_selection(None)
+    state.set_selection(None)                  # already clear: silent
+    assert len(hits) == 1
+    assert state.selected is None
+
+
+def test_reset_document_clears_selection(state) -> None:
+    """Opening a score or project destroys every item the selection
+    could point at."""
+    state.set_selection(_ident())
+    hits = _count(state.selection_changed)
+    state.reset_document(ProjectDoc())
+    assert state.selected is None
+    assert len(hits) == 1
+
+
+def test_selection_is_not_document_state(state) -> None:
+    """Rule 5: transient only — no ProjectDoc field, nothing undoable."""
+    state.set_selection(_ident())
+    assert not state.can_undo
+    assert not state.is_dirty
+    assert not hasattr(state.doc, "selection")
+    assert not hasattr(state.doc, "selected")

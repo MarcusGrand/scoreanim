@@ -26,6 +26,7 @@ from PySide6.QtCore import QObject, Signal
 
 from scoreanim.core.project import (Command, CommandError, FileRef,
                                     ProjectDoc, UndoStack)
+from scoreanim.core.score.identity import ElementIdentity
 from scoreanim.core.score.model import MeasureInfo
 
 if TYPE_CHECKING:                # core/audio arrives with task 4.2
@@ -128,6 +129,7 @@ class AppState(QObject):
     peaks_changed = Signal()
     seek_requested = Signal(float)       # views emit intent; window executes
     status = Signal(str)
+    selection_changed = Signal()         # transient stage selection (M2)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -139,6 +141,7 @@ class AppState(QObject):
         self._measures: tuple[MeasureInfo, ...] = ()
         self._peaks: "PeakCache | None" = None
         self._playhead = 0.0
+        self._selected: ElementIdentity | None = None
 
     # -- document ---------------------------------------------------------------
 
@@ -152,6 +155,7 @@ class AppState(QObject):
         self._preview = None
         self._stack = UndoStack()
         self._bind_dirty = False
+        self.set_selection(None)         # the old score's items are gone
         self.document_changed.emit()
 
     def bind_audio(self, ref: FileRef | None) -> None:
@@ -256,3 +260,23 @@ class AppState(QObject):
 
     def request_seek(self, audio_seconds: float) -> None:
         self.seek_requested.emit(audio_seconds)
+
+    # -- selection (transient UI state, M2) --------------------------------------
+    #
+    # NOT document state: selection is never serialized, never undoable
+    # (rule 8 needs something to undo; there is nothing here), and never
+    # re-derived. It is stored as the full ElementIdentity rather than an
+    # ElementId so the Selection panel needs no resolver and a stale id
+    # can never be looked up against rebuilt items. Cleared whenever the
+    # items it points at are destroyed — reset_document above, and
+    # SelectionController.bind_scenes on every (re-)engrave.
+
+    @property
+    def selected(self) -> ElementIdentity | None:
+        return self._selected
+
+    def set_selection(self, identity: ElementIdentity | None) -> None:
+        if identity == self._selected:
+            return                       # no-op: never re-emit
+        self._selected = identity
+        self.selection_changed.emit()
