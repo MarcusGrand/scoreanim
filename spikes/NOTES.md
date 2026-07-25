@@ -945,3 +945,79 @@ option that drops the first-system-full convention:
 - bigband1 shows no change (no staff is empty for a whole first
   system there) — the option only removes the convention exemption;
   which staves qualify stays Verovio's per-system emptiness rule.
+
+## M2.0 hit census (2026-07-25, opening M2 Selection)
+
+`spikes/hit_census.py`, offscreen, testscore + complex3. Five sections:
+A shape pollution, B authored bbox vs actual ink, C exact-vs-tolerance,
+D ranking accuracy, E reachability. Four findings, two of which change
+the M2 brief's design.
+
+- **PySide6 will not accept a monkeypatched virtual.** The first cut of
+  this spike toggled the fix with `GroupItem.shape = _empty_shape` and
+  measured *identical* candidate lists both ways. PySide6 decides which
+  C++ virtuals route into Python when the TYPE is created; a post-hoc
+  attribute assignment is never called. The override has to be declared
+  in the class body (which is how M2.3 ships it), and the spike now
+  compares two real subclasses.
+
+- **A. Shape pollution is real, and the empty-`shape()` override fixes
+  it.** Stock Qt: a click on the first notehead of testscore returns
+  NOTEHEAD + STAFF_LINES + TEXT (the part label), because every
+  `ElementItem` parent answers across its `childrenBoundingRect()`. With
+  the override, parents go hit-transparent and only real ink answers.
+
+- **A. A tolerance is mandatory, not a nicety.** At `tol=0` with the
+  override, clicks on thin ink return NOTHING (a slur's stroke is
+  sub-pixel in page units). **tol = 6 page units (~3 view px at fit
+  zoom)** makes every probed kind hit; that is the calibration M2.3
+  uses.
+
+- **B. The authored bbox is a good area proxy, and deterministic.**
+  Median |ink/bbox − 1| = **0.0074** over all elements of both scores.
+  Worst offenders: part-label TEXT at 3.7x (multi-row text underruns its
+  authored rect) and TIE/SLUR at 1.6–1.9x (curve bounds). Ruling: the
+  hit-priority AREA stays the authored `bbox` — it comes from Verovio,
+  so it is stable across platforms, whereas `childrenBoundingRect()` on
+  text depends on the font engine and would make tests machine-specific.
+  The HIGHLIGHT overlay uses `childrenBoundingRect()` instead: that is a
+  display concern where font variance is harmless and the box must
+  actually contain the ink you see.
+
+- **C. THE STEM TRAP — the brief's rule as written picks the wrong
+  element.** A stem's authored `Rect` has w = 0, so its **area is 0**.
+  Under a plain "smallest bbox area wins", a stem beats the notehead it
+  belongs to: clicking a notehead on complex3 selects
+  `P10:m1:s1:v1:stem:0`. Fix: rank candidates whose ink genuinely
+  CONTAINS the click ahead of those merely inside the tolerance rect.
+  With that, the same click selects the notehead.
+
+- **C. STAFF_LINES needs its own tier.** A system barline's bbox spans
+  the staves it joins, so it is *larger* than one staff's STAFF_LINES
+  (complex3: 15771 vs 9984). Both are scaffold, so the roadmap's
+  "animated beats scaffold" clause cannot separate them, and area alone
+  hands **every barline click to the staff** — fatal for M5, whose whole
+  handle is the barline. Fix: staff lines are the backdrop layer and
+  rank last among equals.
+
+- **D/E. The rule that survives** is a four-key total order:
+
+      (not exact, tier, area, element_id)
+      tier 0 = animated ink | 1 = scaffold | 2 = STAFF_LINES
+
+  Accuracy clicking each element on its own ink (D), area-only → tiered:
+  notehead 37→74%, staff lines 20→90%, hairpin 87→100%, barline 96→100%,
+  slur 99→100% on complex3; testscore moves the same way. The tiered
+  rule is >= area-only on every kind of both scores.
+
+- **E. Every element is reachable.** Sampling a 3x3 grid inside each
+  bbox, **100% of noteheads, slurs, hairpins, staff lines and texts are
+  selectable at one or more points**, and 77–85% of in-bbox clicks land
+  on the notehead itself. D's lower notehead figure is an artifact of
+  clicking the bbox CENTRE — for a hollow (half/whole) notehead that is
+  the hole, where a ledger dash or staff line genuinely is the ink under
+  the cursor. Losses there go to LEDGER_LINES (23), STAFF_LINES (18) and
+  STEM (4) of 120 sampled. Grid caveat: for a system barline the grid
+  samples the inter-staff gaps, so its "reachable" reads ~10% — an
+  artifact of the metric, not of selection (D clicks barlines on ink:
+  100%).
