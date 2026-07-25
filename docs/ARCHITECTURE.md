@@ -384,6 +384,21 @@ class EngravingProvider(ABC):
 #    edge (the phantom-slur family, sibling to item 11). See
 #    tests/test_phantom_slur.py.
 
+# 16. Scene parents are HIT-TRANSPARENT (M2.3, 2026-07-25). GroupItem
+#    (hence every ElementItem) overrides shape() to return an empty
+#    QPainterPath. Qt's default shape() is boundingRect() as a path and
+#    ours is childrenBoundingRect(), so without the override a parent
+#    answers a click anywhere in its children's united bbox — a
+#    STAFF_LINES element spans its whole system, so it was a candidate
+#    for every click on the page (measured: a notehead click also
+#    returned the staff lines and the part label). Children are stock
+#    QGraphicsPathItem/SimpleTextItem whose own shape() includes the pen
+#    stroke, so thin stems and staff lines stay clickable through them,
+#    and the selection controller walks child -> parent to recover
+#    identity. Painting is unaffected — paint() is empty and
+#    boundingRect still reports the true extent — and the golden suite
+#    is byte-identical across the change.
+
 # Followed page/system (render/animate.py) is MONOTONIC non-decreasing over
 # the time-ordered triggers (prefix-max): the view never turns backward
 # while the clock advances. A per-trigger page/system is only a hint —
@@ -819,6 +834,39 @@ selection + shared time-axis zoom/scroll):
 Views never talk to each other — only observe/mutate AppState via signals
 and commands. Window orientation (portrait/landscape panel arrangement) is
 a QSplitter/dock concern, orthogonal to the stage's aspect.
+
+**Selection (M2, as built 2026-07-25).** Transient UI state, never
+document state: `AppState.selected` holds an `ElementIdentity | None`
+with a `selection_changed` signal, is never serialized and never
+undoable (rule 8 needs something to undo). Four separated concerns:
+the pure hit-priority policy in `core/selection/policy.py` (Qt-free,
+headless-tested); the click gesture on `StageView` (press/release under
+`startDragDistance()`, since ScrollHandDrag consumes mouse events and
+scene-side `itemAt` never fires — pan is unchanged and no modifier key
+is needed); `ui/selection.py` `SelectionController`, which collects
+candidates within a 6-page-unit tolerance, calls the policy, and owns
+the highlight; and the readout in `ui/panels/selection_panel.py`.
+
+The policy orders candidates `(not exact, tier, area, element_id)` —
+exactness first because a stem's authored `Rect` has w=0 and would
+otherwise beat its own notehead, then a layer tier (animated ink /
+scaffold / STAFF_LINES as the backdrop) because a system barline's bbox
+is LARGER than one staff's staff lines and both are scaffold, then the
+engraved bbox area, then the id so the pick is permutation-independent.
+Area is the Verovio-authored rect, not Qt path bounds, so it is
+identical on every machine. Scaffold stays selectable — barlines are
+M5's handle.
+
+The highlight is an overlay ITEM (a cosmetic-pen rect on the element's
+`childrenBoundingRect`, high z) added to the element's own page scene,
+never a repaint — so it cannot fight animation opacity, part tinting, or
+a spanner's reveal clip. Export builds its own private `ScoreScenes`
+from `AnimationInputs` and structurally cannot see it (the stage_view
+mask precedent), pinned by a byte-identical frame comparison with a
+non-vacuity guard. Selection CLEARS where its items are destroyed
+(`_install` on every load/re-engrave, `reset_document` on project open)
+and SURVIVES page flips and mode switches, because scenes are per-page
+and retained (ruling D2, 2026-07-25).
 
 Since M1 Shell (2026-07-24) the window is a composition root, not a
 widget owner: the stage alone is central, the transport strip + lanes

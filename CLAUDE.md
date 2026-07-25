@@ -200,18 +200,30 @@ scoreanim/
     animation/             # properties, Envelope, Effect, RevealMode, state(t);
                            # durations.py — the note-value duration-resolution
                            # seam (M4): engraved durations → per-element map
+    selection/             # policy.py — PURE hit-priority policy (M2):
+                           # HitCandidate, pick(), measure_ordinal_of();
+                           # no Qt, headless-tested on synthetic lists
     project/               # Project document, serialization; commands/ —
                            # undoable commands split by domain (base/timing/
                            # style/stage/layout/undo, M4 exit audit)
   render/                  # Qt only: Layout → QGraphicsItems, property application
-  ui/                      # Qt shell (M1: window = composition root):
+  ui/                      # Qt shell (M1: window = composition root;
+                           # M2 exit: main_window.py is AT the 400-line
+                           # ceiling — split it before adding more):
                            #   main_window.py   composition + page/system routing
                            #   menus.py         static chrome + shortcuts
                            #   parts_menu.py    dynamic Score-menu content
-                           #   inspector.py     right dock (collapsible.py sections)
+                           #   inspector.py     right dock, scrolled
+                           #                    (collapsible.py sections)
                            #   panels/          inspector section bodies (M4:
                            #                    effects_panel.py — Appearance &
-                           #                    Effects controls + resync)
+                           #                    Effects controls + resync; M2:
+                           #                    selection_panel.py — identity
+                           #                    readout, observes
+                           #                    selection_changed, no doc sync)
+                           #   selection.py     SelectionController (M2):
+                           #                    scene hits → core policy →
+                           #                    AppState + highlight overlay
                            #   transport.py     lower zone: strip + lanes dock
                            #   file_actions.py  open/save/import/export handlers
                            #   score_loader.py  engrave→scene load pipeline

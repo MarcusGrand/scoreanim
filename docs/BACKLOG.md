@@ -157,6 +157,27 @@ See `spikes/NOTES.md` for the full investigation of each.
    fan out to all segments of a source when it lands. (Phase 9's Texts…
    dialog is list-based on purpose — text editing did not wait for
    click-to-select; this item is about the general per-element case.)
+   **HALF DONE (M2, 2026-07-25):** click-to-select exists — the
+   selection, its highlight, and the identity readout ship; the editing
+   controls in the Selection panel are M3. The `:seg` fan-out question
+   is still open, and the panel already labels a segment selection
+   "Slur (segment 1)" so it never implies the whole spanner is picked.
+   Three M2 seams M3 inherits: (a) **stage texts are unselectable**
+   (`ElementItem(identity=None)` — title/composer/lyricist and tempo
+   overlays), so M3's double-click-to-edit needs its own hit path for
+   them; (b) **selection is not re-resolved after a re-engrave** — it
+   clears, though musical ids usually survive, so re-resolving via
+   `scenes.items.get(eid)` is available polish; (c) `measure_ordinal_of`
+   duplicates `schedule.py`'s private `_MEASURE_RE` — if a third caller
+   appears, promote the public helper and migrate.
+
+9b. **`ui/main_window.py` is at the 400-line ceiling** (399 after M2's
+   wiring; the no-monoliths rule says split BEFORE adding more).
+   Candidate seams: page/system routing (`show_page`/`show_system`/
+   `step`/`show_current`/`_on_*_followed`/`_sync_presentation_mode`,
+   ~70 lines) into a `ui/view_router.py`, and the four dialog openers
+   into the components that own their data. M3 must do this before
+   adding window-level wiring.
 
 10. **Per-voice reveal granularity** (accepted limit at the Phase 5
     reveal re-plan, ruling A): reveal edges are per (system, part), not

@@ -196,6 +196,60 @@ and reports correct identity in the inspector; playback continues
 undisturbed with a live selection; selection survives page flips (or
 clears cleanly — decide and pin). Hit-priority policy headless-tested.
 
+**CLOSED 2026-07-25** (built M2.0–M2.7 on `beta/m2-selection` per
+`docs/briefs/M2_SELECTION_BRIEF.md`). The brief's §1 audit was
+re-verified against the tree and held in every particular; its
+recommendations D1–D7 were all taken as written:
+
+- **D1 gesture** — click = press/release under `startDragDistance()`;
+  pan byte-for-byte unchanged, **no modifier key needed**.
+- **D2 page flip (the decision the exit asked to pin)** — the
+  selection **SURVIVES**. Scenes are per-page and retained and the
+  overlay lives in its element's own page scene, so survival is the
+  zero-cost behavior; clearing would have cost extra code. Matches
+  every DAW/notation editor, and M3 wants it (flip away, come back,
+  still editing what you picked). Pinned at controller and window
+  level.
+- **D3** selection = `ElementIdentity | None` on AppState;
+  **D4** measure parsed from the id; **D5** stage texts unselectable;
+  **D6** overlay item highlight; **D7** Esc at view level.
+
+Two rulings the build added, both forced by the M2.0 census
+(`spikes/hit_census.py`, findings C/D) measuring the roadmap's own
+hit-priority rule on testscore and complex3:
+
+- **The order is `(not exact, tier, area, element_id)`,** not
+  area-then-scaffold. "Smallest bbox area wins" picks the wrong
+  element twice. (a) A stem's authored `Rect` has **w = 0**, so its
+  area is 0 and a stem beats the notehead it hangs off — clicking a
+  note selected its stem. Ranking ink that genuinely CONTAINS the
+  click ahead of mere tolerance neighbours fixes it. (b) A system
+  barline's bbox spans the staves it joins, so it is **larger** than
+  one staff's STAFF_LINES, and both are scaffold — so "animated beats
+  scaffold" cannot separate them and area alone handed **every barline
+  click to the staff**, which would have left M5 with no handle.
+  STAFF_LINES therefore get their own backdrop tier and rank last
+  among equals. Both corrections are DATA (a tier table, a measured
+  boolean), not branches on a kind name. Accuracy clicking elements on
+  their own ink, area-only → tiered on complex3: notehead 37→74%,
+  staff lines 20→90%, hairpin 87→100%, barline 96→100%; never worse on
+  any kind of either score, and every element is reachable.
+- **A click tolerance is mandatory, not a nicety** — at tol=0 thin ink
+  returns nothing at all. 6 page units (~3 view px at fit zoom).
+
+Two fixes the build made outside the brief's scope, both real:
+`SelectionController` had guessed the clicked page by `sceneRect`
+containment, but every page scene shares one rect, so clicks on page
+2+ searched page 1 (the complex3 hairpin selected nothing);
+`StageView.clicked` now carries the scene. And the inspector body
+became **scrollable** — the new Selection section pushed the dock's
+minimum height past the test screen, and sections keep accruing
+controls, so the dock must never dictate the window's minimum height.
+
+Exit finding to carry into M3: `ui/main_window.py` is now at **399
+lines**, exactly the no-monoliths ceiling. M2 added only wiring; M3
+must split the composition root before adding to it (BACKLOG).
+
 ---
 
 ## M3 — Direct edit (the selection does something)
