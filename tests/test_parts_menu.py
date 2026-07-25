@@ -66,9 +66,8 @@ def test_rebuild_static_head_and_part_submenus(built) -> None:
         action.trigger()
     assert opened == ["setup", "groups", "names"]
     assert parts_menu.part_ids() == (P1, P2)
-    # fresh build: No Color and the default effect are the checked rows
+    # fresh build: No Color is the checked row
     assert _checked(parts_menu._color_actions[P1]) == [None]
-    assert _checked(parts_menu._effect_actions[P1]) == [None]
 
 
 def test_swatch_commits_and_checks_track_undo_redo(built) -> None:
@@ -88,21 +87,25 @@ def test_swatch_commits_and_checks_track_undo_redo(built) -> None:
     assert _checked(parts_menu._color_actions[P1]) == [swatch]
 
 
-def test_effect_commits_and_checks_track_undo_redo(built) -> None:
-    parts_menu, state, _, _ = built
-    names = [k for k in parts_menu._effect_actions[P2] if k is not None]
-    assert names                       # registry enumerates the presets
-    parts_menu._effect_actions[P2][names[0]].trigger()
-    assert state.doc.style.parts[P2].effect == names[0]
-    assert state.undo_text() == "set part effect"
+def test_effect_radio_group_dropped_part_rules_survive(built) -> None:
+    """M4 (brief F5): the per-part effect radio group is gone — no
+    submenu entry mentions an effect — but a part rule's effect in the
+    document is untouched by the menu machinery (honored and
+    round-tripped until M3's Selection panel makes it authorable)."""
+    from scoreanim.core.animation import ElementStyle
+    from scoreanim.core.project import SetPartEffect
+
+    parts_menu, state, menu, _ = built
+    assert not hasattr(parts_menu, "_effect_actions")
+    # keep the submenu's owning action referenced while reading it —
+    # a temporary wrapper from a discarded generator takes the C++
+    # submenu down with it (the shiboken-lifetime gotcha)
+    viola = next(a for a in menu.actions() if a.text() == "Viola")
+    assert not any("ffect" in a.text() for a in viola.menu().actions())
+    # a part effect rule still lives in the doc and survives color sync
+    state.execute(SetPartEffect(P2, "pop"))
     _sync(parts_menu, state)
-    assert _checked(parts_menu._effect_actions[P2]) == [names[0]]
-    state.undo()
-    _sync(parts_menu, state)
-    assert _checked(parts_menu._effect_actions[P2]) == [None]
-    state.redo()
-    _sync(parts_menu, state)
-    assert _checked(parts_menu._effect_actions[P2]) == [names[0]]
+    assert state.doc.style.parts[P2] == ElementStyle(effect="pop")
 
 
 def test_custom_color_accepted_commits_and_checks(built, monkeypatch) -> None:

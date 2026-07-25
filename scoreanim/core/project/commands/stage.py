@@ -1,0 +1,184 @@
+"""Stage commands: presentation mode, hide-empty-staves toggles, stage
+texts, and tempo overlays."""
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, replace
+
+from scoreanim.core.project.commands.base import (_HEX_COLOR, Command,
+                                                  CommandError)
+from scoreanim.core.project.document import LayoutOverride, ProjectDoc
+from scoreanim.core.project.stage_config import (OVERLAY_PREFIX,
+                                                 PresentationMode,
+                                                 StageTextElement, fit_texts,
+                                                 is_header_text)
+from scoreanim.core.score.identity import ElementId
+
+
+@dataclass(frozen=True)
+class SetPresentationMode(Command):
+    """Paged (default) vs system-at-a-time framing (Phase 7.4). Stage
+    intent only — the Layout is identical in both modes."""
+    mode: PresentationMode
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not isinstance(self.mode, PresentationMode):
+            raise CommandError(f"bad presentation mode {self.mode!r}")
+        return replace(doc, stage=replace(doc.stage, mode=self.mode))
+
+    def describe(self) -> str:
+        return "set presentation mode"
+
+
+@dataclass(frozen=True)
+class SetHideEmptyStaves(Command):
+    """Hide staves that are empty for a whole system (Phase 10R).
+    Intent only — the hidden layout re-derives at the engraving seam,
+    like staff groups; the window re-engraves on the doc diff."""
+    value: bool
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not isinstance(self.value, bool):
+            raise CommandError(f"bad hide_empty_staves {self.value!r}")
+        return replace(doc, hide_empty_staves=self.value)
+
+    def describe(self) -> str:
+        return "hide empty staves" if self.value else "show empty staves"
+
+
+@dataclass(frozen=True)
+class SetHideFirstSystem(Command):
+    """Also hide empty staves on the FIRST system (2026-07-24) — off by
+    default, since first-system-full is the engraving convention.
+    Meaningful only while hide_empty_staves is on; same re-engrave seam."""
+    value: bool
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not isinstance(self.value, bool):
+            raise CommandError(f"bad hide_first_system {self.value!r}")
+        return replace(doc, hide_first_system=self.value)
+
+    def describe(self) -> str:
+        return ("hide empty staves on first system" if self.value
+                else "show staves on first system")
+
+
+_TEXT_ANCHORS = frozenset({"start", "middle", "end"})
+
+
+def _validated_stage_text(text: StageTextElement) -> StageTextElement:
+    if not text.content.strip():
+        raise CommandError("stage text content is blank")
+    if text.anchor not in _TEXT_ANCHORS:
+        raise CommandError(f"bad anchor {text.anchor!r} "
+                           f"(want start/middle/end)")
+    if not (math.isfinite(text.x) and math.isfinite(text.y)):
+        raise CommandError(f"stage text position ({text.x!r}, {text.y!r}) "
+                           f"not finite")
+    if not (isinstance(text.font_size, (int, float))
+            and math.isfinite(text.font_size) and text.font_size > 0):
+        raise CommandError(f"bad font size {text.font_size!r}")
+    if text.color is not None and not _HEX_COLOR.match(text.color):
+        raise CommandError(f"bad color {text.color!r} (want #rrggbb)")
+    return text
+
+
+@dataclass(frozen=True)
+class EditStageText(Command):
+    """Content/position/style of one stage text (Phase 9.1). Never
+    re-engraves — stage texts are overlay by construction. `band` is
+    runtime data (the SetGlobalSwing.end_beat idiom: the doc stores
+    intent only, the UI supplies the derived free space above the top
+    staff from page_content_top). When given, the whole header block
+    re-fits into it — down-only, sibling texts may rescale/move, all
+    one undo step, matching the seed's baked-fit semantics. Overlay
+    texts (stage:overlay:*) sit at their engraved position and never
+    participate in the refit."""
+    element_id: str
+    text: StageTextElement           # full replacement (same id, same page)
+    band: float | None = None
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        old = next((t for t in doc.stage.texts
+                    if t.element_id == self.element_id), None)
+        if old is None:
+            raise CommandError(f"no stage text {self.element_id!r}")
+        if self.text.element_id != self.element_id:
+            raise CommandError("stage text id cannot change (it is the key)")
+        if self.text.page != old.page:
+            raise CommandError("stage text page cannot change")
+        _validated_stage_text(self.text)
+        texts = tuple(self.text if t.element_id == self.element_id else t
+                      for t in doc.stage.texts)
+        if self.band is not None:
+            if not (isinstance(self.band, (int, float))
+                    and math.isfinite(self.band) and self.band > 0):
+                raise CommandError(f"bad band {self.band!r}")
+            header = tuple(t for t in texts if is_header_text(t))
+            fitted = dict(zip((t.element_id for t in header),
+                              fit_texts(header, float(self.band))))
+            texts = tuple(fitted.get(t.element_id, t) for t in texts)
+        return replace(doc, stage=replace(doc.stage, texts=texts))
+
+    def describe(self) -> str:
+        return "edit stage text"
+
+
+@dataclass(frozen=True)
+class AddTempoOverlay(Command):
+    """Replace an engraved tempo mark (Phase 9.2): hide the engraved
+    TEXT element — the first consumer of LayoutOverride.hidden — and
+    add its replacement stage text, one intent, ONE undo step. Never
+    re-engraves. The doc has no layout, so this cannot verify that
+    `element_id` really is a tempo TEXT — the UI guarantees it by
+    filtering RenderedElement.text_class == "tempo" (the part_order
+    trust model). Editing an existing overlay is EditStageText on the
+    overlay id."""
+    element_id: ElementId            # the ENGRAVED element to hide
+    text: StageTextElement           # id must be OVERLAY_PREFIX + element_id
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        expected = OVERLAY_PREFIX + str(self.element_id)
+        if self.text.element_id != expected:
+            raise CommandError(f"overlay text id {self.text.element_id!r} "
+                               f"must be {expected!r}")
+        if any(t.element_id == expected for t in doc.stage.texts):
+            raise CommandError(f"element {self.element_id} is already "
+                               f"overlaid")
+        _validated_stage_text(self.text)
+        overrides = dict(doc.layout_overrides)
+        overrides[self.element_id] = replace(
+            overrides.get(self.element_id, LayoutOverride()), hidden=True)
+        return replace(doc, layout_overrides=overrides,
+                       stage=replace(doc.stage,
+                                     texts=doc.stage.texts + (self.text,)))
+
+    def describe(self) -> str:
+        return "replace tempo mark"
+
+
+@dataclass(frozen=True)
+class RemoveTempoOverlay(Command):
+    """Restore the engraved original: drop the overlay text and clear
+    the hidden flag — the override entry disappears entirely when it is
+    back at the default (the SetElementStyle sparse-doc idiom)."""
+    element_id: ElementId            # the ENGRAVED element
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        overlay_id = OVERLAY_PREFIX + str(self.element_id)
+        if not any(t.element_id == overlay_id for t in doc.stage.texts):
+            raise CommandError(f"element {self.element_id} is not overlaid")
+        texts = tuple(t for t in doc.stage.texts
+                      if t.element_id != overlay_id)
+        overrides = dict(doc.layout_overrides)
+        restored = replace(overrides.get(self.element_id, LayoutOverride()),
+                           hidden=False)
+        if restored == LayoutOverride():
+            overrides.pop(self.element_id, None)
+        else:
+            overrides[self.element_id] = restored     # keeps its dx/dy
+        return replace(doc, layout_overrides=overrides,
+                       stage=replace(doc.stage, texts=texts))
+
+    def describe(self) -> str:
+        return "restore tempo mark"

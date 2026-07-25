@@ -1,7 +1,10 @@
 """Dynamic Score-menu content (M1.6): the static setup head plus one
-submenu per part — color swatches (palette + Custom… + No Color) and an
-effect radio group enumerated from the preset registry, so adding a
-preset needs no menu code.
+submenu per part — color swatches (palette + Custom… + No Color).
+
+The per-part effect radio group dropped out in M4 (brief F5): the
+Effects panel covers the document default, and per-part effect
+deviations — still honored and round-tripped (part rules are
+untouched) — become authorable again with M3's Selection panel.
 
 Rebuilt per load by the window (the menu itself lives in the M1.5
 chrome). The check-state registries and their blockSignals resync live
@@ -16,9 +19,8 @@ from typing import TYPE_CHECKING, Callable
 from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QPixmap
 from PySide6.QtWidgets import QColorDialog, QMenu, QWidget
 
-from scoreanim.core.animation import DEFAULT_EFFECT, PRESETS
 from scoreanim.core.project import (SetHideEmptyStaves, SetHideFirstSystem,
-                                    SetPartColor, SetPartEffect)
+                                    SetPartColor)
 from scoreanim.core.score.identity import PartId
 
 if TYPE_CHECKING:
@@ -50,7 +52,6 @@ class PartsMenu:
         self._hide_staves_action: QAction | None = None
         self._hide_first_action: QAction | None = None
         self._color_actions: dict[PartId, dict] = {}
-        self._effect_actions: dict[PartId, dict] = {}
 
     def part_ids(self) -> tuple[PartId, ...]:
         """The parts of the current build — the window's style diff
@@ -64,7 +65,6 @@ class PartsMenu:
         menu = self._menu
         menu.clear()
         self._color_actions = {}
-        self._effect_actions = {}
         setup_action = QAction("Score Setup…", menu)
         setup_action.triggered.connect(self._open_score_setup)
         menu.addAction(setup_action)
@@ -134,36 +134,11 @@ class PartsMenu:
             color_actions[None] = no_color
             self._color_actions[pid] = color_actions
 
-            submenu.addSeparator()
-            effect_group = QActionGroup(submenu)
-            effect_actions: dict = {}
-            default_action = QAction(f"Effect: {DEFAULT_EFFECT} (default)",
-                                     submenu)
-            default_action.setCheckable(True)
-            default_action.setChecked(True)
-            default_action.triggered.connect(
-                lambda _=False, p=pid:
-                self._app_state.execute(SetPartEffect(p, None)))
-            effect_group.addAction(default_action)
-            submenu.addAction(default_action)
-            effect_actions[None] = default_action
-            for name in sorted(PRESETS):
-                if name == DEFAULT_EFFECT:
-                    continue
-                action = QAction(f"Effect: {name}", submenu)
-                action.setCheckable(True)
-                action.triggered.connect(
-                    lambda _=False, p=pid, n=name:
-                    self._app_state.execute(SetPartEffect(p, n)))
-                effect_group.addAction(action)
-                submenu.addAction(action)
-                effect_actions[name] = action
-            self._effect_actions[pid] = effect_actions
-
     def sync_checks(self, pid: PartId, rule) -> None:
-        """Re-derive one part's checkmarks from its StyleRules entry."""
+        """Re-derive one part's checkmarks from its StyleRules entry.
+        Effect state is no longer surfaced here (M4, F5) — a part
+        rule's effect stays in the document untouched."""
         color = rule.color if rule is not None else None
-        effect = rule.effect if rule is not None else None
         color_actions = self._color_actions.get(pid, {})
         for key, action in color_actions.items():
             action.blockSignals(True)
@@ -172,12 +147,6 @@ class PartsMenu:
                                   and color not in color_actions)
             else:
                 action.setChecked(color == key)
-            action.blockSignals(False)
-        effect_actions = self._effect_actions.get(pid, {})
-        known = effect in effect_actions
-        for key, action in effect_actions.items():
-            action.blockSignals(True)
-            action.setChecked(effect == key if known else key is None)
             action.blockSignals(False)
 
     def sync_from_document(self, doc) -> None:

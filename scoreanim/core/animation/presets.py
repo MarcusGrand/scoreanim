@@ -24,27 +24,50 @@ DEFAULT_EFFECT = "appear"
 
 # pop (PHASES 5.4): appear's opacity step plus a scale bump around the
 # element's stored anchor — 1.25× at onset, easing back to 1.0 over
-# 0.25 s. Pure data; the effects-as-data proof (rule 6).
+# 0.25 s. Pure data; the effects-as-data proof (rule 6). Since M4 the
+# two constants are the DEFAULTS for the document's effect_params.
 _POP_SCALE = 1.25
 _POP_SETTLE_S = 0.25
 
+# Consumption clamps (M4, brief F7 ranges). The command layer validates
+# only type/finiteness, so a future preset reuses it unchanged; ranges
+# are enforced here, where the params are consumed.
+_SCALE_RANGE = (0.1, 10.0)
+_SETTLE_MIN = 0.01
+_SHIFT_RANGE = (-0.5, 0.5)
 
-def build_presets(floor: float) -> dict[str, Effect]:
-    """The registry as a function of the document's floor opacity —
-    still pure data (rule 6): the same named bundles of
-    (property, Envelope) tracks, with `floor` as each opacity
-    envelope's pre-trigger `initial`."""
+
+def _clamp(value: float, lo: float, hi: float) -> float:
+    return min(hi, max(lo, value))
+
+
+def build_presets(floor: float,
+                  params: Mapping[str, Mapping[str, object]] | None = None
+                  ) -> dict[str, Effect]:
+    """The registry as a function of the document's floor opacity and
+    (M4) its sparse effect_params — still pure data (rule 6): the same
+    named bundles of (property, Envelope) tracks, with `floor` as each
+    opacity envelope's pre-trigger `initial` and pop's amplitude /
+    settle / peak-offset / note-value read (merged over defaults,
+    clamped) from ``params["pop"]``. Unknown presets and unknown keys
+    are ignored here — they round-trip through the document untouched
+    (the effect-name precedent)."""
+    pop = dict(params.get("pop", {})) if params else {}
+    scale = _clamp(float(pop.get("scale", _POP_SCALE)), *_SCALE_RANGE)
+    settle = max(_SETTLE_MIN, float(pop.get("settle", _POP_SETTLE_S)))
+    shift = _clamp(float(pop.get("peak_offset", 0.0)), *_SHIFT_RANGE)
+    note_value = bool(pop.get("note_value", False))
     return {
         "appear": appear(floor),
         "pop": Effect("pop", {
             OPACITY: Envelope(initial=floor,
                               keyframes=(Keyframe(0.0, 1.0, Easing.STEP),)),
             SCALE: Envelope(initial=1.0,
-                            keyframes=(Keyframe(0.0, _POP_SCALE,
+                            keyframes=(Keyframe(0.0, scale,
                                                 Easing.STEP),
-                                       Keyframe(_POP_SETTLE_S, 1.0,
+                                       Keyframe(settle, 1.0,
                                                 Easing.LINEAR))),
-        }),
+        }, trigger_shift=shift, settle_to_note_value=note_value),
     }
 
 

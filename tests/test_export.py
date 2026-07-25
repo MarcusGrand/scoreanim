@@ -541,6 +541,70 @@ def test_prores_sink_bad_ffmpeg_surfaces_error(qapp, tmp_path) -> None:
     assert not out.exists()
 
 
+# -- M4.7: export inherits the effect system through AnimationInputs -----------
+
+def test_export_matches_live_at_m4_settings(qapp, engraved, join_mapping,
+                                            score_model, tempo_map,
+                                            tempo_setup) -> None:
+    """A frame exported with amplitude 2.0 / note-value on / peak offset
+    −100 ms is exactly the live applier's refresh state at the same t —
+    all new data rides AnimationInputs.schedule and style, and
+    render/export.py itself is untouched (checked by the exit audit)."""
+    from scoreanim.core.animation import resolve_durations
+    from scoreanim.render.animate import AnimationApplier
+    from scoreanim.render.scene import ScoreScenes
+
+    style = StyleRules(default_effect="pop",
+                       effect_params={"pop": {"scale": 2.0,
+                                              "note_value": True,
+                                              "peak_offset": -0.1}})
+    durs = resolve_durations(engraved.layout, join_mapping,
+                             engraved.note_durations, score_model.measures)
+    schedule = build_trigger_schedule(engraved.layout, join_mapping,
+                                      score_model.measures, durs)
+    stage = default_stage_config(engraved.prepared,
+                                 page_content_top(engraved.layout))
+    score_end = max((m.start + m.quarter_length
+                     for m in score_model.measures), default=0.0)
+    tracks = tuple(build_reveal_tracks(engraved.layout, schedule,
+                                       score_end))
+    inputs = AnimationInputs(engraved.layout, stage, schedule, tracks)
+    offset = tempo_setup.offset_seconds
+    end = _audio_end(schedule, tempo_map, offset)
+    spec = ExportSpec(fps=FPS, height=HEIGHT, start_seconds=0.0,
+                      end_seconds=end, offset_seconds=offset,
+                      format=ExportFormat.PNG_SEQUENCE,
+                      out_path=Path("unused"))
+    renderer = FrameRenderer(inputs, style, tempo_map, (), spec)
+
+    def full_state(scenes):
+        out = {}
+        for eid, item in scenes.items.items():
+            clips = tuple(c.clip_right for c in item.reveal_children)
+            out[eid] = (item.opacity(), item.scale(), clips)
+        return out
+
+    # a frame mid-stretch of the longest note (3 beats), where a plain
+    # settle would long be over — the note-value path must be live
+    long_eid = next(eid for eid, d in schedule.duration_by_element.items()
+                    if d == 3.0 and eid in renderer.scenes.items
+                    and renderer.scenes.items[eid].identity.kind.name
+                    == "NOTEHEAD")
+    trig_s = resolve_seconds([schedule.beats_by_element[long_eid]],
+                             tempo_map, ())[0]
+    n = math.ceil((trig_s + offset + 1.0) * FPS)
+    renderer.apply_frame(n)
+    exported = full_state(renderer.scenes)
+    assert 1.0 < exported[long_eid][1] < 2.0        # genuinely mid-stretch
+
+    live_scenes = ScoreScenes(engraved.layout, stage,
+                              ghost_opacity=style.floor_opacity)
+    live = AnimationApplier(live_scenes.items, schedule, tempo_map, style,
+                            tracks)
+    live.refresh(renderer.state_time(n))
+    assert exported == full_state(live_scenes)
+
+
 # -- hidden overrides in export scenes (Phase 9.2) ------------------------------
 
 def test_export_scenes_apply_hidden_overrides(qapp, inputs, engraved,

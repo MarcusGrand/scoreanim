@@ -52,3 +52,58 @@ def test_pop_exact_values_through_the_unchanged_evaluator() -> None:
     assert settled == {OPACITY: 1.0, SCALE: 1.0}
     long_after = element_state(10.0, pop, 99.0)
     assert long_after == {OPACITY: 1.0, SCALE: 1.0}
+
+
+# --- M4.3: parameterized pop + the timescale/shift kernel -------------------
+
+def test_amplitude_and_settle_land_in_the_envelope() -> None:
+    pop = build_presets(0.3, {"pop": {"scale": 2.0, "settle": 0.5}})["pop"]
+    assert element_state(0.0, pop, 0.0)[SCALE] == 2.0
+    assert pop.duration == pytest.approx(0.5)
+    assert element_state(0.0, pop, 0.25)[SCALE] == pytest.approx(1.5)
+
+
+def test_peak_offset_lands_in_trigger_shift() -> None:
+    pop = build_presets(0.3, {"pop": {"peak_offset": -0.1}})["pop"]
+    assert pop.trigger_shift == -0.1
+    # shift never changes the effect's own duration
+    assert pop.duration == pytest.approx(0.25)
+    # the WHOLE effect moves early (F3): at −100 ms the note is visible
+    # AND peaked 100 ms before its trigger
+    early = element_state(10.0, pop, 9.9)
+    assert early[OPACITY] == 1.0
+    assert early[SCALE] == pytest.approx(1.25)
+    assert element_state(10.0, pop, 9.85)[OPACITY] == 0.3
+
+
+def test_note_value_lands_in_settle_to_note_value() -> None:
+    assert PRESETS["pop"].settle_to_note_value is False
+    pop = build_presets(0.3, {"pop": {"note_value": True}})["pop"]
+    assert pop.settle_to_note_value is True
+
+
+def test_unknown_params_and_presets_are_ignored() -> None:
+    reg = build_presets(0.3, {"pop": {"sparkle": 99}, "shimmer": {"x": 1}})
+    assert reg == build_presets(0.3)
+    assert set(reg) == {"appear", "pop"}
+
+
+def test_consumption_clamps() -> None:
+    pop = build_presets(0.3, {"pop": {"scale": 99.0, "settle": 0.0,
+                                      "peak_offset": 5.0}})["pop"]
+    assert pop.trigger_shift == 0.5                     # ±0.5 s range
+    assert pop.duration == pytest.approx(0.01)          # settle floor
+    assert element_state(0.0, pop, 0.5)[SCALE] == 10.0  # scale ceiling
+
+
+def test_timescale_divides_the_evaluated_t_rel() -> None:
+    pop = PRESETS["pop"]
+    # timescale=2 halves the evaluated t_rel: at +0.25 s the stretch is
+    # only halfway through its settle, and it lands at +0.5 s
+    assert element_state(0.0, pop, 0.25, timescale=2.0)[SCALE] == \
+        pytest.approx(element_state(0.0, pop, 0.125)[SCALE])
+    assert element_state(0.0, pop, 0.5, timescale=2.0)[SCALE] == 1.0
+    # shift is applied BEFORE the division: absolute seconds either way
+    shifted = build_presets(0.3, {"pop": {"peak_offset": 0.1}})["pop"]
+    assert element_state(0.0, shifted, 0.1, timescale=2.0)[SCALE] == \
+        element_state(0.0, shifted, 0.1, timescale=1.0)[SCALE] == 1.25

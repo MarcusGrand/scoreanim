@@ -40,17 +40,19 @@ def test_empty_store_yields_first_run_default(qapp, settings) -> None:
 def test_accepted_close_round_trips_layout(qapp, settings) -> None:
     first = MainWindow(settings=settings)
     first.show()
-    # the size must clear the chrome's minimum (~678×529) yet stay
-    # inside the offscreen screen (800×600) — restoreGeometry clamps to
-    # the available geometry, and a shown window clamps to its minimum
+    # ask for a size inside the offscreen screen (800×600); a shown
+    # window clamps to the chrome's minimum (which grew with the M4.8
+    # effects panel), so the round-trip pin compares against the ACTUAL
+    # size the first window settled at, not the requested literal
     first.resize(780, 560)
+    saved_size = (first.width(), first.height())
     first.inspector.sections["appearance"].set_expanded(False)
     first.inspector.hide()               # dock visibility is saveState's
     assert first.close()                 # clean doc → accepted → saved
 
     second = MainWindow(settings=settings)
     second.show()
-    assert (second.width(), second.height()) == (780, 560)
+    assert (second.width(), second.height()) == saved_size
     assert not second.inspector.sections["appearance"].expanded
     assert second.inspector.sections["playback"].expanded
     assert second.inspector.sections["selection"].expanded

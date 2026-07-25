@@ -58,7 +58,14 @@ frozen v0.1-alpha build history — reference, never appended to.)
 6. **Effects are data, not code.** An effect is a named bundle of
    `(property, Envelope)` tracks evaluated at `t_rel` to onset. Adding a
    new effect means adding data/preset definitions, not branching in the
-   evaluator. **Animation is a DENYLIST** (user-ruled 2026-07-20):
+   evaluator. Amendment (M4, 2026-07-25): an effect may carry scalar
+   data the applier consumes generically — a per-element timescale
+   (note-value settle, duration from the engraved timemap per rule 12)
+   and a signed trigger shift (peak offset). Both are inputs to the one
+   evaluation kernel
+   (`element_state(trigger, effect, t, timescale)` =
+   `state_at((t − trigger − shift) / timescale)`); neither is a branch
+   on an effect's name. **Animation is a DENYLIST** (user-ruled 2026-07-20):
    every object on the page animates with the appear/effect system
    EXCEPT the true scaffold — staff lines, barlines, group
    symbols/brackets, system dividers (`schedule.STATIC_KINDS`) — plus
@@ -190,14 +197,21 @@ scoreanim/
                            #   synthesis.py  slash / bar-repeat synthesis
                            #   provider.py   toolkit, retry loops, pipeline
     timing/                # TempoMap (BPM events, taps, swing), beat↔seconds
-    animation/             # properties, Envelope, Effect, RevealMode, state(t)
-    project/               # Project document, commands/undo, serialization
+    animation/             # properties, Envelope, Effect, RevealMode, state(t);
+                           # durations.py — the note-value duration-resolution
+                           # seam (M4): engraved durations → per-element map
+    project/               # Project document, serialization; commands/ —
+                           # undoable commands split by domain (base/timing/
+                           # style/stage/layout/undo, M4 exit audit)
   render/                  # Qt only: Layout → QGraphicsItems, property application
   ui/                      # Qt shell (M1: window = composition root):
                            #   main_window.py   composition + page/system routing
                            #   menus.py         static chrome + shortcuts
                            #   parts_menu.py    dynamic Score-menu content
                            #   inspector.py     right dock (collapsible.py sections)
+                           #   panels/          inspector section bodies (M4:
+                           #                    effects_panel.py — Appearance &
+                           #                    Effects controls + resync)
                            #   transport.py     lower zone: strip + lanes dock
                            #   file_actions.py  open/save/import/export handlers
                            #   score_loader.py  engrave→scene load pipeline

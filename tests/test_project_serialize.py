@@ -46,6 +46,11 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
                    PartId("P2"): ElementStyle(effect="appear")},
             elements={ElementId("P1:m3:s1:v1:note:0"):
                       ElementStyle(color="#00aa00")},
+            # v7: document default + params, including a preset this
+            # build doesn't know — the round-trip must lose nothing
+            default_effect="pop",
+            effect_params={"pop": {"scale": 2.0, "note_value": True},
+                           "shimmer": {"wobble": [1, 2.5, "x"]}},
         ),
         stage=StageConfig(
             mode=PresentationMode.SYSTEM,
@@ -121,7 +126,7 @@ def test_reveal_mode_round_trip_and_legacy_default() -> None:
 
 def test_v1_part_colors_fold_into_style_rules() -> None:
     """A Phase 4 project file (version 1, style.part_colors) loads with
-    its tints intact as part color rules; version 6 is refused."""
+    its tints intact as part color rules; a future version is refused."""
     legacy = from_dict({"version": 1,
                         "style": {"part_colors": {"P1": "#cc2222",
                                                   "P4": "#1c4fd6"}}})
@@ -131,10 +136,10 @@ def test_v1_part_colors_fold_into_style_rules() -> None:
     }
     assert legacy.style.reveal_mode is RevealMode.STEPPED
     assert legacy.style.elements == {}
-    # new files declare version 6; a build from the future is refused
-    assert to_dict(ProjectDoc())["version"] == 6
+    # new files declare version 7 (M4); a build from the future is refused
+    assert to_dict(ProjectDoc())["version"] == 7
     with pytest.raises(ValueError, match="version"):
-        from_dict({"version": 7})
+        from_dict({"version": 8})
 
 
 def test_v4_hide_empty_staves() -> None:
@@ -163,6 +168,48 @@ def test_v6_hide_first_system() -> None:
     assert from_dict(to_dict(ProjectDoc())).hide_first_system is False
     for version in (1, 2, 3, 4, 5, 6):
         assert from_dict({"version": version}).hide_first_system is False
+
+
+def test_v7_default_effect_and_params() -> None:
+    """v7 (M4): default_effect + effect_params round-trip; v5 and v6
+    files (and any older) load with None/{} — unchanged look."""
+    doc = ProjectDoc(style=StyleRules(
+        default_effect="pop",
+        effect_params={"pop": {"settle": 0.5}}))
+    out = to_dict(doc)["style"]
+    assert out["default_effect"] == "pop"
+    assert out["effect_params"] == {"pop": {"settle": 0.5}}
+    again = from_dict(to_dict(doc))
+    assert again.style.default_effect == "pop"
+    assert again.style.effect_params == {"pop": {"settle": 0.5}}
+    for version in (1, 2, 3, 4, 5, 6):
+        old = from_dict({"version": version,
+                         "style": {"floor_opacity": 0.2}})
+        assert old.style.default_effect is None
+        assert old.style.effect_params == {}
+        assert old.style.floor_opacity == 0.2
+
+
+def test_v7_keys_omitted_at_defaults() -> None:
+    """None default / empty params leave the saved style block exactly
+    key-free (a param deleted down to nothing disappears from the
+    JSON, and a default doc's style block matches the v6 shape)."""
+    style = to_dict(ProjectDoc())["style"]
+    assert "default_effect" not in style
+    assert "effect_params" not in style
+
+
+def test_unknown_effect_params_round_trip_byte_for_byte(tmp_path) -> None:
+    """A preset/key this build doesn't consume is written back
+    verbatim: two save cycles produce identical bytes."""
+    doc = ProjectDoc(style=StyleRules(
+        effect_params={"shimmer": {"wobble": [1, 2.5, "x"], "n": 3}}))
+    p1, p2 = tmp_path / "a.scoreanim", tmp_path / "b.scoreanim"
+    save_project(doc, p1)
+    save_project(load_project(p1), p2)
+    assert p1.read_bytes() == p2.read_bytes()
+    assert load_project(p2).style.effect_params == \
+        {"shimmer": {"wobble": [1, 2.5, "x"], "n": 3}}
 
 
 def test_v2_file_loads_with_v3_defaults() -> None:

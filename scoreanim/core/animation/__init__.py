@@ -1,3 +1,4 @@
+from scoreanim.core.animation.durations import resolve_durations
 from scoreanim.core.animation.effect import (OPACITY, SCALE, Easing, Effect,
                                              Envelope, Keyframe, PropertyId,
                                              appear)
@@ -26,5 +27,5 @@ __all__ = [
     "appear", "build_presets", "build_reveal_tracks",
     "build_trigger_schedule",
     "effect_for", "element_state", "is_animated", "is_revealed",
-    "quantize_beats", "reveal_x", "takes_part_color",
+    "quantize_beats", "resolve_durations", "reveal_x", "takes_part_color",
 ]

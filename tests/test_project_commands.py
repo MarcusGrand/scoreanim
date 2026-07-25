@@ -12,7 +12,8 @@ from scoreanim.core.project import (AddSwingRegion, AddTempoEvent, ApplyTaps,
                                     CommandError, ImportTempoSetup,
                                     MoveTempoEvent, ProjectDoc,
                                     RemoveSwingRegion, RemoveTapSession,
-                                    RemoveTempoEvent, SetGlobalSwing,
+                                    RemoveTempoEvent, SetDefaultEffect,
+                                    SetEffectParam, SetGlobalSwing,
                                     SetOffset, SetPartColor, SetSwingRegion,
                                     TimingConfig, UndoStack)
 from scoreanim.core.score.identity import PartId
@@ -239,6 +240,83 @@ def test_set_element_style_override(doc) -> None:
     assert back.style.elements == {}
     with pytest.raises(CommandError):
         SetElementStyle(eid, ElementStyle(color="green")).apply(doc)
+
+
+def test_set_default_effect_and_clear(doc) -> None:
+    out = SetDefaultEffect("pop").apply(doc)
+    assert out.style.default_effect == "pop"
+    assert doc.style.default_effect is None      # source doc untouched
+    # a name from the future is intent, not an error (fail-soft later)
+    assert SetDefaultEffect("shimmer").apply(doc).style.default_effect \
+        == "shimmer"
+    assert SetDefaultEffect(None).apply(out).style.default_effect is None
+    with pytest.raises(CommandError):
+        SetDefaultEffect("   ").apply(doc)
+
+
+def test_set_effect_param_sparse_semantics(doc) -> None:
+    d2 = SetEffectParam("pop", "scale", 2.0).apply(doc)
+    assert d2.style.effect_params == {"pop": {"scale": 2.0}}
+    d3 = SetEffectParam("pop", "note_value", True).apply(d2)
+    assert d3.style.effect_params == {"pop": {"scale": 2.0,
+                                              "note_value": True}}
+    # None deletes the key; an emptied param dict drops entirely
+    d4 = SetEffectParam("pop", "scale", None).apply(d3)
+    assert d4.style.effect_params == {"pop": {"note_value": True}}
+    d5 = SetEffectParam("pop", "note_value", None).apply(d4)
+    assert d5.style.effect_params == {}
+    # deleting an absent key is a no-op, not an error
+    assert SetEffectParam("pop", "zzz", None).apply(doc) \
+        .style.effect_params == {}
+    # other presets' entries are untouched
+    d6 = SetEffectParam("shimmer", "wobble", 1.5).apply(d3)
+    assert d6.style.effect_params["pop"] == {"scale": 2.0,
+                                             "note_value": True}
+
+
+def test_set_effect_param_validates_type_and_finiteness_only(doc) -> None:
+    for bad in (float("nan"), float("inf"), "big", (1, 2)):
+        with pytest.raises(CommandError):
+            SetEffectParam("pop", "scale", bad).apply(doc)  # type: ignore
+    with pytest.raises(CommandError):
+        SetEffectParam("", "scale", 1.0).apply(doc)
+    with pytest.raises(CommandError):
+        SetEffectParam("pop", "", 1.0).apply(doc)
+    # no range policy here — clamps live at consumption (build_presets)
+    assert SetEffectParam("pop", "scale", 99.0).apply(doc) \
+        .style.effect_params["pop"]["scale"] == 99.0
+
+
+def test_reset_effect_settings_one_step_keeps_foreign_presets(doc) -> None:
+    from scoreanim.core.project import ResetEffectSettings, SetDefaultEffect
+
+    stack = UndoStack()
+    d = stack.execute(SetDefaultEffect("pop"), doc)
+    d = stack.execute(SetEffectParam("pop", "scale", 2.0), d)
+    d = stack.execute(SetEffectParam("pop", "note_value", True), d)
+    d = stack.execute(SetEffectParam("shimmer", "wobble", 1.5), d)
+    before_reset = d
+    d = stack.execute(ResetEffectSettings(), d)
+    # pre-M4 defaults reassert: no default, no pop params — but a
+    # foreign preset's params survive (raw-round-trip guarantee)
+    assert d.style.default_effect is None
+    assert d.style.effect_params == {"shimmer": {"wobble": 1.5}}
+    # ONE undo step restores every knob at once
+    assert stack.undo() == before_reset
+    assert before_reset.style.default_effect == "pop"
+    assert before_reset.style.effect_params["pop"] == {"scale": 2.0,
+                                                       "note_value": True}
+
+
+def test_effect_param_undo_restores_the_prior_value(doc) -> None:
+    stack = UndoStack()
+    d1 = stack.execute(SetEffectParam("pop", "scale", 2.0), doc)
+    d2 = stack.execute(SetEffectParam("pop", "scale", 3.0), d1)
+    assert d2.style.effect_params["pop"]["scale"] == 3.0
+    assert stack.undo() == d1
+    assert d1.style.effect_params["pop"]["scale"] == 2.0
+    assert stack.undo() == doc
+    assert stack.redo() == d1
 
 
 def test_set_reveal_mode(doc) -> None:

@@ -246,6 +246,7 @@ class VerovioEngravingProvider(EngravingProvider):
         timemap = tk.renderToTimemap({"includeMeasures": True,
                                       "includeRests": True})
         onset_by_id: dict[str, Beats] = {}
+        off_by_id: dict[str, Beats] = {}
         measure_start: dict[int, Beats] = {}
         for entry in timemap:
             q = float(entry["qstamp"])
@@ -253,6 +254,14 @@ class VerovioEngravingProvider(EngravingProvider):
                 onset_by_id[vid] = q
             for vid in entry.get("restsOn", []):
                 onset_by_id[vid] = q
+            # The off-side is symmetric to on/restsOn (M4.1 probe: every
+            # note- and rest-on has a matching off) and lives on the same
+            # performance axis — per-element durations are off − on, so
+            # no next-onset inference ever happens downstream (rule 12).
+            for vid in entry.get("off", []):
+                off_by_id[vid] = q
+            for vid in entry.get("restsOff", []):
+                off_by_id[vid] = q
             m_id = entry.get("measureOn")
             if m_id and m_id in mei.measure_by_id:
                 measure_start.setdefault(mei.measure_by_id[m_id], q)
@@ -284,6 +293,7 @@ class VerovioEngravingProvider(EngravingProvider):
 
         state = records._LoadState(
             prep=prep, mei=mei, onset_by_id=onset_by_id,
+            off_by_id=off_by_id,
             measure_start=measure_start, measure_duration=measure_duration,
             staff_n_by_id={vid: n.staff for vid, n in mei.notes.items()},
             layer_n_by_id={}, strict=strict,
@@ -354,8 +364,8 @@ class VerovioEngravingProvider(EngravingProvider):
             if measure_n > last_by_system.get(system_n, 0):
                 last_by_system[system_n] = measure_n
         state.last_of_system = set(last_by_system.values())
-        elements, note_records, staff_geo = identity._build_elements(
-            accumulators, state)
+        elements, note_records, staff_geo, note_durations = \
+            identity._build_elements(accumulators, state)
         first_measure: dict[int, int] = {}
         for measure_n, system_n in state.system_of_measure.items():
             if measure_n < first_measure.get(system_n, 1 << 30):
@@ -370,6 +380,7 @@ class VerovioEngravingProvider(EngravingProvider):
         layout = Layout(pages=pages, elements=tuple(elements))
         return records.EngravedScore(
             layout=layout, note_records=tuple(note_records), prepared=prep,
-            timeline=timeline, warnings=tuple(state.warnings)), first_measure
+            timeline=timeline, note_durations=note_durations,
+            warnings=tuple(state.warnings)), first_measure
 
 

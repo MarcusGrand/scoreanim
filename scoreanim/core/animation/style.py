@@ -65,9 +65,22 @@ class StyleRules:
     floor_opacity: float = 0.3
     parts: Mapping[PartId, ElementStyle] = field(default_factory=dict)
     elements: Mapping[ElementId, ElementStyle] = field(default_factory=dict)
+    # Document-wide default effect (M4, schema v7): the name every
+    # element resolves to when both its element override and its part
+    # rule are silent. None preserves the pre-M4 chain ("appear" via
+    # effect_for's fail-soft). A name, like part/element effects, may be
+    # unknown to this build — it fails soft at resolution time too.
+    default_effect: str | None = None
+    # Sparse per-preset parameter map (M4, schema v7):
+    # {preset: {key: value}}. Consumed clamped by presets.build_presets;
+    # presets/keys this build doesn't consume round-trip untouched.
+    effect_params: Mapping[str, Mapping[str, object]] = \
+        field(default_factory=dict)
 
     def resolve(self, identity: ElementIdentity | None) -> ElementStyle:
-        """Element override > part rule > defaults, per field."""
+        """Element override > part rule > document default, per field.
+        (The document default applies to EFFECT only — color has no
+        document-wide default; TINTED_KINDS scope is untouched.)"""
         if identity is None:
             return ElementStyle()
         part = self.parts.get(identity.part) if identity.part else None
@@ -77,5 +90,7 @@ class StyleRules:
                    else part.color if part is not None else None),
             effect=(elem.effect if elem is not None
                     and elem.effect is not None
-                    else part.effect if part is not None else None),
+                    else part.effect if part is not None
+                    and part.effect is not None
+                    else self.default_effect),
         )

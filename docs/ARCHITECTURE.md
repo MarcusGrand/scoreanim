@@ -457,6 +457,12 @@ class Envelope:
 class Effect:
     name: str                    # preset registry: "appear", "pop"
     tracks: Mapping[PropertyId, Envelope]
+    # M4 (2026-07-25): scalar DATA the applier consumes generically —
+    # never branched on by name (rule 6 amendment).
+    trigger_shift: float = 0.0        # "Peak offset": signed seconds the
+                                      # WHOLE effect moves vs its trigger
+    settle_to_note_value: bool = False  # stretch settle to each element's
+                                        # own engraved duration
 
 # Open property set; the evaluator never branches on a property.
 # Applied today: opacity (ElementItem parent), scale (around the stored
@@ -465,14 +471,21 @@ class Effect:
 # it is the clip edge driven by reveal_x below — and color is static
 # tint (StyleRules), not an animated track. offset/glow remain unbuilt.
 
-# As built (Phase 5.3): the pure kernel stays minimal —
-#     element_state(trigger_seconds, effect, t_seconds)
-# identity → effect resolution happens OUTSIDE it (StyleRules.resolve
-# + the preset registry, cached in the applier), and beats → seconds
-# for all triggers/anchors goes through one swing-aware
-# resolve_seconds call. No hidden state, no timers, no accumulation;
-# the same kernel serves AudioClock playback, scrubbing, and
-# FrameClock export.
+# As built (Phase 5.3; timescale/shift M4): the pure kernel stays
+# minimal —
+#     element_state(trigger_seconds, effect, t_seconds, timescale=1.0)
+#     = effect.state_at((t − trigger − effect.trigger_shift) / timescale)
+# The shift is absolute seconds (applied before the division, so
+# ±100 ms means ±100 ms regardless of note length); the timescale is a
+# per-element scalar the applier resolves (engraved duration in seconds
+# over the effect's authored duration — durations.py, rule 12's one
+# axis). identity → effect resolution happens OUTSIDE it
+# (StyleRules.resolve — element > part > document default — + the
+# preset registry built from (floor, effect_params), cached in the
+# applier), and beats → seconds for all triggers/anchors/duration ends
+# goes through one swing-aware resolve_seconds call. No hidden state,
+# no timers, no accumulation; the same kernel serves AudioClock
+# playback, scrubbing, and FrameClock export.
 ```
 
 ### Reveal / playhead-x unification (revised 2026-07-12, rulings A–C)
@@ -707,7 +720,12 @@ re-touching. "Clear overrides on selection" must be cheap.
   `ScoreScenes` + `AnimationApplier` pair built from the same
   `AnimationInputs` the window retains at load (layout, stage, trigger
   schedule, reveal tracks — identical geometry and triggers, no
-  re-engrave). Frame n calls `apply_at(t)` when n follows the last
+  re-engrave). M4's per-element durations ride
+  `TriggerSchedule.duration_by_element` (resolved once by the loader
+  via `core/animation/durations.py`) and its effect params ride
+  `StyleRules` — so note-value settle, amplitude/settle, and peak
+  offset all reached export with ZERO exporter edits, pinned by
+  test_export's live-vs-exported state comparison. Frame n calls `apply_at(t)` when n follows the last
   frame and `refresh(t)` otherwise — the exact tick/seek split of
   `PlaybackController`. Everything downstream (`element_state`,
   `reveal_x`, `current_page()`) is byte-for-byte the live path, and the

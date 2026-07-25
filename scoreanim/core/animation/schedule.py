@@ -48,7 +48,7 @@ from __future__ import annotations
 import re
 from bisect import bisect_right
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping, Sequence
 
 from scoreanim.core.engraving.types import Layout
@@ -141,11 +141,19 @@ class TriggerSchedule:
     triggers: tuple[Trigger, ...]        # sorted by beats
     beat_values: tuple[float, ...]       # parallel array for bisect
     beats_by_element: Mapping[ElementId, Beats]
+    # Per-element engraved durations for note-value settle (M4.2),
+    # resolved by core/animation/durations.py and carried here so the
+    # applier — live AND export — reads one seam (AnimationInputs.
+    # schedule). Empty when unused; an absent id means timescale 1.0.
+    duration_by_element: Mapping[ElementId, Beats] = \
+        field(default_factory=dict)
 
 
 def build_trigger_schedule(layout: Layout,
                            mapping: Mapping[ElementId, ScoreNote],
-                           measures: Sequence[MeasureInfo] = ()
+                           measures: Sequence[MeasureInfo] = (),
+                           duration_by_element:
+                               Mapping[ElementId, Beats] | None = None
                            ) -> TriggerSchedule:
     ident_by_id = {el.identity.element_id: el.identity
                    for el in layout.elements}
@@ -285,4 +293,6 @@ def build_trigger_schedule(layout: Layout,
         triggers=triggers,
         beat_values=tuple(t.beats for t in triggers),
         beats_by_element=beats_by_element,
+        duration_by_element=duration_by_element
+        if duration_by_element is not None else {},
     )

@@ -84,46 +84,34 @@ def test_systems_commits_presentation_mode(inspector) -> None:
     assert not state.can_undo
 
 
-def test_sweep_commits_reveal_mode(inspector) -> None:
-    dock, state, _ = inspector
-    dock._sweep_box.setChecked(True)
-    assert state.doc.style.reveal_mode is RevealMode.CONTINUOUS
-    assert state.undo_text() == "set reveal mode"
-    state.undo()
-    assert state.doc.style.reveal_mode is RevealMode.STEPPED
-    dock.sync_from_document(state.doc)
-    assert not dock._sweep_box.isChecked()
-
-
-def test_floor_commits_one_command_with_epsilon_guard(inspector) -> None:
-    dock, state, _ = inspector
-    dock._floor_spin.setValue(0.25)
-    dock._commit_floor()
-    assert state.doc.style.floor_opacity == 0.25
-    assert state.undo_text() == "set floor opacity"
-    dock._commit_floor()                         # same value → no-op
-    state.undo()
-    assert not state.can_undo                    # exactly one command
-    dock.sync_from_document(state.doc)           # undo restores the field
-    assert dock._floor_spin.value() == state.doc.style.floor_opacity
+def test_appearance_body_is_the_effects_panel(inspector) -> None:
+    """M4.8: Floor opacity and Sweep moved into the EffectsPanel; the
+    dock composes it and delegates its resync."""
+    from scoreanim.ui.panels import EffectsPanel
+    dock, _, _ = inspector
+    assert isinstance(dock.effects_panel, EffectsPanel)
+    assert not hasattr(dock, "_floor_spin")
+    assert not hasattr(dock, "_sweep_box")
 
 
 def test_sync_from_document_never_reexecutes(inspector) -> None:
     dock, state, _ = inspector
+    panel = dock.effects_panel
     dock._systems_box.setChecked(True)
-    dock._sweep_box.setChecked(True)
-    dock._floor_spin.setValue(0.1)
-    dock._commit_floor()
+    panel._sweep_box.setChecked(True)
+    panel._floor_spin.setValue(0.1)
+    panel._commit_floor()
     depth = 0
     while state.can_undo:                        # measure stack depth
         state.undo()
         depth += 1
     for _ in range(depth):
         state.redo()
-    dock.sync_from_document(state.doc)           # the resync pass
+    dock.sync_from_document(state.doc)           # delegates to the panel
     assert dock._systems_box.isChecked()
-    assert dock._sweep_box.isChecked()
-    assert dock._floor_spin.value() == 0.1
+    assert panel._sweep_box.isChecked()
+    assert panel._floor_spin.value() == 0.1
+    assert state.doc.style.reveal_mode is RevealMode.CONTINUOUS
     for _ in range(depth):                       # resync added no command
         state.undo()
     assert not state.can_undo
