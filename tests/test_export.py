@@ -634,3 +634,84 @@ def test_export_scenes_apply_hidden_overrides(qapp, inputs, engraved,
                              spec, overrides={eid: LayoutOverride(hidden=True)})
     assert not renderer._scenes.items[eid].isVisible()
     assert renderer._scenes.items[ElementId(overlay.element_id)].isVisible()
+
+
+# -- M2.4: a live stage selection never reaches an exported frame -------
+
+def test_export_frames_ignore_a_live_selection(qapp, inputs, tempo_map,
+                                               tempo_setup) -> None:
+    """The highlight is a scene ITEM, so unlike the drawForeground
+    letterbox mask it could in principle be rasterized. It cannot:
+    FrameRenderer builds its OWN private ScoreScenes from
+    AnimationInputs, so it never sees the live stage's scenes at all.
+
+    Pinned by rendering the same frames with a selection active on a
+    separate live ScoreScenes built from the same inputs, and requiring
+    the bytes to be identical."""
+    import hashlib
+
+    from scoreanim.core.project.document import StageConfig
+    from scoreanim.core.score.identity import ElementKind
+    from scoreanim.render.scene import ScoreScenes
+    from scoreanim.ui.app_state import AppState
+    from scoreanim.ui.selection import SelectionController
+
+    offset = tempo_setup.offset_seconds
+    end = offset + 4.0
+
+    def digest(image) -> str:
+        rgba = image.convertToFormat(image.Format.Format_RGBA8888)
+        return hashlib.sha256(bytes(rgba.constBits())).hexdigest()
+
+    clean = make_renderer(inputs, tempo_map, offset, end=end)
+    samples = sorted({0, clean.frame_count // 2, clean.frame_count - 1})
+    before = {n: digest(clean.render_frame(n)) for n in samples}
+
+    # a live stage, with something selected and highlighted
+    live = ScoreScenes(inputs.layout, StageConfig())
+    state = AppState()
+    controller = SelectionController(state)
+    controller.bind_scenes(live)
+    target = next(el for el in inputs.layout.elements
+                  if el.identity.kind is ElementKind.NOTEHEAD)
+    state.set_selection(
+        live.items[target.identity.element_id].identity)
+    assert controller.overlay is not None          # highlight really is up
+
+    after_renderer = make_renderer(inputs, tempo_map, offset, end=end)
+    for n in samples:
+        assert digest(after_renderer.render_frame(n)) == before[n], \
+            f"selection leaked into exported frame {n}"
+
+    # and the overlay is in the LIVE scene only, never an export scene
+    assert controller.overlay.scene() in set(live.scenes)
+    assert controller.overlay not in live.items.values()
+
+
+def test_the_export_purity_pin_is_not_vacuous(qapp, inputs, tempo_map,
+                                              tempo_setup) -> None:
+    """Guard for the test above: prove the frame digest actually NOTICES
+    an overlay-shaped item. If it did not, that test would pass whether
+    or not selection leaked."""
+    import hashlib
+
+    from PySide6.QtCore import QRectF
+    from PySide6.QtWidgets import QGraphicsRectItem
+
+    offset = tempo_setup.offset_seconds
+    renderer = make_renderer(inputs, tempo_map, offset, end=offset + 4.0)
+
+    def digest(image) -> str:
+        rgba = image.convertToFormat(image.Format.Format_RGBA8888)
+        return hashlib.sha256(bytes(rgba.constBits())).hexdigest()
+
+    before = digest(renderer.render_frame(0))
+    scene = renderer._scenes.scene_for_page(1)
+    intruder = QGraphicsRectItem(QRectF(100, 100, 400, 300))
+    intruder.setZValue(1_000.0)
+    scene.addItem(intruder)
+    try:
+        assert digest(renderer.render_frame(0)) != before
+    finally:
+        scene.removeItem(intruder)
+    assert digest(renderer.render_frame(0)) == before
