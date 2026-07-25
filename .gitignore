@@ -12,6 +12,9 @@ dist/
 # macOS
 .DS_Store
 
+# Claude Code session-local files
+.claude/
+
 # spikes/out and testdata are intentionally tracked (Phase 0 artifacts / fixtures)
 
 # Spike-generated audio (spikes/audio_playhead.py recreates on demand)
