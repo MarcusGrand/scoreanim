@@ -44,7 +44,12 @@ class StageView(QGraphicsView):
     behavior is unchanged — a sub-threshold drag never panned visibly
     anyway — so no modifier key is needed."""
 
-    clicked = Signal(QPointF)            # scene position of a click
+    # (scene position, the QGraphicsScene it was in). The scene travels
+    # WITH the position because every page scene has the same sceneRect
+    # — origin (0,0) at page size — so a position alone cannot say which
+    # page was clicked, and the view is the only object that knows which
+    # scene it is showing.
+    clicked = Signal(QPointF, object)
     deselect_requested = Signal()        # Esc, or a click outside the band
 
     def __init__(self) -> None:
@@ -166,7 +171,7 @@ class StageView(QGraphicsView):
             return
         scene_pos = self.mapToScene(press)
         if self.in_band(scene_pos):
-            self.clicked.emit(scene_pos)
+            self.clicked.emit(scene_pos, self.scene())
         else:
             self.deselect_requested.emit()    # masked area: nothing there
 

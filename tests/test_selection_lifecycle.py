@@ -48,7 +48,7 @@ def _select_a_notehead(window) -> object:
     note = next(el for el in layout.elements
                 if el.identity.kind is ElementKind.NOTEHEAD)
     item = window._scenes.items[note.identity.element_id]
-    window.selection.select_at(item.bbox.center())
+    window.selection.select_at(item.bbox.center(), item.scene())
     return note
 
 
@@ -146,7 +146,7 @@ def test_click_outside_the_band_deselects_in_system_mode(window) -> None:
 
     hits: list = []
     window.view.deselect_requested.connect(lambda: hits.append(1))
-    window.view.clicked.connect(lambda p: hits.append(p))
+    window.view.clicked.connect(lambda pos, scene: hits.append(pos))
     _click_at_scene(window, outside)
     assert hits == [1]                       # deselect, never a hit
     assert window.app_state.selected is None
@@ -181,7 +181,7 @@ def test_a_short_press_release_is_a_click(window) -> None:
     window.show_page(note.page)
     item = window._scenes.items[note.identity.element_id]
     seen: list = []
-    window.view.clicked.connect(seen.append)
+    window.view.clicked.connect(lambda pos, scene: seen.append(pos))
     _click_at_scene(window, item.bbox.center())
     assert len(seen) == 1
 
@@ -192,7 +192,7 @@ def test_a_drag_beyond_the_threshold_is_a_pan_not_a_click(window) -> None:
     visibly anyway."""
     view = window.view
     seen: list = []
-    view.clicked.connect(seen.append)
+    view.clicked.connect(lambda pos, scene: seen.append(pos))
     start = QPoint(200, 200)
     far = QPoint(200 + QApplication.startDragDistance() + 12, 240)
     view.mousePressEvent(_mouse(QMouseEvent.Type.MouseButtonPress, view,

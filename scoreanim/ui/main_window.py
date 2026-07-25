@@ -121,7 +121,7 @@ class MainWindow(QMainWindow):
         # controller resolves it against the pure policy and owns the
         # highlight overlay; _install rebinds it per load
         self.selection = SelectionController(self.app_state, self)
-        self.view.clicked.connect(self.selection.select_at)
+        self.view.clicked.connect(self.selection.select_at)   # (pos, scene)
         self.view.deselect_requested.connect(self.selection.clear)
 
         # static chrome (M1.5): the five menus, the slim toolbar, and

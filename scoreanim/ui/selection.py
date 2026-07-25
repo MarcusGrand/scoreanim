@@ -90,10 +90,15 @@ class SelectionController(QObject):
                 _contains_ink(item, scene_pos)))
         return out
 
-    def select_at(self, scene_pos: QPointF) -> None:
+    def select_at(self, scene_pos: QPointF,
+                  scene: QGraphicsScene | None = None) -> None:
         """The click handler: pick a winner, or clear when nothing is
-        under the pointer."""
-        winner = pick(self.candidates_at(scene_pos))
+        under the pointer.
+
+        `scene` is the page the click happened in and should always be
+        supplied — every page scene has the SAME sceneRect, so a
+        position alone cannot identify the page."""
+        winner = pick(self.candidates_at(scene_pos, scene))
         if winner is None or self._scenes is None:
             self._state.set_selection(None)
             return
@@ -161,13 +166,14 @@ class SelectionController(QObject):
     # -- internals ---------------------------------------------------------
 
     def _scene_of(self, scene_pos: QPointF) -> QGraphicsScene | None:
-        """Fallback for callers that do not name a scene (tests): the
-        window always clicks in the scene the view is showing."""
+        """Fallback when no scene is named: the FIRST page.
+
+        Deliberately not a search — page scenes all share one sceneRect,
+        so containment cannot distinguish them and a guess would return
+        page 1's ink for a click on page 3. Callers that can be on any
+        page must pass the scene (StageView.clicked carries it)."""
         if self._scenes is None or not self._scenes.scenes:
             return None
-        for scene in self._scenes.scenes:
-            if scene.sceneRect().contains(scene_pos):
-                return scene
         return self._scenes.scenes[0]
 
 
