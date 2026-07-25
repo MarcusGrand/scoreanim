@@ -6,9 +6,10 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from scoreanim.core.score.musicxml_prep import (CreditText, PartGroupSpec,
-                                                _repaginate, prepare)
-from tests.conftest import TESTSCORE
+from scoreanim.core.score.musicxml_prep import (
+    CreditText, PartGroupSpec, _drop_redundant_trailing_forwards,
+    _repaginate, prepare)
+from tests.conftest import BAR_REPEAT_SCORE, TESTSCORE
 
 
 def _by_type(credits: tuple[CreditText, ...], ctype: str | None,
@@ -205,3 +206,75 @@ def test_partinfo_reads_abbreviation(engraved) -> None:
     by_id = {p.part_id: p for p in engraved.prepared.parts}
     assert by_id["P4"].abbreviation == "Tbn."
     assert by_id["P1"].abbreviation == ""      # empty in the fixture
+
+
+# --- redundant trailing <forward> removal (hotfix 2026-07-25) ---------------
+# Dorico's <backup>/<forward> harmony positioning can leave a measure's
+# final timed element a musically no-op <forward>; Verovio materializes it
+# as a trailing <space> that lengthens the engraved measure and corrupts
+# the timemap beat authority (rule 12).
+
+def _measure_of(*elements: tuple[str, int]) -> ET.Element:
+    """A minimal one-part root whose single measure holds the given
+    (tag, duration) sequence; returns the root."""
+    root = ET.Element("score-partwise")
+    part = ET.SubElement(root, "part", id="P1")
+    measure = ET.SubElement(part, "measure", number="1")
+    for tag, dur in elements:
+        el = ET.SubElement(measure, tag)
+        ET.SubElement(el, "duration").text = str(dur)
+    return root
+
+
+def _timed_tags(root: ET.Element) -> list[str]:
+    measure = root.find("part").find("measure")
+    return [el.tag for el in measure
+            if el.tag in ("note", "backup", "forward")]
+
+
+def test_drop_redundant_trailing_forward() -> None:
+    # the grieg shape: last chord symbol on the last note — the closing
+    # forward lands exactly at the filled length
+    root = _measure_of(("note", 48), ("backup", 48), ("forward", 48))
+    assert _drop_redundant_trailing_forwards(root) == 1
+    assert _timed_tags(root) == ["note", "backup"]
+
+
+def test_keep_trailing_forward_past_filled_position() -> None:
+    # a forward advancing PAST the filled length is real content — a
+    # bar-repeat measure is exactly one such forward (rule 10)
+    root = _measure_of(("note", 24), ("forward", 24))
+    assert _drop_redundant_trailing_forwards(root) == 0
+    assert _timed_tags(root) == ["note", "forward"]
+
+
+def test_keep_forward_followed_by_note() -> None:
+    # not trailing: the forward positions a later note
+    root = _measure_of(("forward", 24), ("note", 24))
+    assert _drop_redundant_trailing_forwards(root) == 0
+    assert _timed_tags(root) == ["forward", "note"]
+
+
+def test_drop_two_stacked_redundant_forwards() -> None:
+    root = _measure_of(("note", 48), ("backup", 48),
+                       ("forward", 24), ("forward", 24))
+    assert _drop_redundant_trailing_forwards(root) == 2
+    assert _timed_tags(root) == ["note", "backup"]
+
+
+def test_bar_repeat_forwards_survive_prepare() -> None:
+    # guard on the prepped XML itself, not just the timeline: the five
+    # bar-repeat measures of bar_repeat_min are each exactly one
+    # whole-measure <forward>, and every one must survive the pass
+    prep = prepare(BAR_REPEAT_SCORE)
+    forwards = ET.fromstring(prep.canonical_xml).iter("forward")
+    assert len(list(forwards)) == 5
+
+
+def test_grieg_timeline_is_uncorrupted(engraved_grieg) -> None:
+    # regression: without the pass, the phantom trailing <space>s engrave
+    # P3 mm.5/7/9/13 as 6 beats instead of 4 and score_end as 58.0
+    tl = engraved_grieg.timeline
+    assert sorted(tl.durations) == list(range(1, 14))     # 13 measures
+    assert all(d == 4.0 for d in tl.durations.values())
+    assert tl.score_end == 52.0

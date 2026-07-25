@@ -288,4 +288,8 @@ def test_finding5_viola_slurs_reclaimed(bundle_complex3_captured):
         assert len(el.glyph.paths) == 1
     warns = [w for w in bundle_complex3_captured.engraved.warnings
              if w.code == "reclaimed-spanner-ink"]
-    assert len(warns) == 19
+    # 19 → 18 with the redundant-trailing-forward prep pass (hotfix
+    # 2026-07-25): the changed Verovio id sequence no longer reuses the
+    # P14 m76 slur's id inside a foreign stem, so that reclaim never
+    # arises (the slur mints normally; spanner-coverage audits it).
+    assert len(warns) == 18
