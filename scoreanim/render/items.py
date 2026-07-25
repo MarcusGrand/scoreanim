@@ -12,7 +12,7 @@ paints.
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QPen
+from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen
 from PySide6.QtWidgets import (QGraphicsItem, QGraphicsPathItem,
                                QGraphicsSimpleTextItem)
 
@@ -42,6 +42,24 @@ class GroupItem(QGraphicsItem):
 
     def boundingRect(self):  # noqa: N802 (Qt naming)
         return self.childrenBoundingRect()
+
+    def shape(self):  # noqa: N802
+        """Hit-transparent (M2.3): hits come from real ink only.
+
+        Qt's default shape() is boundingRect() as a path, and ours is
+        childrenBoundingRect() — so without this a parent answers a
+        click anywhere in its children's united bbox, and a STAFF_LINES
+        element (which spans its whole system) is a candidate for every
+        click on the page. The M2.0 census measured exactly that: a
+        notehead click also returned the staff lines and the part label.
+        Children are stock QGraphicsPathItem/SimpleTextItem whose own
+        shape() includes the pen stroke, so thin stems and staff lines
+        stay clickable through them; the selection controller walks
+        child -> parent to recover identity.
+
+        Painting is unaffected (paint() is empty and boundingRect still
+        reports the true extent, so no clipping or culling changes)."""
+        return QPainterPath()
 
     def paint(self, painter, option, widget=None) -> None:  # noqa: N802
         pass

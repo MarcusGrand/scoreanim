@@ -38,6 +38,7 @@ from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.part_names_dialog import PartNamesDialog
 from scoreanim.ui.score_loader import LoadedScore, ScoreLoader
 from scoreanim.ui.score_setup_dialog import ScoreSetupDialog
+from scoreanim.ui.selection import SelectionController
 from scoreanim.ui.staff_groups_dialog import StaffGroupsDialog
 from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.texts_dialog import TextsDialog
@@ -115,6 +116,13 @@ class MainWindow(QMainWindow):
         self.app_state.document_changed.connect(self._on_document_changed)
         self.app_state.status.connect(
             lambda msg: self.statusBar().showMessage(msg))
+
+        # click-to-select (M2.3): the view detects the gesture, the
+        # controller resolves it against the pure policy and owns the
+        # highlight overlay; _install rebinds it per load
+        self.selection = SelectionController(self.app_state, self)
+        self.view.clicked.connect(self.selection.select_at)
+        self.view.deselect_requested.connect(self.selection.clear)
 
         # static chrome (M1.5): the five menus, the slim toolbar, and
         # window-level shortcut registration; the window keeps the refs
@@ -255,6 +263,7 @@ class MainWindow(QMainWindow):
         self.animation_inputs = loaded.animation_inputs
         self._applier = loaded.applier
         self.doc_sync.bind_scenes(loaded.scenes, loaded.stage.texts)
+        self.selection.bind_scenes(loaded.scenes)   # also clears selection
         self.menus.export_action.setEnabled(True)
         self.menus.texts_action.setEnabled(True)
         self.playback.set_animation(loaded.applier, loaded.measures)
