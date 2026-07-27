@@ -285,6 +285,9 @@ class MainWindow(QMainWindow):
         self.text_edit.bind(loaded.scenes, loaded.animation_inputs.layout,
                             loaded.parts)
         self.nudge.bind_scenes(loaded.scenes)
+        # the :seg fan-out only ever names ids the load actually has
+        self.inspector.selection_panel.style_controls.bind_scenes(
+            loaded.scenes)
         self.menus.export_action.setEnabled(True)
         self.menus.texts_action.setEnabled(True)
         self.playback.set_animation(loaded.applier, loaded.measures)

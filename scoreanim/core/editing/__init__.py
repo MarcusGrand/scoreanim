@@ -9,8 +9,11 @@ tested on synthetic inputs — the `core/selection/policy.py` shape.
 from scoreanim.core.editing.nudge import (COARSE_NUDGE, NUDGEABLE_KINDS,
                                           NUDGE_STEP, is_nudgeable,
                                           nudged_delta)
+from scoreanim.core.editing.segments import (family_of, is_segment,
+                                             source_of)
 from scoreanim.core.editing.text_route import (TextRoute, TextTarget,
                                                route_for)
 
 __all__ = ["COARSE_NUDGE", "NUDGEABLE_KINDS", "NUDGE_STEP", "TextRoute",
-           "TextTarget", "is_nudgeable", "nudged_delta", "route_for"]
+           "TextTarget", "family_of", "is_nudgeable", "is_segment",
+           "nudged_delta", "route_for", "source_of"]

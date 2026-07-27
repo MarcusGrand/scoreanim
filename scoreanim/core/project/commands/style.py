@@ -63,23 +63,33 @@ class SetPartEffect(Command):
 @dataclass(frozen=True)
 class SetElementStyle(Command):
     """Per-element override rule — higher priority than the part rule.
-    No editing UI yet in Phase 5 (needs click-to-select); the model,
-    command, and serialization are the 5.3 deliverable. On a spanner
-    broken across systems this targets ONE segment (ids are
-    per-segment)."""
+    The model, command, and serialization were the Phase 5.3 deliverable;
+    the editing UI arrived with M3.3 (BACKLOG 9), once M2 made it
+    possible to point at an element.
+
+    `segments` is the `:seg` fan-out (ruling 2026-07-27). A spanner
+    broken across systems is several elements sharing one identity but
+    for the id, and colouring one system's piece of a hairpin is never
+    what anybody meant. They are written together because it is ONE user
+    gesture, and rule 8 counts gestures, not documents touched — the
+    'fat apply' idiom ApplyScoreSetup and AddTempoOverlay already use,
+    there being no generic macro command. Empty for a flat element,
+    which is the overwhelmingly common case."""
     element_id: ElementId
     style: ElementStyle | None   # None removes the override
+    segments: tuple[ElementId, ...] = ()
 
     def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if (self.style is not None and self.style.color is not None
+                and not _HEX_COLOR.match(self.style.color)):
+            raise CommandError(f"bad color {self.style.color!r} "
+                               f"(want #rrggbb)")
         elements = dict(doc.style.elements)
-        if self.style is None or self.style.is_empty:
-            elements.pop(self.element_id, None)
-        else:
-            if (self.style.color is not None
-                    and not _HEX_COLOR.match(self.style.color)):
-                raise CommandError(f"bad color {self.style.color!r} "
-                                   f"(want #rrggbb)")
-            elements[self.element_id] = self.style
+        for eid in (self.element_id, *self.segments):
+            if self.style is None or self.style.is_empty:
+                elements.pop(eid, None)
+            else:
+                elements[eid] = self.style
         return replace(doc, style=replace(doc.style, elements=elements))
 
     def describe(self) -> str:
