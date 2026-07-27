@@ -170,6 +170,16 @@ See `spikes/NOTES.md` for the full investigation of each.
    `scenes.items.get(eid)` is available polish; (c) `measure_ordinal_of`
    duplicates `schedule.py`'s private `_MEASURE_RE` — if a third caller
    appears, promote the public helper and migrate.
+   **M2.8 (2026-07-27) removed the hard part of the color case:**
+   authored color and the selection tint are separate channels composed
+   in `ElementItem`, so a per-element override is written through
+   `set_color` (which the DocumentSync diff cache owns) and never
+   collides with the transient highlight — including the case where the
+   user picks the selection color itself, which falls back to
+   `SELECTION_ALT_COLOR`. M3 adds a writer for the authored channel and
+   must not add a second writer for the tint. Note (c) now has a second
+   caller shape: `Selection.measure_ordinal` wraps it, so M5 should read
+   the property rather than call the helper directly.
 
 9b. **`ui/main_window.py` is at the 400-line ceiling** (399 after M2's
    wiring; the no-monoliths rule says split BEFORE adding more).
@@ -178,6 +188,12 @@ See `spikes/NOTES.md` for the full investigation of each.
    ~70 lines) into a `ui/view_router.py`, and the four dialog openers
    into the components that own their data. M3 must do this before
    adding window-level wiring.
+   **Still open after M2.8 (2026-07-27), and still at 399:** the
+   selection rework needed ZERO lines there — its four selection lines
+   are construction and wiring, and every edit landed in
+   `ui/selection.py`, `render/items.py`, `render/animate.py`,
+   `core/selection/` and the panel. So the split was correctly NOT done
+   here; it remains M3's to do first.
 
 10. **Per-voice reveal granularity** (accepted limit at the Phase 5
     reveal re-plan, ruling A): reveal edges are per (system, part), not

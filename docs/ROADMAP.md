@@ -276,6 +276,50 @@ they are made.
   color-overrides an element orange must still be able to see that it
   is selected.
 
+**M2.8 as built (2026-07-27).** Both rulings landed; the mechanisms
+below were measured first and written after. One correction to the
+intent above: it says an effect may be "driving its color", but
+`_PROPERTY_APPLIERS` maps exactly two properties, `opacity` and `scale`.
+No effect drives color at all — color reaches an element only from
+StyleRules. The tint therefore competes with animation **opacity**,
+**authored color**, and the spanner **reveal clip**.
+
+The two decisions the amendment left open, now pinned:
+
+- **Clicking empty staff space DESELECTS** (supersedes the M2.0
+  backdrop reachability goal). Nothing downstream could act on a
+  STAFF_LINES selection anyway: it is in `STATIC_KINDS` so it never
+  animates, absent from `TINTED_KINDS` so no color override can reach
+  it, and rule 13 names the barline as M5's only handle. The old
+  behaviour was not even consistent — probing points inside staff
+  rectangles picked STAFF_LINES on 17.5% of testscore probes but 73.5%
+  of complex3's, tracking rastral size rather than intent. It was also
+  STEALING clicks from real objects, since exactness is the first key
+  and an exact staff-line hit outranked a notehead the click merely fell
+  within tolerance of; 6 testscore and 15 complex3 probes now resolve to
+  the object instead (complex3 KEY_SIG 34→43, METER_SIG 16→24).
+  Mechanism is `is_selectable`, a table like the tier — which itself is
+  unchanged, so a barline drawn across a staff still wins.
+- **The implicit measure and part are PANEL-ONLY.** No stage treatment.
+  Giving derived context its own ink would make it look chosen, which is
+  the one thing rule 13 forbids, and a faint measure box would
+  reintroduce exactly the rectangle being deleted — as the only
+  rectangle on screen it would read as a selection.
+
+The compositing rule that answers the animation collision, plus the
+opacity floor, the ghost-lift, and the authored-color fallback that
+implement it, are recorded in ARCHITECTURE §7. Export purity is
+re-proven there too, on a different argument than M2.4's, with the
+non-vacuity guard replaced by one matched to the tint.
+
+Two things the change also surfaced. M2.7's "playback undisturbed" pin
+had been passing **vacuously**: it sampled the first notehead, which
+triggers on the downbeat, so the element sat at opacity 1.0 at every
+sample. It now picks a notehead the samples straddle and fails if they
+do not. And `ui/main_window.py` needed **zero** lines — its four
+selection lines are construction and wiring — so it is still at 399 and
+the BACKLOG 9b split is still M3's to do.
+
 ---
 
 ## M3 — Direct edit (the selection does something)
@@ -316,6 +360,13 @@ milestone builds UI affordances, not new document semantics.
   rule 5 demands). Decision to make at the brief: on a cross-system
   spanner the override targets one `…:seg<k>` — the panel should fan
   out to all segments of the source (recommended), pin it by test.
+  **Inherited from M2.8:** the element key is `selection.obj.
+  element_id`, and the selection-vs-authored-color problem is already
+  solved — `ElementItem` composes authored color under the transient
+  tint (never through `set_color`, which the DocumentSync diff cache
+  owns), and a user who colors an element the selection orange still
+  sees it selected via the fallback color. M3 adds a writer for the
+  authored channel; it must not add a second writer for the tint.
 
 **Exit criteria.** Rename a staff label by double-clicking it (score
 shifts to fit, undo restores); edit a system text in place; drag a
@@ -495,6 +546,13 @@ re-engraves with the break — the app's first *layout-intent* edit.
   menu / Score menu "Toggle system break here", ordinal read from the
   barline's ElementId. `SetSystemBreak` undoable command; re-engrave
   via the `_applied_*` diff, the hide-empty-staves shape.
+  **Inherited from M2.8:** read the ordinal off
+  `AppState.selection.measure_ordinal` rather than re-parsing the id —
+  the derivation lives in one place (`core/selection/context.py`) and
+  already returns None for the ids that genuinely have no measure. The
+  barline handle is now the ONLY scaffold handle into a measure: the
+  backdrop stopped being selectable at M2.8, so nothing else on a staff
+  answers a click with a measure ordinal.
 - **CLAUDE.md rule 7 amendment (draft — apply with the build
   ruling):** *"Amendment (M5, 2026-XX-XX): the honored system-break
   set is the encoded breaks ⊕ the user's in-app break overrides

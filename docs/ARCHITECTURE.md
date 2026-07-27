@@ -835,17 +835,29 @@ Views never talk to each other — only observe/mutate AppState via signals
 and commands. Window orientation (portrait/landscape panel arrangement) is
 a QSplitter/dock concern, orthogonal to the stage's aspect.
 
-**Selection (M2, as built 2026-07-25).** Transient UI state, never
-document state: `AppState.selected` holds an `ElementIdentity | None`
-with a `selection_changed` signal, is never serialized and never
-undoable (rule 8 needs something to undo). Four separated concerns:
-the pure hit-priority policy in `core/selection/policy.py` (Qt-free,
-headless-tested); the click gesture on `StageView` (press/release under
-`startDragDistance()`, since ScrollHandDrag consumes mouse events and
-scene-side `itemAt` never fires — pan is unchanged and no modifier key
-is needed); `ui/selection.py` `SelectionController`, which collects
-candidates within a 6-page-unit tolerance, calls the policy, and owns
-the highlight; and the readout in `ui/panels/selection_panel.py`.
+**Selection (M2, as built 2026-07-25; reworked M2.8 2026-07-27).**
+Transient UI state, never document state (rule 13): `AppState.selection`
+holds a `Selection | None` with a `selection_changed` signal, never
+serialized and never undoable (rule 8 needs something to undo). Five
+separated concerns: the pure hit-priority policy in
+`core/selection/policy.py` (Qt-free, headless-tested); the selection
+SHAPE in `core/selection/context.py`; the click gesture on `StageView`
+(press/release under `startDragDistance()`, since ScrollHandDrag
+consumes mouse events and scene-side `itemAt` never fires — pan is
+unchanged and no modifier key is needed); `ui/selection.py`
+`SelectionController`, which collects candidates within a 6-page-unit
+tolerance, calls the policy, and owns the highlight; and the readout in
+`ui/panels/selection_panel.py`.
+
+`Selection` stores exactly ONE thing — the object the user picked — and
+derives what it carries on read: the part off the minted identity, the
+measure ordinal off the id grammar. Nothing stored, nothing geometric,
+no second field to keep in step, and no way to build a selection whose
+context disagrees with its object. `AppState.selected` remains as the
+object-alone accessor. The panel shows the object in one block and
+part/measure under a dimmed "carries" caption in another; the two levels
+are **panel-only** — nothing on the stage marks them, because a measure
+is never a selection target and must never look like one.
 
 The policy orders candidates `(not exact, tier, area, element_id)` —
 exactness first because a stem's authored `Rect` has w=0 and would
@@ -855,18 +867,71 @@ is LARGER than one staff's staff lines and both are scaffold, then the
 engraved bbox area, then the id so the pick is permutation-independent.
 Area is the Verovio-authored rect, not Qt path bounds, so it is
 identical on every machine. Scaffold stays selectable — barlines are
-M5's handle.
+M5's handle. The BACKDROP is filtered out of the pick entirely
+(`is_selectable`), so a click on empty staff space deselects, the same
+answer the paper margin gives.
 
-The highlight is an overlay ITEM (a cosmetic-pen rect on the element's
-`childrenBoundingRect`, high z) added to the element's own page scene,
-never a repaint — so it cannot fight animation opacity, part tinting, or
-a spanner's reveal clip. Export builds its own private `ScoreScenes`
-from `AnimationInputs` and structurally cannot see it (the stage_view
-mask precedent), pinned by a byte-identical frame comparison with a
-non-vacuity guard. Selection CLEARS where its items are destroyed
-(`_install` on every load/re-engrave, `reset_document` on project open)
-and SURVIVES page flips and mode switches, because scenes are per-page
-and retained (ruling D2, 2026-07-25).
+**The highlight is a TINT on the element's own ink** (M2.8, superseding
+M2.4's outline; `core/selection/highlight.py` holds the colors, pure and
+headless). The compositing rule, which export and M3 both sit downstream
+of:
+
+> Selection composites LAST and modifies only the two channels it needs.
+> An element's painted appearance is a function of three inputs in fixed
+> order — authored color (document intent) → animation state
+> (opacity/scale from the evaluator) → selection (transient). Selection
+> replaces the color and raises an opacity floor; it never touches
+> scale, never touches the reveal clip, and never writes back into the
+> first two. Deselecting re-derives the composite of the first two;
+> nothing is remembered.
+
+`ElementItem` is the one place that composes it. Each input has its own
+setter, so writing one never destroys another — which is required, not
+tidy: `DocumentSync.sync_styles` is a diff cache, and anything that
+overwrote the authored color behind its back would leave it believing a
+color it could no longer restore. Three consequences, each measured
+before being written here (M2.8, M1–M4):
+
+- **Opacity.** A selected element is held at or above
+  `SELECTION_MIN_OPACITY` (0.85) whatever the evaluator wrote. This is
+  the only way it can work: the ghost floor may be **0**, where an
+  unfloored tint is a tint on nothing. Measured across a pop envelope at
+  floor 0.3 and 0.0 — unselected 0.3/0.0 → 1.0 at trigger, selected
+  never below the floor at any sample.
+- **The reveal clip is sidestepped, not fought.** A spanner's dimmed
+  ghost of the whole curve is always present, so the tint rides it. But
+  ghost opacity MULTIPLIES the parent's, so a parent-only floor still
+  composited to 0.000 at floor 0; ghost opacity therefore lives on
+  `ElementItem` too and composes the same way (`ScoreScenes` delegates),
+  giving 0.850.
+- **Authored color.** A user can already color an element (part tint
+  today, per-element override with M3), and tinting an orange note
+  orange makes the selection invisible on the object it names. When the
+  authored color is within a redmean distance of 120 of
+  `SELECTION_COLOR` the tint falls back to `SELECTION_ALT_COLOR`. That
+  threshold is a **judgment, not a measurement**, read off the distance
+  table pinned in `tests/test_selection_highlight.py` (near-oranges land
+  at 32–118, the nearest other hue at 175).
+
+Two properties the tint gains over the outline: it follows a pop's scale
+transform (the box deliberately did not), and it adds no object to any
+scene, so nothing can be mistaken for score ink.
+
+Export purity survives the change but rests on a different argument.
+M2.4's proof was that the highlight was a separate item export could not
+see; a tint is paint on an ordinary `ElementItem`, exactly what export
+DOES rasterize. What holds instead is that `FrameRenderer` builds its
+own private `ScoreScenes` from `AnimationInputs`, whose items are
+constructed unselected, and nothing in the export path can reach
+`AppState`. Pinned by a byte-identical frame comparison with a positive
+control (the live item's paint really changed) and a non-vacuity guard
+matched to the mechanism: selecting an element in the EXPORT renderer's
+own scenes must move the frame digest.
+
+Selection CLEARS where its items are destroyed (`_install` on every
+load/re-engrave, `reset_document` on project open) and SURVIVES page
+flips and mode switches, because scenes are per-page and retained
+(ruling D2, 2026-07-25).
 
 Since M1 Shell (2026-07-24) the window is a composition root, not a
 widget owner: the stage alone is central, the transport strip + lanes
