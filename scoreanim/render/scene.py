@@ -71,10 +71,10 @@ class ScoreScenes:
                  ghost_opacity: float = 0.3) -> None:
         self.items: dict[ElementId, ElementItem] = {}
         self._path_cache: dict[str, QPainterPath] = {}
+        # The floor is document intent and can change after construction
+        # (Phase 7.2). Each ElementItem owns its own ghost children's
+        # opacity, since selection composes with it (M2.8).
         self._ghost_opacity = ghost_opacity
-        # Spanner ghost children, tracked so the floor can change after
-        # construction (Phase 7.2: the floor is document intent).
-        self._ghost_items: list[QGraphicsPathItem] = []
         self.scenes: list[QGraphicsScene] = []
         # kept by reference so export can hide the paper for
         # transparent-background frames (Phase 6, ruling R1)
@@ -97,6 +97,7 @@ class ScoreScenes:
                 bbox=QRectF(el.bbox.x, el.bbox.y, el.bbox.w, el.bbox.h),
                 anchor=QPointF(el.anchor.x, el.anchor.y),
                 system=el.system)
+            item.set_ghost_opacity(self._ghost_opacity)
             # Spanners reveal by clip-grow: each path gets a dimmed ghost
             # of the whole curve underneath the clipped full-opacity copy
             # (Phase 5.2 ruling — consistent with the dimmed ghost score).
@@ -153,10 +154,12 @@ class ScoreScenes:
     def set_ghost_opacity(self, value: float) -> None:
         """Re-dim every spanner ghost to the document's floor opacity.
         The clipped full-opacity reveal copies are untouched — at floor
-        0 a spanner still grows out of an invisible ghost."""
+        0 a spanner still grows out of an invisible ghost. Applied
+        through each item, which composes the floor with its selection
+        state (M2.8)."""
         self._ghost_opacity = value
-        for child in self._ghost_items:
-            child.setOpacity(value)
+        for item in self.items.values():
+            item.set_ghost_opacity(value)
 
     def set_element_hidden(self, element_id: ElementId,
                            hidden: bool) -> None:
@@ -194,9 +197,6 @@ class ScoreScenes:
         cls = RevealPathItem if reveal else QGraphicsPathItem
         child = cls(self._qpath(prim.d))
         child.setTransform(to_qtransform(prim.transform))
-        if ghost:
-            child.setOpacity(self._ghost_opacity)
-            self._ghost_items.append(child)
 
         fill_tracks = prim.fill is None
         if prim.fill is None:
@@ -216,4 +216,4 @@ class ScoreScenes:
         else:
             child.setPen(svg_pen(QColor(prim.stroke), width))
 
-        parent.add_path_child(child, fill_tracks, stroke_tracks)
+        parent.add_path_child(child, fill_tracks, stroke_tracks, ghost=ghost)

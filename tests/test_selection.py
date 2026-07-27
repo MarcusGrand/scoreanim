@@ -1,10 +1,12 @@
-"""SelectionController (M2.3/M2.4) against a real testscore load,
-offscreen.
+"""SelectionController (M2.3/M2.4, highlight reworked M2.8) against a
+real testscore load, offscreen.
 
-Candidate collection, the click->identity path, and the highlight
-overlay's lifetime. The hit-priority ORDER itself is pinned purely in
-tests/test_hit_priority.py; here we check the Qt half feeds it the right
-data and acts on the answer.
+Candidate collection, the click->identity path, and the highlight's
+lifetime. The hit-priority ORDER itself is pinned purely in
+tests/test_hit_priority.py, and the compositing RULE the highlight obeys
+in tests/test_selection_compositing.py; here we check the Qt half feeds
+the policy the right data, acts on the answer, and moves the tint to
+exactly one element.
 """
 from __future__ import annotations
 
@@ -39,6 +41,12 @@ def loaded():
 
 @pytest.fixture()
 def controller(loaded):
+    # the scenes are module-scoped, so start each test from an unlit
+    # one: a controller discarded mid-selection leaves its element
+    # marked (in the app there is one controller for the window's life,
+    # and bind_scenes unmarks)
+    for item in loaded.scenes.items.values():
+        item.set_selected(False)
     state = AppState()
     ctrl = SelectionController(state)
     ctrl.bind_scenes(loaded.scenes)
@@ -128,94 +136,102 @@ def test_hidden_elements_stop_hitting(controller) -> None:
         loaded.scenes.set_element_hidden(eid, False)
 
 
-# -- highlight overlay (M2.4) -------------------------------------------
+# -- highlight (M2.8: the tint, superseding M2.4's outline) -------------
 
-def test_overlay_appears_in_the_elements_own_page_scene(controller) -> None:
-    ctrl, state, loaded = controller
+def test_the_highlight_is_the_selected_element_itself(controller) -> None:
+    """No overlay item any more: the controller marks the element, and
+    the element paints itself. There is nothing to add to a scene, and
+    so nothing that could be mistaken for score ink."""
+    ctrl, _, loaded = controller
     note = _first(loaded, ElementKind.NOTEHEAD)
     ctrl.select_at(_centre(loaded, note))
-    overlay = ctrl.overlay
-    assert overlay is not None
     item = loaded.scenes.items[note.identity.element_id]
-    assert overlay.scene() is item.scene()
-    assert overlay.scene() is loaded.scenes.scene_for_page(note.page)
+    assert ctrl.highlighted is item
+    assert item.selected is True
 
 
-def test_overlay_is_not_an_addressable_element(controller) -> None:
-    """It must never enter the element registry — nothing may resolve it
-    as score ink, tint it, or animate it."""
-    ctrl, _, loaded = controller
-    ctrl.select_at(_centre(loaded, _first(loaded, ElementKind.NOTEHEAD)))
-    assert ctrl.overlay not in loaded.scenes.items.values()
-
-
-def test_exactly_one_overlay_survives_repeated_selection(controller) -> None:
+def test_exactly_one_element_is_lit_at_a_time(controller) -> None:
+    """The invariant the old test spelled as "one overlay survives"."""
     ctrl, _, loaded = controller
     layout = loaded.animation_inputs.layout
     notes = [el for el in layout.elements
              if el.identity.kind is ElementKind.NOTEHEAD][:4]
     for note in notes:
         ctrl.select_at(_centre(loaded, note))
-    scenes = {s for s in loaded.scenes.scenes}
-    overlays = [it for s in scenes for it in s.items()
-                if it is ctrl.overlay]
-    assert len(overlays) == 1
+    lit = [item for item in loaded.scenes.items.values() if item.selected]
+    assert len(lit) == 1
+    assert lit[0] is ctrl.highlighted
 
 
-def test_deselect_removes_the_overlay(controller) -> None:
+def test_deselect_unlights_the_element(controller) -> None:
     ctrl, state, loaded = controller
     ctrl.select_at(_centre(loaded, _first(loaded, ElementKind.NOTEHEAD)))
-    assert ctrl.overlay is not None
+    item = ctrl.highlighted
+    assert item is not None
     ctrl.clear()
-    assert ctrl.overlay is None
+    assert ctrl.highlighted is None
+    assert item.selected is False
     assert state.selected is None
+    assert not any(i.selected for i in loaded.scenes.items.values())
 
 
-def test_overlay_contains_the_visible_ink(controller) -> None:
-    """The box is built from childrenBoundingRect, not the authored
-    bbox, so it actually surrounds what you see (M2.0 finding B: the
-    authored rect underruns curved spanners and text)."""
+def test_the_highlight_covers_the_ink_you_can_see(controller) -> None:
+    """The M2.0 finding B problem — the authored bbox underruns a curved
+    spanner's real extent by up to 3.7x in area — does not arise for a
+    tint: the highlight IS the ink, so it covers exactly what is drawn,
+    whatever shape that is."""
     ctrl, state, loaded = controller
     slur = _first(loaded, ElementKind.SLUR)
     item = loaded.scenes.items[slur.identity.element_id]
-    # set the selection directly: this is about the overlay's geometry,
-    # not about hit-testing (a slur's bbox CENTRE is the air under its
-    # arc, so clicking there legitimately selects a neighbour).
+    # set the selection directly: this is about what gets lit, not about
+    # hit-testing (a slur's bbox CENTRE is the air under its arc, so
+    # clicking there legitimately selects a neighbour).
     state.set_selection(item.identity)
-    assert ctrl.overlay is not None
-    assert ctrl.overlay.rect().contains(item.childrenBoundingRect())
-    # and the authored bbox would NOT have contained it — the reason
-    # childrenBoundingRect is used (M2.0 finding B)
-    assert not item.bbox.contains(item.childrenBoundingRect())
+    assert item.selected is True
+    assert not item.bbox.contains(item.childrenBoundingRect())   # as before
+    assert ctrl.highlighted is item
+
+
+def test_the_highlight_adds_nothing_to_any_scene(controller) -> None:
+    """What the overlay had to be tested for, now true by construction:
+    selecting changes no scene's item count, so nothing can leak into a
+    render as an extra object."""
+    ctrl, _, loaded = controller
+    before = [len(s.items()) for s in loaded.scenes.scenes]
+    ctrl.select_at(_centre(loaded, _first(loaded, ElementKind.NOTEHEAD)))
+    assert [len(s.items()) for s in loaded.scenes.scenes] == before
+    ctrl.clear()
+    assert [len(s.items()) for s in loaded.scenes.scenes] == before
 
 
 # -- lifecycle -----------------------------------------------------------
 
-def test_bind_scenes_clears_selection_and_drops_the_overlay(
-        controller) -> None:
+def test_bind_scenes_clears_selection_and_unlights(controller) -> None:
     """A re-engrave rebuilds every ElementItem; the held identity would
     point at objects that no longer exist."""
     ctrl, state, loaded = controller
     ctrl.select_at(_centre(loaded, _first(loaded, ElementKind.NOTEHEAD)))
-    assert state.selected is not None and ctrl.overlay is not None
+    assert state.selected is not None and ctrl.highlighted is not None
     ctrl.bind_scenes(loaded.scenes)
     assert state.selected is None
-    assert ctrl.overlay is None
+    assert ctrl.highlighted is None
+    assert not any(i.selected for i in loaded.scenes.items.values())
 
 
 def test_selection_survives_a_page_flip(controller) -> None:
-    """D2, pinned: scenes are all retained and the overlay lives in its
-    element's own page scene, so browsing other pages neither clears the
-    selection nor destroys the highlight. Flip back and it is there."""
+    """D2, pinned: scenes are all retained and the tint lives on the
+    element itself, so browsing other pages neither clears the selection
+    nor disturbs the highlight. Flip back and it is there."""
     ctrl, state, loaded = controller
     note = _first(loaded, ElementKind.NOTEHEAD)
     ctrl.select_at(_centre(loaded, note))
-    held, overlay = state.selected, ctrl.overlay
+    held, item = state.selected, ctrl.highlighted
     page_scene = loaded.scenes.scene_for_page(note.page)
     # "flip": the window swaps which scene the view shows; the
     # controller and the scenes are untouched
     for page in range(1, loaded.scenes.page_count + 1):
         loaded.scenes.scene_for_page(page)
     assert state.selected == held
-    assert ctrl.overlay is overlay
-    assert overlay.scene() is page_scene
+    assert ctrl.highlighted is item
+    assert item.selected is True
+    assert item.scene() is page_scene

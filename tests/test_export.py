@@ -676,16 +676,16 @@ def test_export_frames_ignore_a_live_selection(qapp, inputs, tempo_map,
                   if el.identity.kind is ElementKind.NOTEHEAD)
     state.set_selection(
         live.items[target.identity.element_id].identity)
-    assert controller.overlay is not None          # highlight really is up
+    assert controller.highlighted is not None      # highlight really is up
 
     after_renderer = make_renderer(inputs, tempo_map, offset, end=end)
     for n in samples:
         assert digest(after_renderer.render_frame(n)) == before[n], \
             f"selection leaked into exported frame {n}"
 
-    # and the overlay is in the LIVE scene only, never an export scene
-    assert controller.overlay.scene() in set(live.scenes)
-    assert controller.overlay not in live.items.values()
+    # and the tint is on a LIVE item only, never an export one
+    assert controller.highlighted.scene() in set(live.scenes)
+    assert controller.highlighted in live.items.values()
 
 
 def test_the_export_purity_pin_is_not_vacuous(qapp, inputs, tempo_map,

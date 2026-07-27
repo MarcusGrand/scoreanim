@@ -64,7 +64,7 @@ def test_reengrave_clears_the_selection(window) -> None:
     window.app_state.execute(SetHideEmptyStaves(not doc.hide_empty_staves))
     assert window._scenes is not before      # a re-engrave really happened
     assert window.app_state.selected is None
-    assert window.selection.overlay is None
+    assert window.selection.highlighted is None
 
 
 def test_fresh_load_clears_the_selection(window) -> None:
@@ -72,7 +72,7 @@ def test_fresh_load_clears_the_selection(window) -> None:
     assert window.app_state.selected is not None
     window.files.open_score(TESTSCORE)
     assert window.app_state.selected is None
-    assert window.selection.overlay is None
+    assert window.selection.highlighted is None
 
 
 def test_opening_a_project_clears_the_selection(window) -> None:
@@ -91,29 +91,31 @@ def test_selection_survives_a_page_flip(window) -> None:
     retained; show_page is a bare setScene, so nothing is destroyed."""
     note = _select_a_notehead(window)
     held = window.app_state.selected
-    overlay = window.selection.overlay
+    lit = window.selection.highlighted
     home = window._scenes.scene_for_page(note.page)
-    assert overlay is not None and overlay.scene() is home
+    assert lit is not None and lit.scene() is home
 
     for page in range(1, window._scenes.page_count + 1):
         window.show_page(page)
     window.show_page(note.page)
 
     assert window.app_state.selected == held
-    assert window.selection.overlay is overlay
-    assert overlay.scene() is home           # never re-parented or dropped
+    assert window.selection.highlighted is lit
+    assert lit.selected is True              # tint never dropped
+    assert lit.scene() is home
 
 
 def test_selection_survives_a_mode_switch(window) -> None:
     """Entering Systems mode masks other systems but destroys nothing;
-    a selection on another system stays held, its overlay simply
+    a selection on another system stays held, its tint simply
     letterboxed."""
     _select_a_notehead(window)
     held = window.app_state.selected
-    overlay = window.selection.overlay
+    lit = window.selection.highlighted
     window.show_system(2)
     assert window.app_state.selected == held
-    assert window.selection.overlay is overlay
+    assert window.selection.highlighted is lit
+    assert lit.selected is True
     window.view.clear_band()
     assert window.app_state.selected == held
 
@@ -129,7 +131,7 @@ def test_escape_deselects(window) -> None:
         QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape,
         Qt.KeyboardModifier.NoModifier))
     assert window.app_state.selected is None
-    assert window.selection.overlay is None
+    assert window.selection.highlighted is None
 
 
 def test_click_outside_the_band_deselects_in_system_mode(window) -> None:

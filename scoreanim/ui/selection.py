@@ -2,9 +2,16 @@
 
 The Qt half of M2. It collects candidates from the scene, hands them to
 the pure policy in core/selection, and writes the winner onto AppState;
-it owns the highlight overlay (M2.4) because the overlay's lifetime is
-exactly the selection's. It never touches the document — selection is
-transient UI state.
+it owns the highlight, because the highlight's lifetime is exactly the
+selection's. It never touches the document — selection is transient UI
+state.
+
+The highlight is a TINT on the element's own ink (M2.8, superseding
+M2.4's bbox outline): the controller marks one ElementItem selected and
+unmarks the last, and the item composes that with the document's color
+and the evaluator's opacity (see ElementItem's docstring for the rule).
+So the controller holds an item, not a scene item of its own, and there
+is nothing to add to or remove from a scene.
 
 Bound to one ScoreScenes at a time via bind_scenes(), the
 DocumentSync.bind_scenes pattern: MainWindow._install calls it on every
@@ -14,9 +21,8 @@ re-engrave destroys every ElementItem the selection could point at.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPen
-from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene
+from PySide6.QtCore import QObject, QPointF, QRectF
+from PySide6.QtWidgets import QGraphicsScene
 
 from scoreanim.core.selection import HitCandidate, pick
 from scoreanim.render.items import ElementItem
@@ -29,10 +35,6 @@ from scoreanim.ui.app_state import AppState
 # zoom, which made every probed kind hit (spikes/NOTES.md, M2.0).
 CLICK_TOLERANCE = 6.0
 
-_HIGHLIGHT = QColor("#2b8cff")
-_HIGHLIGHT_PAD = 4.0                 # page units of air around the ink
-_HIGHLIGHT_Z = 1_000.0               # above all engraved ink
-
 
 class SelectionController(QObject):
     def __init__(self, app_state: AppState,
@@ -40,17 +42,17 @@ class SelectionController(QObject):
         super().__init__(parent)
         self._state = app_state
         self._scenes: ScoreScenes | None = None
-        self._overlay: QGraphicsRectItem | None = None
-        self._state.selection_changed.connect(self._refresh_overlay)
+        self._highlighted: ElementItem | None = None
+        self._state.selection_changed.connect(self._refresh_highlight)
 
     # -- lifecycle ---------------------------------------------------------
 
     def bind_scenes(self, scenes: ScoreScenes | None) -> None:
         """Adopt one load's scenes. Clears the selection: a re-engrave
         rebuilds every ElementItem, so the held identity would point at
-        objects that no longer exist (and the overlay lived in a scene
-        that is being dropped)."""
-        self._drop_overlay()
+        objects that no longer exist (and the item carrying the tint is
+        being dropped with them)."""
+        self._unmark()
         self._scenes = scenes
         self._state.set_selection(None)
 
@@ -108,60 +110,42 @@ class SelectionController(QObject):
     def clear(self) -> None:
         self._state.set_selection(None)
 
-    # -- highlight overlay (M2.4) ------------------------------------------
+    # -- highlight (M2.8: a tint on the element's own ink) -----------------
 
     @property
-    def overlay(self) -> QGraphicsRectItem | None:
-        return self._overlay
+    def highlighted(self) -> ElementItem | None:
+        """The item currently carrying the selection tint, if any."""
+        return self._highlighted
 
-    def _refresh_overlay(self) -> None:
-        """An overlay ITEM, never a repaint of the element — so the
-        highlight cannot fight animation opacity, part tinting, or a
-        spanner's reveal clip. It lives in the element's own page scene,
-        which is why a selection survives a page flip: the scenes are all
-        retained and the overlay is simply on another one.
+    def _refresh_highlight(self) -> None:
+        """Move the tint to the newly selected element.
+
+        The tint is a paint state ON the element, composed by the item
+        with the document's authored color and the evaluator's opacity —
+        so it follows a pop's scale, rides a spanner's ghost rather than
+        fighting its reveal clip, and cannot be mistaken for score ink
+        (there is no extra object to mistake).
 
         Export builds its own private ScoreScenes from AnimationInputs,
-        so it structurally cannot see this (the stage_view mask
-        precedent); tests/test_selection.py pins it anyway."""
-        self._drop_overlay()
+        whose items are constructed unselected, and never consults
+        AppState — so a live selection structurally cannot reach a frame
+        (the stage_view mask precedent); tests/test_export.py pins it
+        from both ends."""
+        self._unmark()
         identity = self._state.selected
         if identity is None or self._scenes is None:
             return
         item = self._scenes.items.get(identity.element_id)
         if item is None:
             return
-        scene = item.scene()
-        if scene is None:
-            return
-        # childrenBoundingRect, not the authored bbox: the box has to
-        # contain the ink you can SEE, and the authored rect underruns
-        # curved spanners and multi-row text by up to 3.7x in area
-        # (M2.0 finding B). Item coords == scene coords (the parent
-        # carries no transform of its own; a transient pop scale pivots
-        # on the anchor and deliberately does not move the highlight).
-        rect = item.childrenBoundingRect()
-        if rect.isEmpty() and item.bbox is not None:
-            rect = QRectF(item.bbox)
-        overlay = QGraphicsRectItem(
-            rect.adjusted(-_HIGHLIGHT_PAD, -_HIGHLIGHT_PAD,
-                          _HIGHLIGHT_PAD, _HIGHLIGHT_PAD))
-        pen = QPen(_HIGHLIGHT)
-        pen.setCosmetic(True)            # constant width at any zoom
-        pen.setWidthF(2.0)
-        overlay.setPen(pen)
-        overlay.setBrush(Qt.BrushStyle.NoBrush)
-        overlay.setZValue(_HIGHLIGHT_Z)
-        scene.addItem(overlay)
-        self._overlay = overlay
+        item.set_selected(True)
+        self._highlighted = item
 
-    def _drop_overlay(self) -> None:
-        if self._overlay is None:
+    def _unmark(self) -> None:
+        if self._highlighted is None:
             return
-        scene = self._overlay.scene()
-        if scene is not None:
-            scene.removeItem(self._overlay)
-        self._overlay = None
+        self._highlighted.set_selected(False)
+        self._highlighted = None
 
     # -- internals ---------------------------------------------------------
 

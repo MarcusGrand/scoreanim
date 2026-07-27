@@ -85,9 +85,9 @@ def _exit_run(qapp, engraved, label: str) -> None:
             f"{label}: clicking {kind.name} selected "
             f"{selected.kind.name} {selected.element_id}")
         assert selected.kind is kind
-        # highlighted, in that element's own page scene
-        assert controller.overlay is not None
-        assert controller.overlay.scene() is item.scene()
+        # highlighted: the element itself carries the tint
+        assert controller.highlighted is item
+        assert item.selected is True
         checked += 1
     assert checked >= 4, f"{label}: only {checked} of the exit kinds present"
 
