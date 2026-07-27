@@ -25,7 +25,12 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 
+from scoreanim.core.editing import COARSE_NUDGE, NUDGE_STEP
+
 _LETTERBOX = QColor("#3a3a3a")
+# Arrow key → unit direction (M3.2). Page y grows downward, as in SVG.
+_ARROW_KEYS = {Qt.Key.Key_Left: (-1.0, 0.0), Qt.Key.Key_Right: (1.0, 0.0),
+               Qt.Key.Key_Up: (0.0, -1.0), Qt.Key.Key_Down: (0.0, 1.0)}
 _ZOOM_MIN = 0.05
 _ZOOM_MAX = 40.0
 # Same curve as the timeline views (ui/app_state.apply_wheel — keep in
@@ -58,6 +63,17 @@ class StageView(QGraphicsView):
     double_clicked = Signal(QPointF, object)
     deselect_requested = Signal()        # Esc, or a click outside the band
 
+    # M3.2 drag-to-nudge. A drag on the stage is normally a PAN, so the
+    # view asks `nudge_probe` at press time whether this particular
+    # press should move an element instead — it has to be decided before
+    # the press reaches ScrollHandDrag, which would otherwise consume
+    # it. The probe is set by the window; the view itself knows nothing
+    # about selection, scenes, or which kinds are nudgeable.
+    drag_started = Signal(QPointF, object)   # (scene pos, scene)
+    drag_moved = Signal(QPointF)             # cumulative scene delta
+    drag_finished = Signal(QPointF)          # cumulative scene delta
+    nudge_key = Signal(float, float)         # arrow keys, in page units
+
     def __init__(self) -> None:
         super().__init__()
         self.setRenderHints(QPainter.RenderHint.Antialiasing
@@ -71,6 +87,8 @@ class StageView(QGraphicsView):
         self._band: QRectF | None = None     # masked region (the system)
         self._frame: QRectF | None = None    # fitted region (page-sized)
         self._press_pos = None               # viewport px, for click detect
+        self.nudge_probe = None              # set by the window (M3.2)
+        self._drag_origin: QPointF | None = None   # scene pos of the press
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)   # Esc needs focus
 
     def show_scene(self, scene: QGraphicsScene) -> None:
@@ -163,9 +181,38 @@ class StageView(QGraphicsView):
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
             self._press_pos = event.position().toPoint()
+            scene_pos = self.mapToScene(self._press_pos)
+            # a press on a nudgeable element takes the drag away from
+            # the pan for the duration of the gesture; everything else
+            # pans exactly as before (M2's D1 gesture is untouched)
+            if (self.scene() is not None and self.in_band(scene_pos)
+                    and self.nudge_probe is not None
+                    and self.nudge_probe(scene_pos, self.scene())):
+                self._drag_origin = scene_pos
+                self.setDragMode(QGraphicsView.DragMode.NoDrag)
+                self.drag_started.emit(scene_pos, self.scene())
+                event.accept()
+                return
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._drag_origin is not None:
+            delta = self.mapToScene(event.position().toPoint()) \
+                - self._drag_origin
+            self.drag_moved.emit(delta)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self._drag_origin is not None:
+            origin, self._drag_origin = self._drag_origin, None
+            self._press_pos = None
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            delta = self.mapToScene(event.position().toPoint()) - origin
+            self.drag_finished.emit(delta)
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
         press, self._press_pos = self._press_pos, None
         if press is None or event.button() != Qt.MouseButton.LeftButton:
@@ -203,6 +250,16 @@ class StageView(QGraphicsView):
         lane's own drag-cancel handler."""
         if event.key() == Qt.Key.Key_Escape:
             self.deselect_requested.emit()
+            event.accept()
+            return
+        # arrow keys nudge the selection (M3.2); Shift is the coarse
+        # step. The controller decides whether anything is nudgeable —
+        # the view only reports the direction and the modifier.
+        step = _ARROW_KEYS.get(event.key())
+        if step is not None:
+            coarse = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            scale = COARSE_NUDGE if coarse else NUDGE_STEP
+            self.nudge_key.emit(step[0] * scale, step[1] * scale)
             event.accept()
             return
         super().keyPressEvent(event)

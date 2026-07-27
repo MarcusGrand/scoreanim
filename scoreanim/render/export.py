@@ -39,7 +39,7 @@ from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.timing import (FrameClock, SwingRegion, TempoMap,
                                    resolve_seconds)
 from scoreanim.render.animate import AnimationApplier
-from scoreanim.render.scene import (ScoreScenes, apply_hidden_overrides,
+from scoreanim.render.scene import (ScoreScenes, apply_overrides,
                                     apply_style_colors)
 
 
@@ -146,9 +146,11 @@ class FrameRenderer:
                                    ghost_opacity=style.floor_opacity)
         self._scenes.set_page_background_visible(False)
         apply_style_colors(self._scenes, style)
-        # doc intent rides in like `style` does (Phase 9.2: a hidden
-        # tempo mark stays hidden behind its overlay in the export)
-        apply_hidden_overrides(self._scenes, overrides or {})
+        # doc intent rides in like `style` does — a hidden tempo mark
+        # stays hidden behind its overlay (Phase 9.2) AND a nudged
+        # element keeps its delta (M3.2), so the frame cannot disagree
+        # with the stage
+        apply_overrides(self._scenes, overrides or {})
         self._applier = AnimationApplier(self._scenes.items, inputs.schedule,
                                          tempo_map, style,
                                          inputs.reveal_tracks)

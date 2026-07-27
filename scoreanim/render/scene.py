@@ -34,17 +34,26 @@ from scoreanim.render.qpath import to_qpainter_path, to_qtransform
 from scoreanim.render.text import add_stage_text, add_text_rows
 
 
-def apply_hidden_overrides(scenes: "ScoreScenes",
-                           overrides: Mapping[ElementId, LayoutOverride]
-                           ) -> None:
-    """One-shot application of LayoutOverride.hidden onto FRESH scenes
-    (export's analog of the main window's diff-based _sync_hidden).
-    Consumes ONLY .hidden — dx/dy remain unconsumed schema slots.
+def apply_overrides(scenes: "ScoreScenes",
+                    overrides: Mapping[ElementId, LayoutOverride]
+                    ) -> None:
+    """One-shot application of the WHOLE LayoutOverride onto FRESH
+    scenes (export's analog of the window's diff-based sync passes).
+
+    Grew out of `apply_hidden_overrides` at M3.2, and the growth is the
+    point: dx/dy were unconsumed schema slots, so hiding was the only
+    thing export had to replay. Now that a nudge is real, anything this
+    function skips is a way for the exported frame to disagree with the
+    stage — which is exactly what M3's exit criterion forbids. One
+    function, every field.
+
     Unknown ids are skipped: override staleness is accepted
     (ARCHITECTURE §4)."""
     for eid, override in overrides.items():
         if override.hidden:
             scenes.set_element_hidden(eid, True)
+        if override.dx or override.dy:
+            scenes.set_element_offset(eid, override.dx, override.dy)
 
 
 def apply_style_colors(scenes: "ScoreScenes", style: StyleRules) -> None:
@@ -173,6 +182,17 @@ class ScoreScenes:
         item = self.items.get(element_id)
         if item is not None:
             item.setVisible(not hidden)
+
+    def set_element_offset(self, element_id: ElementId,
+                           dx: float, dy: float) -> None:
+        """Move one element by its layout-override delta (M3.2). Page
+        units == scene units, so the delta needs no conversion — the
+        reason `render/scene.py` has always built one scene per page
+        rather than one scene with page offsets. Unknown id = no-op
+        (override staleness accepted)."""
+        item = self.items.get(element_id)
+        if item is not None:
+            item.set_offset(dx, dy)
 
     def set_part_color(self, part: PartId, color: QColor | None) -> None:
         """Tint a part's playing ink (None restores black). Scope is

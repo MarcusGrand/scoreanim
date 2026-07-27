@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 
 class DocumentSync:
-    """Owns the applied caches and the styles/stage/hidden diffs."""
+    """Owns the applied caches and the styles/stage/hidden/offset diffs."""
 
     def __init__(self, parts_menu: PartsMenu) -> None:
         self._parts_menu = parts_menu
@@ -34,6 +34,7 @@ class DocumentSync:
         self._applied_floor = FLOOR_OPACITY    # ghost opacity on the scenes
         self._applied_stage_texts: tuple = ()  # stage texts on the scenes
         self._applied_hidden: dict = {}    # ElementId → applied hidden flag
+        self._applied_offsets: dict = {}   # ElementId → applied (dx, dy)
 
     def bind_scenes(self, scenes: ScoreScenes, stage_texts: tuple) -> None:
         """Adopt a load's fresh scenes: caches reset to the scene's
@@ -45,6 +46,7 @@ class DocumentSync:
         self._applied_floor = FLOOR_OPACITY
         self._applied_stage_texts = stage_texts
         self._applied_hidden = {}
+        self._applied_offsets = {}
 
     def sync_styles(self, doc: ProjectDoc) -> None:
         """Diff the document's StyleRules onto the scene: part tints,
@@ -122,3 +124,26 @@ class DocumentSync:
             if eid not in self._applied_hidden:
                 self._scenes.set_element_hidden(eid, True)
                 self._applied_hidden[eid] = True
+
+    def sync_offsets(self, doc: ProjectDoc) -> None:
+        """Diff LayoutOverride.dx/dy onto the scene (M3.2 nudges).
+
+        A diff rather than a sweep for the same reason the others are:
+        this runs on EVERY document change, including ones with nothing
+        to do with layout. Clearing an override moves the element back
+        to (0, 0) — the delta is absolute, so there is no accumulation
+        to unwind, which is also what lets undo work by simply replaying
+        the previous value."""
+        if self._scenes is None:
+            return
+        offsets = {eid: (o.dx, o.dy)
+                   for eid, o in doc.layout_overrides.items()
+                   if o.dx or o.dy}
+        for eid in list(self._applied_offsets):
+            if eid not in offsets:
+                self._scenes.set_element_offset(eid, 0.0, 0.0)
+                del self._applied_offsets[eid]
+        for eid, delta in offsets.items():
+            if self._applied_offsets.get(eid) != delta:
+                self._scenes.set_element_offset(eid, *delta)
+                self._applied_offsets[eid] = delta

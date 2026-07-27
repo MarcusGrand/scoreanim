@@ -38,6 +38,7 @@ from scoreanim.ui.document_sync import DocumentSync
 from scoreanim.ui.file_actions import FileActions
 from scoreanim.ui.inspector import Inspector
 from scoreanim.ui.menus import MainMenus
+from scoreanim.ui.nudge import NudgeController
 from scoreanim.ui.parts_menu import PartsMenu
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
@@ -122,6 +123,15 @@ class MainWindow(QMainWindow):
         # data is the engraved layout (BACKLOG 9b's fourth opener)
         self.text_edit = InlineTextEditor(self.app_state, self.view, self)
         self.view.double_clicked.connect(self.text_edit.edit_at)
+        # drag-to-nudge (M3.2): the view asks the probe at press time
+        # whether this press moves an element or pans, so the pan is
+        # untouched everywhere else
+        self.nudge = NudgeController(self.app_state, self)
+        self.view.nudge_probe = self.nudge.probe
+        self.view.drag_started.connect(self.nudge.start)
+        self.view.drag_moved.connect(self.nudge.move)
+        self.view.drag_finished.connect(self.nudge.finish)
+        self.view.nudge_key.connect(self.nudge.nudge_by)
 
         # static chrome (M1.5): the five menus, the slim toolbar, and
         # window-level shortcut registration; the window keeps the refs
@@ -207,6 +217,7 @@ class MainWindow(QMainWindow):
             self.animation_inputs = _dc_replace(self.animation_inputs,
                                                 stage=doc.stage)
         self.doc_sync.sync_hidden(doc)
+        self.doc_sync.sync_offsets(doc)
         self.playback.set_style(doc.style)
         self.lower_zone.strip.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
@@ -273,6 +284,7 @@ class MainWindow(QMainWindow):
                          loaded.applier)
         self.text_edit.bind(loaded.scenes, loaded.animation_inputs.layout,
                             loaded.parts)
+        self.nudge.bind_scenes(loaded.scenes)
         self.menus.export_action.setEnabled(True)
         self.menus.texts_action.setEnabled(True)
         self.playback.set_animation(loaded.applier, loaded.measures)

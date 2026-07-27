@@ -131,6 +131,9 @@ class ElementItem(GroupItem):
         self._tracked: list[tuple[QGraphicsItem, bool, bool]] = []
         self._reveal_children: list[RevealPathItem] = []
         self._ghost_children: list[QGraphicsPathItem] = []
+        # last reveal edge pushed, so a move can re-derive the clip that
+        # the move itself invalidated (see set_offset)
+        self._reveal_edge: float | None = None
 
     def add_path_child(self, item: QGraphicsPathItem,
                        fill_tracks: bool, stroke_tracks: bool,
@@ -148,10 +151,34 @@ class ElementItem(GroupItem):
         """Move every reveal-clipped child's right edge to the scene x.
         Returns whether anything visually changed (the edge is clamped
         per child, so a saturated spanner is a no-op)."""
+        self._reveal_edge = scene_x
         changed = False
         for child in self._reveal_children:
             changed |= child.set_clip_right(scene_x)
         return changed
+
+    def set_offset(self, dx: float, dy: float) -> None:
+        """Apply the document's layout-override delta (M3.2).
+
+        Moving the item invalidates a cache the reveal clip depends on.
+        `RevealPathItem.set_clip_right` takes the edge as a SCENE x and
+        maps it into local coordinates through the inverse of its scene
+        transform, which it caches on first use — so after a move the
+        clip lands dx off, measured exactly (spikes/nudge_reveal.py: a
+        +30 nudge displaced the edge by +30.00). Invalidating makes the
+        local clip track exactly −dx and stay y-independent.
+
+        The last edge is then re-pushed, because the clip currently in
+        force was computed with the stale inverse and nothing else would
+        recompute it until the next tick — which never comes while
+        paused, and nudging is something people do while paused."""
+        if dx == self.pos().x() and dy == self.pos().y():
+            return
+        self.setPos(dx, dy)
+        for child in self._reveal_children:
+            child.invalidate_transform_cache()
+        if self._reveal_edge is not None:
+            self.set_reveal_edge(self._reveal_edge)
 
     @property
     def reveal_children(self) -> tuple["RevealPathItem", ...]:
@@ -266,6 +293,17 @@ class RevealPathItem(QGraphicsPathItem):
         super().__init__(*args)
         self._clip_right: float | None = float("-inf")
         self._inverse = None                 # lazily inverted transform
+
+    def invalidate_transform_cache(self) -> None:
+        """Drop the cached inverse scene transform (M3.2).
+
+        The cache is correct as long as nothing moves, which was true
+        for every element before nudging existed. `ElementItem.set_offset`
+        is the one caller; keeping the invalidation explicit rather than
+        recomputing per call preserves what the cache is for — this
+        runs on the applier's hot path, once per revealed child per
+        tick."""
+        self._inverse = None
 
     @property
     def clip_right(self) -> float | None:

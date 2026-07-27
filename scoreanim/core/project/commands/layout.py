@@ -1,15 +1,18 @@
-"""Engraving-input commands: staff groups, condense groups, the Score
-Setup batch, and part-label overrides — the changes that re-engrave via
-the loader's applied-input diff."""
+"""Layout commands: staff groups, condense groups, the Score Setup
+batch, and part-label overrides — the changes that re-engrave via the
+loader's applied-input diff — plus SetLayoutOverride (M3.2), which is
+the one that does NOT re-engrave: a nudge is a delta applied on top of
+the engraving, not an input to it."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 
 from scoreanim.core.project.commands.base import Command, CommandError
-from scoreanim.core.project.document import (CondenseGroup,
+from scoreanim.core.project.document import (CondenseGroup, LayoutOverride,
                                              PartTextOverride, ProjectDoc,
                                              StaffGroup)
-from scoreanim.core.score.identity import PartId
+from scoreanim.core.score.identity import ElementId, PartId
 
 # MusicXML group-symbol vocabulary ("none" excluded: removing the group
 # is what RemoveStaffGroup is for)
@@ -252,3 +255,44 @@ class SetPartText(Command):
 
     def describe(self) -> str:
         return "set part name"
+
+
+@dataclass(frozen=True)
+class SetLayoutOverride(Command):
+    """Nudge one element by a dx/dy delta (M3.2) — the first consumer of
+    `LayoutOverride.dx/dy`, which have been schema slots since Phase 4.
+
+    Deltas are in PAGE units and keyed by musical ElementId, never
+    absolute pixels (rule 5): the engraved position re-derives on every
+    load and the delta rides on top of whatever it turns out to be.
+    Override staleness across a re-engrave stays the accepted trade
+    (ARCHITECTURE §4) — an id that no longer exists is simply skipped
+    when the overrides are applied.
+
+    ONE command per gesture, not per mouse-move (rule 8): a drag
+    previews by moving the item and executes this once on release, so a
+    drag is a single undo entry. The delta is ABSOLUTE, not incremental,
+    which is what lets that work — the preview can move freely and the
+    commit still describes the whole gesture.
+
+    `hidden` is preserved: a nudged tempo mark that is hidden behind its
+    overlay must stay hidden. The entry disappears entirely when it is
+    back at the default (the SetElementStyle sparse-doc idiom)."""
+    element_id: ElementId
+    dx: float
+    dy: float
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not (math.isfinite(self.dx) and math.isfinite(self.dy)):
+            raise CommandError(f"nudge ({self.dx!r}, {self.dy!r}) not finite")
+        overrides = dict(doc.layout_overrides)
+        updated = replace(overrides.get(self.element_id, LayoutOverride()),
+                          dx=float(self.dx), dy=float(self.dy))
+        if updated == LayoutOverride():
+            overrides.pop(self.element_id, None)
+        else:
+            overrides[self.element_id] = updated
+        return replace(doc, layout_overrides=overrides)
+
+    def describe(self) -> str:
+        return "move element"
