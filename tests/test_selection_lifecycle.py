@@ -96,8 +96,8 @@ def test_selection_survives_a_page_flip(window) -> None:
     assert lit is not None and lit.scene() is home
 
     for page in range(1, window._scenes.page_count + 1):
-        window.show_page(page)
-    window.show_page(note.page)
+        window.router.show_page(page)
+    window.router.show_page(note.page)
 
     assert window.app_state.selected == held
     assert window.selection.highlighted is lit
@@ -112,7 +112,7 @@ def test_selection_survives_a_mode_switch(window) -> None:
     _select_a_notehead(window)
     held = window.app_state.selected
     lit = window.selection.highlighted
-    window.show_system(2)
+    window.router.show_system(2)
     assert window.app_state.selected == held
     assert window.selection.highlighted is lit
     assert lit.selected is True
@@ -139,7 +139,7 @@ def test_click_outside_the_band_deselects_in_system_mode(window) -> None:
     from a neighbouring system is invisible but fully hittable. The view
     gates on the band; the controller stays mode-blind."""
     note = _select_a_notehead(window)
-    window.show_system(1)
+    window.router.show_system(1)
     band = window.view._band
     assert band is not None
     outside = QPointF(band.center().x(), band.bottom() + 500.0)
@@ -180,7 +180,7 @@ def test_a_short_press_release_is_a_click(window) -> None:
     layout = window.animation_inputs.layout
     note = next(el for el in layout.elements
                 if el.identity.kind is ElementKind.NOTEHEAD)
-    window.show_page(note.page)
+    window.router.show_page(note.page)
     item = window._scenes.items[note.identity.element_id]
     seen: list = []
     window.view.clicked.connect(lambda pos, scene: seen.append(pos))

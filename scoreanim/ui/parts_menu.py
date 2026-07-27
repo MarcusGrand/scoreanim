@@ -11,10 +11,17 @@ chrome). The check-state registries and their blockSignals resync live
 here; the window's style diff enumerates parts via `part_ids()` and
 drives `sync_checks(pid, rule)` per part, and `sync_from_document(doc)`
 resyncs the Hide Empty Staves toggle on every document change.
+
+Since M3.0 (BACKLOG 9b) this module also OPENS the three part-shaped
+dialogs its own items launch — Score Setup, Staff Groups, Part Names.
+They were window methods guarding on a window-held `_parts` tuple, but
+the parts arrive here already (`rebuild` is called with them per load),
+so the data and the dialogs that consume it now live together and the
+window holds neither.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QPixmap
 from PySide6.QtWidgets import QColorDialog, QMenu, QWidget
@@ -22,6 +29,9 @@ from PySide6.QtWidgets import QColorDialog, QMenu, QWidget
 from scoreanim.core.project import (SetHideEmptyStaves, SetHideFirstSystem,
                                     SetPartColor)
 from scoreanim.core.score.identity import PartId
+from scoreanim.ui.part_names_dialog import PartNamesDialog
+from scoreanim.ui.score_setup_dialog import ScoreSetupDialog
+from scoreanim.ui.staff_groups_dialog import StaffGroupsDialog
 
 if TYPE_CHECKING:
     from scoreanim.ui.app_state import AppState
@@ -39,19 +49,40 @@ class PartsMenu:
     document's StyleRules by the sync methods (the blockSignals idiom).
     """
 
-    def __init__(self, menu: QMenu, app_state: AppState, parent: QWidget,
-                 open_score_setup: Callable[[], None],
-                 open_staff_groups: Callable[[], None],
-                 open_part_names: Callable[[], None]) -> None:
+    def __init__(self, menu: QMenu, app_state: AppState,
+                 parent: QWidget) -> None:
         self._menu = menu
         self._app_state = app_state
         self._parent = parent
-        self._open_score_setup = open_score_setup
-        self._open_staff_groups = open_staff_groups
-        self._open_part_names = open_part_names
+        self._parts: tuple = ()          # PartInfos of the current build
         self._hide_staves_action: QAction | None = None
         self._hide_first_action: QAction | None = None
         self._color_actions: dict[PartId, dict] = {}
+
+    # -- the part-shaped dialogs -----------------------------------------------
+
+    def open_score_setup(self) -> None:
+        """Also opened by FileActions when a load overflows a page
+        (Phase 12.4)."""
+        if not self._parts:
+            return
+        ScoreSetupDialog(self._app_state, self._parts,
+                         parent=self._parent).exec()
+
+    def open_staff_groups(self) -> None:
+        if not self._parts:
+            return
+        StaffGroupsDialog(self._app_state, self._parts,
+                          parent=self._parent).exec()
+
+    def open_part_names(self) -> None:
+        if not self._parts:
+            return
+        # a PROVIDER, not a snapshot: each rename re-engraves and calls
+        # rebuild() with the effective names — the dialog's rebuild must
+        # show them
+        PartNamesDialog(self._app_state, parts_provider=lambda: self._parts,
+                        parent=self._parent).exec()
 
     def part_ids(self) -> tuple[PartId, ...]:
         """The parts of the current build — the window's style diff
@@ -65,14 +96,15 @@ class PartsMenu:
         menu = self._menu
         menu.clear()
         self._color_actions = {}
+        self._parts = tuple(parts)
         setup_action = QAction("Score Setup…", menu)
-        setup_action.triggered.connect(self._open_score_setup)
+        setup_action.triggered.connect(self.open_score_setup)
         menu.addAction(setup_action)
         groups_action = QAction("Staff Groups…", menu)
-        groups_action.triggered.connect(self._open_staff_groups)
+        groups_action.triggered.connect(self.open_staff_groups)
         menu.addAction(groups_action)
         names_action = QAction("Part Names…", menu)
-        names_action.triggered.connect(self._open_part_names)
+        names_action.triggered.connect(self.open_part_names)
         menu.addAction(names_action)
         # an engraving input like the two above (Phase 10R): toggling
         # re-engraves via the _applied_hide_empty diff, one undo step

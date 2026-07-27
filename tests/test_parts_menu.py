@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QApplication, QMenu  # noqa: E402
 
 from scoreanim.core.score.identity import PartId  # noqa: E402
 from scoreanim.core.score.musicxml_prep import PartInfo  # noqa: E402
+from scoreanim.ui import parts_menu as parts_menu_module  # noqa: E402
 from scoreanim.ui.app_state import AppState  # noqa: E402
 from scoreanim.ui.parts_menu import (PART_COLORS, PartsMenu,  # noqa: E402
                                      QColorDialog)
@@ -36,13 +37,34 @@ def qapp():
 def built(qapp):
     state = AppState()
     menu = QMenu()
-    opened: list[str] = []
-    parts_menu = PartsMenu(menu, state, None,
-                           lambda: opened.append("setup"),
-                           lambda: opened.append("groups"),
-                           lambda: opened.append("names"))
+    parts_menu = PartsMenu(menu, state, None)
     parts_menu.rebuild(PARTS)
-    return parts_menu, state, menu, opened
+    return parts_menu, state, menu
+
+
+class _StubDialog:
+    """Stands in for a real QDialog: records the parts it was handed and
+    never enters a modal loop."""
+
+    opened: list = []
+
+    def __init__(self, app_state, parts=None, parent=None,
+                 parts_provider=None) -> None:
+        _StubDialog.opened.append(
+            tuple(parts) if parts is not None else tuple(parts_provider()))
+
+    def exec(self) -> None:
+        pass
+
+
+@pytest.fixture
+def stub_dialogs(monkeypatch):
+    """M3.0 (BACKLOG 9b): the three part-shaped dialogs are opened from
+    this module now, so the test patches them where they are looked up."""
+    _StubDialog.opened = []
+    for name in ("ScoreSetupDialog", "StaffGroupsDialog", "PartNamesDialog"):
+        monkeypatch.setattr(parts_menu_module, name, _StubDialog)
+    return _StubDialog.opened
 
 
 def _sync(parts_menu: PartsMenu, state: AppState) -> None:
@@ -55,8 +77,8 @@ def _checked(actions: dict) -> list:
     return [key for key, action in actions.items() if action.isChecked()]
 
 
-def test_rebuild_static_head_and_part_submenus(built) -> None:
-    parts_menu, _, menu, opened = built
+def test_rebuild_static_head_and_part_submenus(built, stub_dialogs) -> None:
+    parts_menu, _, menu = built
     texts = [a.text() for a in menu.actions() if not a.isSeparator()]
     assert texts == ["Score Setup…", "Staff Groups…", "Part Names…",
                      "Hide Empty Staves",
@@ -64,14 +86,36 @@ def test_rebuild_static_head_and_part_submenus(built) -> None:
                      "Flute", "Viola"]
     for action in menu.actions()[:3]:
         action.trigger()
-    assert opened == ["setup", "groups", "names"]
+    # each of the three head items opens its dialog, on the parts THIS
+    # menu was rebuilt with — the window holds no parts tuple any more
+    assert stub_dialogs == [PARTS, PARTS, PARTS]
     assert parts_menu.part_ids() == (P1, P2)
     # fresh build: No Color is the checked row
     assert _checked(parts_menu._color_actions[P1]) == [None]
 
 
+def test_dialogs_no_op_before_a_load(qapp, stub_dialogs) -> None:
+    """The guard that lived on the window: no parts, no dialog."""
+    parts_menu = PartsMenu(QMenu(), AppState(), None)
+    parts_menu.open_score_setup()
+    parts_menu.open_staff_groups()
+    parts_menu.open_part_names()
+    assert stub_dialogs == []
+
+
+def test_rebuild_refreshes_the_parts_the_dialogs_see(built,
+                                                     stub_dialogs) -> None:
+    """A part rename re-engraves and calls rebuild() with the effective
+    names; Part Names… is a PROVIDER, so it must show the new ones."""
+    parts_menu, _, _ = built
+    renamed = (PartInfo(0, P1, "Fl.", 1, 1), PartInfo(1, P2, "Vla.", 1, 2))
+    parts_menu.rebuild(renamed)
+    parts_menu.open_part_names()
+    assert stub_dialogs == [renamed]
+
+
 def test_swatch_commits_and_checks_track_undo_redo(built) -> None:
-    parts_menu, state, _, _ = built
+    parts_menu, state, _ = built
     swatch = PART_COLORS[0]
     parts_menu._color_actions[P1][swatch].trigger()
     assert state.doc.style.parts[P1].color == swatch
@@ -95,7 +139,7 @@ def test_effect_radio_group_dropped_part_rules_survive(built) -> None:
     from scoreanim.core.animation import ElementStyle
     from scoreanim.core.project import SetPartEffect
 
-    parts_menu, state, menu, _ = built
+    parts_menu, state, menu = built
     assert not hasattr(parts_menu, "_effect_actions")
     # keep the submenu's owning action referenced while reading it —
     # a temporary wrapper from a discarded generator takes the C++
@@ -109,7 +153,7 @@ def test_effect_radio_group_dropped_part_rules_survive(built) -> None:
 
 
 def test_custom_color_accepted_commits_and_checks(built, monkeypatch) -> None:
-    parts_menu, state, _, _ = built
+    parts_menu, state, _ = built
     monkeypatch.setattr(QColorDialog, "getColor",
                         lambda *a, **k: QColor("#123456"))
     parts_menu._color_actions[P1]["custom"].trigger()
@@ -119,7 +163,7 @@ def test_custom_color_accepted_commits_and_checks(built, monkeypatch) -> None:
 
 
 def test_custom_color_cancelled_restores_checks(built, monkeypatch) -> None:
-    parts_menu, state, _, _ = built
+    parts_menu, state, _ = built
     monkeypatch.setattr(QColorDialog, "getColor",
                         lambda *a, **k: QColor())    # invalid = cancelled
     parts_menu._color_actions[P1]["custom"].trigger()
@@ -128,7 +172,7 @@ def test_custom_color_cancelled_restores_checks(built, monkeypatch) -> None:
 
 
 def test_hide_staves_commits_and_resync_never_reexecutes(built) -> None:
-    parts_menu, state, menu, _ = built
+    parts_menu, state, menu = built
     hide = next(a for a in menu.actions()
                 if a.text() == "Hide Empty Staves")
     initial = state.doc.hide_empty_staves
@@ -143,7 +187,7 @@ def test_hide_staves_commits_and_resync_never_reexecutes(built) -> None:
 
 
 def test_hide_first_system_commits_and_enables_with_parent(built) -> None:
-    parts_menu, state, menu, _ = built
+    parts_menu, state, menu = built
     first = next(a for a in menu.actions()
                  if a.text() == "Hide Empty Staves on First System")
     assert first.isEnabled() == state.doc.hide_empty_staves

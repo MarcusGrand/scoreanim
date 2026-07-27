@@ -223,11 +223,17 @@ scoreanim/
                            # style/stage/layout/undo, M4 exit audit)
   render/                  # Qt only: Layout → QGraphicsItems, property application
   ui/                      # Qt shell (M1: window = composition root;
-                           # M2 exit: main_window.py is AT the 400-line
-                           # ceiling — split it before adding more):
-                           #   main_window.py   composition + page/system routing
+                           # M3.0 paid BACKLOG 9b — the window was AT the
+                           # 400-line ceiling and split before M3 wired
+                           # anything into it, 399 → 312):
+                           #   main_window.py   composition + document→world sync
+                           #   view_router.py   page/system presentation routing
+                           #                    (M3.0): position state, step,
+                           #                    follow, mode diff; stub-tested
                            #   menus.py         static chrome + shortcuts
-                           #   parts_menu.py    dynamic Score-menu content
+                           #   parts_menu.py    dynamic Score-menu content, and
+                           #                    the three part-shaped dialogs
+                           #                    it launches (M3.0)
                            #   inspector.py     right dock, scrolled
                            #                    (collapsible.py sections)
                            #   panels/          inspector section bodies (M4:

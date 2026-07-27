@@ -126,12 +126,12 @@ class FileActions:
         self.score_name = path.name
         self.tempo_path = None
         w.app_state.reset_document(doc)      # → _on_document_changed
-        w.show_current()
+        w.router.show_current()
         w.view.fit()
         # a score that overflows its page needs staff-count reduction —
         # offer the Score Setup dialog on open (Phase 12.4)
         if w.last_overflow:
-            w.open_score_setup_dialog()
+            w.parts_menu.open_score_setup()
 
         sidecar = path.with_suffix(".tempo")
         if sidecar.exists():
@@ -173,7 +173,7 @@ class FileActions:
         self.score_name = path.name
         self.tempo_path = None
         w.app_state.reset_document(doc)
-        w.show_current()
+        w.router.show_current()
         w.view.fit()
 
         if doc.audio is not None:
