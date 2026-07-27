@@ -71,7 +71,23 @@ class ElementItem(GroupItem):
     ``bbox``/``anchor`` (page == scene coordinates) and ``system`` come
     from the RenderedElement: the anchor is the transform origin for
     scale effects (pop), the system keys the reveal edge that drives
-    spanner clip-grow."""
+    spanner clip-grow.
+
+    **This item is the one compositing point for how an element looks.**
+    Its appearance is a function of independent INPUTS, each written by
+    the layer that owns it and never by the others, composed here:
+
+      authored color   `set_color`            — document intent (part
+                                                tint, element override)
+      animation state  `set_animated_opacity` — the effect evaluator
+                       `setScale`
+
+    Each setter stores its own input and re-derives the painted result,
+    so writing one never destroys another and no caller has to know what
+    else is currently applied. That matters concretely: DocumentSync's
+    style pass is a DIFF cache, so anything that overwrote the authored
+    color behind its back would leave it believing a color it can no
+    longer restore."""
 
     def __init__(self, identity: ElementIdentity | None = None,
                  bbox: QRectF | None = None,
@@ -87,7 +103,9 @@ class ElementItem(GroupItem):
             # (page == scene == item-local coords; the parent itself
             # carries no transform)
             self.setTransformOriginPoint(anchor)
-        self._color = QColor(DEFAULT_COLOR)
+        # -- composition inputs (see the class docstring) --
+        self._color = QColor(DEFAULT_COLOR)      # authored, from the doc
+        self._animated_opacity = 1.0             # from the evaluator
         # (item, fill tracks element color, stroke tracks element color)
         self._tracked: list[tuple[QGraphicsItem, bool, bool]] = []
         self._reveal_children: list[RevealPathItem] = []
@@ -120,19 +138,53 @@ class ElementItem(GroupItem):
             self._tracked.append((item, True, False))
 
     def set_color(self, color: QColor | None) -> None:
-        """Repaint every color-tracking child; None restores black."""
-        self._color = QColor(color) if color is not None else QColor(DEFAULT_COLOR)
-        for item, fill_tracks, stroke_tracks in self._tracked:
-            if fill_tracks:
-                item.setBrush(QBrush(self._color))
-            if stroke_tracks and isinstance(item, QGraphicsPathItem):
-                pen = item.pen()
-                pen.setColor(self._color)
-                item.setPen(pen)
+        """Set the AUTHORED ink color — document intent (a part tint or
+        a per-element override). None restores black."""
+        self._color = QColor(color) if color is not None \
+            else QColor(DEFAULT_COLOR)
+        self._repaint()
+
+    def set_animated_opacity(self, value: float) -> None:
+        """Set the opacity the effect evaluator computed for this element
+        at the current t. Goes through the composite rather than
+        setOpacity() directly, so the evaluator stays the sole owner of
+        this input without owning the painted result."""
+        self._animated_opacity = value
+        self._recompose_opacity()
 
     @property
     def color(self) -> QColor:
+        """The AUTHORED color — what the document says, not necessarily
+        what is on screen."""
         return QColor(self._color)
+
+    @property
+    def animated_opacity(self) -> float:
+        """The evaluator's opacity for the current t, readable back so a
+        caller can tell the animation input apart from the composite."""
+        return self._animated_opacity
+
+    # -- composition -------------------------------------------------------
+
+    def _paint_color(self) -> QColor:
+        return self._color
+
+    def _paint_opacity(self) -> float:
+        return self._animated_opacity
+
+    def _repaint(self) -> None:
+        """Push the composed color onto every color-tracking child."""
+        color = self._paint_color()
+        for item, fill_tracks, stroke_tracks in self._tracked:
+            if fill_tracks:
+                item.setBrush(QBrush(color))
+            if stroke_tracks and isinstance(item, QGraphicsPathItem):
+                pen = item.pen()
+                pen.setColor(color)
+                item.setPen(pen)
+
+    def _recompose_opacity(self) -> None:
+        self.setOpacity(self._paint_opacity())
 
 
 class RevealPathItem(QGraphicsPathItem):

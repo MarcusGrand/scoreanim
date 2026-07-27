@@ -60,7 +60,9 @@ _SCALABLE_KINDS = frozenset({
 
 
 def _apply_opacity(item: ElementItem, value: float) -> None:
-    item.setOpacity(value)
+    # the item composes this with whatever else is applied to it; the
+    # evaluator owns the input, never the painted result
+    item.set_animated_opacity(value)
 
 
 def _apply_scale(item: ElementItem, value: float) -> None:
