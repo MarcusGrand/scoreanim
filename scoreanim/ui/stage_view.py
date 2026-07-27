@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
+from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 
 _LETTERBOX = QColor("#3a3a3a")
 _ZOOM_MIN = 0.05
@@ -35,6 +35,23 @@ _PIXELS_PER_NOTCH = 40.0
 
 
 class StageView(QGraphicsView):
+    """Selection gesture (M2.3): click selects, drag pans.
+
+    ScrollHandDrag consumes mouse events for panning, so the scene never
+    sees a press and scene-side itemAt() is dead on arrival. Instead the
+    view watches the press/release pair itself and calls it a CLICK when
+    the pointer moved less than QApplication.startDragDistance(). Pan
+    behavior is unchanged — a sub-threshold drag never panned visibly
+    anyway — so no modifier key is needed."""
+
+    # (scene position, the QGraphicsScene it was in). The scene travels
+    # WITH the position because every page scene has the same sceneRect
+    # — origin (0,0) at page size — so a position alone cannot say which
+    # page was clicked, and the view is the only object that knows which
+    # scene it is showing.
+    clicked = Signal(QPointF, object)
+    deselect_requested = Signal()        # Esc, or a click outside the band
+
     def __init__(self) -> None:
         super().__init__()
         self.setRenderHints(QPainter.RenderHint.Antialiasing
@@ -47,6 +64,8 @@ class StageView(QGraphicsView):
         self._fit_mode = True
         self._band: QRectF | None = None     # masked region (the system)
         self._frame: QRectF | None = None    # fitted region (page-sized)
+        self._press_pos = None               # viewport px, for click detect
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)   # Esc needs focus
 
     def show_scene(self, scene: QGraphicsScene) -> None:
         """Page flip: swap scenes, keep the current fit/zoom behavior."""
@@ -122,6 +141,49 @@ class StageView(QGraphicsView):
             painter.fillRect(QRectF(band.right(), rect.top(),
                                     rect.right() - band.right(),
                                     rect.height()), _LETTERBOX)
+
+    # -- selection gesture -------------------------------------------------
+
+    def in_band(self, scene_pos: QPointF) -> bool:
+        """Is this scene point inside the visible band?
+
+        In system mode the scene under the view is the whole PAGE and the
+        letterbox is painted in drawForeground, so ink from a neighbouring
+        system is invisible but fully hittable. The view is the only
+        object that knows the band, so it gates here and the selection
+        controller stays mode-blind. Paged mode: everything is visible."""
+        return self._band is None or self._band.contains(scene_pos)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_pos = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        super().mouseReleaseEvent(event)
+        press, self._press_pos = self._press_pos, None
+        if press is None or event.button() != Qt.MouseButton.LeftButton:
+            return
+        moved = (event.position().toPoint() - press).manhattanLength()
+        if moved > QApplication.startDragDistance():
+            return                            # that was a pan, not a click
+        if self.scene() is None:
+            return
+        scene_pos = self.mapToScene(press)
+        if self.in_band(scene_pos):
+            self.clicked.emit(scene_pos, self.scene())
+        else:
+            self.deselect_requested.emit()    # masked area: nothing there
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        """Esc deselects. View-level, not a window shortcut, so Esc keeps
+        its normal meaning in dialogs, inspector fields, and the tempo
+        lane's own drag-cancel handler."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.deselect_requested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt naming)
         super().resizeEvent(event)

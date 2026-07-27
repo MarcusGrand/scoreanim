@@ -17,19 +17,25 @@ a command.
 The *Appearance & Effects* body is the EffectsPanel (M4.8,
 ui/panels/effects_panel.py) — Floor opacity and Sweep moved there with
 the effect controls; this dock composes it and delegates its resync.
+
+The *Selection* body is the SelectionPanel (M2.5,
+ui/panels/selection_panel.py) — a third sync behavior: it reads
+TRANSIENT selection state, so it subscribes to
+`AppState.selection_changed` itself and, like Follow, takes no part in
+`sync_from_document`.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (QCheckBox, QDockWidget, QLabel, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QCheckBox, QDockWidget, QScrollArea,
+                               QVBoxLayout, QWidget)
 
 from scoreanim.core.project import (PresentationMode, ProjectDoc,
                                     SetPresentationMode)
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.collapsible import CollapsibleSection
-from scoreanim.ui.panels import EffectsPanel
+from scoreanim.ui.panels import EffectsPanel, SelectionPanel
 from scoreanim.ui.playback import PlaybackController
 
 
@@ -87,9 +93,10 @@ class Inspector(QDockWidget):
         # handlers and resync; the dock only composes and delegates.
         self.effects_panel = EffectsPanel(app_state)
 
-        selection_body = QLabel("Nothing selected")   # placeholder for M2
-        selection_body.setContentsMargins(8, 2, 8, 6)
-        selection_body.setEnabled(False)
+        # Selection body (M2.5): transient-state driven, so it observes
+        # app_state.selection_changed itself and takes no part in
+        # sync_from_document.
+        self.selection_panel = SelectionPanel(app_state)
 
         body = QWidget(self)
         column = QVBoxLayout(body)
@@ -99,13 +106,23 @@ class Inspector(QDockWidget):
         for key, title, content in (
                 ("playback", "Playback && Sync", playback_body),
                 ("appearance", "Appearance && Effects", self.effects_panel),
-                ("selection", "Selection", selection_body)):
+                ("selection", "Selection", self.selection_panel)):
             section = CollapsibleSection(title)
             section.set_content(content)
             self.sections[key] = section
             column.addWidget(section)
         column.addStretch(1)
-        self.setWidget(body)
+        # Scrolled, so the dock's content NEVER dictates the window's
+        # minimum height: sections keep accruing controls (M4 grew
+        # Appearance, M2 added Selection, M3 will grow it again) and
+        # without this each addition raises the smallest usable window.
+        scroller = QScrollArea(self)
+        scroller.setWidgetResizable(True)
+        scroller.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroller.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroller.setWidget(body)
+        self.setWidget(scroller)
 
     # -- document sync ---------------------------------------------------------
 

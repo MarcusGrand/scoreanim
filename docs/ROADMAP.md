@@ -196,6 +196,130 @@ and reports correct identity in the inspector; playback continues
 undisturbed with a live selection; selection survives page flips (or
 clears cleanly — decide and pin). Hit-priority policy headless-tested.
 
+**CLOSED 2026-07-25** (built M2.0–M2.7 on `beta/m2-selection` per
+`docs/briefs/M2_SELECTION_BRIEF.md`). The brief's §1 audit was
+re-verified against the tree and held in every particular; its
+recommendations D1–D7 were all taken as written:
+
+- **D1 gesture** — click = press/release under `startDragDistance()`;
+  pan byte-for-byte unchanged, **no modifier key needed**.
+- **D2 page flip (the decision the exit asked to pin)** — the
+  selection **SURVIVES**. Scenes are per-page and retained and the
+  overlay lives in its element's own page scene, so survival is the
+  zero-cost behavior; clearing would have cost extra code. Matches
+  every DAW/notation editor, and M3 wants it (flip away, come back,
+  still editing what you picked). Pinned at controller and window
+  level.
+- **D3** selection = `ElementIdentity | None` on AppState;
+  **D4** measure parsed from the id; **D5** stage texts unselectable;
+  **D6** overlay item highlight; **D7** Esc at view level.
+
+Two rulings the build added, both forced by the M2.0 census
+(`spikes/hit_census.py`, findings C/D) measuring the roadmap's own
+hit-priority rule on testscore and complex3:
+
+- **The order is `(not exact, tier, area, element_id)`,** not
+  area-then-scaffold. "Smallest bbox area wins" picks the wrong
+  element twice. (a) A stem's authored `Rect` has **w = 0**, so its
+  area is 0 and a stem beats the notehead it hangs off — clicking a
+  note selected its stem. Ranking ink that genuinely CONTAINS the
+  click ahead of mere tolerance neighbours fixes it. (b) A system
+  barline's bbox spans the staves it joins, so it is **larger** than
+  one staff's STAFF_LINES, and both are scaffold — so "animated beats
+  scaffold" cannot separate them and area alone handed **every barline
+  click to the staff**, which would have left M5 with no handle.
+  STAFF_LINES therefore get their own backdrop tier and rank last
+  among equals. Both corrections are DATA (a tier table, a measured
+  boolean), not branches on a kind name. Accuracy clicking elements on
+  their own ink, area-only → tiered on complex3: notehead 37→74%,
+  staff lines 20→90%, hairpin 87→100%, barline 96→100%; never worse on
+  any kind of either score, and every element is reachable.
+- **A click tolerance is mandatory, not a nicety** — at tol=0 thin ink
+  returns nothing at all. 6 page units (~3 view px at fit zoom).
+
+Two fixes the build made outside the brief's scope, both real:
+`SelectionController` had guessed the clicked page by `sceneRect`
+containment, but every page scene shares one rect, so clicks on page
+2+ searched page 1 (the complex3 hairpin selected nothing);
+`StageView.clicked` now carries the scene. And the inspector body
+became **scrollable** — the new Selection section pushed the dock's
+minimum height past the test screen, and sections keep accruing
+controls, so the dock must never dictate the window's minimum height.
+
+Exit finding to carry into M3: `ui/main_window.py` is now at **399
+lines**, exactly the no-monoliths ceiling. M2 added only wiring; M3
+must split the composition root before adding to it (BACKLOG).
+
+**Amendment 2026-07-27 — reopened before merge (M2.8).** Two rulings
+change M2's shipped behavior, so M2 is not closed for good until they
+land. Both are recorded here as INTENT; the mechanisms they force are
+decisions to be measured, not assumed, and get written up only once
+they are made.
+
+- **Selection is object-first, with implicit measure and part**
+  (now CLAUDE.md rule 13). This does not overturn D3/D4 so much as
+  widen them: the containing measure was already parsed from the id,
+  and the owning part joins it, as one structured selection context
+  rather than three unrelated fields. A measure is never itself a
+  selection target. Barlines remain selectable as objects — the M5
+  handle the tiering in this milestone exists to protect.
+- **The highlight tints the selected object's own ink (orange for
+  now); the bbox outline goes away.** This SUPERSEDES D6, and it gives
+  up two properties the overlay bought for free. (a) The overlay could
+  not fight animation opacity, part tinting, or a spanner's reveal
+  clip; a tint on the element competes with all three, and M4 is
+  merged, so a selected note can be mid-pop with an effect driving its
+  color. (b) Export purity was structurally free — export builds its
+  own `ScoreScenes` and could not see a separate item; a tint has no
+  such shape and must be re-proven at the same strength, non-vacuity
+  guard included. A third constraint arrives with M3: a user who
+  color-overrides an element orange must still be able to see that it
+  is selected.
+
+**M2.8 as built (2026-07-27).** Both rulings landed; the mechanisms
+below were measured first and written after. One correction to the
+intent above: it says an effect may be "driving its color", but
+`_PROPERTY_APPLIERS` maps exactly two properties, `opacity` and `scale`.
+No effect drives color at all — color reaches an element only from
+StyleRules. The tint therefore competes with animation **opacity**,
+**authored color**, and the spanner **reveal clip**.
+
+The two decisions the amendment left open, now pinned:
+
+- **Clicking empty staff space DESELECTS** (supersedes the M2.0
+  backdrop reachability goal). Nothing downstream could act on a
+  STAFF_LINES selection anyway: it is in `STATIC_KINDS` so it never
+  animates, absent from `TINTED_KINDS` so no color override can reach
+  it, and rule 13 names the barline as M5's only handle. The old
+  behaviour was not even consistent — probing points inside staff
+  rectangles picked STAFF_LINES on 17.5% of testscore probes but 73.5%
+  of complex3's, tracking rastral size rather than intent. It was also
+  STEALING clicks from real objects, since exactness is the first key
+  and an exact staff-line hit outranked a notehead the click merely fell
+  within tolerance of; 6 testscore and 15 complex3 probes now resolve to
+  the object instead (complex3 KEY_SIG 34→43, METER_SIG 16→24).
+  Mechanism is `is_selectable`, a table like the tier — which itself is
+  unchanged, so a barline drawn across a staff still wins.
+- **The implicit measure and part are PANEL-ONLY.** No stage treatment.
+  Giving derived context its own ink would make it look chosen, which is
+  the one thing rule 13 forbids, and a faint measure box would
+  reintroduce exactly the rectangle being deleted — as the only
+  rectangle on screen it would read as a selection.
+
+The compositing rule that answers the animation collision, plus the
+opacity floor, the ghost-lift, and the authored-color fallback that
+implement it, are recorded in ARCHITECTURE §7. Export purity is
+re-proven there too, on a different argument than M2.4's, with the
+non-vacuity guard replaced by one matched to the tint.
+
+Two things the change also surfaced. M2.7's "playback undisturbed" pin
+had been passing **vacuously**: it sampled the first notehead, which
+triggers on the downbeat, so the element sat at opacity 1.0 at every
+sample. It now picks a notehead the samples straddle and fails if they
+do not. And `ui/main_window.py` needed **zero** lines — its four
+selection lines are construction and wiring — so it is still at 399 and
+the BACKLOG 9b split is still M3's to do.
+
 ---
 
 ## M3 — Direct edit (the selection does something)
@@ -236,6 +360,13 @@ milestone builds UI affordances, not new document semantics.
   rule 5 demands). Decision to make at the brief: on a cross-system
   spanner the override targets one `…:seg<k>` — the panel should fan
   out to all segments of the source (recommended), pin it by test.
+  **Inherited from M2.8:** the element key is `selection.obj.
+  element_id`, and the selection-vs-authored-color problem is already
+  solved — `ElementItem` composes authored color under the transient
+  tint (never through `set_color`, which the DocumentSync diff cache
+  owns), and a user who colors an element the selection orange still
+  sees it selected via the fallback color. M3 adds a writer for the
+  authored channel; it must not add a second writer for the tint.
 
 **Exit criteria.** Rename a staff label by double-clicking it (score
 shifts to fit, undo restores); edit a system text in place; drag a
@@ -415,6 +546,13 @@ re-engraves with the break — the app's first *layout-intent* edit.
   menu / Score menu "Toggle system break here", ordinal read from the
   barline's ElementId. `SetSystemBreak` undoable command; re-engrave
   via the `_applied_*` diff, the hide-empty-staves shape.
+  **Inherited from M2.8:** read the ordinal off
+  `AppState.selection.measure_ordinal` rather than re-parsing the id —
+  the derivation lives in one place (`core/selection/context.py`) and
+  already returns None for the ids that genuinely have no measure. The
+  barline handle is now the ONLY scaffold handle into a measure: the
+  backdrop stopped being selectable at M2.8, so nothing else on a staff
+  answers a click with a measure ordinal.
 - **CLAUDE.md rule 7 amendment (draft — apply with the build
   ruling):** *"Amendment (M5, 2026-XX-XX): the honored system-break
   set is the encoded breaks ⊕ the user's in-app break overrides

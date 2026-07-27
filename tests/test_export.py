@@ -634,3 +634,119 @@ def test_export_scenes_apply_hidden_overrides(qapp, inputs, engraved,
                              spec, overrides={eid: LayoutOverride(hidden=True)})
     assert not renderer._scenes.items[eid].isVisible()
     assert renderer._scenes.items[ElementId(overlay.element_id)].isVisible()
+
+
+# -- M2.4/M2.8: a live stage selection never reaches an exported frame --
+#
+# M2.4's proof leaned on the highlight being a separate scene ITEM, so
+# it could argue structurally that export "cannot see it". A tint has no
+# such shape — it is paint on an ordinary ElementItem, exactly the kind
+# of object export DOES rasterize. The structural argument survives for
+# a different reason, and it is the reason that matters: FrameRenderer
+# builds its OWN private ScoreScenes from AnimationInputs, whose items
+# are constructed unselected, and export never consults AppState.
+#
+# So the pin is re-proven at the same strength from both ends, and the
+# non-vacuity guard is now matched to the actual mechanism rather than
+# to the old one.
+
+def _frame_digest(image) -> str:
+    import hashlib
+    rgba = image.convertToFormat(image.Format.Format_RGBA8888)
+    return hashlib.sha256(bytes(rgba.constBits())).hexdigest()
+
+
+def test_export_frames_ignore_a_live_selection(qapp, inputs, tempo_map,
+                                               tempo_setup) -> None:
+    """Frames rendered while a selection is live on a separate stage
+    built from the SAME inputs must be byte-identical to frames rendered
+    with no selection at all.
+
+    Both ends are checked: the live item really did change (so the test
+    cannot pass because nothing happened), and the export bytes really
+    did not."""
+    from scoreanim.core.project.document import StageConfig
+    from scoreanim.core.score.identity import ElementKind
+    from scoreanim.render.scene import ScoreScenes
+    from scoreanim.ui.app_state import AppState
+    from scoreanim.ui.selection import SelectionController
+
+    offset = tempo_setup.offset_seconds
+    end = offset + 4.0
+
+    clean = make_renderer(inputs, tempo_map, offset, end=end)
+    samples = sorted({0, clean.frame_count // 2, clean.frame_count - 1})
+    before = {n: _frame_digest(clean.render_frame(n)) for n in samples}
+
+    # a live stage, with something selected and highlighted
+    live = ScoreScenes(inputs.layout, StageConfig())
+    state = AppState()
+    controller = SelectionController(state)
+    controller.bind_scenes(live)
+    target = next(el for el in inputs.layout.elements
+                  if el.identity.kind is ElementKind.NOTEHEAD)
+    live_item = live.items[target.identity.element_id]
+    tracked = live_item._tracked[0][0]
+    painted_before = tracked.brush().color().name()
+    state.set_selection(live_item.identity)
+
+    # POSITIVE control: the tint is real, on the live item
+    assert controller.highlighted is live_item
+    assert live_item.selected is True
+    assert tracked.brush().color().name() != painted_before
+
+    after_renderer = make_renderer(inputs, tempo_map, offset, end=end)
+    for n in samples:
+        assert _frame_digest(after_renderer.render_frame(n)) == before[n], \
+            f"selection leaked into exported frame {n}"
+
+    # the export scenes are a different object graph entirely, and none
+    # of their items is selected
+    export_items = set(after_renderer._scenes.items.values())
+    assert live_item not in export_items
+    assert not any(item.selected for item in export_items)
+    assert controller.highlighted.scene() in set(live.scenes)
+
+
+def test_the_export_purity_pin_is_not_vacuous(qapp, inputs, tempo_map,
+                                              tempo_setup) -> None:
+    """Guard for the test above, matched to the mechanism it guards.
+
+    M2.4's version proved the digest noticed an OVERLAY-shaped rect
+    item, which is no longer the thing that could leak. This one selects
+    an element in the EXPORT renderer's own scenes and requires the
+    frame bytes to move — so if the digest ever stopped noticing a tint,
+    this fails and the purity pin above is not left passing vacuously.
+    Clearing it must restore the original bytes exactly."""
+    from scoreanim.core.score.identity import ElementKind
+
+    offset = tempo_setup.offset_seconds
+    renderer = make_renderer(inputs, tempo_map, offset, end=offset + 4.0)
+
+    before = _frame_digest(renderer.render_frame(0))
+    target = next(el for el in inputs.layout.elements
+                  if el.identity.kind is ElementKind.NOTEHEAD
+                  and el.page == 1)
+    item = renderer._scenes.items[target.identity.element_id]
+    item.set_selected(True)
+    try:
+        assert _frame_digest(renderer.render_frame(0)) != before, \
+            "the frame digest does not notice a selection tint"
+    finally:
+        item.set_selected(False)
+    assert _frame_digest(renderer.render_frame(0)) == before
+
+
+def test_export_scenes_are_built_unselected(qapp, inputs, tempo_map,
+                                            tempo_setup) -> None:
+    """The structural half of the argument, asserted rather than
+    assumed: whatever the live stage is doing, an export renderer's
+    items start — and stay — unselected, because nothing in the export
+    path can reach AppState."""
+    renderer = make_renderer(inputs, tempo_map, tempo_setup.offset_seconds,
+                             end=tempo_setup.offset_seconds + 4.0)
+    assert not any(item.selected
+                   for item in renderer._scenes.items.values())
+    renderer.render_frame(0)
+    assert not any(item.selected
+                   for item in renderer._scenes.items.values())

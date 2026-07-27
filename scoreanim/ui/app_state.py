@@ -26,7 +26,9 @@ from PySide6.QtCore import QObject, Signal
 
 from scoreanim.core.project import (Command, CommandError, FileRef,
                                     ProjectDoc, UndoStack)
+from scoreanim.core.score.identity import ElementIdentity
 from scoreanim.core.score.model import MeasureInfo
+from scoreanim.core.selection import Selection
 
 if TYPE_CHECKING:                # core/audio arrives with task 4.2
     from scoreanim.core.audio.peaks import PeakCache
@@ -128,6 +130,7 @@ class AppState(QObject):
     peaks_changed = Signal()
     seek_requested = Signal(float)       # views emit intent; window executes
     status = Signal(str)
+    selection_changed = Signal()         # transient stage selection (M2)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -139,6 +142,7 @@ class AppState(QObject):
         self._measures: tuple[MeasureInfo, ...] = ()
         self._peaks: "PeakCache | None" = None
         self._playhead = 0.0
+        self._selection: Selection | None = None
 
     # -- document ---------------------------------------------------------------
 
@@ -152,6 +156,7 @@ class AppState(QObject):
         self._preview = None
         self._stack = UndoStack()
         self._bind_dirty = False
+        self.set_selection(None)         # the old score's items are gone
         self.document_changed.emit()
 
     def bind_audio(self, ref: FileRef | None) -> None:
@@ -256,3 +261,37 @@ class AppState(QObject):
 
     def request_seek(self, audio_seconds: float) -> None:
         self.seek_requested.emit(audio_seconds)
+
+    # -- selection (transient UI state, M2) --------------------------------------
+    #
+    # NOT document state: selection is never serialized, never undoable
+    # (rule 8 needs something to undo; there is nothing here), and never
+    # re-derived. It holds a core `Selection` — the OBJECT the user picked
+    # (rule 13), from which the containing measure and owning part derive
+    # on read. The object is the full ElementIdentity rather than an
+    # ElementId so the Selection panel needs no resolver and a stale id
+    # can never be looked up against rebuilt items. Cleared whenever the
+    # items it points at are destroyed — reset_document above, and
+    # SelectionController.bind_scenes on every (re-)engrave.
+
+    @property
+    def selection(self) -> Selection | None:
+        """The selection with its context — what the panel reads."""
+        return self._selection
+
+    @property
+    def selected(self) -> ElementIdentity | None:
+        """The selected OBJECT alone. The common case (who am I pointing
+        at?), kept as its own accessor so callers that do not care about
+        context never unwrap."""
+        return self._selection.obj if self._selection is not None else None
+
+    def set_selection(self, identity: ElementIdentity | None) -> None:
+        """Select an object, or None to clear. Takes the identity, not a
+        Selection: the context is derived, so there is nothing for a
+        caller to supply and no way to pass an inconsistent one."""
+        if identity == self.selected:
+            return                       # no-op: never re-emit
+        self._selection = (Selection(identity) if identity is not None
+                           else None)
+        self.selection_changed.emit()
