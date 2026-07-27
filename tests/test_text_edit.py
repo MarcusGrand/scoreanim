@@ -103,7 +103,7 @@ def test_double_click_a_tempo_mark_overlays_it(window) -> None:
                    if t.element_id == OVERLAY_PREFIX + str(eid))
     assert overlay.content == "Fast"
     assert window.app_state.doc.layout_overrides[eid].hidden is True
-    assert window.app_state.undo_text() == "replace tempo mark"
+    assert window.app_state.undo_text() == "replace text"
 
     window.app_state.undo()                          # ONE step undoes both
     assert not any(t.element_id == OVERLAY_PREFIX + str(eid)
