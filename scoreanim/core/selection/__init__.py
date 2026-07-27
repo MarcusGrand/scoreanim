@@ -8,13 +8,14 @@ the object plus the measure and part it carries (context.py, rule 13).
 
 from scoreanim.core.selection.context import Selection
 from scoreanim.core.selection.policy import (BACKDROP_KINDS, HitCandidate,
-                                             measure_ordinal_of, pick,
-                                             sort_key, tier_of)
+                                             is_selectable, measure_ordinal_of,
+                                             pick, sort_key, tier_of)
 
 __all__ = [
     "BACKDROP_KINDS",
     "HitCandidate",
     "Selection",
+    "is_selectable",
     "measure_ordinal_of",
     "pick",
     "sort_key",

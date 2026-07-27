@@ -108,9 +108,39 @@ def test_barline_beats_staff_lines_despite_being_larger() -> None:
     assert pick([barline, staff]) == barline.element_id
 
 
-def test_staff_lines_still_selectable_when_alone() -> None:
+def test_staff_lines_alone_deselect() -> None:
+    """M2.8 ruling: the backdrop is not a selection winner. A click whose
+    only ink is staff lines is a click on empty staff space, and empty
+    staff space is paper — the same deselect the margin already gave.
+    Exact or not: a rule that turned on sub-pixel aim would be worse than
+    either answer."""
     staff = _c("P1:m1:s1:v0:staff_lines:0", ElementKind.STAFF_LINES, 9984.1)
-    assert pick([staff]) == staff.element_id
+    assert pick([staff]) is None
+    assert pick([_c("P1:m1:s1:v0:staff_lines:0", ElementKind.STAFF_LINES,
+                    9984.1, exact=False)]) is None
+
+
+def test_backdrop_never_wins_even_over_a_worse_ranked_object() -> None:
+    """The filter runs BEFORE the order, so an exact backdrop hit still
+    loses to a merely-tolerated object — the object is the only
+    candidate there is."""
+    staff = _c("P1:m1:s1:v0:staff_lines:0", ElementKind.STAFF_LINES, 9984.1,
+               exact=True)
+    note = _c("P1:m1:s1:v1:note:0", ElementKind.NOTEHEAD, 161.6, exact=False)
+    assert pick([staff, note]) == note.element_id
+
+
+def test_selectability_is_a_table_not_a_kind_check() -> None:
+    """Scaffold stays selectable — a barline is an object IN a measure
+    and is M5's only handle (rule 13). Only the backdrop is excluded."""
+    from scoreanim.core.selection import BACKDROP_KINDS, is_selectable
+
+    assert not is_selectable(ElementKind.STAFF_LINES)
+    for kind in (ElementKind.BARLINE, ElementKind.GROUP_SYMBOL,
+                 ElementKind.SYSTEM_DIVIDER, ElementKind.NOTEHEAD,
+                 ElementKind.TEXT):
+        assert is_selectable(kind), kind
+    assert {k for k in ElementKind if not is_selectable(k)} == BACKDROP_KINDS
 
 
 def test_tier_table() -> None:

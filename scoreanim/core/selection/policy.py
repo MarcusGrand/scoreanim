@@ -25,13 +25,32 @@ table and a boolean the caller measures — not branches on a kind name:
    15771 vs 9984) — and both are scaffold, so "animated beats scaffold"
    cannot separate them. Area alone therefore hands every barline click
    to the staff, which would leave M5 with no handle. Staff lines are
-   the backdrop every other element is drawn on top of; they rank last
-   among equals and stay selectable when nothing else is under the
-   cursor.
+   the backdrop every other element is drawn on top of, so they rank
+   last among equals.
 
 Measured effect (clicking elements on their own ink, complex3):
-notehead 37 -> 74%, staff lines 20 -> 90%, hairpin 87 -> 100%, barline
-96 -> 100%. Never worse than area-alone on any kind of either score.
+notehead 37 -> 74%, hairpin 87 -> 100%, barline 96 -> 100%. Never worse
+than area-alone on any kind of either score.
+
+The backdrop does not WIN, though (M2.8 ruling, 2026-07-27): under rule
+13 the user selects objects, and staff lines are the surface objects sit
+on. `is_selectable` filters the backdrop out of the pick entirely, so a
+click on empty staff space is an ordinary deselect — the same answer
+clicking the paper margin already gave. Three reasons it is the right
+answer and not a lost capability:
+
+  - Nothing downstream can act on it. STAFF_LINES is in STATIC_KINDS, so
+    it never animates; it is not in TINTED_KINDS, so a color override
+    can never reach it; and rule 13 names the barline as M5's only
+    handle. A selectable element no milestone can act on is a dead
+    handle.
+  - The old behaviour was not even consistent. Probing points inside
+    staff rectangles (M2.8 measurement M6) picked STAFF_LINES on 17.5%
+    of testscore probes but 73.5% of complex3's — the answer tracked
+    rastral size, not intent.
+  - The tiering's actual job is untouched. Backdrop ranks last so a
+    BARLINE drawn across it wins, and that ordering stays exactly as
+    finding 2 left it.
 """
 
 from __future__ import annotations
@@ -45,8 +64,9 @@ from scoreanim.core.score.identity import ElementId, ElementKind
 
 # The backdrop layer: ink that underlies the whole staff and is exact
 # almost everywhere on it. Its own tier so a barline drawn across it
-# wins (finding 2 above). A set, not an `if kind is STAFF_LINES`, so the
-# policy stays a table like STATIC_KINDS / TINTED_KINDS.
+# wins (finding 2 above), and NOT selectable at all (the M2.8 ruling in
+# the docstring). A set, not an `if kind is STAFF_LINES`, so the policy
+# stays a table like STATIC_KINDS / TINTED_KINDS.
 BACKDROP_KINDS = frozenset({ElementKind.STAFF_LINES})
 
 _ANIMATED_TIER = 0        # notes, slurs, dynamics, texts — the ink
@@ -83,6 +103,14 @@ def tier_of(kind: ElementKind) -> int:
     return _SCAFFOLD_TIER if kind in STATIC_KINDS else _ANIMATED_TIER
 
 
+def is_selectable(kind: ElementKind) -> bool:
+    """Can a click on this kind ever produce a selection? Everything
+    except the backdrop — see the ruling in the module docstring.
+    Scaffold IS selectable: a barline is an object in a measure, not the
+    measure itself, and it is M5's handle (rule 13)."""
+    return kind not in BACKDROP_KINDS
+
+
 def sort_key(candidate: HitCandidate) -> tuple[bool, int, float, str]:
     """The total order. The element_id tail makes the pick
     permutation-independent: two candidates that tie on everything else
@@ -94,10 +122,16 @@ def sort_key(candidate: HitCandidate) -> tuple[bool, int, float, str]:
 
 
 def pick(candidates: Iterable[HitCandidate]) -> ElementId | None:
-    """The winning element, or None for "nothing here" (a deselect)."""
+    """The winning element, or None for "nothing here" (a deselect).
+
+    Unselectable candidates are dropped before the order is applied, so
+    a click whose only ink is backdrop deselects rather than selecting
+    the staff it landed on."""
     best: HitCandidate | None = None
     best_key: tuple[bool, int, float, str] | None = None
     for candidate in candidates:
+        if not is_selectable(candidate.kind):
+            continue
         key = sort_key(candidate)
         if best_key is None or key < best_key:
             best, best_key = candidate, key
