@@ -129,6 +129,34 @@ def test_editing_the_overlay_again_edits_the_stage_text(window) -> None:
                 if t.element_id == overlay_id).content == "Faster"
 
 
+@pytest.mark.parametrize("text_class", ["dir", "reh"])
+def test_a_system_text_or_rehearsal_mark_edits_in_place(window,
+                                                        text_class) -> None:
+    """The M3 exit criterion "edit a system text in place", on the two
+    engraved text classes that are neither tempo nor furniture. Same
+    hide-plus-replace shape, same single undo step, no command edits —
+    which is what "the tempo-overlay mechanism generalized" turned out
+    to mean in practice."""
+    el = _element(window, text_class)
+    eid = el.identity.element_id
+    assert _open_on(window, eid)
+    _type(window, "Edited")
+
+    overlay = next(t for t in window.app_state.doc.stage.texts
+                   if t.element_id == OVERLAY_PREFIX + str(eid))
+    assert overlay.content == "Edited"
+    assert window.app_state.doc.layout_overrides[eid].hidden is True
+    window.app_state.undo()
+    assert not any(t.element_id == OVERLAY_PREFIX + str(eid)
+                   for t in window.app_state.doc.stage.texts)
+
+
+def test_a_measure_number_is_left_alone(window) -> None:
+    """Page furniture is deliberately not editable in place (v1)."""
+    el = _element(window, "mNum")
+    assert not _open_on(window, el.identity.element_id)
+
+
 # -- stage texts ---------------------------------------------------------
 
 def test_double_click_a_stage_text_edits_it(window) -> None:

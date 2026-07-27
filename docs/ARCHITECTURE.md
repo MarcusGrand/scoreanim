@@ -933,6 +933,77 @@ load/re-engrave, `reset_document` on project open) and SURVIVES page
 flips and mode switches, because scenes are per-page and retained
 (ruling D2, 2026-07-25).
 
+**Direct edit (M3, 2026-07-27).** Three affordances over machinery that
+already existed. Policy is pure and headless in `core/editing/`
+(`text_route.py`, `nudge.py`, `segments.py` — the `core/selection/
+policy.py` shape); the Qt halves are `ui/text_edit.py`, `ui/nudge.py`
+and `ui/panels/selection_style.py`.
+
+*Double-click is not selection.* It resolves through its own hit path
+over both engraved TEXT and stage texts, so D5 stands — stage texts stay
+out of `AppState.selection` while being editable. The two gestures ask
+different questions: selection asks which rule-13 object was picked, and
+an object carries a measure and a part, which a stage text has neither
+of. This is load-bearing, not tidy: once a tempo mark is overlaid the
+thing on screen IS a stage text, so a shared path would make a
+just-created replacement uneditable.
+
+*The nudge seam.* `LayoutOverride.dx/dy` were schema slots from Phase 4
+until `SetLayoutOverride` (M3.2). The delta is **absolute, not
+incremental**, and that is what makes one command per gesture possible:
+a drag previews by moving the scene item, touches no document state, and
+executes once on release (rule 8), while undo is a plain replay of the
+previous value rather than an unwinding. Deltas are page units — scene
+coordinates ARE page coordinates, which is why `render/scene.py` builds
+one scene per page rather than one scene with page offsets — and keyed
+by musical `ElementId`, so the engraved position they ride on re-derives
+every load and is never stored (rule 5). Override staleness stays the
+accepted trade: an id the current engraving lacks is skipped.
+
+*Export parity is structural.* `apply_hidden_overrides` grew into
+**`apply_overrides`**, applying the whole `LayoutOverride` rather than
+just `.hidden`. It consumed only `.hidden` because dx/dy were dead
+slots; now that a nudge is real, anything that function skips is a way
+for the exported frame to disagree with the stage. One function, every
+field, and the live side diffs the same values through
+`DocumentSync.sync_offsets`. Pinned by rendering real frames through
+`FrameRenderer` with the document's overrides: after a nudge the
+export's private scenes carry the same delta and the frame digest moves;
+clearing restores the original bytes exactly.
+
+*Moving ink invalidates a reveal cache.* `RevealPathItem.set_clip_right`
+takes the reveal edge as a SCENE x and maps it into the child's local
+coordinates through an inverse scene transform it caches on first use.
+That cache was correct as long as nothing moved, which was true of every
+element before nudging existed. Measured (`spikes/nudge_reveal.py`): a
++30 nudge displaced the clip edge by exactly +30, so the spanner
+revealed as if the playhead were dx further right. `ElementItem.
+set_offset` invalidates it and **re-pushes the last edge** — necessary
+because the clip in force was computed with the stale inverse and
+nothing else recomputes it until the next tick, which never comes while
+paused, and nudging is something people do while paused. With the
+invalidation the local clip tracks exactly −dx and is y-independent.
+`HAIRPIN` therefore stays nudgeable despite being in `REVEALED_KINDS`.
+
+*The `:seg` fan-out.* A per-element override on a system-broken spanner
+writes the whole family (`core/editing/segments.py`: strip one trailing
+`:seg<digits>` for the source, members are the source plus every
+`^source:seg\d+$`, intersected with the loaded registry so no override
+names an id the engraving lacks). Sound because the adapter mints
+segments as `replace(source, element_id=...)` — everything but the id is
+inherited — audited across four fixtures before the ruling. Because rule
+8 counts gestures rather than documents touched, `SetElementStyle`
+carries a `segments` field and the family is ONE undo entry: the "fat
+apply" idiom `ApplyScoreSetup` names, there being no generic macro
+command.
+
+*M3 writes the AUTHORED channel only.* The style controls execute
+commands and let `DocumentSync.sync_styles` — which owns the diff cache
+— push colour through `set_color`. Nothing in M3 writes the transient
+tint, so the compositing rule above is unchanged and a user who colours
+an element the selection's own orange still sees it selected via the
+`SELECTION_ALT_COLOR` fallback.
+
 Since M1 Shell (2026-07-24) the window is a composition root, not a
 widget owner: the stage alone is central, the transport strip + lanes
 live in a bottom-dock lower zone (`ui/transport.py`), the collapsible
@@ -941,7 +1012,14 @@ dynamic Score menu, the load pipeline, document→scene diff-sync, and
 file/project handlers are components (`ui/menus.py`, `ui/parts_menu.py`,
 `ui/score_loader.py`, `ui/document_sync.py`, `ui/file_actions.py`) that
 receive AppState (plus the playback controller where needed) and never
-reach into each other. QSettings (`ui/window_state.py`) persists window
+reach into each other. M3.0 (BACKLOG 9b) finished the job before adding
+to it: **`ui/view_router.py`** owns which presentation unit the stage
+shows (page/system position, step, follow, the mode diff), bound per
+load like `DocumentSync`, and driving the chrome through
+`MainMenus.set_position` rather than reaching for its widgets; the
+part-shaped dialogs moved to `ui/parts_menu.py`, which is already handed
+the parts on every load, and the Texts… dialog to `ui/text_edit.py`,
+which owns the engraved layout it reads. QSettings (`ui/window_state.py`) persists window
 geometry, dock layout, and section expansion — UI state only, saved on
 accepted close; nothing document-derived enters it and nothing of it
 enters the document (rule 5).

@@ -4,10 +4,10 @@ Scope authority is `docs/ROADMAP.md` §M3. This file is how it gets
 built. Written after the audit and the two spikes, before any feature
 code.
 
-Status: **M3.0 landed** (BACKLOG 9b, the window split). Features 1–3
-are blocked on four decisions in §4 — three of them are things the
-roadmap asked to be pinned rather than guessed, and one is a
-stop-and-ask trigger the spike tripped.
+Status: **built M3.0–M3.4, 2026-07-27.** All four decisions in §4 were
+ruled by Marcus as recommended; §6 records what was built and the one
+thing that could not be. Suite 858 passed / 1 xfailed, goldens
+byte-identical.
 
 ---
 
@@ -40,8 +40,9 @@ named:
 "into the components that own their data". `open_texts_dialog`'s data is
 the *current engraved layout* (`animation_inputs.layout` → `page_content_top`
 for the band, plus the `text_class == "tempo"` elements). No component
-today owns that; the window does. M3's feature 1 is the thing that will
-give it a home — see §4.1.
+owned that at M3.0; the window did. M3.1 gave it one — `ui/text_edit.py`
+holds the layout for in-place editing, so the dialog moved there and 9b
+is fully paid.
 
 New coverage: `tests/test_view_router.py`, 12 stub-based tests
 (clamping, mode dispatch, follow gating, page-coherence in system mode,
@@ -172,10 +173,11 @@ stands, two of feature 1's four routes are dead ends: you could never
 re-edit a title, and you could never re-edit a tempo overlay you had
 just created, because in both cases the thing on screen is a stage text.
 
-## 4. Decisions — awaiting Marcus's ruling
+## 4. Decisions — proposed, then ruled
 
-Nothing below is built. Each is either a stop-and-ask trigger or an
-explicit "pin it, don't guess".
+All four were ruled as recommended (Marcus, 2026-07-27). Kept in their
+original form below, because the argument for each is the record of why
+the ruling went the way it did.
 
 ### 4.1 Double-click and D5 (stop-and-ask)
 
@@ -254,7 +256,69 @@ close F5 for roughly the cost of a radio pair.
 Flagging rather than absorbing, as instructed. It is in scope only if
 you say so.
 
-## 5. Plan once the rulings land
+## 5. As built
+
+All four §4 proposals were ruled as recommended (Marcus, 2026-07-27).
+Multi-select stayed out: neither restyle nor nudge needed it, so no
+case was made.
+
+**M3.1 — text edit in place.** Three routes of four. Stage texts,
+tempo overlays, and other engraved TEXT all work; "the tempo-overlay
+mechanism generalized" cost nothing, because `AddTempoOverlay` never
+looked at `text_class` and `seed_overlay_text` reads only
+`glyph.texts[0]`, which every engraved TEXT has. Pinned on `dir` and
+`reh` as well as `tempo`. Page furniture (`mNum`, `pgHead`, `pgFoot`)
+is deliberately not editable in v1. `open_texts_dialog` moved here,
+closing 9b's fourth seam.
+
+**The part-label route could not be built** — see §6. This is the one
+M3 exit criterion left unmet.
+
+**M3.2 — drag-to-nudge.** `SetLayoutOverride`, absolute deltas, one
+command per gesture (pinned with twenty mouse-moves that leave the
+document untouched while the item visibly moves). `apply_hidden_
+overrides` → `apply_overrides`; export parity pinned by rendering real
+frames and comparing digests, including that clearing restores the
+original bytes. The reveal-clip cache is invalidated and the last edge
+re-pushed on move, pinned in local clip coordinates with a non-vacuity
+guard that leaves the cache stale and requires the clip NOT to track.
+
+**M3.3 — style from the selection.** Colour + effect + clear, element or
+part scope (closing F5), `:seg` fan-out as one undo entry via
+`SetElementStyle.segments`. Rule 13 pinned from M3's side: colouring an
+element the selection's own orange leaves it visibly selected through
+`SELECTION_ALT_COLOR`, and deselecting re-derives the plain authored
+colour. "Clear style overrides" is style-only and says so — folding the
+nudge in would cost a second undo entry or a command that does not
+exist (BACKLOG 15).
+
+## 6. What reality contradicted
+
+One thing, and it is the reason feature 1 ships three routes rather than
+four.
+
+**A part label carries no part.** The roadmap routes a part label to the
+part-name override path; `SetPartText` is keyed by `PartId`. Measured:
+Verovio emits labels as direct children of `<g class="system">` with no
+staff or part ancestor, so the adapter mints them
+`score:p<PAGE>:text:<n>` with `part=None` — and `tests/goldens/` pins
+that null (`"part": null` on every label element).
+
+The UI cannot recover the part on its own. Geometry (match the label's y
+to a staff) and ordinal position (labels in vertical order = parts in
+score order) were both rejected: hidden staves and condensing perturb
+both, and rule 13's whole point is that context comes from the id
+grammar rather than from position. The right fix is attribution in the
+adapter — plausibly through the MEI index, since the label's xml:id
+should reach a `staffDef` — which is an adapter change that MOVES
+GOLDENS, so it is outside a milestone whose charter is "UI affordances,
+not new document semantics".
+
+Carried as BACKLOG 14. The routing policy IS written and unit-tested,
+and the end-to-end test asserts the current limitation in a form that
+fails the moment labels gain a part.
+
+## 7. The plan these were built to (kept for the record)
 
 1. **M3.1** — text edit in place: the `QLineEdit` overlay + the text
    resolver (§4.1), routing to the four existing command paths. This is

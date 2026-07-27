@@ -170,6 +170,24 @@ See `spikes/NOTES.md` for the full investigation of each.
    `scenes.items.get(eid)` is available polish; (c) `measure_ordinal_of`
    duplicates `schedule.py`'s private `_MEASURE_RE` — if a third caller
    appears, promote the public helper and migrate.
+   **DONE (M3.3, 2026-07-27).** The Selection panel's style controls
+   (`ui/panels/selection_style.py`) write colour and effect through
+   `SetElementStyle`, plus "Clear style overrides". The `:seg` question
+   is **resolved: fan out** (ruling, after `spikes/seg_fanout.py`
+   audited the grammar on 4 fixtures / 116 broken spanners — no
+   nesting, no orphans, no identity mismatch). `core/editing/segments.py`
+   is the family arithmetic; `SetElementStyle` gained a `segments` field
+   so the family is ONE undo entry (the "fat apply" idiom, not a new
+   command class). The panel still labels the pick "Hairpin (segment
+   1)" — it is the OVERRIDE that spreads, not the selection.
+   Of the three inherited M2 seams: **(a) is resolved** — M3.1 gave
+   stage texts their own double-click hit path, so D5 stands and they
+   are editable without being selectable; **(b) is still open** —
+   selection still clears on re-engrave rather than re-resolving via
+   `scenes.items.get(eid)`, and nothing in M3 needed it; **(c) is still
+   open** — `measure_ordinal_of` still duplicates `schedule.py`'s
+   private `_MEASURE_RE`, and M3 added no third caller.
+
    **M2.8 (2026-07-27) removed the hard part of the color case:**
    authored color and the selection tint are separate channels composed
    in `ElementItem`, so a per-element override is written through
@@ -194,6 +212,21 @@ See `spikes/NOTES.md` for the full investigation of each.
    `ui/selection.py`, `render/items.py`, `render/animate.py`,
    `core/selection/` and the panel. So the split was correctly NOT done
    here; it remains M3's to do first.
+   **DONE (M3.0, 2026-07-27), as the first commit on the branch and
+   with no feature code in it:** 399 → **312** lines (317 after M3's own
+   wiring). Both of the seams named above were used.
+   `ui/view_router.py` took the position state and the six routing
+   methods, bound per load like `DocumentSync`; `MainMenus` grew
+   `set_position()` so the router never reaches for the readout widgets
+   the chrome owns. `ui/parts_menu.py` took Score Setup / Staff Groups /
+   Part Names **and** the `_parts` tuple they guarded on — `rebuild()`
+   was already called with the parts on every load, so the three
+   `Callable`s the window passed down disappeared with it. The fourth
+   opener, Texts…, moved at M3.1 to `ui/text_edit.py`: 9b's criterion is
+   "the component that owns their data", its data is the current
+   engraved layout, and no component owned that until in-place text
+   editing existed. `tests/test_view_router.py` (12 stub-based tests)
+   gives the routing coverage it never had while it was window methods.
 
 10. **Per-voice reveal granularity** (accepted limit at the Phase 5
     reveal re-plan, ruling A): reveal edges are per (system, part), not
@@ -320,17 +353,49 @@ scale-to-fit). Parked:
 
 ## M4 Effects (2026-07-25)
 
-- **Per-part effect authoring gap (until M3).** The Effects panel
-  covers the DOCUMENT default only, and M4 dropped the Score-menu
-  per-part effect radio group (brief F5). A per-part effect deviation
-  in a saved project is still honored and round-tripped (part rules
-  untouched) but cannot be authored in the UI until M3's Selection
-  panel.
+- ~~**Per-part effect authoring gap (until M3).**~~ **CLOSED (M3.3,
+  2026-07-27, ruled in scope).** The Selection panel's style controls
+  carry a scope switch — this element / this part — so a per-part
+  effect rule is authorable again through `SetPartEffect`, keyed by the
+  part the selection already carries (rule 13). It governs colour as
+  well as effect, and disables itself on score-level ink, which has no
+  part.
 - **Pre-swell-on-floor-ghost variant.** Peak offset is a uniform
   signed trigger shift (brief F3): at a negative offset the note also
   BECOMES VISIBLE early. If appearance-on-beat with a pre-swell of the
   floor ghost is ever wanted, that is signed `t_rel` keyframes — a new
   preset and a real model change, not the existing knob.
+
+## M3 Direct edit (2026-07-27)
+
+14. **A part label carries no part, so it cannot be renamed by
+    double-clicking it** — the one M3 exit criterion left unmet, and the
+    one route of feature 1 that is not built. MEASURED, not assumed:
+    Verovio emits labels as direct children of `<g class="system">` with
+    no staff or part ancestor, so the adapter mints them
+    `score:p<PAGE>:text:<n>` with `part=None`, and `tests/goldens/`
+    pins that null. `SetPartText` is keyed by `PartId`, so the route
+    cannot be completed from the UI side at all.
+    Resolving it means attributing labels to parts in the adapter —
+    plausibly via the MEI index, since the label's xml:id should reach
+    a `staffDef` — which is an adapter change that MOVES GOLDENS, and
+    therefore outside M3's "UI affordances, not new document semantics".
+    Geometry or vertical order could infer the part instead; both were
+    rejected as fragile (hidden staves and condensing perturb both, and
+    rule 13's spirit is that context comes from the id grammar, never
+    from position). Until then, Part Names… remains the way to rename.
+    The routing policy is written and unit-tested
+    (`tests/test_text_route.py`), and `tests/test_text_edit.py`
+    asserts the current limitation so it fails the moment labels gain a
+    part.
+
+15. **Nudge is excluded from "Clear style overrides"** (M3.3, deliberate).
+    The button clears colour and effect on the whole `:seg` family in one
+    undo entry; a `LayoutOverride.dx/dy` lives in a different part of the
+    document, so folding it in would make one click either two undo
+    entries (rule 8) or need a command that does not exist. Undo and
+    drag-back cover it today. Revisit if a combined "reset this element"
+    is actually wanted.
 
 ## Deferred (from PHASES.md "Later")
 

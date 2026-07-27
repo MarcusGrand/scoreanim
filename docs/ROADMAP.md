@@ -374,6 +374,73 @@ hairpin 20px up and export — the exported frame matches the stage;
 nudge, restyle, and clear-overrides on single elements, all undoable,
 full suite green.
 
+**CLOSED 2026-07-27 except one route** (built M3.0–M3.4 on
+`beta/m3-direct-edit` per `docs/briefs/M3_DIRECT_EDIT_BRIEF.md`). Four
+decisions were measured and then ruled by Marcus; the measurements are
+in the brief §3 and in `spikes/nudge_reveal.py` / `spikes/seg_fanout.py`.
+
+**M3.0 — BACKLOG 9b paid first, as its own commit.** `main_window.py`
+399 → 312 lines (317 after M3's own wiring). Both seams are the ones 9b
+named: `ui/view_router.py` took the presentation routing, and
+`ui/parts_menu.py` took the three part-shaped dialogs — it was already
+handed the parts they need on every load, so the data and its dialogs
+now live together and the window holds neither. The fourth opener,
+Texts…, moved at M3.1 to `ui/text_edit.py`, which owns the engraved
+layout it reads. `tests/test_view_router.py` gives the routing the
+direct coverage it never had as window methods.
+
+**R1 — D5 stands; double-click has its own hit path.** The two gestures
+ask different questions: selection asks which rule-13 OBJECT was picked,
+and an object carries a measure and a part, which a stage text has
+neither of. So stage texts remain unselectable while being editable.
+This is load-bearing rather than tidy — the moment a tempo mark is
+overlaid the thing on screen IS a stage text, so without it you could
+never re-edit a replacement you had just created.
+
+**R2 — fix the reveal-clip cache, keep HAIRPIN nudgeable.**
+`NUDGEABLE_KINDS = {DYNAMIC, HAIRPIN, TEXT}`. The spike found the
+interaction the roadmap suspected, but not where it guessed:
+`RevealPathItem` maps the reveal edge from a SCENE x through an inverse
+scene transform it caches on first use, so a moved element revealed as
+if the playhead were dx further right — the error is exactly dx (+30.00
+for a +30 nudge). Invalidating on move makes the local clip track
+exactly −dx and stay y-independent, measured at ±10 in x and ±20 in y.
+Two things this settles: excluding `REVEALED_KINDS` would have deleted
+this section's own primary target, since HAIRPIN is one; and a pure-y
+nudge is unaffected even unfixed, so the exit criterion above would have
+passed either way and could not have caught it.
+
+**R3 — the `:seg` fan-out happens** (this section's recommendation,
+confirmed against the grammar). Audited on four fixtures before ruling:
+30124 elements, 116 broken spanners, zero nesting, zero orphans, zero
+identity mismatch between a segment and its source, sources only ever
+TIE/SLUR/HAIRPIN. It forced one thing this section did not anticipate:
+a three-segment family written as three commands is three undo entries
+for one gesture, so `SetElementStyle` gained a `segments` field — the
+"fat apply" idiom `ApplyScoreSetup` already names, not a new command.
+
+**R4 — M4's F5 closes here.** Per-part effect rules become authorable
+again via a scope switch (this element / this part) on the same two
+controls. It governs colour as well as effect, and disables itself on
+score-level ink, which has no part.
+
+**The part-label route is NOT built, and the reason is measured.** This
+section routes a part label to the part-name override; `SetPartText` is
+keyed by `PartId`, and the engraved label element has none. Verovio
+emits labels as direct children of `<g class="system">` with no staff or
+part ancestor, so the adapter mints them `score:p<PAGE>:text:<n>` with
+`part=None` — and the goldens pin that null. Supplying the attribution
+is an adapter change that moves goldens, which is outside this
+milestone's "UI affordances, not new document semantics". The routing
+policy is written and unit-tested; the end-to-end test asserts the
+current limitation and fails the moment labels gain a part. **The first
+exit criterion is therefore unmet** and carried as BACKLOG 14; the other
+four are met, with "edit a system text in place" pinned on both engraved
+text classes that are neither tempo nor furniture (`dir`, `reh`).
+
+Multi-select stayed OUT, as M2 left it: neither restyle nor nudge
+needed it to be usable, so no case was made.
+
 ---
 
 ## M4 — Effects (the pop you can actually use)
@@ -553,6 +620,19 @@ re-engraves with the break — the app's first *layout-intent* edit.
   barline handle is now the ONLY scaffold handle into a measure: the
   backdrop stopped being selectable at M2.8, so nothing else on a staff
   answers a click with a measure ordinal.
+  **Inherited from M3 (2026-07-27):** (a) the re-engrave the break
+  overrides trigger goes through **`ui/view_router.py`** now —
+  `_reengrave` calls `router.show_current()`, so a forced break must
+  leave the router's page/system position sane, and the router is where
+  to look if it does not. (b) M3 needed no window-level split of its
+  own; `main_window.py` is at 317 lines, so M5's wiring has room, but
+  the same rule applies before it grows further. (c) If M5 ever wants
+  one gesture to touch several document fields, the answer is the "fat
+  apply" idiom — widen the command, as M3.3 widened `SetElementStyle`
+  with `segments` — not a macro command, which still does not exist.
+  (d) `Selection.measure_ordinal` is unchanged and still the property
+  to read; M3 added no third caller of `measure_ordinal_of`, so BACKLOG
+  9(c) is still open rather than resolved.
 - **CLAUDE.md rule 7 amendment (draft — apply with the build
   ruling):** *"Amendment (M5, 2026-XX-XX): the honored system-break
   set is the encoded breaks ⊕ the user's in-app break overrides
