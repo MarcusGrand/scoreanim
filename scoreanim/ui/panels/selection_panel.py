@@ -1,8 +1,16 @@
-"""Selection panel (M2.5): what is selected on the stage.
+"""Selection panel (M2.5, restructured M2.8): what is selected on the
+stage, and what that selection carries.
 
 The inspector's Selection section body. A pure readout — M2 makes the
 selection EXIST and nothing else; the editing controls that will live
 here (per-element color/effect, clear-overrides) are M3.
+
+Two blocks, because rule 13 draws exactly this line. The OBJECT block is
+what the user picked. The CONTEXT block below it — part and measure — is
+derived from the object's id and shown captioned as carried, not chosen;
+a measure is never a selection target, so it must never look like one.
+The stage shows only the object (ruling 2026-07-27: the implicit levels
+are panel-only, so nothing on the page can read as a second selection).
 
 Unlike EffectsPanel this panel is driven by TRANSIENT state, so it
 subscribes to app_state.selection_changed itself instead of riding the
@@ -14,18 +22,21 @@ there is nothing in the document to resync from.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QFormLayout, QLabel, QSizePolicy, QStackedWidget,
-                               QWidget)
+from PySide6.QtWidgets import (QFormLayout, QFrame, QLabel, QSizePolicy,
+                               QStackedWidget, QVBoxLayout, QWidget)
 
 from scoreanim.core.score.identity import ElementIdentity
 from scoreanim.core.score.model import MeasureInfo
-from scoreanim.core.selection import measure_ordinal_of
+from scoreanim.core.selection import Selection
 from scoreanim.ui.app_state import AppState
 
 _EMPTY = "—"
 
-# Row order is musical: what it is, whose it is, where it is, when.
-_ROWS = ("Kind", "Part", "Staff", "Voice", "Measure", "Onset", "Extent")
+# What you picked: what it is, where on the staff, when it sounds.
+_OBJECT_ROWS = ("Kind", "Staff", "Voice", "Onset", "Extent")
+# What that pick carries. Both derived from the id, never chosen.
+_CONTEXT_ROWS = ("Part", "Measure")
+_CONTEXT_CAPTION = "carries"
 
 
 class SelectionPanel(QWidget):
@@ -39,15 +50,13 @@ class SelectionPanel(QWidget):
 
         self._values: dict[str, QLabel] = {}
         details = QWidget()
-        form = QFormLayout(details)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        for row in _ROWS:
-            value = QLabel(_EMPTY)
-            value.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextSelectableByMouse)
-            self._values[row] = value
-            form.addRow(row, value)
+        outer_details = QVBoxLayout(details)
+        outer_details.setContentsMargins(0, 0, 0, 0)
+        outer_details.setSpacing(6)
+
+        form = self._add_form(outer_details)
+        for row in _OBJECT_ROWS:
+            form.addRow(row, self._value_label(row))
         # the raw id: the debugging handle, and what an override would be
         # keyed by — dimmed, selectable, wrapping
         self._eid = QLabel(_EMPTY)
@@ -59,6 +68,20 @@ class SelectionPanel(QWidget):
                                 QSizePolicy.Policy.Preferred)
         form.addRow("Id", self._eid)
 
+        # the seam between chosen and carried, drawn: a rule, then a
+        # dimmed caption, then the derived rows
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        outer_details.addWidget(line)
+        caption = QLabel(_CONTEXT_CAPTION)
+        caption.setEnabled(False)
+        outer_details.addWidget(caption)
+
+        context = self._add_form(outer_details)
+        for row in _CONTEXT_ROWS:
+            context.addRow(row, self._value_label(row))
+
         self._stack = QStackedWidget()
         self._stack.addWidget(self._empty)
         self._stack.addWidget(details)
@@ -69,28 +92,50 @@ class SelectionPanel(QWidget):
         app_state.selection_changed.connect(self._on_selection_changed)
         self._on_selection_changed()
 
+    # -- construction helpers ----------------------------------------------
+
+    def _add_form(self, parent: QVBoxLayout) -> QFormLayout:
+        block = QWidget()
+        form = QFormLayout(block)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        parent.addWidget(block)
+        return form
+
+    def _value_label(self, row: str) -> QLabel:
+        value = QLabel(_EMPTY)
+        value.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._values[row] = value
+        return value
+
     # -- readout -----------------------------------------------------------
 
     def _on_selection_changed(self) -> None:
-        identity = self._state.selected
-        if identity is None:
+        selection = self._state.selection
+        if selection is None:
             self._stack.setCurrentWidget(self._empty)
             return
-        self._fill(identity)
+        self._fill(selection)
         self._stack.setCurrentIndex(1)
 
-    def _fill(self, identity: ElementIdentity) -> None:
+    def _fill(self, selection: Selection) -> None:
+        """Object rows off the identity; context rows off the Selection's
+        derived properties, never off the identity's fields directly —
+        one source of truth for what a pick carries (rule 13)."""
+        obj = selection.obj
         set_ = self._values
-        set_["Kind"].setText(_kind_label(identity))
-        set_["Part"].setText(identity.part_name or _text(identity.part))
-        set_["Staff"].setText(_text(identity.staff))
-        set_["Voice"].setText(_text(identity.voice))
+        set_["Kind"].setText(_kind_label(obj))
+        set_["Staff"].setText(_text(obj.staff))
+        set_["Voice"].setText(_text(obj.voice))
+        set_["Onset"].setText(_beats(obj.onset))
+        set_["Extent"].setText(_extent(obj.extent))
+        set_["Part"].setText(
+            selection.part_name or _text(selection.part))
         set_["Measure"].setText(
-            _measure_label(identity, self._state.measures))
-        set_["Onset"].setText(_beats(identity.onset))
-        set_["Extent"].setText(_extent(identity.extent))
-        self._eid.setText(str(identity.element_id))
-        self._eid.setToolTip(str(identity.element_id))
+            _measure_label(selection, self._state.measures))
+        self._eid.setText(str(obj.element_id))
+        self._eid.setToolTip(str(obj.element_id))
 
 
 def _text(value: object) -> str:
@@ -118,13 +163,13 @@ def _extent(extent: tuple[float, float] | None) -> str:
     return f"{extent[0]:g} – {extent[1]:g}"
 
 
-def _measure_label(identity: ElementIdentity,
+def _measure_label(selection: Selection,
                    measures: tuple[MeasureInfo, ...]) -> str:
-    """The document-order ordinal parsed out of the id, plus the PRINTED
+    """The document-order ordinal the selection carries, plus the PRINTED
     number when the two differ (a Dorico "X0" pickup makes them differ
     for the whole score). System-scoped and page-furniture ids have no
     measure at all."""
-    ordinal = measure_ordinal_of(identity.element_id)
+    ordinal = selection.measure_ordinal
     if ordinal is None:
         return _EMPTY
     if 1 <= ordinal <= len(measures):

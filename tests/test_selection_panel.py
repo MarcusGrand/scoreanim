@@ -148,3 +148,35 @@ def test_panel_never_touches_the_document(panel) -> None:
     state.set_selection(None)
     assert not state.can_undo
     assert not state.is_dirty
+
+
+# -- object vs context (M2.8, rule 13) -----------------------------------
+
+def test_object_and_context_are_separate_blocks(panel) -> None:
+    """What you picked and what it carries are different things, so they
+    are different blocks — the derived levels must not read as three
+    things the user chose."""
+    from scoreanim.ui.panels.selection_panel import (_CONTEXT_ROWS,
+                                                     _OBJECT_ROWS)
+
+    p, _ = panel
+    assert set(_OBJECT_ROWS).isdisjoint(_CONTEXT_ROWS)
+    assert set(_CONTEXT_ROWS) == {"Part", "Measure"}
+    # every row of both blocks is actually built
+    for row in (*_OBJECT_ROWS, *_CONTEXT_ROWS):
+        assert row in p._values
+
+
+def test_context_rows_come_from_the_selection_not_the_identity(
+        panel) -> None:
+    """Both context rows must resolve through Selection's derived
+    properties. Pinned by a barline: score-scoped ink whose part is None
+    but whose measure the id still carries (M5's handle)."""
+    p, state = panel
+    state.set_selection(ElementIdentity(
+        ElementId("score:m5:barline:0"), ElementKind.BARLINE,
+        None, None, None, None, None))
+    assert state.selection.part is None
+    assert state.selection.measure_ordinal == 5
+    assert _row(p, "Part") == "—"
+    assert _row(p, "Measure") == "5"
