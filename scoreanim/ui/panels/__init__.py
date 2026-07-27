@@ -7,5 +7,6 @@ driven by transient selection state, so it subscribes to
 `AppState.selection_changed` itself and has no document resync."""
 from scoreanim.ui.panels.effects_panel import EffectsPanel
 from scoreanim.ui.panels.selection_panel import SelectionPanel
+from scoreanim.ui.panels.selection_style import SelectionStyleControls
 
-__all__ = ["EffectsPanel", "SelectionPanel"]
+__all__ = ["EffectsPanel", "SelectionPanel", "SelectionStyleControls"]

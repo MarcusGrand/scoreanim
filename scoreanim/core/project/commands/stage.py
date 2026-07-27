@@ -126,14 +126,18 @@ class EditStageText(Command):
 
 @dataclass(frozen=True)
 class AddTempoOverlay(Command):
-    """Replace an engraved tempo mark (Phase 9.2): hide the engraved
-    TEXT element — the first consumer of LayoutOverride.hidden — and
-    add its replacement stage text, one intent, ONE undo step. Never
-    re-engraves. The doc has no layout, so this cannot verify that
-    `element_id` really is a tempo TEXT — the UI guarantees it by
-    filtering RenderedElement.text_class == "tempo" (the part_order
-    trust model). Editing an existing overlay is EditStageText on the
-    overlay id."""
+    """Replace an engraved TEXT with a stage text: hide the engraved
+    element — the first consumer of LayoutOverride.hidden — and add its
+    replacement, one intent, ONE undo step. Never re-engraves.
+
+    Named for its first caller (Phase 9.2, tempo marks) but never
+    restricted to them: the doc has no layout, so this cannot verify
+    what `element_id` is, and the UI guarantees it (the part_order trust
+    model). M3.1 relies on exactly that — a system text or rehearsal
+    mark takes this path unchanged, which is what "the tempo-overlay
+    mechanism generalized" turned out to cost.
+
+    Editing an existing overlay is EditStageText on the overlay id."""
     element_id: ElementId            # the ENGRAVED element to hide
     text: StageTextElement           # id must be OVERLAY_PREFIX + element_id
 
@@ -154,7 +158,10 @@ class AddTempoOverlay(Command):
                                      texts=doc.stage.texts + (self.text,)))
 
     def describe(self) -> str:
-        return "replace tempo mark"
+        # M3.1 generalized the mechanism to any engraved TEXT (system
+        # texts, rehearsal marks), so the Edit-menu phrase can no longer
+        # say "tempo mark" — it would be wrong for most uses of it now.
+        return "replace text"
 
 
 @dataclass(frozen=True)
@@ -181,4 +188,4 @@ class RemoveTempoOverlay(Command):
                        stage=replace(doc.stage, texts=texts))
 
     def describe(self) -> str:
-        return "restore tempo mark"
+        return "restore text"

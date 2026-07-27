@@ -217,17 +217,30 @@ scoreanim/
                            # seam (M4): engraved durations → per-element map
     selection/             # policy.py — PURE hit-priority policy (M2):
                            # HitCandidate, pick(), measure_ordinal_of();
-                           # no Qt, headless-tested on synthetic lists
+                           # no Qt, headless-tested on synthetic lists;
+                           # context.py Selection, highlight.py colors
+    editing/               # PURE direct-edit policy (M3), same shape:
+                           # text_route.py  double-click → which existing
+                           #                command edits this text
+                           # nudge.py       NUDGEABLE_KINDS + step sizes
+                           # segments.py    the :seg family a per-element
+                           #                override fans out to
     project/               # Project document, serialization; commands/ —
                            # undoable commands split by domain (base/timing/
                            # style/stage/layout/undo, M4 exit audit)
   render/                  # Qt only: Layout → QGraphicsItems, property application
   ui/                      # Qt shell (M1: window = composition root;
-                           # M2 exit: main_window.py is AT the 400-line
-                           # ceiling — split it before adding more):
-                           #   main_window.py   composition + page/system routing
+                           # M3.0 paid BACKLOG 9b — the window was AT the
+                           # 400-line ceiling and split before M3 wired
+                           # anything into it, 399 → 312; 317 as built):
+                           #   main_window.py   composition + document→world sync
+                           #   view_router.py   page/system presentation routing
+                           #                    (M3.0): position state, step,
+                           #                    follow, mode diff; stub-tested
                            #   menus.py         static chrome + shortcuts
-                           #   parts_menu.py    dynamic Score-menu content
+                           #   parts_menu.py    dynamic Score-menu content, and
+                           #                    the three part-shaped dialogs
+                           #                    it launches (M3.0)
                            #   inspector.py     right dock, scrolled
                            #                    (collapsible.py sections)
                            #   panels/          inspector section bodies (M4:
@@ -235,10 +248,19 @@ scoreanim/
                            #                    Effects controls + resync; M2:
                            #                    selection_panel.py — identity
                            #                    readout, observes
-                           #                    selection_changed, no doc sync)
+                           #                    selection_changed, no doc sync;
+                           #                    M3: selection_style.py — colour/
+                           #                    effect writes, element-or-part
+                           #                    scope, :seg fan-out)
                            #   selection.py     SelectionController (M2):
                            #                    scene hits → core policy →
-                           #                    AppState + highlight overlay
+                           #                    AppState + highlight tint
+                           #   text_edit.py     in-place text editing (M3.1):
+                           #                    own hit path (D5 stands), the
+                           #                    QLineEdit overlay, Texts… dialog
+                           #   nudge.py         drag-to-nudge (M3.2): preview by
+                           #                    setPos, ONE SetLayoutOverride
+                           #                    per gesture
                            #   transport.py     lower zone: strip + lanes dock
                            #   file_actions.py  open/save/import/export handlers
                            #   score_loader.py  engrave→scene load pipeline

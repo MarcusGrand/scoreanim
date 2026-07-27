@@ -77,7 +77,7 @@ class MainMenus:
 
         self.texts_action = QAction("Texts…", window)
         self.texts_action.setEnabled(False)          # needs a loaded score
-        self.texts_action.triggered.connect(window.open_texts_dialog)
+        self.texts_action.triggered.connect(window.text_edit.open_texts_dialog)
 
         # -- View ------------------------------------------------------------
         fit = QAction("Fit", window)
@@ -89,10 +89,10 @@ class MainMenus:
         self.prev_action = QAction("◀", window)
         self.prev_action.setShortcut(
             QKeySequence.StandardKey.MoveToPreviousPage)
-        self.prev_action.triggered.connect(lambda: window.step(-1))
+        self.prev_action.triggered.connect(lambda: window.router.step(-1))
         self.next_action = QAction("▶", window)
         self.next_action.setShortcut(QKeySequence.StandardKey.MoveToNextPage)
-        self.next_action.triggered.connect(lambda: window.step(+1))
+        self.next_action.triggered.connect(lambda: window.router.step(+1))
         self.page_label = QLabel("–/–")
 
         # -- Playback --------------------------------------------------------
@@ -157,3 +157,11 @@ class MainMenus:
                        strip.play_action, strip.arm_taps_action,
                        strip.tap_action, reload_tempo):
             window.addAction(action)
+
+    def set_position(self, text: str, can_prev: bool, can_next: bool) -> None:
+        """The page/system readout and the step actions' enabled state,
+        driven by `ui/view_router.py`. The three widgets live here, so
+        the update does too — the router never reaches for them."""
+        self.page_label.setText(text)
+        self.prev_action.setEnabled(can_prev)
+        self.next_action.setEnabled(can_next)

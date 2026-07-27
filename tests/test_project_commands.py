@@ -600,7 +600,7 @@ def test_tempo_overlay_undo_is_one_step(stage_doc) -> None:
     stack = UndoStack()
     d1 = stack.execute(AddTempoOverlay(ElementId(TEMPO_EID),
                                        _overlay_text()), stage_doc)
-    assert stack.undo_text() == "replace tempo mark"
+    assert stack.undo_text() == "replace text"
     restored = stack.undo()                  # ONE undo restores BOTH halves
     assert restored == stage_doc
     assert restored.layout_overrides == {}

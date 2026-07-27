@@ -1,9 +1,11 @@
 """Selection panel (M2.5, restructured M2.8): what is selected on the
 stage, and what that selection carries.
 
-The inspector's Selection section body. A pure readout — M2 makes the
-selection EXIST and nothing else; the editing controls that will live
-here (per-element color/effect, clear-overrides) are M3.
+The inspector's Selection section body: a readout, and since M3.3 the
+editing controls under it (`selection_style.py` — per-element or
+per-part colour/effect, and the cheap reset). The readout stays here and
+the writes stay there, so this file remains a description of what is
+selected and never grows into a form.
 
 Two blocks, because rule 13 draws exactly this line. The OBJECT block is
 what the user picked. The CONTEXT block below it — part and measure — is
@@ -29,6 +31,7 @@ from scoreanim.core.score.identity import ElementIdentity
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.selection import Selection
 from scoreanim.ui.app_state import AppState
+from scoreanim.ui.panels.selection_style import SelectionStyleControls
 
 _EMPTY = "—"
 
@@ -81,6 +84,14 @@ class SelectionPanel(QWidget):
         context = self._add_form(outer_details)
         for row in _CONTEXT_ROWS:
             context.addRow(row, self._value_label(row))
+
+        # the writes (M3.3), below the description of what they act on
+        edit_line = QFrame()
+        edit_line.setFrameShape(QFrame.Shape.HLine)
+        edit_line.setFrameShadow(QFrame.Shadow.Sunken)
+        outer_details.addWidget(edit_line)
+        self.style_controls = SelectionStyleControls(app_state)
+        outer_details.addWidget(self.style_controls)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._empty)

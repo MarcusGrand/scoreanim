@@ -7,6 +7,14 @@ timing/style edit is an undoable command; the tempo sidecar is an
 import command; file opens reset/bind outside the stack (ruling
 2026-07-11). On document_changed the window retimes the animation and
 diffs part tints — views never talk to each other.
+
+M3.0 (BACKLOG 9b) took two more jobs out of here: presentation routing
+(page/system state + prev/next/follow) is `ui/view_router.py`, and the
+three part-shaped dialogs went to `ui/parts_menu.py`, which was already
+handed the parts they need. M3.1 took the fourth, Texts…, to
+`ui/text_edit.py`, which now owns the engraved layout that dialog reads.
+What is left is composition, the document→world sync pass, and the load
+install.
 """
 
 from __future__ import annotations
@@ -14,17 +22,15 @@ from __future__ import annotations
 from dataclasses import replace as _dc_replace
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, QSettings, Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project import (HIDE_EMPTY_STAVES_DEFAULT, ApplyTaps,
-                                    PresentationMode, ProjectDoc,
-                                    StageConfig, page_content_top)
+                                    ProjectDoc, StageConfig)
 from scoreanim.core.timing import TempoMap
 from scoreanim.core.timing.taps import (TapSession, derive_tempo_events,
                                         start_residual)
-from scoreanim.render.animate import AnimationApplier
 from scoreanim.render.export import AnimationInputs
 from scoreanim.render.scene import ScoreScenes
 from scoreanim.ui.app_state import AppState
@@ -32,18 +38,17 @@ from scoreanim.ui.document_sync import DocumentSync
 from scoreanim.ui.file_actions import FileActions
 from scoreanim.ui.inspector import Inspector
 from scoreanim.ui.menus import MainMenus
+from scoreanim.ui.nudge import NudgeController
 from scoreanim.ui.parts_menu import PartsMenu
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
-from scoreanim.ui.part_names_dialog import PartNamesDialog
 from scoreanim.ui.score_loader import LoadedScore, ScoreLoader
-from scoreanim.ui.score_setup_dialog import ScoreSetupDialog
 from scoreanim.ui.selection import SelectionController
-from scoreanim.ui.staff_groups_dialog import StaffGroupsDialog
 from scoreanim.ui.stage_view import StageView
-from scoreanim.ui.texts_dialog import TextsDialog
+from scoreanim.ui.text_edit import InlineTextEditor
 from scoreanim.ui.taps import TapRecorder
 from scoreanim.ui.transport import LowerZone
+from scoreanim.ui.view_router import ViewRouter
 from scoreanim.ui.window_state import (default_settings,
                                        restore_window_state,
                                        save_window_state)
@@ -59,13 +64,7 @@ class MainWindow(QMainWindow):
 
         self._scenes: ScoreScenes | None = None
         self.animation_inputs: AnimationInputs | None = None
-        self._applier: AnimationApplier | None = None
-        self._page = 1
-        self._system = 1
-        self._band_by_system: dict = {}              # derived, never saved
-        self._applied_mode = PresentationMode.PAGED  # what the view shows
         self.last_overflow = False           # last load overflowed a page
-        self._parts: tuple = ()            # PartInfos of the loaded score
 
         self.app_state = AppState(self)
         self.playback = PlaybackController(self)
@@ -99,10 +98,6 @@ class MainWindow(QMainWindow):
         # split); connects peaks.failed itself
         self.files = FileActions(self)
 
-        # follow reports page AND system; the window routes by the
-        # document's presentation mode (Phase 7.4)
-        self.playback.page_changed.connect(self._on_page_followed)
-        self.playback.system_changed.connect(self._on_system_followed)
         self.playback.status_message.connect(
             lambda msg: self.statusBar().showMessage(msg))
         self.playback.time_changed.connect(self._on_time)
@@ -123,17 +118,39 @@ class MainWindow(QMainWindow):
         self.selection = SelectionController(self.app_state, self)
         self.view.clicked.connect(self.selection.select_at)   # (pos, scene)
         self.view.deselect_requested.connect(self.selection.clear)
+        # in-place text editing (M3.1) — its own hit path, not the
+        # selection's (D5 stands); also owns the Texts… dialog, whose
+        # data is the engraved layout (BACKLOG 9b's fourth opener)
+        self.text_edit = InlineTextEditor(self.app_state, self.view, self)
+        self.view.double_clicked.connect(self.text_edit.edit_at)
+        # drag-to-nudge (M3.2): the view asks the probe at press time
+        # whether this press moves an element or pans, so the pan is
+        # untouched everywhere else
+        self.nudge = NudgeController(self.app_state, self)
+        self.view.nudge_probe = self.nudge.probe
+        self.view.drag_started.connect(self.nudge.start)
+        self.view.drag_moved.connect(self.nudge.move)
+        self.view.drag_finished.connect(self.nudge.finish)
+        self.view.nudge_key.connect(self.nudge.nudge_by)
 
         # static chrome (M1.5): the five menus, the slim toolbar, and
         # window-level shortcut registration; the window keeps the refs
         # it mutates (undo text, enable-on-load, page readout)
         self.menus = MainMenus(self)
+        # presentation routing (M3.0): page/system state and the
+        # prev/next/follow/mode paths; needs the chrome for its readout,
+        # so it is built after the menus and the two follow signals
+        # connect here rather than above
+        self.router = ViewRouter(self.view, self.menus)
+        # follow reports page AND system; the router picks by the
+        # document's presentation mode (Phase 7.4)
+        self.playback.page_changed.connect(self.router.on_page_followed)
+        self.playback.system_changed.connect(self.router.on_system_followed)
         # dynamic Score-menu content (M1.6): rebuilt per load; check
-        # state re-derived from the document by the sync passes below
-        self.parts_menu = PartsMenu(
-            self.menus.score_menu, self.app_state, self,
-            self.open_score_setup_dialog, self._open_staff_groups_dialog,
-            self._open_part_names_dialog)
+        # state re-derived from the document by the sync passes below.
+        # Owns the three part-shaped dialogs too since M3.0 (BACKLOG 9b)
+        self.parts_menu = PartsMenu(self.menus.score_menu, self.app_state,
+                                    self)
         # load pipeline + document→scene diff-sync (M1.7): the loader
         # returns a LoadedScore bundle _install adopts; the sync owns
         # the applied caches the document-changed pass diffs against
@@ -200,11 +217,12 @@ class MainWindow(QMainWindow):
             self.animation_inputs = _dc_replace(self.animation_inputs,
                                                 stage=doc.stage)
         self.doc_sync.sync_hidden(doc)
+        self.doc_sync.sync_offsets(doc)
         self.playback.set_style(doc.style)
         self.lower_zone.strip.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
         self.parts_menu.sync_from_document(doc)
-        self._sync_presentation_mode(doc.stage.mode)
+        self.router.sync_presentation_mode(doc.stage.mode)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
         undo = self.menus.undo_action
@@ -238,8 +256,7 @@ class MainWindow(QMainWindow):
                                   hide_empty_staves, condense_groups,
                                   hide_first_system)
         self._install(loaded)
-        self._page = 1
-        self._system = 1
+        self.router.reset()
         return loaded.stage
 
     def _reengrave(self, doc: ProjectDoc) -> None:
@@ -253,7 +270,7 @@ class MainWindow(QMainWindow):
                                   doc.text_overrides, doc.hide_empty_staves,
                                   doc.condense_groups, doc.hide_first_system)
         self._install(loaded)
-        self.show_current()              # install the fresh scene
+        self.router.show_current()       # install the fresh scene
 
     def _install(self, loaded: LoadedScore) -> None:
         """Adopt one load's derived world and point every consumer at
@@ -261,54 +278,23 @@ class MainWindow(QMainWindow):
         measure axis, the per-load Score menu."""
         self._scenes = loaded.scenes
         self.animation_inputs = loaded.animation_inputs
-        self._applier = loaded.applier
         self.doc_sync.bind_scenes(loaded.scenes, loaded.stage.texts)
         self.selection.bind_scenes(loaded.scenes)   # also clears selection
+        self.router.bind(loaded.scenes, loaded.band_by_system,
+                         loaded.applier)
+        self.text_edit.bind(loaded.scenes, loaded.animation_inputs.layout,
+                            loaded.parts)
+        self.nudge.bind_scenes(loaded.scenes)
+        # the :seg fan-out only ever names ids the load actually has
+        self.inspector.selection_panel.style_controls.bind_scenes(
+            loaded.scenes)
         self.menus.export_action.setEnabled(True)
         self.menus.texts_action.setEnabled(True)
         self.playback.set_animation(loaded.applier, loaded.measures)
-        self._band_by_system = loaded.band_by_system
         self.app_state.set_measures(loaded.measures)
-        self._parts = loaded.parts
         self.parts_menu.rebuild(loaded.parts)
         self.last_overflow = loaded.overflow
         self.statusBar().showMessage(loaded.status_line)
-
-    # -- staff groups ------------------------------------------------------------
-
-    def _open_staff_groups_dialog(self) -> None:
-        if not self._parts:
-            return
-        StaffGroupsDialog(self.app_state, self._parts, parent=self).exec()
-
-    def open_score_setup_dialog(self) -> None:
-        if not self._parts:
-            return
-        ScoreSetupDialog(self.app_state, self._parts, parent=self).exec()
-
-    def _open_part_names_dialog(self) -> None:
-        if not self._parts:
-            return
-        # a PROVIDER, not a snapshot: each rename re-engraves and
-        # refreshes self._parts with the effective names — the dialog's
-        # rebuild must show them
-        PartNamesDialog(self.app_state, parts_provider=lambda: self._parts,
-                        parent=self).exec()
-
-    # -- texts ---------------------------------------------------------------------
-
-    def open_texts_dialog(self) -> None:
-        if self.animation_inputs is None:
-            return
-        # band = the free space above the top staff, re-derived from the
-        # CURRENT engraved layout (runtime data for the header refit —
-        # the doc stores intent only)
-        layout = self.animation_inputs.layout
-        band = page_content_top(layout)
-        tempo_elements = tuple(el for el in layout.elements
-                               if el.text_class == "tempo")
-        TextsDialog(self.app_state, band=band,
-                    tempo_elements=tempo_elements, parent=self).exec()
 
     # -- close ---------------------------------------------------------------------
 
@@ -329,71 +315,3 @@ class MainWindow(QMainWindow):
         # accepted close only — a cancelled close saves nothing (M1.8)
         save_window_state(self, self.inspector.sections, self._settings)
         event.accept()
-
-    def show_page(self, page: int) -> None:
-        if self._scenes is None:
-            return
-        self._page = max(1, min(page, self._scenes.page_count))
-        self.view.show_scene(self._scenes.scene_for_page(self._page))
-        self.menus.page_label.setText(
-            f" {self._page}/{self._scenes.page_count} ")
-        self.menus.prev_action.setEnabled(self._page > 1)
-        self.menus.next_action.setEnabled(
-            self._page < self._scenes.page_count)
-
-    def show_system(self, system: int) -> None:
-        """Frame one system's band (Phase 7.4): the band's page scene,
-        centered, masked — the page flip is implied by the band's page."""
-        if self._scenes is None or not self._band_by_system:
-            return
-        self._system = max(1, min(system, len(self._band_by_system)))
-        band = self._band_by_system[self._system]
-        self._page = band.page                   # keep page state coherent
-        rect = band.rect
-        self.view.show_system_band(
-            self._scenes.scene_for_page(band.page),
-            QRectF(rect.x, rect.y, rect.w, rect.h))
-        self.menus.page_label.setText(
-            f" sys {self._system}/{len(self._band_by_system)} ")
-        self.menus.prev_action.setEnabled(self._system > 1)
-        self.menus.next_action.setEnabled(
-            self._system < len(self._band_by_system))
-
-    def step(self, delta: int) -> None:
-        """Prev/next in the current presentation unit."""
-        if self._applied_mode is PresentationMode.SYSTEM:
-            self.show_system(self._system + delta)
-        else:
-            self.show_page(self._page + delta)
-
-    def show_current(self) -> None:
-        """(Re-)show the current position in the current mode — the
-        mode-aware version of the old show_page(1) after a load."""
-        if self._applied_mode is PresentationMode.SYSTEM:
-            self.show_system(self._system)
-        else:
-            self.show_page(self._page)
-
-    def _on_page_followed(self, page: int) -> None:
-        if self._applied_mode is PresentationMode.PAGED:
-            self.show_page(page)
-
-    def _on_system_followed(self, system: int) -> None:
-        if self._applied_mode is PresentationMode.SYSTEM:
-            self.show_system(system)
-
-    def _sync_presentation_mode(self, mode: PresentationMode) -> None:
-        """Diff the document's mode onto the view (called on every
-        document change — commands, undo, project load)."""
-        if mode is self._applied_mode:
-            return
-        self._applied_mode = mode
-        if self._scenes is None:
-            return
-        if mode is PresentationMode.SYSTEM:
-            self.show_system(self._applier.current_system()
-                             if self._applier is not None else 1)
-        else:
-            self.view.clear_band()
-            self.show_page(self._applier.current_page()
-                           if self._applier is not None else self._page)
