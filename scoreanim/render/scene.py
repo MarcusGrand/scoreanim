@@ -111,6 +111,7 @@ class ScoreScenes:
             self.scenes[el.page - 1].addItem(item)
             if el.identity.element_id in self.items:
                 raise ValueError(f"duplicate id {el.identity.element_id}")
+            item.element_key = el.identity.element_id
             self.items[el.identity.element_id] = item
 
         # Stage-text items are tracked (id, page) so set_stage_texts can
@@ -125,6 +126,7 @@ class ScoreScenes:
             item = ElementItem(identity=None)
             add_stage_text(item, text)
             self.scenes[text.page - 1].addItem(item)
+            item.element_key = ElementId(text.element_id)
             self.items[ElementId(text.element_id)] = item
             self._stage_text_pages[ElementId(text.element_id)] = text.page
 

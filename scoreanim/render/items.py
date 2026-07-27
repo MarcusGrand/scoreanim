@@ -108,6 +108,12 @@ class ElementItem(GroupItem):
                  system: int | None = None) -> None:
         super().__init__()
         self.identity = identity
+        # The registry key this item is filed under in ScoreScenes.items,
+        # set there. Engraved items could derive it from `identity`, but
+        # stage texts have none (identity=None is what makes them
+        # unselectable, D5) — and M3's in-place text editing must reach
+        # both families, so one uniform back-reference beats two paths.
+        self.element_key = None
         self.bbox = bbox
         self.anchor = anchor
         self.system = system

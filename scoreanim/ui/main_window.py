@@ -11,8 +11,10 @@ diffs part tints — views never talk to each other.
 M3.0 (BACKLOG 9b) took two more jobs out of here: presentation routing
 (page/system state + prev/next/follow) is `ui/view_router.py`, and the
 three part-shaped dialogs went to `ui/parts_menu.py`, which was already
-handed the parts they need. What is left is composition, the
-document→world sync pass, and the load install.
+handed the parts they need. M3.1 took the fourth, Texts…, to
+`ui/text_edit.py`, which now owns the engraved layout that dialog reads.
+What is left is composition, the document→world sync pass, and the load
+install.
 """
 
 from __future__ import annotations
@@ -25,8 +27,7 @@ from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project import (HIDE_EMPTY_STAVES_DEFAULT, ApplyTaps,
-                                    ProjectDoc, StageConfig,
-                                    page_content_top)
+                                    ProjectDoc, StageConfig)
 from scoreanim.core.timing import TempoMap
 from scoreanim.core.timing.taps import (TapSession, derive_tempo_events,
                                         start_residual)
@@ -43,7 +44,7 @@ from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.score_loader import LoadedScore, ScoreLoader
 from scoreanim.ui.selection import SelectionController
 from scoreanim.ui.stage_view import StageView
-from scoreanim.ui.texts_dialog import TextsDialog
+from scoreanim.ui.text_edit import InlineTextEditor
 from scoreanim.ui.taps import TapRecorder
 from scoreanim.ui.transport import LowerZone
 from scoreanim.ui.view_router import ViewRouter
@@ -116,6 +117,11 @@ class MainWindow(QMainWindow):
         self.selection = SelectionController(self.app_state, self)
         self.view.clicked.connect(self.selection.select_at)   # (pos, scene)
         self.view.deselect_requested.connect(self.selection.clear)
+        # in-place text editing (M3.1) — its own hit path, not the
+        # selection's (D5 stands); also owns the Texts… dialog, whose
+        # data is the engraved layout (BACKLOG 9b's fourth opener)
+        self.text_edit = InlineTextEditor(self.app_state, self.view, self)
+        self.view.double_clicked.connect(self.text_edit.edit_at)
 
         # static chrome (M1.5): the five menus, the slim toolbar, and
         # window-level shortcut registration; the window keeps the refs
@@ -265,6 +271,8 @@ class MainWindow(QMainWindow):
         self.selection.bind_scenes(loaded.scenes)   # also clears selection
         self.router.bind(loaded.scenes, loaded.band_by_system,
                          loaded.applier)
+        self.text_edit.bind(loaded.scenes, loaded.animation_inputs.layout,
+                            loaded.parts)
         self.menus.export_action.setEnabled(True)
         self.menus.texts_action.setEnabled(True)
         self.playback.set_animation(loaded.applier, loaded.measures)
@@ -272,23 +280,6 @@ class MainWindow(QMainWindow):
         self.parts_menu.rebuild(loaded.parts)
         self.last_overflow = loaded.overflow
         self.statusBar().showMessage(loaded.status_line)
-
-    # -- texts ---------------------------------------------------------------------
-    # the one dialog opener still here (BACKLOG 9b): its data is the
-    # CURRENT engraved layout, which no other component owns
-
-    def open_texts_dialog(self) -> None:
-        if self.animation_inputs is None:
-            return
-        # band = the free space above the top staff, re-derived from the
-        # CURRENT engraved layout (runtime data for the header refit —
-        # the doc stores intent only)
-        layout = self.animation_inputs.layout
-        band = page_content_top(layout)
-        tempo_elements = tuple(el for el in layout.elements
-                               if el.text_class == "tempo")
-        TextsDialog(self.app_state, band=band,
-                    tempo_elements=tempo_elements, parent=self).exec()
 
     # -- close ---------------------------------------------------------------------
 

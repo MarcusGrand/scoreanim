@@ -50,6 +50,12 @@ class StageView(QGraphicsView):
     # page was clicked, and the view is the only object that knows which
     # scene it is showing.
     clicked = Signal(QPointF, object)
+    # M3.1: double-click edits text in place. Carries the scene for the
+    # same reason `clicked` does. A double-click also fires `clicked`
+    # first (Qt sends press/release before the double-click event), so
+    # the element selects and THEN opens for editing — which is the
+    # order a user expects anyway.
+    double_clicked = Signal(QPointF, object)
     deselect_requested = Signal()        # Esc, or a click outside the band
 
     def __init__(self) -> None:
@@ -174,6 +180,22 @@ class StageView(QGraphicsView):
             self.clicked.emit(scene_pos, self.scene())
         else:
             self.deselect_requested.emit()    # masked area: nothing there
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        """Double-click opens text for in-place editing (M3.1).
+
+        Gated on the band exactly like a click: in system mode the scene
+        under the view is the whole page, so masked ink is invisible but
+        still hittable, and editing something the user cannot see would
+        be worse than ignoring them."""
+        super().mouseDoubleClickEvent(event)
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if self.scene() is None:
+            return
+        scene_pos = self.mapToScene(event.position().toPoint())
+        if self.in_band(scene_pos):
+            self.double_clicked.emit(scene_pos, self.scene())
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         """Esc deselects. View-level, not a window shortcut, so Esc keeps

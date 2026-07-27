@@ -77,7 +77,7 @@ class MainMenus:
 
         self.texts_action = QAction("Texts…", window)
         self.texts_action.setEnabled(False)          # needs a loaded score
-        self.texts_action.triggered.connect(window.open_texts_dialog)
+        self.texts_action.triggered.connect(window.text_edit.open_texts_dialog)
 
         # -- View ------------------------------------------------------------
         fit = QAction("Fit", window)
