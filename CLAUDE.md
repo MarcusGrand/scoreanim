@@ -167,6 +167,21 @@ frozen v0.1-alpha build history — reference, never appended to.)
     offsets stay music21's (an appoggiatura-delayed principal still
     triggers at its notated beat — the shear was inter-measure only).
 
+13. **Selection is object-first; a measure is never selected**
+    (ruling 2026-07-27). The user selects OBJECTS — noteheads,
+    dynamics, hairpins, texts, barlines. A measure is not a selectable
+    thing. Selecting an object implicitly carries its containing
+    measure AND the part whose staff it sits on; both are DERIVED from
+    the element id grammar, never from geometry, and never stored. A
+    barline is an object IN a measure, not the measure itself, so it
+    stays selectable — it is M5's only handle. Selection state and the
+    way selection LOOKS are both transient render state: never in the
+    document, never a style override, never undoable (rule 8 needs
+    something to undo). That boundary is what lets M3 exist — the same
+    element can be selected (transient) and color-overridden (intent,
+    rule 5) at the same time, and the two must stay distinguishable on
+    screen.
+
 ## Stack (do not substitute without discussion)
 
 - Python 3.11+, PySide6 (LGPL — not PyQt), `verovio` (pip package),

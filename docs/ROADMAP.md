@@ -250,6 +250,32 @@ Exit finding to carry into M3: `ui/main_window.py` is now at **399
 lines**, exactly the no-monoliths ceiling. M2 added only wiring; M3
 must split the composition root before adding to it (BACKLOG).
 
+**Amendment 2026-07-27 — reopened before merge (M2.8).** Two rulings
+change M2's shipped behavior, so M2 is not closed for good until they
+land. Both are recorded here as INTENT; the mechanisms they force are
+decisions to be measured, not assumed, and get written up only once
+they are made.
+
+- **Selection is object-first, with implicit measure and part**
+  (now CLAUDE.md rule 13). This does not overturn D3/D4 so much as
+  widen them: the containing measure was already parsed from the id,
+  and the owning part joins it, as one structured selection context
+  rather than three unrelated fields. A measure is never itself a
+  selection target. Barlines remain selectable as objects — the M5
+  handle the tiering in this milestone exists to protect.
+- **The highlight tints the selected object's own ink (orange for
+  now); the bbox outline goes away.** This SUPERSEDES D6, and it gives
+  up two properties the overlay bought for free. (a) The overlay could
+  not fight animation opacity, part tinting, or a spanner's reveal
+  clip; a tint on the element competes with all three, and M4 is
+  merged, so a selected note can be mid-pop with an effect driving its
+  color. (b) Export purity was structurally free — export builds its
+  own `ScoreScenes` and could not see a separate item; a tint has no
+  such shape and must be re-proven at the same strength, non-vacuity
+  guard included. A third constraint arrives with M3: a user who
+  color-overrides an element orange must still be able to see that it
+  is selected.
+
 ---
 
 ## M3 — Direct edit (the selection does something)
