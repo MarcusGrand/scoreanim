@@ -57,10 +57,11 @@ def test_file_and_edit_contents(window) -> None:
 
 def test_view_menu_holds_dock_toggles(window) -> None:
     actions = window.menus.view_menu.actions()
-    assert window.inspector.toggleViewAction() in actions
-    assert window.lower_zone.toggleViewAction() in actions
+    for dock in (window.layout_zone, window.inspector, window.lower_zone):
+        assert dock.toggleViewAction() in actions
+    # left to right across the window, which is how the docks sit (M6.6)
     assert _texts(window.menus.view_menu) \
-        == ["Fit", "◀", "▶", "Inspector", "Lower Zone"]
+        == ["Fit", "◀", "▶", "Layout Zone", "Inspector", "Lower Zone"]
 
 
 def test_playback_menu_shares_the_component_actions(window) -> None:

@@ -38,6 +38,7 @@ from scoreanim.ui.break_action import BreakActionController
 from scoreanim.ui.document_sync import DocumentSync
 from scoreanim.ui.file_actions import FileActions
 from scoreanim.ui.inspector import Inspector
+from scoreanim.ui.layout_zone import LayoutZone
 from scoreanim.ui.menus import MainMenus
 from scoreanim.ui.nudge import NudgeController
 from scoreanim.ui.parts_menu import PartsMenu
@@ -134,6 +135,17 @@ class MainWindow(QMainWindow):
         self.view.drag_finished.connect(self.nudge.finish)
         self.view.nudge_key.connect(self.nudge.nudge_by)
 
+        # break authoring (M5.4, M5.7, M6.5): the controller owns the
+        # three QActions and keeps the policy out of the menu builder;
+        # the layout zone (M6.6, BACKLOG 17) is a LEFT dock over those
+        # SAME action objects, so the two surfaces cannot diverge. Both
+        # are built BEFORE the chrome, because the View menu picks up the
+        # zone's toggleViewAction with the other two docks' and the Score
+        # menu re-inserts the actions per load.
+        self.break_action = BreakActionController(self.app_state, self)
+        self.layout_zone = LayoutZone(self.break_action.actions, self)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea,
+                           self.layout_zone)
         # static chrome (M1.5): the five menus, the slim toolbar, and
         # window-level shortcut registration; the window keeps the refs
         # it mutates (undo text, enable-on-load, page readout)
@@ -152,13 +164,9 @@ class MainWindow(QMainWindow):
         # Owns the three part-shaped dialogs too since M3.0 (BACKLOG 9b)
         self.parts_menu = PartsMenu(self.menus.score_menu, self.app_state,
                                     self)
-        # break authoring (M5.4, M5.7, M6.5): the actions live in the
-        # Score menu with the other layout choices AND in the layout
-        # zone, which hosts these same QAction objects so the two
-        # surfaces cannot diverge; the controller keeps the policy out of
-        # the menu builder, and the shortcuts are registered window-level
-        # so they fire regardless of focus
-        self.break_action = BreakActionController(self.app_state, self)
+        # the Score menu is cleared per load, so the break actions are
+        # handed to its builder to re-insert; the shortcuts are
+        # registered window-level so they fire regardless of focus
         self.parts_menu.set_break_actions(*self.break_action.actions)
         for action in self.break_action.actions:
             self.addAction(action)
