@@ -3,9 +3,10 @@
 Scope authority is `docs/ROADMAP.md` §M5. This file is how it gets
 built. Written after the audit and the spike, before any feature code.
 
-Status: **planning only.** §4 holds ten decisions that need a ruling.
-Nothing in §5 is built. The rule-7 amendment stays a draft in ROADMAP
-until the build session applies it to CLAUDE.md with the ruling date.
+Status: **ruled 2026-07-28, building.** §4's eleven decisions (D0–D10)
+were all ruled as recommended, with two riders (see §4). §5 is the build
+order. The rule-7 amendment stays a draft in ROADMAP until M5.6 applies
+it to CLAUDE.md with the ruling date.
 
 ---
 
@@ -273,9 +274,24 @@ and every edge is monotonic in x.
 
 ---
 
-## 4. Decisions — proposed, recommended, not decided
+## 4. Decisions — proposed, then ruled
 
-Each states the measurement behind it. Nothing here is settled.
+**All eleven (D0–D10) were ruled as recommended (Marcus, 2026-07-28),
+with two riders.** Each is kept below in its original form, because the
+argument for each is the record of why the ruling went the way it did.
+
+- **D7 rider.** When M5.6 applies the rule-7 amendment to CLAUDE.md, the
+  drafted wording gains one sentence recording D7: suppressing a system
+  break also clears a coincident encoded new-page, and pagination
+  re-derives (the rule-7(a) mechanism), so the page count is **owned,
+  not clipped**.
+- **D1 rider.** The Score-menu action gets a **keyboard shortcut**, and
+  its disabled state carries a **status tip naming why** it is disabled
+  (no selection / system-start barline carries no measure / last
+  measure). A stage context menu remains future work over the same
+  command.
+
+Each decision states the measurement behind it.
 
 ### 4.0 D0 — pay the no-monoliths debt first (stop-and-ask)
 
