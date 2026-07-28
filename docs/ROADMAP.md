@@ -726,6 +726,55 @@ Where reality differed from the brief, or the build had to decide:
   M2 hit-geometry nuance; harmless for M5, since D6 disables the action
   on the last measure either way.
 
+**M5.7 — "Move to Previous System" — ruled in scope 2026-07-28**, after
+the interactive exit run passed and before the merge, and built the same
+day (brief §M5.7, decisions D11–D15). With a selection whose object
+carries measure ordinal N, N and any earlier measures of its system move
+onto the previous system. It is a COMPOSITION of the two shipped
+primitives — SUPPRESS at the first measure of N's system, FORCE at N+1 —
+so there is no new document field, no new prep-seam pass and no schema
+change (still v8). The symmetric move-down already exists as the plain
+FORCE toggle.
+
+- **`SetSystemBreak` widened rather than a macro**: a third field `also`
+  carries the extra `(ordinal, mode-or-clear)` entries into the same
+  `apply()`, so one gesture is one undo entry (rule 8). Exactly the
+  answer inheritance note (c) above names, and the third use of the
+  fat-apply idiom after `ApplyScoreSetup` and `SetElementStyle.segments`.
+  `describe()` follows the M3.5 rule — a composed write says "change
+  system breaks"; the menu label is where the gesture names itself.
+- **Each half prefers CLEARING an opposite override to writing a new
+  one**, which keeps the document sparse and the gesture reversible: a
+  FORCE is only ever written where nothing was encoded, so removing it is
+  exactly enough to remove the break.
+- **The measurement changed a decision.** Writing the FORCE half where a
+  system already starts (N is its system's last measure) produces the
+  identical layout but trips D10's `break-override-inert` warning,
+  because the seam rewrites nothing over an encoded break. Omitting
+  inert entries is therefore a correctness rule, not tidiness — pinned
+  by a test that loads the gesture both ways.
+- **The action reads ANY object's implicit measure**, not only a
+  barline: rule 13 says selecting an object carries its measure, and
+  move-up needs a measure rather than a break position. The barline
+  stays the handle for the raw toggle, whose "after measure N"
+  arithmetic is specific to a right barline. Disabled with a reason for
+  the first system, no selection, an object carrying no measure, a stale
+  ordinal, and (defensively) an empty entry set.
+- **D8's re-anchor needed generalizing**: `_break_anchor` re-anchored
+  only when exactly ONE ordinal changed, so a two-ordinal gesture would
+  have silently stopped re-anchoring. It now takes the lowest of at most
+  two changed ordinals — the merge half, which is where the moved music
+  ends up. D9's selection restore is unchanged.
+- Suite **960 passed / 1 xfailed**, goldens byte-identical. Verified end
+  to end on bigband1's app path: moving a mid-system bar up leaves the
+  remainder a system of its own, systems 3–9 untouched, and the warning
+  set identical to the baseline load.
+
+A left-side retractable **layout zone** — a panel collecting these
+layout affordances, and page-break authoring when it lands — is
+**BACKLOG 17**, deliberately deferred until more than one action needs a
+home. It is a candidate M6 pairing with page-break authoring.
+
 ---
 
 ## Explicitly not in beta scope
@@ -735,4 +784,6 @@ list): single-wavefront sweep (BACKLOG 8 — its own design round),
 per-region swing UI (7), condensing sophistication (a2/divisi),
 per-voice reveal (10), repeat-skipping recordings, glow,
 auto-alignment, continuous scroll. Page-break authoring (as opposed to
-system breaks) is deliberately deferred until M5 proves the pattern.
+system breaks) is deliberately deferred until M5 proves the pattern —
+which it now has, twice (the toggle and M5.7's composition), so it is a
+candidate for M6 together with BACKLOG 17's layout zone.

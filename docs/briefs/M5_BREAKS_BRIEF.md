@@ -920,9 +920,38 @@ test rather than only run by hand.
 **Goldens byte-identical** (no fixture carries overrides), full suite
 green, and the interactive run is Marcus's before the merge.
 
-## M5.7.5 As built
+## M5.7.5 As built (2026-07-28)
 
-_Written after the build, in the docs commit._
+Landed in three commits, each with its check done before the next.
+Suite **960 passed / 1 xfailed** (947 after the core commit, 924 after
+M5.6); goldens byte-identical throughout. Nothing in §M5.7.3 had to be
+revised, and nothing outside the three files below moved — no schema
+change, no prep-seam change, no adapter change, no new warning code.
+Where the build added something the plan did not say:
+
+1. **The omit rule earned its own regression pin.** §M5.7.2 M1 is now a
+   test that loads the same gesture both ways (`{5:SUPPRESS}` versus
+   `{5:SUPPRESS, 9:FORCE}`), asserts the layouts are identical, and
+   asserts that only the second emits `break-override-inert`. That is
+   the whole argument for D11's omission, and it would otherwise have
+   been a comment.
+2. **`_break_anchor`'s bound is `1 <= n <= 2`, not "small".** The upper
+   bound is what a gesture can write; a project load that happens to
+   differ in exactly two ordinals now re-anchors where it previously did
+   not. It is a clamped view position, and the alternative — threading
+   the anchor down from the action — is what D8 deliberately rejected so
+   undo and redo would re-anchor on the same path.
+3. **One test had to stop asserting an empty undo stack.** Opening a
+   score leaves an entry on it, so "one undo entry" is pinned as "the
+   stack returns to what the load left", which is the true statement.
+4. **A test for the composition's reversibility by hand**: after a
+   move-up, toggling the barline of measure S−1 offers *Clear* rather
+   than a second override, so the primitives still read the document the
+   gesture wrote.
+
+Sizes after: `core/editing/breaks.py` 123 → 233, `ui/break_action.py`
+85 → 124, `core/project/commands/layout.py` 346 → 368 — all inside the
+no-monoliths ceiling.
 
 ## 7. Invariants in force throughout
 

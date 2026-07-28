@@ -447,6 +447,30 @@ scale-to-fit). Parked:
     a no-op) and a decision on whether a repagination is allowed to
     change system content at all.
 
+17. **Left-side retractable layout zone** (deferred at M5.7, 2026-07-28).
+    A collapsible panel down the left of the stage collecting the
+    layout/engraving affordances: today's two system-break actions
+    ("Toggle System Break Here", "Move to Previous System"), and
+    page-break authoring when it lands. Today they live in the Score
+    menu with the other layout choices (D1), which is right while there
+    are two of them and wrong once there are six — break authoring is
+    the kind of work you do in a pass down a score, and a menu round
+    trip per edit is the wrong shape for that.
+
+    Deliberately deferred until more than one action needs a home: a
+    zone with two buttons in it is a worse Score menu. When it is built
+    it is an **M1-style re-home of existing commands, not new
+    semantics** — the policy is already pure (`core/editing/breaks.py`),
+    the QActions already exist and are already re-inserted per load by
+    `ui/parts_menu.py`, and `ui/break_action.py` already owns the
+    enable/label sync. The zone would host the same QActions; nothing
+    below the UI changes, exactly as a stage context menu would not
+    (D1's own note).
+
+    Candidate **M6 pairing with page-break authoring**, which ROADMAP
+    deferred until M5 proved the pattern. Two features that want the
+    same home and share a seam are cheaper together than apart.
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

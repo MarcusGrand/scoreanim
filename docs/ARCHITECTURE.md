@@ -706,6 +706,19 @@ input, so execute / undo / redo all route through one `needs_reengrave`
 trigger. Staleness follows rule 5 — an ordinal that no longer means
 anything is inert and warned, never an error.
 
+**Gestures compose over the two primitives, above this seam (M5.7).**
+"Move to Previous System" is SUPPRESS at the first measure of N's system
+plus FORCE at N+1 — computed purely in `core/editing/breaks.py` from
+`(N, overrides, system_of_measure)` and written by ONE `SetSystemBreak`,
+whose `also` field carries the extra entries (rule 8 counts gestures,
+the fat-apply idiom). Nothing at the seam knows the gesture happened,
+which is the point: a new break gesture is a new entry-set function, not
+a new pass, a new field or a new schema version. Two rules the entry set
+follows are worth keeping: each half CLEARS an opposite override where
+that suffices rather than writing a new one (sparse, and reversible),
+and an entry that would rewrite an encoded break with itself is omitted
+— it changes nothing and would report itself as inert.
+
 Schema versions (`core/project/serialize.py`, strict gate): **v1**
 (Phase 4) had `style.part_colors`; **v2** (Phase 5.3) is the StyleRules
 shape above; **v3** (Phase 7.1) added floor_opacity, presentation mode,

@@ -239,8 +239,10 @@ scoreanim/
                            # nudge.py       NUDGEABLE_KINDS + step sizes
                            # segments.py    the :seg family a per-element
                            #                override fans out to
-                           # breaks.py      may the break toggle fire, and
-                           #                what would it write (M5)
+                           # breaks.py      may a break gesture fire, and
+                           #                what would it write (M5): the
+                           #                toggle, and M5.7's move-to-
+                           #                previous-system entry set
     project/               # Project document, serialization; commands/ —
                            # undoable commands split by domain (base/timing/
                            # style/stage/layout/undo, M4 exit audit)
@@ -277,10 +279,12 @@ scoreanim/
                            #   nudge.py         drag-to-nudge (M3.2): preview by
                            #                    setPos, ONE SetLayoutOverride
                            #                    per gesture
-                           #   break_action.py  the Score-menu system-break
-                           #                    toggle (M5.4): owns the QAction,
-                           #                    its enable/label sync and its
-                           #                    trigger; policy stays in core
+                           #   break_action.py  the Score-menu break actions —
+                           #                    the toggle (M5.4) and Move to
+                           #                    Previous System (M5.7): owns
+                           #                    the QActions, their enable/
+                           #                    label sync and their triggers;
+                           #                    policy stays in core
                            #   transport.py     lower zone: strip + lanes dock
                            #   file_actions.py  open/save/import/export handlers
                            #   score_loader.py  engrave→scene load pipeline
