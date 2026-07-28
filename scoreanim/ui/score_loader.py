@@ -22,14 +22,14 @@ from scoreanim.core.animation import (FLOOR_OPACITY, StyleRules,
                                       build_reveal_tracks,
                                       build_trigger_schedule,
                                       resolve_durations)
-from scoreanim.core.engraving.systems import system_bands
+from scoreanim.core.engraving.systems import page_of_measure, system_bands
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.project import (DEFAULT_BPM, ProjectDoc, StageConfig,
                                     default_stage_config, page_content_top)
 from scoreanim.core.score.join import join_notes
 from scoreanim.core.score.model import build_score_model
-from scoreanim.core.score.musicxml_prep import (PartCondenseSpec,
+from scoreanim.core.score.musicxml_prep import (PageBreak, PartCondenseSpec,
                                                 PartGroupSpec, PartTextSpec,
                                                 SystemBreak)
 from scoreanim.core.timing import TempoEvent, TempoMap
@@ -51,6 +51,7 @@ class LoadedScore:
     parts: tuple
     band_by_system: dict         # per-system band rects (Phase 7.4)
     system_of_measure: dict      # measure ordinal → system index (M5)
+    page_of_measure: dict        # measure ordinal → page (M6, derived §1.2)
     warnings: tuple              # LoadWarnings (flag-and-continue)
     overflow: bool               # a system overflowed → offer Score Setup
     status_line: str             # the timing/join status message
@@ -66,6 +67,7 @@ class ScoreLoader:
         self._applied_hide_first = False   # hide-first-system ditto
         self._applied_condense: tuple = ()   # condense groups ditto
         self._applied_breaks: dict = {}    # system-break overrides ditto
+        self._applied_page_breaks: dict = {}   # page-break overrides ditto
 
     @property
     def applied_breaks(self) -> dict:
@@ -73,6 +75,13 @@ class ScoreLoader:
         diffs against it to find which measure a break edit touched, so
         the view can re-anchor there (M5.5, D8)."""
         return dict(self._applied_breaks)
+
+    @property
+    def applied_page_breaks(self) -> dict:
+        """The page-break overrides the LAST load used — the same diff,
+        the other map (M6.5, D11). Both are read by `_break_anchor`,
+        which anchors on the lowest ordinal either of them changed."""
+        return dict(self._applied_page_breaks)
 
     def needs_reengrave(self, doc: ProjectDoc) -> bool:
         """Staff groups, part-label overrides, hide-empty-staves (and
@@ -85,7 +94,9 @@ class ScoreLoader:
                 or doc.hide_empty_staves != self._applied_hide_empty
                 or doc.hide_first_system != self._applied_hide_first
                 or doc.condense_groups != self._applied_condense
-                or dict(doc.system_break_overrides) != self._applied_breaks)
+                or dict(doc.system_break_overrides) != self._applied_breaks
+                or dict(doc.page_break_overrides)
+                != self._applied_page_breaks)
 
     def load(self, path: Path, params: EngravingParams,
              stage: StageConfig | None,
@@ -95,7 +106,8 @@ class ScoreLoader:
              hide_empty_staves: bool = False,
              condense_groups: tuple = (),
              hide_first_system: bool = False,
-             system_breaks: dict[int, SystemBreak] | None = None
+             system_breaks: dict[int, SystemBreak] | None = None,
+             page_breaks: dict[int, PageBreak] | None = None
              ) -> LoadedScore:
         """Engrave + decompose + join + wire the animation. `groups` is
         doc.staff_groups — injected as <part-group> at the prep seam;
@@ -103,7 +115,9 @@ class ScoreLoader:
         there (Phase 9.3); `condense_groups` is doc.condense_groups —
         contiguous like parts merged onto one staff there (Phase 12.3);
         `system_breaks` is doc.system_break_overrides — the sparse
-        force/suppress delta rewriting <print new-system> there (M5);
+        force/suppress delta rewriting <print new-system> there (M5), and
+        `page_breaks` its <print new-page> twin (M6), the two written by
+        one combined pass;
         geometry re-derives, musical ids survive (rule 5, Phases
         8/9/12). `style` is the CURRENT document style — the applier is
         built with it and set_style'd after any later change."""
@@ -119,6 +133,7 @@ class ScoreLoader:
                              abbreviation=g.abbreviation)
             for g in condense_groups)
         system_breaks = dict(system_breaks or {})
+        page_breaks = dict(page_breaks or {})
         t0 = time.perf_counter()
         # strict=False (app path, Phase 11.4): an unknown drawable SVG
         # class degrades to a warned static element instead of failing the
@@ -127,7 +142,7 @@ class ScoreLoader:
             path, params, specs, text_specs, hide_empty_staves,
             condense_specs, strict=False,
             hide_first_system=hide_first_system,
-            system_breaks=system_breaks)
+            system_breaks=system_breaks, page_breaks=page_breaks)
         t1 = time.perf_counter()
         if stage is None:
             stage = default_stage_config(engraved.prepared,
@@ -173,8 +188,8 @@ class ScoreLoader:
                                    style, reveal_tracks)
         # per-system band rects for system-at-a-time framing (Phase 7.4)
         # — derived from the Layout, never persisted (rule 5)
-        band_by_system = {b.system: b
-                          for b in system_bands(engraved.layout)}
+        bands = system_bands(engraved.layout)
+        band_by_system = {b.system: b for b in bands}
         t3 = time.perf_counter()
 
         self._applied_groups = groups
@@ -183,6 +198,7 @@ class ScoreLoader:
         self._applied_hide_first = hide_first_system
         self._applied_condense = condense_groups
         self._applied_breaks = system_breaks
+        self._applied_page_breaks = page_breaks
 
         return LoadedScore(
             scenes=scenes, stage=stage,
@@ -190,6 +206,8 @@ class ScoreLoader:
             measures=model.measures, parts=engraved.prepared.parts,
             band_by_system=band_by_system,
             system_of_measure=dict(engraved.system_of_measure),
+            page_of_measure=page_of_measure(bands,
+                                            engraved.system_of_measure),
             warnings=engraved.warnings,
             # a system taller than its page means the score needs
             # staff-count reduction — the Score Setup trigger (Phase
