@@ -305,6 +305,34 @@ Page-only break markers per fixture — measures whose *only* break marker
 is `new-page`, i.e. the ones `_repaginate` can destroy: testscore
 `[5, 13]`, bigband1 `[12, 20]`, complex3 **all twenty**.
 
+> **CORRECTION, found at build (M6.0, 2026-07-28).** F1's "no goldens
+> move" conclusion is WRONG, and the flaw is in its coverage, not its
+> arithmetic: F1 probes each fixture in ONE configuration, and neither
+> of the two golden loads that actually repaginate is that
+> configuration. `complex3` is probed FLAT here but its golden is the
+> HIDDEN load, and `video_test` — the golden suite's canonical
+> repagination fixture — is not in F1's list at all. **Two of the twelve
+> goldens move**, and both movements are the fix working:
+>
+> - `video_test_flat`: the engraving is byte-identical — every element,
+>   id, bbox, glyph hash, note record and timeline value unchanged.
+>   Only `canonical_xml_sha256` moves (the promoted attributes are in
+>   the prepared XML) and the load-warning list reorders, because an
+>   `<sb>` that now exists shifts Verovio's seeded id sequence. Verified
+>   deterministic across three fresh processes.
+> - `complex3_hidden`: 20 systems → **21**, which is exactly the encoded
+>   set (measure 1 plus its twenty page-only breaks). The hidden load
+>   was silently losing one encoded system break — m74 and m78 had
+>   merged — and the 16 changed ids are m74 regaining its system-start
+>   restatement furniture. Pages stay 20, nothing is clipped, and the
+>   timeline and every note record are identical.
+>
+> Both baselines are re-captured in the M6.0 commit, which is the golden
+> suite's own protocol for a deliberate behaviour fix. The ruling is
+> unaffected — if anything this strengthens D0, since the damage was
+> live on `main` on the app's real orchestral fixture, not only under a
+> user edit.
+
 **F1 — promotion is a total no-op at baseline.** Promoting every encoded
 `new-page="yes"` to also carry `new-system="yes"` before anything strips
 it:

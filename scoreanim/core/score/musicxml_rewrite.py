@@ -349,16 +349,59 @@ def _apply_system_breaks(root: ET.Element,
     return tuple(sorted(inert))
 
 
+def _promote_page_breaks_to_system(root: ET.Element) -> int:
+    """Say out loud the system break every encoded page break implies
+    (M6.0, BACKLOG 16 — measured in spikes/page_breaks.py section F).
+
+    Dorico encodes a page break as `new-page="yes"` ALONE: the measure
+    carries no `new-system`, because starting a page starts a system by
+    definition. That makes the page attribute the measure's ONLY break
+    marker, so anything that clears it silently takes the system break
+    with it — and `_repaginate` clears every one of them before
+    asserting its own plan. The consequence, on `main` before this pass:
+    forcing a system break anywhere on a score with page-only markers
+    repaginates, and the encoded system structure collapses (testscore
+    m19 went from five systems to four, merging 1+2 and 3+4 — spike F2).
+
+    That contradicts rule 7(a)'s own wording, which says repagination
+    KEEPS the encoded system breaks. This pass makes the wording true:
+    every `new-page="yes"` also gets `new-system="yes"` before anything
+    can strip it, so a re-derived page plan can never change system
+    content. Measured a total no-op at baseline on all four fixtures —
+    systems, pages and element ids identical, goldens unmoved (spike F1)
+    — because the two attributes already agree wherever both are read.
+
+    Returns how many measures were promoted. All parts, not just part 1:
+    Verovio reads print layout from the first part, but a promotion is
+    harmless anywhere and leaving later parts inconsistent with part 1
+    would be a trap for the next reader.
+    """
+    promoted = 0
+    for part in root.findall("part"):
+        for measure in part.findall("measure"):
+            pr = measure.find("print")
+            if (pr is not None and pr.get("new-page") == "yes"
+                    and pr.get("new-system") != "yes"):
+                pr.set("new-system", "yes")
+                promoted += 1
+    return promoted
+
+
 def _repaginate(root: ET.Element, break_measures: tuple[int, ...]) -> None:
     """Replace the encoded PAGE breaks with our own (Phase 10R, rule-7
     amendment): keep every encoded system break, strip all new-page
     attributes, and set new-page="yes" at the given system-start
     measures. Part 1 only — Verovio reads print layout from the first
     part (spike section D). Called only when the measured first pass
-    overflowed; the plan is derived data, never stored (rule 5)."""
+    overflowed; the plan is derived data, never stored (rule 5).
+
+    "Keep every encoded system break" is only true because of the
+    promotion below (M6.0): a page-only marker's system break has to be
+    said out loud before the strip, or the strip takes it away."""
     parts = root.findall("part")
     if not parts:
         return
+    _promote_page_breaks_to_system(root)
     for part in parts:
         for measure in part.findall("measure"):
             pr = measure.find("print")

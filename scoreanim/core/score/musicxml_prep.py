@@ -40,8 +40,8 @@ from scoreanim.core.score.identity import PartId
 from scoreanim.core.score.musicxml_rewrite import (  # noqa: F401
     SystemBreak, _apply_condense, _apply_system_breaks, _apply_text_overrides,
     _drop_redundant_trailing_forwards, _inject_part_groups,
-    _neutralize_octave_only_transposes, _repaginate, _set_part_text,
-    _voice_cursor)
+    _neutralize_octave_only_transposes, _promote_page_breaks_to_system,
+    _repaginate, _set_part_text, _voice_cursor)
 
 # <slash-type> note value → quarter-note units
 _SLASH_UNIT_QUARTERS = {
