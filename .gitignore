@@ -23,3 +23,6 @@ spikes/out/click.mp3
 
 # M5 spike intermediates (spikes/system_breaks.py rewrites these on demand)
 spikes/out/_brk_*.musicxml
+
+# scratch staging area, never part of the tree
+_to_delete/
