@@ -791,11 +791,11 @@ home. It is a candidate M6 pairing with page-break authoring.
 
 ## M6 — Pages (page-break authoring + the layout zone)
 
-**Status — ruled 2026-07-28 (Marcus); BUILT M6.0–M6.8, 2026-07-28.**
-Two halves in one milestone, paired because they want the same home and
-share a seam: page-break authoring, and the left layout zone BACKLOG 17
-deferred until more than one action needed one. Closes as
-**`v0.2-beta.5`**. `docs/briefs/M6_PAGES_BRIEF.md` §4 records the
+**CLOSED 2026-07-28** — ruled, built M6.0–M6.8, merged to `main` at
+`bf3a824` and tagged **`v0.2-beta.5`**. Two halves in one milestone,
+paired because they want the same home and share a seam: page-break
+authoring, and the left layout zone BACKLOG 17 deferred until more than
+one action needed one. `docs/briefs/M6_PAGES_BRIEF.md` §4 records the
 thirteen decisions (D0–D12), all ruled as recommended; "As built" below
 records where reality differed and what that changed.
 
