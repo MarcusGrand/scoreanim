@@ -7,8 +7,13 @@ Status: **built M5.0–M5.6, 2026-07-28.** §4's eleven decisions (D0–D10)
 were all ruled as recommended, with two riders (see §4); §6b records
 what was built and where reality differed. Suite 924 passed / 1
 xfailed, goldens byte-identical. The rule-7 amendment is applied to
-CLAUDE.md with the ruling date and the D7 rider sentence. Awaiting the
-§6 interactive exit run.
+CLAUDE.md with the ruling date and the D7 rider sentence. The §6
+interactive exit run passed.
+
+**M5.7 — "Move to Previous System" — was ruled in scope after that
+run** (Marcus, 2026-07-28) and is specified at the end of this file, in
+its own section rather than folded into §4/§5, because it is an addition
+to a milestone that had already closed its decisions.
 
 ---
 
@@ -668,6 +673,256 @@ M5 mechanism is correct on top of it. The smaller: testscore's FINAL
 barline does not resolve to a click at its bbox centre (a heavy double
 bar, the gap exceeds M2's 6-unit tolerance) — harmless, since D6
 disables the action there anyway.
+
+---
+
+# M5.7 — Move to Previous System
+
+Ruled in scope by Marcus on 2026-07-28, after the M5.0–M5.6 interactive
+run passed and before the merge. Written the same way as the rest of this
+brief: measured first (§M5.7.2 is a fresh run, not a re-reading of §3),
+decisions stated with the argument that produced them, then built.
+
+## M5.7.1 The gesture
+
+With a selection whose object carries measure ordinal **N** (rule 13 —
+any object, not only a barline), move N *and any earlier measures of its
+system* onto the **previous** system.
+
+In break terms it is a COMPOSITION of the two shipped primitives, with
+**S** = the first measure of N's current system:
+
+| half | what it does | entry |
+|---|---|---|
+| merge | S stops starting a system, so S…N join the previous one | `S → SUPPRESS` |
+| split | the remainder N+1… becomes a system of its own | `N+1 → FORCE` |
+
+The symmetric "move to next system" already exists as the plain FORCE
+toggle (select the barline of N−1, toggle), so only move-up is new.
+
+Nothing below the UI is new semantics: no new document field (schema
+stays **v8**), no new prep-seam pass, no new engraving input. One
+gesture, one command, one re-engrave, one undo entry.
+
+## M5.7.2 Measurements
+
+Fresh run through the real provider (`load_detailed(system_breaks=…)`,
+so repagination, hide-empty-staves and scale-to-fit all participate);
+testscore strict, bigband1 app path.
+
+**The composition does what it claims.** testscore's baseline is
+`{1:(1,4), 2:(5,8), 3:(9,12), 4:(13,16), 5:(17,19)}`.
+
+| gesture | overrides written | resulting systems |
+|---|---|---|
+| move m6 up | `{5:SUPPRESS, 7:FORCE}` | `1:(1,6) 2:(7,8) 3:(9,12) 4:(13,16) 5:(17,19)` |
+| move m5 up (system's first measure) | `{5:SUPPRESS, 6:FORCE}` | `1:(1,5) 2:(6,8) 3:(9,16) 4:(17,19)` |
+| move m10 up | `{9:SUPPRESS, 11:FORCE}` | `1:(1,4) 2:(5,10) 3:(11,12) 4:(13,16) 5:(17,19)` |
+| move m18 up | `{17:SUPPRESS, 19:FORCE}` | `1:(1,4) 2:(5,8) 3:(9,12) 4:(13,18) 5:(19,19)` |
+| move m8 up (last of its system) | `{5:SUPPRESS}` | `1:(1,8) 2:(9,16) 3:(17,19)` |
+
+bigband1 (app path), baseline `{1:(1,4) 2:(5,8) 3:(9,11) 4:(12,13)
+5:(14,16) 6:(17,19) 7:(20,22) 8:(23,25) 9:(26,28)}`:
+
+| gesture | resulting systems | warnings |
+|---|---|---|
+| move m6 up `{5:S, 7:F}` | `1:(1,6) 2:(7,8)`, systems 3–9 untouched | **identical set to baseline** |
+| move m10 up `{9:S, 11:F}` | `2:(5,10) 3:(11,11)`, rest untouched | **identical set to baseline** |
+
+The bigband1 warning set does not grow — no new `stray-path`, no new
+spanner-attribution diagnostics, no `repaginated`. Re-engrave cost 0.49 s
+(testscore) / 0.62 s (bigband1), i.e. the single-toggle figure of §3.6
+F4: two entries still cost exactly one load.
+
+**M1 — writing the split half where a system already starts is not
+merely redundant, it lies to the user.** Moving m8 (the last measure of
+system 2) up needs only the merge half. Adding `{9:FORCE}` produces the
+same layout, but m9 already encodes `new-system="yes"`, so the seam
+changes nothing and D10 fires:
+`break-override-inert: 1 system-break override(s) had no effect (measure 9)`.
+The inert-entry omission of D11 is therefore a correctness rule, not a
+tidiness one.
+
+**M2 — every system start in both fixtures is encoded.** Part 1's
+`<print>` attributes: testscore starts systems at m5, m9, m13, m17 —
+m9/m17 as `new-system="yes"`, m5/m13 as `new-page="yes"` only; bigband1
+at m5, m9, m14, m17, m23, m26 (`new-system`) and m12, m20 (`new-page`
+only). Nothing starts a system without a marker, which is what makes
+D11's "clear rather than suppress" reasoning sound.
+
+**M3 — BACKLOG 16 is visible in two of these rows, and is not M5.7's.**
+`1:(1,5) 2:(6,8) 3:(9,16)` merges systems 3+4 as a side effect, and the
+m8 row merges them too: both edits repaginate, and repagination strips
+the `new-page="yes"` that was m13's only system-break marker. Identical
+to the effect ROADMAP §M5 already records for a forced break at m19.
+The move-up mechanism is correct on top of it; the verification below
+therefore uses bigband1's clean rows for the end-to-end check.
+
+## M5.7.3 Decisions
+
+None of these contradict the ruled shape. The one place reality forced a
+choice is D11's omit rule, and it is measured (M1 above).
+
+### D11 — the entry set, and when an entry is omitted
+
+The computation is pure core, from `(N, system_of_measure, overrides)`:
+
+1. `S` = the first measure of `system_of_measure[N]`.
+2. **merge half** (always present): make S *not* start a system.
+   - `overrides[S] is FORCE` → **clear it** (`None`).
+   - otherwise → **SUPPRESS**.
+3. **split half** (present only when `system_of_measure[N+1] ==
+   system_of_measure[N]`, i.e. there IS a remainder): make N+1 start a
+   system.
+   - `overrides[N+1] is SUPPRESS` → **clear it** (`None`).
+   - otherwise → **FORCE**.
+4. Drop any entry equal to what the document already holds.
+
+Steps 2 and 3 are D4's three-step sense *directed* rather than toggling:
+the gesture knows which state it wants, so it clears when the existing
+override is the opposite one and writes otherwise. Clearing is preferred
+wherever it suffices because it is what keeps the doc sparse and the
+gesture reversible — and because a FORCE override is only ever written
+where nothing was encoded (D4 step 3, and M5.7's own split half), so
+removing it is exactly enough to remove the break.
+
+**Why not always write SUPPRESS at S?** Because when the break at S came
+from the user's own FORCE, there is nothing encoded to suppress: the pass
+writes nothing, the merge still happens (the FORCE is gone), and D10
+reports an inert override that was never wrong. Clearing is both sparser
+and quieter. The accepted imprecision, stated plainly: if the score FILE
+is replaced under an existing project and now encodes a break at S, the
+clear leaves that break standing and the merge silently does not happen.
+That is rule 5 staleness, the same trade every override in the document
+already makes.
+
+**Why omit the split half when N+1 already starts a system?** M1: it
+would trip D10's warning for a gesture that worked perfectly. Omitting it
+is also what makes the gesture reversible by hand — the break at N+1 is
+still whatever the file says, so the plain toggle still reads it
+correctly afterwards.
+
+Step 4 is defensive only. The one reachable-looking case (`overrides[S]`
+already SUPPRESS while S still starts a system) requires a system to
+start where nothing is encoded and nothing is forced, which M2 says does
+not happen in break-respect mode. If it ever did, the whole entry set
+would be empty and the action disables (§M5.7.4) rather than half-firing.
+
+### D12 — one command, widened (the fat-apply idiom)
+
+`SetSystemBreak` grows a third field, exactly as M3.3 widened
+`SetElementStyle` with `segments` — which is what ROADMAP §M5's
+inheritance note (c) named as the answer for "one gesture, several
+ordinals":
+
+```python
+ordinal: int
+mode: SystemBreak | None
+also: tuple[tuple[int, SystemBreak | None], ...] = ()
+```
+
+`also` carries the additional `(ordinal, mode-or-clear)` entries; they
+are applied in the same `apply()`, so rule 8 counts one entry for the
+whole gesture. Every existing call site and test is untouched (the toggle
+passes two arguments and gets `()`), and the primary pair stays the
+merge half — which is also the ordinal the view re-anchors to (D14).
+
+Not a macro command: there still is not one, and this is the third use of
+the idiom (`ApplyScoreSetup`, `SetElementStyle.segments`, this).
+
+**`describe()` follows the M3.5 rule** — the phrase must be true for
+every caller of the mechanism, not named for its first one. One entry
+keeps the three phrases M5.1 shipped ("force / suppress / clear system
+break"); more than one returns **"change system breaks"**. The menu
+action's own label already says "Move to Previous System", so the Edit
+menu reading "Undo change system breaks" loses nothing, and a second
+composer arriving later will not make the phrase a lie. The alternative —
+a caller-supplied phrase field — is honest too but adds a field that only
+the undo menu would ever read.
+
+### D13 — the enable rules
+
+The action works from ANY selected object's implicit measure (rule 13:
+selecting an object carries its measure). The barline stays the handle
+for the raw toggle only, because D2's "the break falls after measure N"
+arithmetic is specific to a right barline; move-up needs no such
+arithmetic — it needs a measure, and every object in a measure has one.
+
+Disabled, each with the reason on the status tip (the D1 rider):
+
+| case | reason |
+|---|---|
+| no score loaded | reuses `NO_SCORE` |
+| nothing selected | "Select an object in the measure you want to move" |
+| the selection carries no measure ordinal | "This object carries no measure to move" |
+| N sits in the score's FIRST system | "This measure is already in the first system" |
+| N is not in the engraved layout (stale) | "That measure is not in the engraved score" |
+| the entry set came out empty (D11 step 4) | "Moving this measure would not change the layout" |
+
+N being its own system's first measure is **not** disabled — moving a
+system start up one system is the common use, and it is the m5 row of
+§M5.7.2. Nor is the last measure of the score: it is the last measure of
+its system, so the split half is simply omitted.
+
+### D14 — the view anchor across a two-ordinal change
+
+`MainWindow._break_anchor` diffs the document against the loader's
+applied inputs and re-anchors only when **exactly one** ordinal changed —
+a move-up changes two, so as it stands the view would keep its index and
+D8 would silently stop applying to the new gesture. It generalizes to:
+**anchor to the lowest changed ordinal when at most two changed**;
+anything larger (a project load) still anchors nowhere.
+
+The lowest changed ordinal is S, the merge half — and after the edit S is
+on the previous system, which is where the moved music now lives, so
+`show_measure(S)` frames exactly what the user just moved. Undo diffs the
+same two ordinals and re-anchors the same way.
+
+### D15 — a second Score-menu action
+
+Beside "Toggle System Break Here", built by the same controller in
+`ui/break_action.py` (one class owning two QActions: same `bind()`, same
+`sync()` on selection and document change, same disabled-status-tip
+treatment). Shortcut **Ctrl+Shift+Up**, unused today and the direction
+the gesture means. `PartsMenu.set_break_action` becomes
+`set_break_actions(*actions)`; the module still owns WHERE they sit,
+never what they do.
+
+D8 (re-anchor) and D9 (selection restore) apply unchanged: the selected
+object's own id survives the re-engrave for the same reason it does under
+the plain toggle — only system-start restatement furniture is minted or
+dropped (§3.2).
+
+## M5.7.4 Task and verification
+
+One task, built in three commits (core, UI, docs).
+
+**Core** — `SetSystemBreak.also`; `core/editing/breaks.py` gains
+`move_up_entries()` and `resolve_move_up()`, and `BreakAction` gains
+`also`. Headless: every D11 branch (mid-system N, last-of-system N,
+first-of-system N, an existing FORCE at S, an existing SUPPRESS at N+1),
+every D13 disable case, and the one-undo-entry pin (a two-entry command
+is one `UndoStack` step and its undo restores the document exactly).
+
+**UI** — the second action, the `PartsMenu` plural, the `_break_anchor`
+generalization. Headless window test on testscore: select a NOTEHEAD in
+m6, trigger, assert the systems become `1:(1,6) 2:(7,8) …`, assert ONE
+undo entry restores the original spans, assert the view re-anchored and
+the selection survived, assert the action is disabled (with each reason)
+in system 1, with nothing selected, and on an object carrying no measure.
+
+**End to end on bigband1** (app path, `strict=False`, per the fixture
+caveat): the composed override set from §M5.7.2 loads with the systems
+above and a warning set identical to baseline — the "move a mid-system
+bar up, the remainder stays a system of its own" exit check, pinned as a
+test rather than only run by hand.
+
+**Goldens byte-identical** (no fixture carries overrides), full suite
+green, and the interactive run is Marcus's before the merge.
+
+## M5.7.5 As built
+
+_Written after the build, in the docs commit._
 
 ## 7. Invariants in force throughout
 
