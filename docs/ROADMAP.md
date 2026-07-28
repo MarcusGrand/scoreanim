@@ -595,6 +595,12 @@ green, exported frames match the stage at every setting.
 
 ## M5 — Breaks (system-break authoring)
 
+**Status — CLOSED (built 2026-07-28 on `beta/m5-breaks`, M5.0–M5.7 per
+docs/briefs/M5_BREAKS_BRIEF.md; interactive exit run passed, merged to
+`main` at `d912040`, tagged `v0.2-beta.4`).** 960 passed / 1 xfailed,
+goldens byte-identical. What was built and where reality differed is at
+the end of this section.
+
 **Goal.** Select a barline, toggle "System break", and the score
 re-engraves with the break — the app's first *layout-intent* edit.
 
