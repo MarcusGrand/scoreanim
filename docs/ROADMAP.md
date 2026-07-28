@@ -791,10 +791,13 @@ home. It is a candidate M6 pairing with page-break authoring.
 
 ## M6 — Pages (page-break authoring + the layout zone)
 
-**Status — ruled 2026-07-28 (Marcus).** Two halves in one milestone,
-paired because they want the same home and share a seam: page-break
-authoring, and the left layout zone BACKLOG 17 deferred until more than
-one action needed one. Closes as **`v0.2-beta.5`**.
+**Status — ruled 2026-07-28 (Marcus); BUILT M6.0–M6.8, 2026-07-28.**
+Two halves in one milestone, paired because they want the same home and
+share a seam: page-break authoring, and the left layout zone BACKLOG 17
+deferred until more than one action needed one. Closes as
+**`v0.2-beta.5`**. `docs/briefs/M6_PAGES_BRIEF.md` §4 records the
+thirteen decisions (D0–D12), all ruled as recommended; "As built" below
+records where reality differed and what that changed.
 
 **Goal.** Select a barline, toggle "Page break" — the score repaginates
 with it, on exactly the machinery M5 built for systems. And the layout
@@ -931,6 +934,54 @@ charter is page breaks, the bug is in the page-break machinery, and
 question 1 above cannot be answered cleanly around it. Whether M6 pays
 it — as its own commit before any feature code, the M5.0 shape — is a
 decision for the brief, with the golden impact measured first.
+
+### As built (M6.0–M6.8, 2026-07-28)
+
+All thirteen decisions were ruled as recommended and built that way.
+Four places where reality differed are recorded here, because each
+changed either a measurement or a line of code:
+
+1. **BACKLOG 16 is NOT golden-free (M6.0).** The brief's F1 measured the
+   promotion as a total no-op on all four fixtures, but probed each in
+   ONE configuration — and neither of the two GOLDEN loads that actually
+   repaginate was that configuration (complex3 is probed flat, its
+   golden is hidden; video_test is not in F1's list at all). Two of the
+   twelve goldens move, and both movements are the fix working:
+   `video_test_flat`'s engraving is byte-identical, with only the
+   canonical-XML hash and the load-warning ORDER changing (a new `<sb>`
+   shifts Verovio's seeded id sequence; verified deterministic across
+   three processes), and `complex3_hidden` goes from 20 systems to
+   **21 — exactly its encoded set**, having been silently losing one
+   encoded system break on `main`. Both baselines re-captured in the
+   M6.0 commit, which is the golden suite's own protocol for a
+   deliberate behaviour fix. The damage this repairs was live, not
+   hypothetical.
+2. **A suppression is not subtracted from the never-clip plan (M6.3).**
+   D1 said "suppressed ordinals are dropped from it"; the ROADMAP
+   amendment above said "a suppressed one is overridden, and warned,
+   whenever honoring it would clip ink", and the spike's data could not
+   tell the two apart (`plan ∩ suppressed` was empty in every measured
+   row). It can now: the suppression is applied at the seam, so the
+   planner measures the piled-up layout it produced and every break it
+   emits is one it NEEDS. Dropping them cost bigband1 a 4-page plan for
+   a 2-page one rescued by scale-to-fit at **40%**, and testscore's A6
+   row **51%** — legal, unclipped, and much worse scores than the extra
+   page. `plan_page_breaks` therefore takes `forced` only, and a
+   suppression is honored wherever the planner does not need that break.
+3. **Two brief measurements moved because the ruled D3 fix changed the
+   input.** §3.1 A6 and §3.2 B2 were taken with the spike prototype,
+   which cleared `new-page` alone and so destroyed two SYSTEM breaks; with
+   those preserved, the same music needs three pages rather than two.
+   The tests pin the new numbers and say why.
+4. **`core/editing/breaks.py` split before the page half landed**, per
+   §7's own watch — one module per document map (`breaks.py`,
+   `page_breaks.py`) with the rule that couples them in
+   `break_coherence.py`. `_STATE_VERSION` did NOT need bumping (D10
+   measured, not assumed), so no user loses their window layout.
+
+Suite **1042 passed / 1 xfailed** at M6.7, from 960 at the branch point;
+goldens byte-identical for every unmodified fixture at every commit
+after M6.0; no `ui/` module over ~400 lines.
 
 ---
 

@@ -773,6 +773,50 @@ end to end before the merge.
 
 ---
 
+## 5b. As built (M6.0–M6.8, 2026-07-28)
+
+Every task landed in order, each with its own verification before the
+next started, and every decision was built as ruled. Suite **960 → 1042
+passed / 1 xfailed**. Goldens byte-identical for every unmodified
+fixture at every commit after M6.0.
+
+| task | commit | what it is |
+|---|---|---|
+| M6.0 | `f20b33a` | BACKLOG 16: `_repaginate` promotes page-only breaks before stripping. No feature code. |
+| M6.1 | `6cdad9a` | `PageBreak`, `page_break_overrides`, `SetPageBreak`, schema v9 |
+| M6.2 | `ef33181` | `_apply_breaks` — one pass over both maps, `_wanted_break_attrs` the stated rule |
+| M6.3 | `fb30e21` | `plan_page_breaks(forced=…)`, the two D8 warnings |
+| M6.4 | `4ff9f84` | `core/editing/page_breaks.py` + `break_coherence.py` (the split) |
+| M6.5 | `b16e09f` | the third QAction, `_applied_page_breaks`, `_break_anchor` over both maps |
+| M6.6 | `3ce96a1` | `ui/layout_zone.py`, the left dock over the SAME actions |
+| M6.7 | `ec45cd5` | `ui/panels/break_overrides.py`, the readout with per-entry clear |
+
+**Where reality differed.** Four places, each already recorded inline
+above at the decision it touches:
+
+1. **§3.6 F1 was wrong about goldens** — two of twelve move, both as the
+   fix working. See the correction box in §3.6 and ROADMAP §M6 "As
+   built" item 1.
+2. **D1's suppressed-set subtraction is not built** — see the refinement
+   box in §4.1. `plan_page_breaks` takes `forced` only.
+3. **§3.1 A6 and §3.2 B2's numbers moved** because the ruled D3 fix
+   preserves the system breaks the spike prototype destroyed; three
+   pages where the spike measured two. The tests carry the new numbers
+   and the reason.
+4. **`core/editing/breaks.py` split before M6.4 landed**, exactly as §7
+   said it would have to — one module per document map, plus
+   `break_coherence.py` for the rule that couples them.
+
+**Two things worth carrying forward.** The page-inert warning is
+computed against the FINAL layout rather than the seam, so it can never
+double-report an ordinal that `page-break-repaginated` already covers —
+the two codes partition. And `PageBreakAction` is its own dataclass
+rather than a reuse of `BreakAction`: the two carry different
+vocabularies in `mode`, and one shared type would let a page gesture be
+handed to the system command with nothing complaining.
+
+---
+
 ## 6. Exit criteria (from ROADMAP §M6)
 
 On bigband1 (app path, the `gliss` caveat): force a page break mid-score

@@ -667,44 +667,99 @@ Project (saved file, versioned schema)
 │                        onto one staff (one voice per player, combined
 │                        label); the merged part-list re-derives at the
 │                        prep seam (adapter ruling 10); CLAUDE.md rule 11
-└── system_break_overrides
-                         v8 (M5): a SPARSE DELTA on the score's encoded
-                         system breaks — {measure ordinal → FORCE |
-                         SUPPRESS}, keyed by the measure that would
-                         START the system. Rewritten into <print
-                         new-system> on part 1 at the prep seam,
-                         UPSTREAM of condense / hide / repaginate /
-                         scale-to-fit, so all four operate on the edited
-                         break set exactly as they do on the encoded
-                         one; rule-7 M5 amendment
+├── system_break_overrides
+│                        v8 (M5): a SPARSE DELTA on the score's encoded
+│                        system breaks — {measure ordinal → FORCE |
+│                        SUPPRESS}, keyed by the measure that would
+│                        START the system. Rewritten into <print
+│                        new-system> on part 1 at the prep seam,
+│                        UPSTREAM of condense / hide / repaginate /
+│                        scale-to-fit, so all four operate on the edited
+│                        break set exactly as they do on the encoded
+│                        one; rule-7 M5 amendment
+└── page_break_overrides
+                         v9 (M6): the same shape for <print new-page>,
+                         keyed by the measure that would START the page.
+                         Written by the SAME pass as the map above, and
+                         additionally fed to the never-clip planner —
+                         pages are the one layout input the app already
+                         owned, so authored page intent lives INSIDE
+                         rule 7(a) rather than over it; rule-7 M6
+                         amendment
 ```
 
-**The break-override seam (M5).** The document stores intent and only
-the DELTA — never the whole break set, so a measure with no override
-keeps whatever the file encodes. `core/score/musicxml_rewrite.py:
-_apply_system_breaks` is the pass, a deliberate twin of `_repaginate`:
-part 1 only (Verovio reads print layout from the first part), keyed by
-1-based document ordinal (never the printed number), creating `<print>`
-when absent. Two things it does NOT copy from `_repaginate`: it never
-strips the encoded breaks first, and it is stored rather than derived.
-`prepare()` takes it as `system_breaks=`, and `load_detailed` must pass
-it on all THREE of its retry paths — the hide-unavailable retry (which
+**The break-override seam (M5 systems, M6 pages).** The document stores
+intent and only the DELTA — never the whole break set, so a measure with
+no override keeps whatever the file encodes. `core/score/
+musicxml_rewrite.py:_apply_breaks` is the pass, a deliberate twin of
+`_repaginate`: part 1 only (Verovio reads print layout from the first
+part), keyed by 1-based document ordinal (never the printed number),
+creating `<print>` when a positive assertion needs one. Two things it
+does NOT copy from `_repaginate`: it never strips the encoded breaks
+first, and it is stored rather than derived. `prepare()` takes the two
+maps as `system_breaks=` / `page_breaks=`, and `load_detailed` must pass
+BOTH on all THREE of its retry paths — the hide-unavailable retry (which
 re-engraves the same prep), the repagination retry and the scale-to-fit
 retry (which both re-prepare) — or a score that repaginates silently
-loses the user's breaks. The pass returns the ordinals it could not
-apply, which become `LoadWarning "break-override-inert"`.
+loses the user's breaks. The pass returns, per axis, the ordinals it
+could not apply, which become `LoadWarning "break-override-inert"` and
+`"page-break-override-inert"`.
 
-Suppression additionally clears a coincident encoded `new-page`: a page
-break implies a system break, so leaving it makes the suppression inert.
-The consequence is that suppressing a SYSTEM break can move a PAGE
-break — acceptable under rule 7(a), which already has us owning the
-page count whenever the encoded breaks cannot hold their systems.
+**ONE pass over both maps, not two (M6, D3).** The two override maps
+write two attributes of the SAME `<print>` element. Measured with two
+passes, whichever ran first left the second nothing to change, so a
+gesture that had worked perfectly reported itself inert. Writing both
+attributes in one visit removes that by construction. The coupling rules
+live in one pure function, `_wanted_break_attrs`, because the incoherent
+combination was measured resolving in OPPOSITE directions under the two
+possible pass orderings and therefore has to be STATED:
+
+- **page FORCE wins outright**, including over a coincident system
+  SUPPRESS — a page break that refuses its own system break is not a
+  layout, and the positive assertion is the one that can be honored;
+- **page SUPPRESS asserts the system break it removes** (Dorico encodes
+  a page break as `new-page` alone, so clearing it would silently merge
+  two systems), unless the system break is separately suppressed too;
+- **system SUPPRESS clears a coincident `new-page`** (M5's D7), so
+  suppressing a SYSTEM break can move a PAGE break — acceptable under
+  rule 7(a), which already has us owning the page count.
+
+`core/editing/break_coherence.py` is the document-side half of the same
+ruling: the toggles clear the one contradicting pair in the same undo
+entry, so the precedence above exists for hand-edited files and rule-5
+staleness rather than for anything the UI can author.
+
+**Page intent and never-clip (M6, D1).** `_repaginate` strips every
+encoded page break before asserting its own plan, so a page FORCE
+written at the seam is destroyed exactly when the guard engages — and
+measured to fail rarely and silently, which is the worst failure shape
+available. So authored page intent is ALSO an input to
+`plan_page_breaks`: forced ordinals join the plan, restricted to real
+system starts. A SUPPRESS is deliberately NOT a parameter — it is
+already applied at the seam, so the bands the planner measures honor it
+and every break the planner emits is one it needs. Subtracting them
+would delete breaks never-clip requires (measured: a 40% scale-to-fit
+rescue on bigband1 instead of an extra page). A suppression is therefore
+honored wherever the planner does not need that break and overruled
+where it does, reported by `LoadWarning "page-break-repaginated"` — a
+different code from the inert one on purpose, since "your override was
+stale" and "your override was overruled to avoid clipping ink" want
+different things from the user. The two are read off the FINAL layout so
+they partition rather than overlap.
+
+`_repaginate` itself promotes every encoded `new-page="yes"` to also
+carry `new-system="yes"` before it strips (BACKLOG 16, paid in M6.0):
+a repagination may not change SYSTEM content, which is what rule 7(a)
+always claimed and did not do.
 
 The layout consequence re-derives like every other engraving input:
-`ui/score_loader.py` carries `_applied_breaks` as its sixth applied
-input, so execute / undo / redo all route through one `needs_reengrave`
-trigger. Staleness follows rule 5 — an ordinal that no longer means
-anything is inert and warned, never an error.
+`ui/score_loader.py` carries `_applied_breaks` and `_applied_page_breaks`
+as applied inputs, so execute / undo / redo all route through one
+`needs_reengrave` trigger, and `page_of_measure` — composed from the
+system bands and the measure→system map, needing no adapter change —
+rides on `LoadedScore` for the toggle to read. Staleness follows rule 5
+— an ordinal that no longer means anything is inert and warned, never an
+error.
 
 **Gestures compose over the two primitives, above this seam (M5.7).**
 "Move to Previous System" is SUPPRESS at the first measure of N's system
@@ -730,11 +785,12 @@ ON; **v5** (Phase 12.3) added condense_groups (no read gate needed — a
 missing key defaults to (), the correct look for older files); **v6**
 (2026-07-24) added hide_first_system; **v7** (M4) added
 style.default_effect and style.effect_params; **v8** (M5) added
-system_break_overrides. v4 is still the ONLY read gate — every later
-field's missing key defaults to the pre-option look. The reader accepts
-{1 … 8}: v1 `part_colors` folds into part
+system_break_overrides; **v9** (M6) added page_break_overrides. v4 is
+still the ONLY read gate — every later field's missing key defaults to
+the pre-option look. The reader accepts
+{1 … 9}: v1 `part_colors` folds into part
 color rules, older files default newer fields per-field (no migration
-code — they just lack the keys); the writer emits 8. The gate is
+code — they just lack the keys); the writer emits 9. The gate is
 strict-by-version ON PURPOSE: an older build REFUSES a newer file
 instead of tolerantly reading it, silently dropping fields, and
 destroying them on the next save. Effect names are stored intent — an
@@ -1077,6 +1133,27 @@ which owns the engraved layout it reads. QSettings (`ui/window_state.py`) persis
 geometry, dock layout, and section expansion — UI state only, saved on
 accepted close; nothing document-derived enters it and nothing of it
 enters the document (rule 5).
+
+**Break authoring has two surfaces and one implementation** (M5.4,
+M5.7, M6.5/M6.6). `ui/break_action.py` owns three QActions — the system
+toggle, Move to Previous System, the page toggle — with one enable/label
+sync driven by the pure policies in `core/editing/`; the policy never
+enters the UI and the QAction never enters core. The Score menu holds
+those actions (re-inserted per load, since it is rebuilt per load), and
+so does **`ui/layout_zone.py`**, a LEFT dock on the inspector's template
+(BACKLOG 17, built once three actions needed a home). Its buttons take
+those QAction objects as their `defaultAction`, so text, enabled state,
+status tip and trigger all come from ONE object and the two surfaces
+cannot diverge — the `follow_action` precedent, and the reason the zone
+syncs nothing of its own. The zone also hosts
+`ui/panels/break_overrides.py`, which lists both override maps in
+measure order with a per-entry clear; the clear needs no new command,
+since `mode=None` already pops and reaches the same `execute()` path
+that re-engraves, re-anchors and restores the selection. A third dock
+needed no persistence change: one `saveState` pair covers all three, and
+a stored layout predating the zone still places it (measured before
+deciding, since bumping `_STATE_VERSION` would discard every user's
+window layout).
 
 ## 8. Known risks (spike before building on them)
 
