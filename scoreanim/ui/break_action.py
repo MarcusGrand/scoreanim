@@ -1,4 +1,4 @@
-"""The Score-menu "Toggle System Break" action (M5.4).
+"""The Score menu's break actions (M5.4, M5.7).
 
 D1: a menu action rather than a stage context menu. There is no
 `contextMenuEvent` anywhere on the stage today, so a right-click menu is
@@ -9,14 +9,21 @@ context menu can be added later over this same command without changing
 anything below the UI.
 
 Everything this class does with the selection is decided by
-`core/editing/breaks.py` — it owns the QAction, not the policy. The
-D1 rider lives here: the action carries a shortcut, and when it is
+`core/editing/breaks.py` — it owns the QActions, not the policy. The
+D1 rider lives here: each action carries a shortcut, and when it is
 disabled its status tip names WHY (no selection, not a barline, a
 system-start barline carrying no measure, the last measure).
 
+M5.7 adds the second action, "Move to Previous System" — the same
+selection, the same policy module, the same command, and a composed
+entry set instead of a single toggle. It lives in this class rather than
+its own because everything around the QAction (the per-load measure→
+system map, the enable/label sync, the one trigger) is shared; only the
+policy call differs.
+
 The Score menu is cleared and rebuilt per load (`ui/parts_menu.py`), so
-the action is handed to that builder to re-insert rather than added once
-in the static chrome.
+the actions are handed to that builder to re-insert rather than added
+once in the static chrome.
 """
 from __future__ import annotations
 
@@ -24,13 +31,14 @@ from typing import TYPE_CHECKING, Mapping
 
 from PySide6.QtGui import QAction, QKeySequence
 
-from scoreanim.core.editing.breaks import resolve
+from scoreanim.core.editing.breaks import resolve, resolve_move_up
 from scoreanim.core.project import SetSystemBreak, SystemBreak
 
 if TYPE_CHECKING:
     from scoreanim.ui.app_state import AppState
 
 SHORTCUT = "Ctrl+Shift+B"
+MOVE_UP_SHORTCUT = "Ctrl+Shift+Up"
 
 # The action renames itself to what it would actually do, so the menu is
 # honest before you open it (the SetElementStyle "clear" idiom).
@@ -40,10 +48,12 @@ _LABEL = {
     None: "Clear System Break Override Here",
 }
 _DEFAULT_LABEL = "Toggle System Break Here"
+_MOVE_UP_LABEL = "Move to Previous System"
 
 
 class BreakActionController:
-    """Owns the QAction, its enable/label sync, and its one trigger."""
+    """Owns the two break QActions, their enable/label sync, and their
+    triggers."""
 
     def __init__(self, app_state: AppState, parent) -> None:
         self._app_state = app_state
@@ -52,7 +62,17 @@ class BreakActionController:
         self.action.setShortcut(QKeySequence(SHORTCUT))
         self.action.setEnabled(False)
         self.action.triggered.connect(self.trigger)
+        self.move_up_action = QAction(_MOVE_UP_LABEL, parent)
+        self.move_up_action.setShortcut(QKeySequence(MOVE_UP_SHORTCUT))
+        self.move_up_action.setEnabled(False)
+        self.move_up_action.triggered.connect(self.trigger_move_up)
         app_state.selection_changed.connect(self.sync)
+
+    @property
+    def actions(self) -> tuple[QAction, ...]:
+        """In menu order — the raw toggle first, the composed gesture
+        under it."""
+        return (self.action, self.move_up_action)
 
     def bind(self, system_of_measure: Mapping[int, int]) -> None:
         """Per load: the engraved measure→system map the policy reads."""
@@ -64,10 +84,16 @@ class BreakActionController:
                        self._app_state.doc.system_break_overrides,
                        self._system_of_measure)
 
+    def current_move_up(self):
+        return resolve_move_up(self._app_state.selection,
+                               self._app_state.doc.system_break_overrides,
+                               self._system_of_measure)
+
     def sync(self) -> None:
-        """Re-derive enabled state, label and status tip. Called on every
-        selection change and on every document change (the overrides move
-        the label between force / remove / clear)."""
+        """Re-derive enabled state, label and status tip for both. Called
+        on every selection change and on every document change (the
+        overrides move the toggle's label between force / remove /
+        clear)."""
         action = self.current()
         self.action.setEnabled(action.enabled)
         if action.enabled:
@@ -76,9 +102,23 @@ class BreakActionController:
         else:
             self.action.setText(_DEFAULT_LABEL)
             self.action.setStatusTip(action.reason or "")
+        # the move-up label never changes — the gesture is the same
+        # whichever way its two halves happen to be written
+        move_up = self.current_move_up()
+        self.move_up_action.setEnabled(move_up.enabled)
+        self.move_up_action.setStatusTip(
+            "" if move_up.enabled else (move_up.reason or ""))
 
     def trigger(self) -> None:
-        action = self.current()
+        self._execute(self.current())
+
+    def trigger_move_up(self) -> None:
+        self._execute(self.current_move_up())
+
+    def _execute(self, action) -> None:
+        """One command for either gesture — `also` carries the composed
+        entries, so both are a single undo step (rule 8)."""
         if not action.enabled:
             return
-        self._app_state.execute(SetSystemBreak(action.ordinal, action.mode))
+        self._app_state.execute(
+            SetSystemBreak(action.ordinal, action.mode, action.also))

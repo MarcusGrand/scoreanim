@@ -152,13 +152,14 @@ class MainWindow(QMainWindow):
         # Owns the three part-shaped dialogs too since M3.0 (BACKLOG 9b)
         self.parts_menu = PartsMenu(self.menus.score_menu, self.app_state,
                                     self)
-        # system-break authoring (M5.4): the action lives in the Score
-        # menu with the other layout choices; the controller keeps the
-        # policy out of the menu builder, and the shortcut is registered
-        # window-level so it fires regardless of focus
+        # system-break authoring (M5.4, M5.7): the actions live in the
+        # Score menu with the other layout choices; the controller keeps
+        # the policy out of the menu builder, and the shortcuts are
+        # registered window-level so they fire regardless of focus
         self.break_action = BreakActionController(self.app_state, self)
-        self.parts_menu.set_break_action(self.break_action.action)
-        self.addAction(self.break_action.action)
+        self.parts_menu.set_break_actions(*self.break_action.actions)
+        for action in self.break_action.actions:
+            self.addAction(action)
         # load pipeline + document→scene diff-sync (M1.7): the loader
         # returns a LoadedScore bundle _install adopts; the sync owns
         # the applied caches the document-changed pass diffs against
@@ -273,13 +274,18 @@ class MainWindow(QMainWindow):
         """Which measure a break edit touched, for the view to re-anchor
         to (M5.5, D8). Diffed against the loader's applied inputs rather
         than passed down from the action, so undo and redo re-anchor on
-        the same path — and so a change that touches several ordinals at
-        once (a project load) anchors nowhere and keeps the position."""
+        the same path — and so a change that touches many ordinals at
+        once (a project load) anchors nowhere and keeps the position.
+
+        A gesture writes at most TWO ordinals (M5.7's move-up: suppress
+        this system's start, force the remainder), and the anchor is the
+        LOWEST of them — the merge half, whose measure is exactly the
+        music that just moved onto the previous system (D14)."""
         before = self.loader.applied_breaks
         after = dict(doc.system_break_overrides)
         changed = {o for o in set(before) | set(after)
                    if before.get(o) != after.get(o)}
-        return changed.pop() if len(changed) == 1 else None
+        return min(changed) if 1 <= len(changed) <= 2 else None
 
     def _reengrave(self, doc: ProjectDoc,
                    anchor_measure: int | None = None) -> None:

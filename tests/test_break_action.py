@@ -20,11 +20,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QSettings  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from scoreanim.core.editing.breaks import (LAST_MEASURE,  # noqa: E402
-                                           NO_MEASURE, NO_SELECTION)
+from scoreanim.core.editing.breaks import (FIRST_SYSTEM,  # noqa: E402
+                                           LAST_MEASURE, MOVE_NO_MEASURE,
+                                           MOVE_NO_SELECTION, NO_MEASURE,
+                                           NO_SELECTION)
 from scoreanim.core.score.identity import ElementKind  # noqa: E402
 from scoreanim.core.score.musicxml_prep import SystemBreak  # noqa: E402
-from scoreanim.ui.break_action import SHORTCUT  # noqa: E402
+from scoreanim.ui.break_action import (MOVE_UP_SHORTCUT,  # noqa: E402
+                                       SHORTCUT)
 from scoreanim.ui.main_window import MainWindow  # noqa: E402
 
 TESTSCORE = Path(__file__).parent.parent / "testdata" / "testscore.musicxml"
@@ -282,3 +285,151 @@ def test_undo_re_anchors_too(window) -> None:
     window.router.show_page(3)
     window.app_state.undo()
     assert window.router.page == 1             # back at the edited measure
+
+
+# -- M5.7: move to previous system ------------------------------------------
+
+def _notehead_in(window, measure: int):
+    """Selected through the real click path, like the barline helper —
+    the move-up action reads ANY object's implicit measure (rule 13)."""
+    return _select(window, lambda el: (
+        el.identity.kind is ElementKind.NOTEHEAD
+        and f":m{measure}:" in str(el.identity.element_id)))
+
+
+def test_move_up_joins_the_previous_system(window) -> None:
+    """The gesture, end to end on the real window: m5-6 join system 1
+    and the remainder m7-8 stays a system of its own."""
+    assert _spans(window)[2] == (5, 8)
+    _notehead_in(window, 6)
+    assert window.break_action.move_up_action.isEnabled()
+    window.break_action.trigger_move_up()
+
+    assert window.app_state.doc.system_break_overrides == {
+        5: SystemBreak.SUPPRESS, 7: SystemBreak.FORCE}
+    assert _spans(window)[1] == (1, 6)
+    assert _spans(window)[2] == (7, 8)
+
+
+def test_move_up_is_one_undo_entry(window) -> None:
+    """Rule 8 counts gestures, not documents touched: two ordinals, one
+    step back to the original layout."""
+    before = _spans(window)
+    underneath = window.app_state.undo_text()   # whatever the load left
+    _notehead_in(window, 6)
+    window.break_action.trigger_move_up()
+    assert _spans(window) != before
+
+    assert window.app_state.undo_text() == "change system breaks"
+    window.app_state.undo()
+    assert window.app_state.doc.system_break_overrides == {}
+    assert _spans(window) == before
+    # ONE step back, not two: the stack is where the load left it
+    assert window.app_state.undo_text() == underneath
+
+
+def test_move_up_costs_one_reengrave(window, monkeypatch) -> None:
+    calls = []
+    real = window.loader.load
+    monkeypatch.setattr(window.loader, "load",
+                        lambda *a, **kw: (calls.append(1), real(*a, **kw))[1])
+    _notehead_in(window, 6)
+    window.break_action.trigger_move_up()
+    assert len(calls) == 1
+
+
+def test_move_up_from_a_systems_first_measure(window) -> None:
+    """Not a disable case — the commonest use. m5 goes up alone."""
+    _notehead_in(window, 5)
+    window.break_action.trigger_move_up()
+    assert _spans(window)[1] == (1, 5)
+    assert _spans(window)[2] == (6, 8)
+
+
+def test_move_up_of_a_last_measure_writes_only_the_merge(window) -> None:
+    """No remainder to split off, so one entry — and no D10 warning for
+    a gesture that worked (brief §M5.7.2 M1)."""
+    _notehead_in(window, 8)
+    window.break_action.trigger_move_up()
+    assert window.app_state.doc.system_break_overrides == {
+        5: SystemBreak.SUPPRESS}
+    assert _spans(window)[1] == (1, 8)
+
+
+def test_move_up_reverses_by_the_plain_toggle(window) -> None:
+    """The composed gesture leaves a document the primitives still read
+    correctly: toggling m4's barline afterwards clears the suppression
+    rather than writing a second override on top of it."""
+    _notehead_in(window, 6)
+    window.break_action.trigger_move_up()
+    _barline_in(window, 4)                     # targets ordinal 5
+    assert "Clear" in window.break_action.action.text()
+    window.break_action.trigger()
+    assert window.app_state.doc.system_break_overrides == {
+        7: SystemBreak.FORCE}
+
+
+# -- the disabled states, each naming why -----------------------------------
+
+def test_move_up_disabled_in_the_first_system(window) -> None:
+    _notehead_in(window, 2)
+    action = window.break_action.move_up_action
+    assert not action.isEnabled()
+    assert action.statusTip() == FIRST_SYSTEM
+
+
+def test_move_up_disabled_with_nothing_selected(window) -> None:
+    action = window.break_action.move_up_action
+    assert not action.isEnabled()
+    assert action.statusTip() == MOVE_NO_SELECTION
+
+
+def test_move_up_disabled_for_an_object_carrying_no_measure(window) -> None:
+    _select(window, lambda el: (
+        el.identity.kind is ElementKind.BARLINE
+        and str(el.identity.element_id).startswith("score:p")))
+    action = window.break_action.move_up_action
+    assert not action.isEnabled()
+    assert action.statusTip() == MOVE_NO_MEASURE
+
+
+def test_triggering_the_disabled_move_up_does_nothing(window) -> None:
+    _notehead_in(window, 2)
+    window.break_action.trigger_move_up()
+    assert window.app_state.doc.system_break_overrides == {}
+
+
+# -- chrome, position, selection --------------------------------------------
+
+def test_move_up_has_a_shortcut_and_sits_in_the_score_menu(window) -> None:
+    action = window.break_action.move_up_action
+    assert action.shortcut().toString() == MOVE_UP_SHORTCUT
+    assert action in window.menus.score_menu.actions()
+    window.files.open_score(TESTSCORE)          # a second load
+    assert action in window.menus.score_menu.actions()
+
+
+def test_move_up_re_anchors_the_view_to_the_moved_music(window) -> None:
+    """D14: the gesture changes TWO ordinals, and the anchor is the
+    lower one — the merge half, which is where the moved music now is."""
+    from scoreanim.core.project import PresentationMode, SetPresentationMode
+
+    window.app_state.execute(SetPresentationMode(PresentationMode.SYSTEM))
+    _notehead_in(window, 6)
+    window.router.show_system(2)
+    window.break_action.trigger_move_up()
+    assert window.router.system == \
+        window.break_action._system_of_measure[6] == 1
+
+
+def test_the_selection_survives_a_move_up(window) -> None:
+    """D9, unchanged: the object you selected is still selected, on the
+    system it just moved to."""
+    note = _notehead_in(window, 6)
+    eid = note.identity.element_id
+    window.break_action.trigger_move_up()
+
+    assert window.app_state.selected is not None
+    assert window.app_state.selected.element_id == eid
+    assert window.selection.highlighted is window._scenes.items[eid]
+    assert window.break_action._system_of_measure[6] == 1
