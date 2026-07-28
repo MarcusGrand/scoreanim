@@ -3,10 +3,11 @@
 Scope authority is `docs/ROADMAP.md` §M6. This file is how it gets built.
 Written after the audit and the spike, before any feature code.
 
-Status: **planning only.** §4's decisions are proposed and recommended;
-**none is ruled.** No feature code exists, no schema is bumped, CLAUDE.md
-is untouched (the rule-7 amendment is a draft in ROADMAP §M6 until the
-build applies it — the M5.6 pattern).
+Status: **ruled 2026-07-28 (Marcus); building.** §4's thirteen decisions
+(D0–D12) are all ruled **as recommended**, with the two standing riders
+recorded in §4. Schema goes to **v9**; the ROADMAP rule-7 amendment is
+applied to CLAUDE.md at M6.8 with the ruling date (the M5.6 pattern),
+extended with what D3's collision ruling settled.
 
 M6 pairs two things M5 left behind: page-break authoring, deferred in
 ROADMAP's closing section "until M5 proves the pattern", and BACKLOG
@@ -344,10 +345,40 @@ a page break and silently receives a system break.
 
 ---
 
-## 4. Decisions — proposed and recommended, NOT decided
+## 4. Decisions — proposed, then ruled
 
-Each states the measurement behind it. **Nothing here is ruled**; several
-change what gets built.
+**All thirteen (D0–D12) were ruled as recommended (Marcus,
+2026-07-28)**, with two standing riders carried over from M5. Each is
+kept below in its original form, because the argument for each is the
+record of why the ruling went the way it did.
+
+- **Rider 1 (menu/panel affordances).** Every action the milestone adds
+  — the page toggle in the Score menu, and every button the layout zone
+  puts over an existing action — gets a **keyboard shortcut** where one
+  makes sense, and any action that can be disabled for more than one
+  reason carries a **status tip naming WHY**. This is M5's D1 rider,
+  restated as standing policy.
+- **Rider 2 (flag, don't deviate).** If a ruling or a brief measurement
+  is contradicted by reality mid-build, stop and flag it rather than
+  silently working around it.
+
+Two consequences worth stating up front, because they narrow what the
+app may do forever after:
+
+- **D0's ruling answers the question it raised**: a repagination may NOT
+  change system content. `_repaginate` promotes each encoded
+  `new-page="yes"` to also carry `new-system="yes"` before it strips, so
+  the encoded system structure survives a re-derived page plan intact.
+- **D1 + D3 together fix the ordering**: never-clip owns the final page
+  plan and authored page intent is an INPUT to it (never a pass layered
+  over it), and the two override maps are written by ONE combined pass
+  with a stated precedence — a page break implies a system break, so at
+  one ordinal page FORCE beats system SUPPRESS, and a page SUPPRESS
+  asserts `new-system="yes"` rather than clearing the measure's only
+  marker. That precedence is what the D8 `page-break-repaginated`
+  warning reports when the two disagree.
+
+Each decision states the measurement behind it.
 
 ### 4.0 D0 — pay BACKLOG 16 first (stop-and-ask)
 
@@ -581,8 +612,9 @@ D11/D9 already own. No special case, no second path to keep in sync.
 
 ## 5. Task breakdown
 
-Each task ends with a concrete check. **No task starts before D0–D12 are
-ruled** — D0, D1 and D3 change what gets built.
+Each task ends with a concrete check. D0–D12 were ruled on 2026-07-28
+(§4) — D0, D1 and D3 changed what gets built, and the tasks below are
+written to the ruled shape.
 
 ### M6.0 — BACKLOG 16 (no feature code)
 
