@@ -18,13 +18,29 @@ from __future__ import annotations
 
 import copy
 import xml.etree.ElementTree as ET
-from typing import TYPE_CHECKING
+from enum import Enum
+from typing import TYPE_CHECKING, Mapping
 
 if TYPE_CHECKING:      # the specs live in musicxml_prep; importing them at
                        # runtime would be circular (prepare() calls us)
     from scoreanim.core.score.musicxml_prep import (PartCondenseSpec,
                                                     PartGroupSpec,
                                                     PartTextSpec)
+
+
+class SystemBreak(str, Enum):
+    """What the user asked of one measure's system break (M5).
+
+    This is the `<print new-system>` vocabulary, so it lives with the pass
+    that writes the attribute and is re-exported from `musicxml_prep` as
+    the prep seam's public face. Unlike the `*Spec` dataclasses it has NO
+    neutral twin in `core/project`: a two-valued vocabulary has no fields
+    to twin, and the layering already permits `core/project` to import
+    `core/score` (the `PartId` shape). One enum, no conversion at the
+    seam.
+    """
+    FORCE = "force"          # start a system at this measure
+    SUPPRESS = "suppress"    # do NOT start a system at this measure
 
 
 def _drop_redundant_trailing_forwards(root: ET.Element) -> int:

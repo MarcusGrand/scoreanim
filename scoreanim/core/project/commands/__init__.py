@@ -27,7 +27,8 @@ from scoreanim.core.project.commands.layout import (AddCondenseGroup,
                                                     RemoveCondenseGroup,
                                                     RemoveStaffGroup,
                                                     SetLayoutOverride,
-                                                    SetPartText)
+                                                    SetPartText,
+                                                    SetSystemBreak)
 from scoreanim.core.project.commands.stage import (AddTempoOverlay,
                                                    EditStageText,
                                                    RemoveTempoOverlay,
@@ -68,5 +69,5 @@ __all__ = [
     "SetFloorOpacity", "SetGlobalSwing", "SetHideEmptyStaves",
     "SetHideFirstSystem", "SetOffset", "SetPartColor", "SetPartEffect",
     "SetLayoutOverride", "SetPartText", "SetPresentationMode", "SetRevealMode",
-    "SetSwingRegion", "UndoStack",
+    "SetSwingRegion", "SetSystemBreak", "UndoStack",
 ]

@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from scoreanim.core.project.commands.base import Command, CommandError
 from scoreanim.core.project.document import (CondenseGroup, LayoutOverride,
                                              PartTextOverride, ProjectDoc,
-                                             StaffGroup)
+                                             StaffGroup, SystemBreak)
 from scoreanim.core.score.identity import ElementId, PartId
 
 # MusicXML group-symbol vocabulary ("none" excluded: removing the group
@@ -255,6 +255,53 @@ class SetPartText(Command):
 
     def describe(self) -> str:
         return "set part name"
+
+
+# ---------------------------------------------------------------------------
+# system breaks (M5)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SetSystemBreak(Command):
+    """Force or suppress the system break at one measure — the app's first
+    layout-INTENT edit, and an ENGRAVING INPUT like staff_groups: the
+    window re-engraves on the system_break_overrides diff (measured 0.25 s
+    on testscore, 1.28 s on bigband1 — brief §3.6 F4), so this arrives via
+    execute(), never preview().
+
+    `ordinal` is the 1-based document-order ordinal of the measure that
+    would START the system (D2), never a printed number — the same
+    identity `_repaginate`'s break_measures use, so the two break
+    mechanisms read the same way at the seam.
+
+    `mode=None` POPS the entry, returning that measure to whatever the
+    file encodes, so the doc stays sparse (the SetElementStyle idiom) and
+    the gesture is perfectly reversible. Ordinals are validated as >= 1
+    only: the command deliberately does NOT know the engraved layout (no
+    command does), so an ordinal past the end of the score is stored and
+    left inert, with the load-time warning of D10 doing the telling —
+    rule 5's stated staleness trade, and `_repaginate`'s own behaviour
+    for an out-of-range plan entry.
+    """
+    ordinal: int
+    mode: SystemBreak | None
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if self.ordinal < 1:
+            raise CommandError(f"measure ordinal {self.ordinal} is not >= 1")
+        overrides = dict(doc.system_break_overrides)
+        if self.mode is None:
+            overrides.pop(self.ordinal, None)
+        else:
+            overrides[self.ordinal] = self.mode
+        return replace(doc, system_break_overrides=overrides)
+
+    def describe(self) -> str:
+        if self.mode is None:
+            return "clear system break"
+        if self.mode is SystemBreak.FORCE:
+            return "force system break"
+        return "suppress system break"
 
 
 @dataclass(frozen=True)

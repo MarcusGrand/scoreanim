@@ -12,9 +12,9 @@ from scoreanim.core.project import (FileRef, LayoutOverride,
                                     PartTextOverride, PresentationMode,
                                     ProjectDoc, StaffGroup, StageConfig,
                                     StageTextElement, StyleRules,
-                                    TimingConfig, check_ref, from_dict,
-                                    load_project, save_project, sha256_of,
-                                    to_dict)
+                                    SystemBreak, TimingConfig, check_ref,
+                                    from_dict, load_project, save_project,
+                                    sha256_of, to_dict)
 from scoreanim.core.animation import ElementStyle, RevealMode
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.core.timing import SwingRegion, Tap, TapSession, TempoEvent
@@ -78,6 +78,10 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
                                  symbol="bracket", join_barlines=True),),
         text_overrides={PartId("P2"): PartTextOverride(
             name="Tenor Sax", abbreviation="T. Sx.")},
+        # v8: both directions, and ordinals whose string sort differs
+        # from their numeric one (the writer sorts numerically)
+        system_break_overrides={3: SystemBreak.FORCE,
+                                12: SystemBreak.SUPPRESS},
     )
 
 
@@ -136,10 +140,10 @@ def test_v1_part_colors_fold_into_style_rules() -> None:
     }
     assert legacy.style.reveal_mode is RevealMode.STEPPED
     assert legacy.style.elements == {}
-    # new files declare version 7 (M4); a build from the future is refused
-    assert to_dict(ProjectDoc())["version"] == 7
+    # new files declare version 8 (M5); a build from the future is refused
+    assert to_dict(ProjectDoc())["version"] == 8
     with pytest.raises(ValueError, match="version"):
-        from_dict({"version": 8})
+        from_dict({"version": 9})
 
 
 def test_v4_hide_empty_staves() -> None:
@@ -258,6 +262,48 @@ def test_v3_fields_round_trip() -> None:
     assert from_dict(to_dict(blank)) == blank
 
 
+def test_v8_system_break_overrides() -> None:
+    """v8 (M5, 2026-07-28): the sparse break delta round-trips; every
+    older file loads with {} — the pre-option look, so no read gate."""
+    assert ProjectDoc().system_break_overrides == {}
+    doc = ProjectDoc(system_break_overrides={3: SystemBreak.FORCE,
+                                             12: SystemBreak.SUPPRESS})
+    payload = to_dict(doc)
+    # JSON object keys are strings, and the ordinals are sorted
+    # NUMERICALLY (a string sort would put "12" before "3")
+    assert payload["system_break_overrides"] == {"3": "force",
+                                                 "12": "suppress"}
+    assert list(payload["system_break_overrides"]) == ["3", "12"]
+    assert from_dict(payload) == doc
+    assert from_dict(to_dict(ProjectDoc())).system_break_overrides == {}
+    for version in (1, 2, 3, 4, 5, 6, 7):
+        assert from_dict({"version": version}).system_break_overrides == {}
+
+
+def test_v8_rejects_unknown_break_mode() -> None:
+    with pytest.raises(ValueError, match="system break"):
+        from_dict({"version": 8, "system_break_overrides": {"3": "maybe"}})
+
+
+def test_v8_file_is_refused_by_a_v7_reader() -> None:
+    """The gate's own test: the strict-by-version rule is the point of
+    bumping at all — a tagged v7 build (v0.2-beta.3) must REFUSE a v8
+    file rather than silently drop the breaks and destroy them on the
+    next save (the v2 rationale)."""
+    import scoreanim.core.project.serialize as ser
+
+    payload = to_dict(ProjectDoc(
+        system_break_overrides={3: SystemBreak.FORCE}))
+    old = tuple(v for v in ser._READABLE_VERSIONS if v <= 7)
+    original = ser._READABLE_VERSIONS
+    ser._READABLE_VERSIONS = old
+    try:
+        with pytest.raises(ValueError, match="version"):
+            ser.from_dict(payload)
+    finally:
+        ser._READABLE_VERSIONS = original
+
+
 def test_version_guard() -> None:
     with pytest.raises(ValueError, match="version"):
         from_dict({"version": 99})
@@ -297,4 +343,4 @@ def test_never_persists_derived_data() -> None:
                             "layout_overrides", "timing", "style", "stage",
                             "staff_groups", "text_overrides",
                             "hide_empty_staves", "hide_first_system",
-                            "condense_groups"}
+                            "condense_groups", "system_break_overrides"}
