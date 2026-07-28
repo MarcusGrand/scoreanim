@@ -28,6 +28,12 @@ None from `Selection.measure_ordinal` — 5 of 24 barlines on testscore,
 after it to start a system (D6). Both disable the action rather than
 firing it into nothing, and each says why: a disabled control that
 explains itself is the D1 rider.
+
+**M5.7 adds a second gesture over the same two primitives.** "Move to
+previous system" is SUPPRESS at the first measure of N's system plus
+FORCE at N+1 — one composition, one command, one undo entry (D11/D12).
+It needs no barline: any object carries its measure (rule 13), and the
+gesture needs a measure rather than a break position.
 """
 from __future__ import annotations
 
@@ -47,17 +53,31 @@ NO_MEASURE = ("This barline opens a system and carries no measure — "
 LAST_MEASURE = "There is no music after the last measure to start a system"
 NO_SCORE = "No score is loaded"
 
+# ... and for the move-up gesture, which reads any object, not a barline
+MOVE_NO_SELECTION = "Select an object in the measure you want to move"
+MOVE_NO_MEASURE = "This object carries no measure to move"
+FIRST_SYSTEM = "This measure is already in the first system"
+UNKNOWN_MEASURE = "That measure is not in the engraved score"
+NO_EFFECT = "Moving this measure would not change the layout"
+
 
 @dataclass(frozen=True)
 class BreakAction:
-    """What the Score-menu action should do with the current selection.
+    """What a Score-menu break action should do with the current
+    selection.
 
-    `ordinal` and `mode` are `SetSystemBreak`'s two arguments, ready to
-    pass. When `reason` is set the action is disabled and the other two
-    are meaningless.
+    `ordinal`, `mode` and `also` are `SetSystemBreak`'s three arguments,
+    ready to pass. When `reason` is set the action is disabled and the
+    others are meaningless.
+
+    A plain toggle fills `ordinal`/`mode` and leaves `also` empty; a
+    composed gesture (M5.7) puts its essential half first and the rest in
+    `also` — which is also the order the view's re-anchor diff reads,
+    since the primary ordinal is the lowest one (D14).
     """
     ordinal: int | None = None
     mode: SystemBreak | None = None
+    also: tuple[tuple[int, SystemBreak | None], ...] = ()
     reason: str | None = None
 
     @property
@@ -67,11 +87,16 @@ class BreakAction:
 
 def system_starts(system_of_measure: Mapping[int, int]) -> frozenset[int]:
     """The measure ordinals that currently START a system."""
+    return frozenset(first_measures(system_of_measure).values())
+
+
+def first_measures(system_of_measure: Mapping[int, int]) -> dict[int, int]:
+    """System index → the measure ordinal that starts it."""
     first: dict[int, int] = {}
     for measure, system in system_of_measure.items():
         if measure < first.get(system, 1 << 30):
             first[system] = measure
-    return frozenset(first.values())
+    return first
 
 
 def resolve(selection: Selection | None,
@@ -120,3 +145,89 @@ def toggle_mode(target: int,
     if target in system_starts(system_of_measure):
         return SystemBreak.SUPPRESS
     return SystemBreak.FORCE
+
+
+# ---------------------------------------------------------------------------
+# M5.7 — move to previous system
+# ---------------------------------------------------------------------------
+
+def move_up_entries(measure: int,
+                    overrides: Mapping[int, SystemBreak],
+                    system_of_measure: Mapping[int, int]
+                    ) -> tuple[tuple[int, SystemBreak | None], ...]:
+    """The (ordinal, mode-or-clear) entries that move `measure` — and any
+    earlier measures of its system — onto the previous system (D11).
+
+    Two halves, over the two shipped primitives:
+
+    - **merge**: the first measure S of this system must stop starting
+      one, so S…N join the previous system.
+    - **split**: the remainder N+1… must start a system of its own —
+      present ONLY when there IS a remainder.
+
+    Each half prefers CLEARING an opposite override to writing a new one.
+    That is what keeps the document sparse and the gesture reversible,
+    and it is sound because a FORCE is only ever written where nothing
+    was encoded (`toggle_mode` step 3, and this function's own split
+    half), so removing it is exactly enough to remove the break. Writing
+    SUPPRESS over our own FORCE would instead leave a permanent entry the
+    prep seam can find nothing to suppress with — inert, and reported as
+    such by D10's warning for a gesture that worked.
+
+    The split half is omitted when N+1 already starts a system, and this
+    is a correctness rule rather than tidiness: measured (brief §M5.7.2
+    M1), writing FORCE over an encoded break changes nothing at the seam
+    and so trips the same "break-override-inert" warning.
+
+    Entries that would not change the document at all are dropped last —
+    defensive only; it needs a system that starts where nothing is
+    encoded and nothing is forced, which break-respect mode does not
+    produce (§M5.7.2 M2).
+    """
+    system = system_of_measure[measure]
+    start = first_measures(system_of_measure)[system]
+    entries: list[tuple[int, SystemBreak | None]] = []
+
+    merge = (None if overrides.get(start) is SystemBreak.FORCE
+             else SystemBreak.SUPPRESS)
+    entries.append((start, merge))
+
+    if system_of_measure.get(measure + 1) == system:      # a remainder
+        split = (None if overrides.get(measure + 1) is SystemBreak.SUPPRESS
+                 else SystemBreak.FORCE)
+        entries.append((measure + 1, split))
+
+    return tuple((ordinal, mode) for ordinal, mode in entries
+                 if overrides.get(ordinal) is not mode)
+
+
+def resolve_move_up(selection: Selection | None,
+                    overrides: Mapping[int, SystemBreak],
+                    system_of_measure: Mapping[int, int]) -> BreakAction:
+    """The move-up policy, in the order the decisions were ruled (D13).
+
+    Unlike the toggle this reads ANY selected object, not only a barline:
+    selecting an object carries its containing measure (rule 13), and the
+    gesture needs a measure rather than a break position. The barline
+    remains the handle for the raw toggle, whose "the break falls after
+    measure N" arithmetic is specific to a measure's right barline.
+    """
+    if not system_of_measure:
+        return BreakAction(reason=NO_SCORE)
+    if selection is None:
+        return BreakAction(reason=MOVE_NO_SELECTION)
+
+    measure = selection.measure_ordinal
+    if measure is None:
+        return BreakAction(reason=MOVE_NO_MEASURE)
+    system = system_of_measure.get(measure)
+    if system is None:                                    # stale ordinal
+        return BreakAction(reason=UNKNOWN_MEASURE)
+    if system <= min(system_of_measure.values()):
+        return BreakAction(reason=FIRST_SYSTEM)
+
+    entries = move_up_entries(measure, overrides, system_of_measure)
+    if not entries:
+        return BreakAction(reason=NO_EFFECT)
+    (ordinal, mode), *rest = entries
+    return BreakAction(ordinal=ordinal, mode=mode, also=tuple(rest))

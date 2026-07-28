@@ -462,6 +462,56 @@ def test_system_break_undo_steps_through_each_toggle(doc) -> None:
     assert stack.redo() == d3
 
 
+def test_set_system_break_also_writes_several_ordinals(doc) -> None:
+    """M5.7/D12: the fat-apply widening. One gesture ("move to previous
+    system") needs two breaks written, and rule 8 counts gestures — so
+    `also` carries the extra entries into the same apply()."""
+    from scoreanim.core.project import SetSystemBreak, SystemBreak
+
+    move = SetSystemBreak(5, SystemBreak.SUPPRESS,
+                          ((7, SystemBreak.FORCE),))
+    assert move.entries == ((5, SystemBreak.SUPPRESS),
+                            (7, SystemBreak.FORCE))
+    moved = move.apply(doc)
+    assert moved.system_break_overrides == {5: SystemBreak.SUPPRESS,
+                                            7: SystemBreak.FORCE}
+    assert doc.system_break_overrides == {}          # apply is pure
+
+    # a clear travels in `also` too — the move-up policy prefers it
+    mixed = SetSystemBreak(5, None, ((7, None),)).apply(moved)
+    assert mixed == doc
+    # and a bad ordinal anywhere in the set is refused, wholesale
+    with pytest.raises(CommandError, match=">= 1"):
+        SetSystemBreak(5, SystemBreak.SUPPRESS, ((0, None),)).apply(doc)
+
+
+def test_system_break_undo_counts_the_gesture_not_the_ordinals(doc) -> None:
+    """Rule 8 on the composed gesture: two ordinals, ONE undo entry."""
+    from scoreanim.core.project import SetSystemBreak, SystemBreak
+
+    stack = UndoStack()
+    moved = stack.execute(SetSystemBreak(5, SystemBreak.SUPPRESS,
+                                         ((7, SystemBreak.FORCE),)), doc)
+    assert len(moved.system_break_overrides) == 2
+    assert stack.undo_text() == "change system breaks"
+    assert stack.undo() == doc
+    assert not stack.can_undo
+    assert stack.redo() == moved
+
+
+def test_system_break_phrase_is_true_for_every_caller(doc) -> None:
+    """The M3.5 rule: describe() names what the mechanism wrote, never
+    the gesture that happened to call it. The menu action's own label
+    says "Move to Previous System"; the Edit menu says what changed."""
+    from scoreanim.core.project import SetSystemBreak, SystemBreak
+
+    assert SetSystemBreak(5, SystemBreak.SUPPRESS).describe() \
+        == "suppress system break"
+    assert SetSystemBreak(5, SystemBreak.SUPPRESS,
+                          ((7, SystemBreak.FORCE),)).describe() \
+        == "change system breaks"
+
+
 def test_score_setup_carries_hide_first_system(doc) -> None:
     from scoreanim.core.project import ApplyScoreSetup
 

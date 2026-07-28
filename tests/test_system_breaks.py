@@ -295,3 +295,58 @@ def test_bigband_warning_set_does_not_grow_beyond_the_spike() -> None:
     assert set(counts) == {"dropped-spanner", "unknown-class", "stray-path",
                            "reclaimed-spanner-ink", "segment-count-mismatch",
                            "unattributed-continuation", "repaginated"}
+
+
+# ---------------------------------------------------------------------------
+# M5.7 — the move-up composition, end to end (brief §M5.7.2)
+# ---------------------------------------------------------------------------
+
+def test_move_up_composition_lands_on_testscore() -> None:
+    """The policy's entry set for "move m6 to the previous system",
+    through the whole pipeline: m5-6 join system 1 and the remainder
+    m7-8 stays a system of its own."""
+    out = _load(TESTSCORE, system_breaks={5: SystemBreak.SUPPRESS,
+                                          7: SystemBreak.FORCE})
+    assert _spans(out) == {1: (1, 6), 2: (7, 8), 3: (9, 12), 4: (13, 16),
+                           5: (17, 19)}
+    assert "break-override-inert" not in {w.code for w in out.warnings}
+
+
+def test_move_up_of_a_last_measure_needs_only_the_merge_half() -> None:
+    """Why D11 omits an entry rather than writing it for symmetry: m9
+    already encodes new-system="yes", so a FORCE there rewrites nothing
+    at the seam and D10 reports an override that had no effect — for a
+    gesture that worked. The merge half alone gives the same layout."""
+    merge_only = _load(TESTSCORE, system_breaks={5: SystemBreak.SUPPRESS})
+    with_split = _load(TESTSCORE, system_breaks={5: SystemBreak.SUPPRESS,
+                                                 9: SystemBreak.FORCE})
+    assert _spans(with_split) == _spans(merge_only)
+    assert "break-override-inert" not in {w.code for w in merge_only.warnings}
+    assert "break-override-inert" in {w.code for w in with_split.warnings}
+
+
+def test_move_up_on_bigband_leaves_the_rest_of_the_score_alone() -> None:
+    """The M5.7 exit check, on the app path: a mid-system bar moves up,
+    the remainder stays a system of its own, systems 3-9 are untouched,
+    and the warning set is IDENTICAL to the baseline load — no
+    repagination, no new spanner diagnostics."""
+    base = _load(BIGBAND_SCORE, strict=False)
+    assert _spans(base)[2] == (5, 8) and _spans(base)[3] == (9, 11)
+
+    out = _load(BIGBAND_SCORE, strict=False,
+                system_breaks={5: SystemBreak.SUPPRESS,
+                               7: SystemBreak.FORCE})
+    assert _spans(out)[1] == (1, 6) and _spans(out)[2] == (7, 8)
+    assert {s: span for s, span in _spans(out).items() if s >= 3} \
+        == {s: span for s, span in _spans(base).items() if s >= 3}
+    assert Counter(w.code for w in out.warnings) \
+        == Counter(w.code for w in base.warnings)
+
+
+def test_move_up_leaves_a_one_measure_remainder_when_that_is_what_it_is() -> None:
+    """bigband1 system 3 is m9-11: moving m10 up leaves m11 alone on its
+    own system. Ugly, and exactly what was asked for."""
+    out = _load(BIGBAND_SCORE, strict=False,
+                system_breaks={9: SystemBreak.SUPPRESS,
+                               11: SystemBreak.FORCE})
+    assert _spans(out)[2] == (5, 10) and _spans(out)[3] == (11, 11)

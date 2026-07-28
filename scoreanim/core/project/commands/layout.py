@@ -282,21 +282,44 @@ class SetSystemBreak(Command):
     left inert, with the load-time warning of D10 doing the telling —
     rule 5's stated staleness trade, and `_repaginate`'s own behaviour
     for an out-of-range plan entry.
+
+    `also` carries ADDITIONAL (ordinal, mode-or-clear) entries applied in
+    the same step (M5.7, D12). One gesture can need more than one break
+    written: "move to previous system" is SUPPRESS at the first measure
+    of this system plus FORCE at the next one, and rule 8 counts
+    gestures, not documents touched. The 'fat apply' idiom
+    `ApplyScoreSetup` and `SetElementStyle.segments` already use — there
+    being no generic macro command — and the one ROADMAP §M5's
+    inheritance note (c) named for exactly this case. Empty for a plain
+    toggle, which is the common case.
     """
     ordinal: int
     mode: SystemBreak | None
+    also: tuple[tuple[int, SystemBreak | None], ...] = ()
+
+    @property
+    def entries(self) -> tuple[tuple[int, SystemBreak | None], ...]:
+        """Every (ordinal, mode) this command writes, primary first."""
+        return ((self.ordinal, self.mode), *self.also)
 
     def apply(self, doc: ProjectDoc) -> ProjectDoc:
-        if self.ordinal < 1:
-            raise CommandError(f"measure ordinal {self.ordinal} is not >= 1")
         overrides = dict(doc.system_break_overrides)
-        if self.mode is None:
-            overrides.pop(self.ordinal, None)
-        else:
-            overrides[self.ordinal] = self.mode
+        for ordinal, mode in self.entries:
+            if ordinal < 1:
+                raise CommandError(f"measure ordinal {ordinal} is not >= 1")
+            if mode is None:
+                overrides.pop(ordinal, None)
+            else:
+                overrides[ordinal] = mode
         return replace(doc, system_break_overrides=overrides)
 
     def describe(self) -> str:
+        # The M3.5 rule: the phrase must be true for every caller of the
+        # mechanism, not named for the first one. A composed gesture
+        # names itself in its own menu label ("Move to Previous
+        # System"); here it can only honestly say what it wrote.
+        if self.also:
+            return "change system breaks"
         if self.mode is None:
             return "clear system break"
         if self.mode is SystemBreak.FORCE:
