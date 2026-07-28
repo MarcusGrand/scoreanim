@@ -20,6 +20,7 @@ from scoreanim.core.animation.style import StyleRules
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.stage_config import StageConfig
 from scoreanim.core.score.identity import Beats, ElementId, PartId
+from scoreanim.core.score.musicxml_prep import SystemBreak
 from scoreanim.core.timing.swing import SwingRegion
 from scoreanim.core.timing.taps import TapSession
 from scoreanim.core.timing.tempo_map import TempoEvent
@@ -119,8 +120,20 @@ class ProjectDoc:
     # Contiguous like parts merged onto one staff (schema v5, consumed
     # Phase 12.3); the merged part-list is re-derived at the prep seam.
     condense_groups: tuple[CondenseGroup, ...] = ()
+    # System-break intent (schema v8, M5). A SPARSE DELTA on whatever the
+    # score encodes — never the whole break set: the key is the ordinal of
+    # the measure that STARTS the system (D2, so it means exactly what
+    # `<print new-system="yes">` means and what _repaginate's
+    # break_measures mean), and only edited ordinals appear. Applied at
+    # the prep seam upstream of hide/condense/repaginate/scale-to-fit,
+    # which then operate on the edited break set exactly as they do on
+    # the encoded one. Intent only: every layout consequence re-derives
+    # (rule 5), and an ordinal that no longer means anything is inert
+    # (warned at load, D10).
+    system_break_overrides: Mapping[int, SystemBreak] = \
+        field(default_factory=dict)
 
 
 __all__ = ["DEFAULT_BPM", "FileRef", "HIDE_EMPTY_STAVES_DEFAULT",
            "LayoutOverride", "PartTextOverride", "ProjectDoc", "StaffGroup",
-           "StyleRules", "TimingConfig", "Beats"]
+           "StyleRules", "SystemBreak", "TimingConfig", "Beats"]

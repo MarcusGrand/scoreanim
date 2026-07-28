@@ -209,3 +209,63 @@ def test_show_current_repaints_without_moving() -> None:
     router.show_current()
     assert router.page == 2
     assert view.calls == [("scene", "scene2")]
+
+
+# -- show_measure (M5.5, D8) ---------------------------------------------
+
+# BANDS puts systems 1 and 2 on page 1 and system 3 on page 2.
+SYSTEM_OF_MEASURE = {1: 1, 2: 1, 3: 2, 4: 2, 5: 3, 6: 3}
+
+
+def _anchored(applier=None) -> tuple:
+    view, menus = _View(), _Menus()
+    router = ViewRouter(view, menus)
+    router.bind(_Scenes(2), dict(BANDS), applier or _Applier(),
+                dict(SYSTEM_OF_MEASURE))
+    return router, view, menus
+
+
+def test_show_measure_frames_the_system_holding_it() -> None:
+    router, view, _ = _anchored()
+    router.sync_presentation_mode(PresentationMode.SYSTEM)
+    view.calls.clear()
+    router.show_measure(4)
+    assert router.system == 2
+    assert view.calls == [("band", "scene1", 50)]
+
+
+def test_show_measure_flips_to_the_page_holding_it() -> None:
+    router, view, _ = _anchored()
+    router.show_page(1)
+    view.calls.clear()
+    router.show_measure(5)               # system 3 lives on page 2
+    assert router.page == 2
+    assert view.calls == [("scene", "scene2")]
+
+
+def test_show_measure_stays_put_for_a_measure_the_layout_lacks() -> None:
+    """A shortened score: fall back to re-showing the current position
+    rather than clamping to somewhere arbitrary."""
+    router, view, _ = _anchored()
+    router.show_page(2)
+    view.calls.clear()
+    router.show_measure(99)
+    assert router.page == 2
+    assert view.calls == [("scene", "scene2")]
+
+
+def test_show_measure_on_an_unbound_router_routes_nowhere() -> None:
+    view, menus = _View(), _Menus()
+    ViewRouter(view, menus).show_measure(3)
+    assert view.calls == [] and menus.position is None
+
+
+def test_bind_without_a_measure_map_still_works() -> None:
+    """The map is optional at the seam (stubs and older call sites pass
+    three arguments); show_measure then behaves as show_current."""
+    router, view, _ = _router()
+    router.show_page(2)
+    view.calls.clear()
+    router.show_measure(4)
+    assert router.page == 2
+    assert view.calls == [("scene", "scene2")]

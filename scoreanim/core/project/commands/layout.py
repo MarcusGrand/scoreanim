@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from scoreanim.core.project.commands.base import Command, CommandError
 from scoreanim.core.project.document import (CondenseGroup, LayoutOverride,
                                              PartTextOverride, ProjectDoc,
-                                             StaffGroup)
+                                             StaffGroup, SystemBreak)
 from scoreanim.core.score.identity import ElementId, PartId
 
 # MusicXML group-symbol vocabulary ("none" excluded: removing the group
@@ -255,6 +255,76 @@ class SetPartText(Command):
 
     def describe(self) -> str:
         return "set part name"
+
+
+# ---------------------------------------------------------------------------
+# system breaks (M5)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SetSystemBreak(Command):
+    """Force or suppress the system break at one measure — the app's first
+    layout-INTENT edit, and an ENGRAVING INPUT like staff_groups: the
+    window re-engraves on the system_break_overrides diff (measured 0.25 s
+    on testscore, 1.28 s on bigband1 — brief §3.6 F4), so this arrives via
+    execute(), never preview().
+
+    `ordinal` is the 1-based document-order ordinal of the measure that
+    would START the system (D2), never a printed number — the same
+    identity `_repaginate`'s break_measures use, so the two break
+    mechanisms read the same way at the seam.
+
+    `mode=None` POPS the entry, returning that measure to whatever the
+    file encodes, so the doc stays sparse (the SetElementStyle idiom) and
+    the gesture is perfectly reversible. Ordinals are validated as >= 1
+    only: the command deliberately does NOT know the engraved layout (no
+    command does), so an ordinal past the end of the score is stored and
+    left inert, with the load-time warning of D10 doing the telling —
+    rule 5's stated staleness trade, and `_repaginate`'s own behaviour
+    for an out-of-range plan entry.
+
+    `also` carries ADDITIONAL (ordinal, mode-or-clear) entries applied in
+    the same step (M5.7, D12). One gesture can need more than one break
+    written: "move to previous system" is SUPPRESS at the first measure
+    of this system plus FORCE at the next one, and rule 8 counts
+    gestures, not documents touched. The 'fat apply' idiom
+    `ApplyScoreSetup` and `SetElementStyle.segments` already use — there
+    being no generic macro command — and the one ROADMAP §M5's
+    inheritance note (c) named for exactly this case. Empty for a plain
+    toggle, which is the common case.
+    """
+    ordinal: int
+    mode: SystemBreak | None
+    also: tuple[tuple[int, SystemBreak | None], ...] = ()
+
+    @property
+    def entries(self) -> tuple[tuple[int, SystemBreak | None], ...]:
+        """Every (ordinal, mode) this command writes, primary first."""
+        return ((self.ordinal, self.mode), *self.also)
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        overrides = dict(doc.system_break_overrides)
+        for ordinal, mode in self.entries:
+            if ordinal < 1:
+                raise CommandError(f"measure ordinal {ordinal} is not >= 1")
+            if mode is None:
+                overrides.pop(ordinal, None)
+            else:
+                overrides[ordinal] = mode
+        return replace(doc, system_break_overrides=overrides)
+
+    def describe(self) -> str:
+        # The M3.5 rule: the phrase must be true for every caller of the
+        # mechanism, not named for the first one. A composed gesture
+        # names itself in its own menu label ("Move to Previous
+        # System"); here it can only honestly say what it wrote.
+        if self.also:
+            return "change system breaks"
+        if self.mode is None:
+            return "clear system break"
+        if self.mode is SystemBreak.FORCE:
+            return "force system break"
+        return "suppress system break"
 
 
 @dataclass(frozen=True)

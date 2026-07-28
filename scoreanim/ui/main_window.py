@@ -34,6 +34,7 @@ from scoreanim.core.timing.taps import (TapSession, derive_tempo_events,
 from scoreanim.render.export import AnimationInputs
 from scoreanim.render.scene import ScoreScenes
 from scoreanim.ui.app_state import AppState
+from scoreanim.ui.break_action import BreakActionController
 from scoreanim.ui.document_sync import DocumentSync
 from scoreanim.ui.file_actions import FileActions
 from scoreanim.ui.inspector import Inspector
@@ -151,6 +152,14 @@ class MainWindow(QMainWindow):
         # Owns the three part-shaped dialogs too since M3.0 (BACKLOG 9b)
         self.parts_menu = PartsMenu(self.menus.score_menu, self.app_state,
                                     self)
+        # system-break authoring (M5.4, M5.7): the actions live in the
+        # Score menu with the other layout choices; the controller keeps
+        # the policy out of the menu builder, and the shortcuts are
+        # registered window-level so they fire regardless of focus
+        self.break_action = BreakActionController(self.app_state, self)
+        self.parts_menu.set_break_actions(*self.break_action.actions)
+        for action in self.break_action.actions:
+            self.addAction(action)
         # load pipeline + document→scene diff-sync (M1.7): the loader
         # returns a LoadedScore bundle _install adopts; the sync owns
         # the applied caches the document-changed pass diffs against
@@ -207,7 +216,7 @@ class MainWindow(QMainWindow):
         # scenes in the same pass
         if (self._scenes is not None and doc.score is not None
                 and self.loader.needs_reengrave(doc)):
-            self._reengrave(doc)
+            self._reengrave(doc, self._break_anchor(doc))
         self.playback.set_timing_config(*self.timing_config(doc))
         self.doc_sync.sync_styles(doc)
         if self.doc_sync.sync_stage(doc) \
@@ -222,6 +231,7 @@ class MainWindow(QMainWindow):
         self.lower_zone.strip.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
         self.parts_menu.sync_from_document(doc)
+        self.break_action.sync()      # overrides move the action's label
         self.router.sync_presentation_mode(doc.stage.mode)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
@@ -254,23 +264,49 @@ class MainWindow(QMainWindow):
                                   self.app_state.doc.style, groups,
                                   text_overrides or {},
                                   hide_empty_staves, condense_groups,
-                                  hide_first_system)
+                                  hide_first_system,
+                                  self.app_state.doc.system_break_overrides)
         self._install(loaded)
         self.router.reset()
         return loaded.stage
 
-    def _reengrave(self, doc: ProjectDoc) -> None:
+    def _break_anchor(self, doc: ProjectDoc) -> int | None:
+        """Which measure a break edit touched, for the view to re-anchor
+        to (M5.5, D8). Diffed against the loader's applied inputs rather
+        than passed down from the action, so undo and redo re-anchor on
+        the same path — and so a change that touches many ordinals at
+        once (a project load) anchors nowhere and keeps the position.
+
+        A gesture writes at most TWO ordinals (M5.7's move-up: suppress
+        this system's start, force the remainder), and the anchor is the
+        LOWEST of them — the merge half, whose measure is exactly the
+        music that just moved onto the previous system (D14)."""
+        before = self.loader.applied_breaks
+        after = dict(doc.system_break_overrides)
+        changed = {o for o in set(before) | set(after)
+                   if before.get(o) != after.get(o)}
+        return min(changed) if 1 <= len(changed) <= 2 else None
+
+    def _reengrave(self, doc: ProjectDoc,
+                   anchor_measure: int | None = None) -> None:
         """Re-derive the engraved world after a staff-group, part-label,
-        or hide-empty-staves change, preserving page/system/zoom (no
-        view.fit, no position reset). ~0.6 s on the GUI thread per call
-        (engrave + scene rebuild), so these commands must arrive via
-        execute(), never preview()."""
+        hide-empty-staves, or system-break change, preserving
+        page/system/zoom (no view.fit, no position reset). ~0.6 s on the
+        GUI thread per call (engrave + scene rebuild), so these commands
+        must arrive via execute(), never preview()."""
         loaded = self.loader.load(Path(doc.score.path), doc.engraving,
                                   doc.stage, doc.style, doc.staff_groups,
                                   doc.text_overrides, doc.hide_empty_staves,
-                                  doc.condense_groups, doc.hide_first_system)
+                                  doc.condense_groups, doc.hide_first_system,
+                                  doc.system_break_overrides)
         self._install(loaded)
-        self.router.show_current()       # install the fresh scene
+        # a break edit re-anchors to the measure it touched, so the stage
+        # stays where you were working (D8); everything else re-shows the
+        # position it had
+        if anchor_measure is not None:
+            self.router.show_measure(anchor_measure)
+        else:
+            self.router.show_current()   # install the fresh scene
 
     def _install(self, loaded: LoadedScore) -> None:
         """Adopt one load's derived world and point every consumer at
@@ -281,7 +317,8 @@ class MainWindow(QMainWindow):
         self.doc_sync.bind_scenes(loaded.scenes, loaded.stage.texts)
         self.selection.bind_scenes(loaded.scenes)   # also clears selection
         self.router.bind(loaded.scenes, loaded.band_by_system,
-                         loaded.applier)
+                         loaded.applier, loaded.system_of_measure)
+        self.break_action.bind(loaded.system_of_measure)
         self.text_edit.bind(loaded.scenes, loaded.animation_inputs.layout,
                             loaded.parts)
         self.nudge.bind_scenes(loaded.scenes)

@@ -663,11 +663,61 @@ Project (saved file, versioned schema)
 │                        new documents; the hidden layout re-derives
 │                        via the MEI optimize round-trip (adapter
 │                        ruling 7); rule-7 amendment b
-└── condense_groups      v5 (Phase 12.3): contiguous like parts merged
-                         onto one staff (one voice per player, combined
-                         label); the merged part-list re-derives at the
-                         prep seam (adapter ruling 10); CLAUDE.md rule 11
+├── condense_groups      v5 (Phase 12.3): contiguous like parts merged
+│                        onto one staff (one voice per player, combined
+│                        label); the merged part-list re-derives at the
+│                        prep seam (adapter ruling 10); CLAUDE.md rule 11
+└── system_break_overrides
+                         v8 (M5): a SPARSE DELTA on the score's encoded
+                         system breaks — {measure ordinal → FORCE |
+                         SUPPRESS}, keyed by the measure that would
+                         START the system. Rewritten into <print
+                         new-system> on part 1 at the prep seam,
+                         UPSTREAM of condense / hide / repaginate /
+                         scale-to-fit, so all four operate on the edited
+                         break set exactly as they do on the encoded
+                         one; rule-7 M5 amendment
 ```
+
+**The break-override seam (M5).** The document stores intent and only
+the DELTA — never the whole break set, so a measure with no override
+keeps whatever the file encodes. `core/score/musicxml_rewrite.py:
+_apply_system_breaks` is the pass, a deliberate twin of `_repaginate`:
+part 1 only (Verovio reads print layout from the first part), keyed by
+1-based document ordinal (never the printed number), creating `<print>`
+when absent. Two things it does NOT copy from `_repaginate`: it never
+strips the encoded breaks first, and it is stored rather than derived.
+`prepare()` takes it as `system_breaks=`, and `load_detailed` must pass
+it on all THREE of its retry paths — the hide-unavailable retry (which
+re-engraves the same prep), the repagination retry and the scale-to-fit
+retry (which both re-prepare) — or a score that repaginates silently
+loses the user's breaks. The pass returns the ordinals it could not
+apply, which become `LoadWarning "break-override-inert"`.
+
+Suppression additionally clears a coincident encoded `new-page`: a page
+break implies a system break, so leaving it makes the suppression inert.
+The consequence is that suppressing a SYSTEM break can move a PAGE
+break — acceptable under rule 7(a), which already has us owning the
+page count whenever the encoded breaks cannot hold their systems.
+
+The layout consequence re-derives like every other engraving input:
+`ui/score_loader.py` carries `_applied_breaks` as its sixth applied
+input, so execute / undo / redo all route through one `needs_reengrave`
+trigger. Staleness follows rule 5 — an ordinal that no longer means
+anything is inert and warned, never an error.
+
+**Gestures compose over the two primitives, above this seam (M5.7).**
+"Move to Previous System" is SUPPRESS at the first measure of N's system
+plus FORCE at N+1 — computed purely in `core/editing/breaks.py` from
+`(N, overrides, system_of_measure)` and written by ONE `SetSystemBreak`,
+whose `also` field carries the extra entries (rule 8 counts gestures,
+the fat-apply idiom). Nothing at the seam knows the gesture happened,
+which is the point: a new break gesture is a new entry-set function, not
+a new pass, a new field or a new schema version. Two rules the entry set
+follows are worth keeping: each half CLEARS an opposite override where
+that suffices rather than writing a new one (sparse, and reversible),
+and an entry that would rewrite an encoded break with itself is omitted
+— it changes nothing and would report itself as inert.
 
 Schema versions (`core/project/serialize.py`, strict gate): **v1**
 (Phase 4) had `style.part_colors`; **v2** (Phase 5.3) is the StyleRules
@@ -677,10 +727,14 @@ field designed at once, no per-phase bumps; **v4** (Phase 10R) added
 hide_empty_staves, VERSION-GATED on read: v≤3 files predate the option
 and load OFF so their look is unchanged, while new documents default
 ON; **v5** (Phase 12.3) added condense_groups (no read gate needed — a
-missing key defaults to (), the correct look for older files). The
-reader accepts {1, 2, 3, 4, 5}: v1 `part_colors` folds into part
+missing key defaults to (), the correct look for older files); **v6**
+(2026-07-24) added hide_first_system; **v7** (M4) added
+style.default_effect and style.effect_params; **v8** (M5) added
+system_break_overrides. v4 is still the ONLY read gate — every later
+field's missing key defaults to the pre-option look. The reader accepts
+{1 … 8}: v1 `part_colors` folds into part
 color rules, older files default newer fields per-field (no migration
-code — they just lack the keys); the writer emits 5. The gate is
+code — they just lack the keys); the writer emits 8. The gate is
 strict-by-version ON PURPOSE: an older build REFUSES a newer file
 instead of tolerantly reading it, silently dropping fields, and
 destroying them on the next save. Effect names are stored intent — an

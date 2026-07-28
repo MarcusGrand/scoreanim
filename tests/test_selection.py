@@ -206,16 +206,45 @@ def test_the_highlight_adds_nothing_to_any_scene(controller) -> None:
 
 # -- lifecycle -----------------------------------------------------------
 
-def test_bind_scenes_clears_selection_and_unlights(controller) -> None:
-    """A re-engrave rebuilds every ElementItem; the held identity would
-    point at objects that no longer exist."""
+def test_bind_scenes_re_resolves_a_surviving_selection(controller) -> None:
+    """M5.5 (D9, BACKLOG 9 seam b): a re-engrave rebuilds every
+    ElementItem, but musical ids are minted from position and mostly
+    survive — so the identity is re-resolved against the fresh table and
+    restored when it is still there."""
     ctrl, state, loaded = controller
-    ctrl.select_at(_centre(loaded, _first(loaded, ElementKind.NOTEHEAD)))
+    note = _first(loaded, ElementKind.NOTEHEAD)
+    ctrl.select_at(_centre(loaded, note))
     assert state.selected is not None and ctrl.highlighted is not None
     ctrl.bind_scenes(loaded.scenes)
+    assert state.selected is not None
+    assert state.selected.element_id == note.identity.element_id
+    # the tint is back on the item, and on exactly one
+    assert ctrl.highlighted is loaded.scenes.items[note.identity.element_id]
+    assert [i.selected for i in loaded.scenes.items.values()].count(True) == 1
+
+
+def test_bind_scenes_clears_a_selection_that_did_not_survive(
+        controller) -> None:
+    """The other half of D9: an id the fresh table does not have is
+    dropped, not carried as a dangling identity."""
+    class _Empty:
+        items: dict = {}
+
+    ctrl, state, loaded = controller
+    ctrl.select_at(_centre(loaded, _first(loaded, ElementKind.NOTEHEAD)))
+    assert state.selected is not None
+    ctrl.bind_scenes(_Empty())
     assert state.selected is None
     assert ctrl.highlighted is None
     assert not any(i.selected for i in loaded.scenes.items.values())
+
+
+def test_unbinding_clears_the_selection(controller) -> None:
+    ctrl, state, loaded = controller
+    ctrl.select_at(_centre(loaded, _first(loaded, ElementKind.NOTEHEAD)))
+    ctrl.bind_scenes(None)
+    assert state.selected is None
+    assert ctrl.highlighted is None
 
 
 def test_selection_survives_a_page_flip(controller) -> None:

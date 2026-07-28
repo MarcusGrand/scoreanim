@@ -636,12 +636,11 @@ re-engraves with the break — the app's first *layout-intent* edit.
   (d) `Selection.measure_ordinal` is unchanged and still the property
   to read; M3 added no third caller of `measure_ordinal_of`, so BACKLOG
   9(c) is still open rather than resolved.
-- **CLAUDE.md rule 7 amendment (draft — apply with the build
-  ruling):** *"Amendment (M5, 2026-XX-XX): the honored system-break
-  set is the encoded breaks ⊕ the user's in-app break overrides
-  (doc.system_break_overrides, applied at the prep seam). Still never
-  window reflow: an edited break set is an engraving input like a
-  part rename."*
+- **CLAUDE.md rule 7 amendment — APPLIED 2026-07-28** with the D7
+  sentence the ruling added (a suppression clears a coincident encoded
+  new-page, and pagination re-derives, so the page count is owned, not
+  clipped). The drafted wording is now in CLAUDE.md rule 7; this bullet
+  is kept as the record of where it came from.
 
 **Exit criteria.** On bigband1: force a break mid-way — the system
 splits, downstream repagination stays sane, animation and reveal
@@ -656,6 +655,126 @@ degrades it to a warned OTHER (rule 4 amendment), so the interactive
 exit run is fine; headless tests and spikes against bigband1 must use
 the app path (`strict=False`) or a fixture that loads strict.
 
+**BUILT M5.0–M5.6, 2026-07-28** on `beta/m5-breaks` per
+`docs/briefs/M5_BREAKS_BRIEF.md`. All eleven decisions (D0–D10) were
+ruled as recommended, with two riders (D7's amendment sentence, and
+D1's shortcut + reason-carrying disabled state); the measurements
+behind them are the brief §3 and `spikes/system_breaks.py`. Suite 924
+passed / 1 xfailed, goldens byte-identical throughout.
+
+Where reality differed from the brief, or the build had to decide:
+
+- **M5.0** paid D0 first, as its own commit: `musicxml_prep.py` 577 →
+  326 lines, with the eight tree-rewriting passes moving to
+  `core/score/musicxml_rewrite.py` (294). The specs keep their home, so
+  the rewrite module takes them under `TYPE_CHECKING`; all eight are
+  re-exported, so no import site changed.
+- **`EngravedScore.system_of_measure` was exposed at M5.2, not M5.3** —
+  M5.2's own verification asserts on it. The adapter had always built
+  it and thrown it away; the golden serializer names its fields
+  explicitly, so goldens did not move.
+- **The trap is real but one path was free.** `load_detailed` calls
+  `prepare()` three times, not four: the hide-unavailable retry
+  re-engraves the SAME prep and so carries the overrides without being
+  told. The repagination and scale-to-fit retries both re-prepare and
+  had to pass `system_breaks` explicitly. All three are pinned, the
+  deepest on `tall_system_min`, where a forced break survives a
+  re-prepare that repaginates AND scales to fit.
+- **`SystemBreak` gets no neutral twin.** The `*Spec` dataclasses are
+  twinned across `core/project` ↔ `core/score`, but a two-valued
+  vocabulary has no fields to twin and the layering already lets the
+  document import `core/score` (the `PartId` shape). One enum, no
+  conversion at the seam.
+- **The action requires a BARLINE**, which the brief implies but never
+  states as a disable case. Rule 13 names the barline as M5's only
+  handle, and D2's arithmetic ("the break falls after measure N") only
+  holds for the measure's right barline — a notehead sits in a measure
+  but not at a break position. It is the fourth reason the disabled
+  action can name.
+- **D10 warns on "could not be applied at the seam", not "had no
+  visible effect"** — the latter would need a second no-override load.
+  So the pass reports the ordinals it wrote nothing for: an ordinal past
+  the end, and a suppression whose encoded break has gone. Suppression
+  became a stricter delta as a result — it writes only where there IS
+  an encoded break.
+- **D9 needed one thing the brief did not anticipate.**
+  `AppState.set_selection` no-ops on an EQUAL identity and fires no
+  signal — right for its own contract, and exactly wrong across a
+  re-engrave, where the identity is unchanged but the item carrying the
+  tint is a different object. The controller re-lights it explicitly
+  rather than making AppState re-emit for everyone. **BACKLOG 9 seam
+  (b) is closed**; seam (c) is still open, as M5 read
+  `Selection.measure_ordinal` and added no third caller of
+  `measure_ordinal_of`.
+- **Finding, not M5's to fix (see BACKLOG 16).** `_repaginate` strips
+  ALL encoded `new-page` attributes and re-asserts its own plan, so a
+  system break encoded ONLY as `new-page="yes"` is destroyed whenever
+  repagination fires and the re-derived plan differs from the encoded
+  one. That contradicts rule 7(a)'s own wording ("keeps the system
+  breaks"). It is pre-existing Phase 10R behaviour, latent because on
+  complex3 — the only fixture that repaginates at baseline — the
+  re-derived plan happens to match the encoded breaks exactly. M5 is
+  the first feature that can change system heights and so make the two
+  diverge: on testscore, forcing a break at m19 also merges systems 1+2
+  and 3+4, whose breaks are encoded as page breaks. Every M5 mechanism
+  works correctly on top of it (the forced break survives; the page
+  count stays owned), so it is flagged rather than fixed inside a
+  milestone whose charter is a layout-intent edit.
+- **Minor finding.** testscore's FINAL barline is a heavy double bar,
+  and a click at its bbox centre lands in the gap between the two
+  rules, outside M2's 6-unit tolerance, so it resolves to nothing. An
+  M2 hit-geometry nuance; harmless for M5, since D6 disables the action
+  on the last measure either way.
+
+**M5.7 — "Move to Previous System" — ruled in scope 2026-07-28**, after
+the interactive exit run passed and before the merge, and built the same
+day (brief §M5.7, decisions D11–D15). With a selection whose object
+carries measure ordinal N, N and any earlier measures of its system move
+onto the previous system. It is a COMPOSITION of the two shipped
+primitives — SUPPRESS at the first measure of N's system, FORCE at N+1 —
+so there is no new document field, no new prep-seam pass and no schema
+change (still v8). The symmetric move-down already exists as the plain
+FORCE toggle.
+
+- **`SetSystemBreak` widened rather than a macro**: a third field `also`
+  carries the extra `(ordinal, mode-or-clear)` entries into the same
+  `apply()`, so one gesture is one undo entry (rule 8). Exactly the
+  answer inheritance note (c) above names, and the third use of the
+  fat-apply idiom after `ApplyScoreSetup` and `SetElementStyle.segments`.
+  `describe()` follows the M3.5 rule — a composed write says "change
+  system breaks"; the menu label is where the gesture names itself.
+- **Each half prefers CLEARING an opposite override to writing a new
+  one**, which keeps the document sparse and the gesture reversible: a
+  FORCE is only ever written where nothing was encoded, so removing it is
+  exactly enough to remove the break.
+- **The measurement changed a decision.** Writing the FORCE half where a
+  system already starts (N is its system's last measure) produces the
+  identical layout but trips D10's `break-override-inert` warning,
+  because the seam rewrites nothing over an encoded break. Omitting
+  inert entries is therefore a correctness rule, not tidiness — pinned
+  by a test that loads the gesture both ways.
+- **The action reads ANY object's implicit measure**, not only a
+  barline: rule 13 says selecting an object carries its measure, and
+  move-up needs a measure rather than a break position. The barline
+  stays the handle for the raw toggle, whose "after measure N"
+  arithmetic is specific to a right barline. Disabled with a reason for
+  the first system, no selection, an object carrying no measure, a stale
+  ordinal, and (defensively) an empty entry set.
+- **D8's re-anchor needed generalizing**: `_break_anchor` re-anchored
+  only when exactly ONE ordinal changed, so a two-ordinal gesture would
+  have silently stopped re-anchoring. It now takes the lowest of at most
+  two changed ordinals — the merge half, which is where the moved music
+  ends up. D9's selection restore is unchanged.
+- Suite **960 passed / 1 xfailed**, goldens byte-identical. Verified end
+  to end on bigband1's app path: moving a mid-system bar up leaves the
+  remainder a system of its own, systems 3–9 untouched, and the warning
+  set identical to the baseline load.
+
+A left-side retractable **layout zone** — a panel collecting these
+layout affordances, and page-break authoring when it lands — is
+**BACKLOG 17**, deliberately deferred until more than one action needs a
+home. It is a candidate M6 pairing with page-break authoring.
+
 ---
 
 ## Explicitly not in beta scope
@@ -665,4 +784,6 @@ list): single-wavefront sweep (BACKLOG 8 — its own design round),
 per-region swing UI (7), condensing sophistication (a2/divisi),
 per-voice reveal (10), repeat-skipping recordings, glow,
 auto-alignment, continuous scroll. Page-break authoring (as opposed to
-system breaks) is deliberately deferred until M5 proves the pattern.
+system breaks) is deliberately deferred until M5 proves the pattern —
+which it now has, twice (the toggle and M5.7's composition), so it is a
+candidate for M6 together with BACKLOG 17's layout zone.

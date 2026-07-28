@@ -398,6 +398,120 @@ def test_set_hide_first_system(doc) -> None:
     assert stack.redo() == d1
 
 
+def test_set_system_break(doc) -> None:
+    """M5.1: the sparse break delta. FORCE/SUPPRESS write an entry; a
+    None mode POPS it, leaving the doc equal to the unedited one (the
+    SetElementStyle idiom, so the gesture is perfectly reversible)."""
+    from scoreanim.core.project import SetSystemBreak, SystemBreak
+
+    assert doc.system_break_overrides == {}
+    forced = SetSystemBreak(3, SystemBreak.FORCE).apply(doc)
+    assert forced.system_break_overrides == {3: SystemBreak.FORCE}
+    assert doc.system_break_overrides == {}          # apply is pure
+
+    both = SetSystemBreak(9, SystemBreak.SUPPRESS).apply(forced)
+    assert both.system_break_overrides == {3: SystemBreak.FORCE,
+                                           9: SystemBreak.SUPPRESS}
+
+    # a second toggle on the same ordinal REPLACES rather than accretes
+    flipped = SetSystemBreak(3, SystemBreak.SUPPRESS).apply(both)
+    assert flipped.system_break_overrides[3] is SystemBreak.SUPPRESS
+
+    # None pops, and the doc goes back to being EQUAL to the unedited one
+    cleared = SetSystemBreak(3, None).apply(forced)
+    assert cleared.system_break_overrides == {}
+    assert cleared == doc
+    # popping an ordinal that was never set is a no-op, not an error
+    assert SetSystemBreak(7, None).apply(doc) == doc
+
+    assert SetSystemBreak(3, SystemBreak.FORCE).describe() \
+        == "force system break"
+    assert SetSystemBreak(3, SystemBreak.SUPPRESS).describe() \
+        == "suppress system break"
+    assert SetSystemBreak(3, None).describe() == "clear system break"
+
+
+def test_set_system_break_rejects_non_ordinals(doc) -> None:
+    """Ordinals are 1-based. The command deliberately does NOT know the
+    engraved layout, so an ordinal PAST the end is stored and left inert
+    (D5/D10) — only a non-ordinal is refused."""
+    from scoreanim.core.project import SetSystemBreak, SystemBreak
+
+    for bad in (0, -1):
+        with pytest.raises(CommandError, match=">= 1"):
+            SetSystemBreak(bad, SystemBreak.FORCE).apply(doc)
+    past_the_end = SetSystemBreak(9999, SystemBreak.FORCE).apply(doc)
+    assert past_the_end.system_break_overrides == {9999: SystemBreak.FORCE}
+
+
+def test_system_break_undo_steps_through_each_toggle(doc) -> None:
+    """Rule 8: ONE undo entry per toggle, each stepping individually."""
+    from scoreanim.core.project import SetSystemBreak, SystemBreak
+
+    stack = UndoStack()
+    d1 = stack.execute(SetSystemBreak(3, SystemBreak.FORCE), doc)
+    d2 = stack.execute(SetSystemBreak(9, SystemBreak.SUPPRESS), d1)
+    d3 = stack.execute(SetSystemBreak(3, None), d2)          # toggle back
+    assert d3.system_break_overrides == {9: SystemBreak.SUPPRESS}
+
+    assert stack.undo() == d2
+    assert stack.undo() == d1
+    assert stack.undo() == doc
+    assert stack.redo() == d1
+    assert stack.redo() == d2
+    assert stack.redo() == d3
+
+
+def test_set_system_break_also_writes_several_ordinals(doc) -> None:
+    """M5.7/D12: the fat-apply widening. One gesture ("move to previous
+    system") needs two breaks written, and rule 8 counts gestures — so
+    `also` carries the extra entries into the same apply()."""
+    from scoreanim.core.project import SetSystemBreak, SystemBreak
+
+    move = SetSystemBreak(5, SystemBreak.SUPPRESS,
+                          ((7, SystemBreak.FORCE),))
+    assert move.entries == ((5, SystemBreak.SUPPRESS),
+                            (7, SystemBreak.FORCE))
+    moved = move.apply(doc)
+    assert moved.system_break_overrides == {5: SystemBreak.SUPPRESS,
+                                            7: SystemBreak.FORCE}
+    assert doc.system_break_overrides == {}          # apply is pure
+
+    # a clear travels in `also` too — the move-up policy prefers it
+    mixed = SetSystemBreak(5, None, ((7, None),)).apply(moved)
+    assert mixed == doc
+    # and a bad ordinal anywhere in the set is refused, wholesale
+    with pytest.raises(CommandError, match=">= 1"):
+        SetSystemBreak(5, SystemBreak.SUPPRESS, ((0, None),)).apply(doc)
+
+
+def test_system_break_undo_counts_the_gesture_not_the_ordinals(doc) -> None:
+    """Rule 8 on the composed gesture: two ordinals, ONE undo entry."""
+    from scoreanim.core.project import SetSystemBreak, SystemBreak
+
+    stack = UndoStack()
+    moved = stack.execute(SetSystemBreak(5, SystemBreak.SUPPRESS,
+                                         ((7, SystemBreak.FORCE),)), doc)
+    assert len(moved.system_break_overrides) == 2
+    assert stack.undo_text() == "change system breaks"
+    assert stack.undo() == doc
+    assert not stack.can_undo
+    assert stack.redo() == moved
+
+
+def test_system_break_phrase_is_true_for_every_caller(doc) -> None:
+    """The M3.5 rule: describe() names what the mechanism wrote, never
+    the gesture that happened to call it. The menu action's own label
+    says "Move to Previous System"; the Edit menu says what changed."""
+    from scoreanim.core.project import SetSystemBreak, SystemBreak
+
+    assert SetSystemBreak(5, SystemBreak.SUPPRESS).describe() \
+        == "suppress system break"
+    assert SetSystemBreak(5, SystemBreak.SUPPRESS,
+                          ((7, SystemBreak.FORCE),)).describe() \
+        == "change system breaks"
+
+
 def test_score_setup_carries_hide_first_system(doc) -> None:
     from scoreanim.core.project import ApplyScoreSetup
 

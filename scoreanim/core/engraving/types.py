@@ -226,7 +226,10 @@ class LoadWarning:
     "system-overflow" (defensive: a system still overflows after
     scale-to-fit), "unknown-class" (a drawable SVG class the decomposer
     does not know was rendered as a static element instead of failing the
-    load — app path only, Phase 11.4; strict loads still raise).
+    load — app path only, Phase 11.4; strict loads still raise),
+    "break-override-inert" (a stored system-break override could not be
+    applied at the prep seam — an ordinal past the end of a score since
+    shortened, or a suppression whose encoded break has gone; M5, D10).
     """
     code: str
     message: str

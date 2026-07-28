@@ -23,7 +23,7 @@ from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.document import (CondenseGroup, FileRef,
                                              LayoutOverride, PartTextOverride,
                                              ProjectDoc, StaffGroup,
-                                             TimingConfig)
+                                             SystemBreak, TimingConfig)
 from scoreanim.core.project.stage_config import (PresentationMode,
                                                  StageConfig,
                                                  StageTextElement)
@@ -59,8 +59,15 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 # keeps v0.2-beta.1 (a TAGGED v6 reader) refusing loudly instead of
 # silently dropping both keys on a resave. M5's ROADMAP "v7" shifts
 # to v8.
-PROJECT_VERSION = 7
-_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7)
+# 8 (M5 Breaks, 2026-07-28): system_break_overrides — a sparse
+# {measure ordinal: "force"|"suppress"} delta on the score's encoded
+# break set, written as an object because JSON keys are strings. No read
+# gate: a missing key defaults to {}, which is "no overrides", which is
+# exactly the pre-option look for every v<=7 file. The bump keeps
+# v0.2-beta.3 (a TAGGED v7 reader) refusing loudly instead of silently
+# dropping the user's breaks on a resave — the v2 rationale.
+PROJECT_VERSION = 8
+_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8)
 SUFFIX = ".scoreanim"
 
 
@@ -142,6 +149,13 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
              "abbreviation": g.abbreviation}
             for g in doc.condense_groups
         ],
+        # v8: sparse break delta. JSON object keys are strings, so the
+        # ordinal is stringified; sorted NUMERICALLY so a saved file is
+        # deterministic and reads in score order (not "10" before "2").
+        "system_break_overrides": {
+            str(ordinal): mode.value
+            for ordinal, mode in sorted(doc.system_break_overrides.items())
+        },
     }
 
 
@@ -224,6 +238,13 @@ def from_dict(data: dict[str, Any],
                               abbreviation=g.get("abbreviation", ""))
                 for g in data.get("condense_groups", [])
             ),
+            # v8: missing key → {} (no overrides), the pre-option look for
+            # every older file — so no read gate (§1.4)
+            system_break_overrides={
+                int(ordinal): _system_break_in(mode)
+                for ordinal, mode in
+                data.get("system_break_overrides", {}).items()
+            },
         )
     except (KeyError, TypeError) as exc:
         raise ValueError(f"malformed project data: {exc!r}") from exc
@@ -245,6 +266,13 @@ def _presentation_mode_in(value: Any) -> PresentationMode:
         return PresentationMode[str(value).upper()]
     except KeyError as exc:
         raise ValueError(f"unknown presentation mode {value!r}") from exc
+
+
+def _system_break_in(value: Any) -> SystemBreak:
+    try:
+        return SystemBreak(str(value))
+    except ValueError as exc:
+        raise ValueError(f"unknown system break mode {value!r}") from exc
 
 
 def _text_override_out(override: PartTextOverride) -> dict[str, Any]:

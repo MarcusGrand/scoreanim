@@ -79,7 +79,17 @@ frozen v0.1-alpha build history — reference, never appended to.)
 7. **The user owns page layout.** We honor the MusicXML's encoded
    SYSTEM breaks always (Verovio break-respect mode). We never reflow
    to fit the window. Paged presentation; mismatched aspect is
-   letterboxed. Three amendments (Phase 10R 2026-07-13; (c) Phase 12.5
+   letterboxed.
+   Amendment (M5, 2026-07-28): the honored system-break set is the
+   encoded breaks ⊕ the user's in-app break overrides
+   (`doc.system_break_overrides`, applied at the prep seam). Still never
+   window reflow: an edited break set is an engraving input like a part
+   rename. Suppressing a break also clears a coincident encoded
+   new-page — a page break implies a system break, so leaving it would
+   make the suppression inert — and pagination then re-derives by the
+   rule-7(a) mechanism below, so suppressing a SYSTEM break can move a
+   PAGE break: the page count is **owned, not clipped** (D7).
+   Three further amendments (Phase 10R 2026-07-13; (c) Phase 12.5
    2026-07-21):
    (a) encoded PAGE breaks are honored unless a system would overflow
    its page (Dorico breaks are computed assuming hidden staves) — then
@@ -197,7 +207,11 @@ frozen v0.1-alpha build history — reference, never appended to.)
 ```
 scoreanim/
   core/                    # pure Python, no Qt
-    score/                 # music21 parsing → ScoreModel, ElementIdentity
+    score/                 # music21 parsing → ScoreModel, ElementIdentity;
+                           # musicxml_prep.py the prep seam (spec types,
+                           # scanners, prepare() as pass-order orchestrator)
+                           # and musicxml_rewrite.py the tree-rewriting
+                           # passes it names (M5.0 split)
     engraving/             # EngravingProvider ABC, neutral Layout types
       verovio/             # the adapter package (Phase R), one module per
                            # pipeline stage:
@@ -225,6 +239,10 @@ scoreanim/
                            # nudge.py       NUDGEABLE_KINDS + step sizes
                            # segments.py    the :seg family a per-element
                            #                override fans out to
+                           # breaks.py      may a break gesture fire, and
+                           #                what would it write (M5): the
+                           #                toggle, and M5.7's move-to-
+                           #                previous-system entry set
     project/               # Project document, serialization; commands/ —
                            # undoable commands split by domain (base/timing/
                            # style/stage/layout/undo, M4 exit audit)
@@ -261,6 +279,12 @@ scoreanim/
                            #   nudge.py         drag-to-nudge (M3.2): preview by
                            #                    setPos, ONE SetLayoutOverride
                            #                    per gesture
+                           #   break_action.py  the Score-menu break actions —
+                           #                    the toggle (M5.4) and Move to
+                           #                    Previous System (M5.7): owns
+                           #                    the QActions, their enable/
+                           #                    label sync and their triggers;
+                           #                    policy stays in core
                            #   transport.py     lower zone: strip + lanes dock
                            #   file_actions.py  open/save/import/export handlers
                            #   score_loader.py  engrave→scene load pipeline

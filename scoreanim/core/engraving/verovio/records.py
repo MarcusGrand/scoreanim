@@ -56,6 +56,15 @@ class EngravedScore:
     # A tied notehead's entry is its OWN segment length, not the chain
     # end. Absent id → no entry.
     note_durations: Mapping[ElementId, Beats] = field(default_factory=dict)
+    # Measure ordinal → 1-based score-wide system index (M5). The adapter
+    # has always built this (_LoadState.system_of_measure, from the SVG's
+    # measure-group nesting) and used it for the repagination planner and
+    # the courtesy-sig retime, then thrown it away. M5 needs the fact in
+    # the app: the break toggle asks "does this measure already start a
+    # system?" and the view re-anchors to the system holding the edited
+    # measure. Element-free, so it is immune to the cross-system :seg
+    # ordinal hazard; derived every load, never stored (rule 5).
+    system_of_measure: Mapping[int, int] = field(default_factory=dict)
     # Non-fatal load anomalies (Phase 10 ruling b): dropped spanners,
     # continuation-attribution gaps. Empty on clean loads.
     warnings: tuple[LoadWarning, ...] = ()

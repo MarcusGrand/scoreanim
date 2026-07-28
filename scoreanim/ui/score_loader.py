@@ -6,8 +6,9 @@ Owns no widgets and never reaches into the window: `load()` returns a
 `LoadedScore` bundle the window installs whole. The `_applied_*`
 caches record the engrave inputs of the LAST load, so
 `needs_reengrave(doc)` is the single trigger for the staff-group /
-part-label / hide-empty-staves / condense re-engrave. A re-engrave is
-~0.6 s on the GUI thread (engrave + scene rebuild), so the commands
+part-label / hide-empty-staves / condense / system-break re-engrave. A
+re-engrave is ~0.6 s on the GUI thread (engrave + scene rebuild; M5
+measured 0.25 s on testscore and 1.28 s on bigband1), so the commands
 that trip it must arrive via execute(), never preview().
 """
 from __future__ import annotations
@@ -29,7 +30,8 @@ from scoreanim.core.project import (DEFAULT_BPM, ProjectDoc, StageConfig,
 from scoreanim.core.score.join import join_notes
 from scoreanim.core.score.model import build_score_model
 from scoreanim.core.score.musicxml_prep import (PartCondenseSpec,
-                                                PartGroupSpec, PartTextSpec)
+                                                PartGroupSpec, PartTextSpec,
+                                                SystemBreak)
 from scoreanim.core.timing import TempoEvent, TempoMap
 from scoreanim.render.animate import AnimationApplier
 from scoreanim.render.export import AnimationInputs
@@ -48,6 +50,7 @@ class LoadedScore:
     measures: tuple
     parts: tuple
     band_by_system: dict         # per-system band rects (Phase 7.4)
+    system_of_measure: dict      # measure ordinal → system index (M5)
     warnings: tuple              # LoadWarnings (flag-and-continue)
     overflow: bool               # a system overflowed → offer Score Setup
     status_line: str             # the timing/join status message
@@ -62,18 +65,27 @@ class ScoreLoader:
         self._applied_hide_empty = False   # hide-empty-staves ditto
         self._applied_hide_first = False   # hide-first-system ditto
         self._applied_condense: tuple = ()   # condense groups ditto
+        self._applied_breaks: dict = {}    # system-break overrides ditto
+
+    @property
+    def applied_breaks(self) -> dict:
+        """The system-break overrides the LAST load used — the window
+        diffs against it to find which measure a break edit touched, so
+        the view can re-anchor there (M5.5, D8)."""
+        return dict(self._applied_breaks)
 
     def needs_reengrave(self, doc: ProjectDoc) -> bool:
         """Staff groups, part-label overrides, hide-empty-staves (and
-        its first-system extension), and condense groups are engraving
-        inputs: a change (execute, undo, OR redo) re-derives the
-        engraved world. The diff keeps every other command at its
-        current cost."""
+        its first-system extension), condense groups, and system-break
+        overrides are engraving inputs: a change (execute, undo, OR redo)
+        re-derives the engraved world. The diff keeps every other command
+        at its current cost."""
         return (doc.staff_groups != self._applied_groups
                 or dict(doc.text_overrides) != self._applied_text_overrides
                 or doc.hide_empty_staves != self._applied_hide_empty
                 or doc.hide_first_system != self._applied_hide_first
-                or doc.condense_groups != self._applied_condense)
+                or doc.condense_groups != self._applied_condense
+                or dict(doc.system_break_overrides) != self._applied_breaks)
 
     def load(self, path: Path, params: EngravingParams,
              stage: StageConfig | None,
@@ -82,12 +94,16 @@ class ScoreLoader:
              text_overrides: dict | None = None,
              hide_empty_staves: bool = False,
              condense_groups: tuple = (),
-             hide_first_system: bool = False) -> LoadedScore:
+             hide_first_system: bool = False,
+             system_breaks: dict[int, SystemBreak] | None = None
+             ) -> LoadedScore:
         """Engrave + decompose + join + wire the animation. `groups` is
         doc.staff_groups — injected as <part-group> at the prep seam;
         `text_overrides` is doc.text_overrides — part labels rewritten
         there (Phase 9.3); `condense_groups` is doc.condense_groups —
         contiguous like parts merged onto one staff there (Phase 12.3);
+        `system_breaks` is doc.system_break_overrides — the sparse
+        force/suppress delta rewriting <print new-system> there (M5);
         geometry re-derives, musical ids survive (rule 5, Phases
         8/9/12). `style` is the CURRENT document style — the applier is
         built with it and set_style'd after any later change."""
@@ -102,6 +118,7 @@ class ScoreLoader:
             PartCondenseSpec(parts=g.parts, name=g.name,
                              abbreviation=g.abbreviation)
             for g in condense_groups)
+        system_breaks = dict(system_breaks or {})
         t0 = time.perf_counter()
         # strict=False (app path, Phase 11.4): an unknown drawable SVG
         # class degrades to a warned static element instead of failing the
@@ -109,7 +126,8 @@ class ScoreLoader:
         engraved = VerovioEngravingProvider().load_detailed(
             path, params, specs, text_specs, hide_empty_staves,
             condense_specs, strict=False,
-            hide_first_system=hide_first_system)
+            hide_first_system=hide_first_system,
+            system_breaks=system_breaks)
         t1 = time.perf_counter()
         if stage is None:
             stage = default_stage_config(engraved.prepared,
@@ -164,12 +182,15 @@ class ScoreLoader:
         self._applied_hide_empty = hide_empty_staves
         self._applied_hide_first = hide_first_system
         self._applied_condense = condense_groups
+        self._applied_breaks = system_breaks
 
         return LoadedScore(
             scenes=scenes, stage=stage,
             animation_inputs=animation_inputs, applier=applier,
             measures=model.measures, parts=engraved.prepared.parts,
-            band_by_system=band_by_system, warnings=engraved.warnings,
+            band_by_system=band_by_system,
+            system_of_measure=dict(engraved.system_of_measure),
+            warnings=engraved.warnings,
             # a system taller than its page means the score needs
             # staff-count reduction — the Score Setup trigger (Phase
             # 12.4). Since Phase 12.5 such a load is rescued by
