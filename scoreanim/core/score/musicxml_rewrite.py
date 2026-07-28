@@ -299,72 +299,142 @@ def _inject_part_groups(root: ET.Element,
         part_list.insert(first, start)
 
 
-def _apply_system_breaks(root: ET.Element,
-                         overrides: Mapping[int, SystemBreak]
-                         ) -> tuple[int, ...]:
-    """Apply the user's system-break intent to `<print new-system>` (M5).
+def _wanted_break_attrs(sys_mode: SystemBreak | None,
+                        page_mode: PageBreak | None,
+                        encoded_system: str | None,
+                        encoded_page: str | None
+                        ) -> tuple[str | None, str | None]:
+    """THE coherence rule for one measure (M6, D3): what `new-system`
+    and `new-page` should become, given both overrides and what the file
+    already says. `None` means "do not touch this attribute".
+
+    Pure and total — every combination of (system override, page
+    override, encoded state) has an answer here, and `_apply_breaks` only
+    executes it. That is deliberate: §3.4 measured the incoherent
+    combination resolving in OPPOSITE directions under the two possible
+    pass orderings, so the answer must be STATED rather than fall out of
+    which pass happens to run last.
+
+    The rule, in the order it is applied:
+
+    1. **Page FORCE wins outright**, including over a coincident system
+       SUPPRESS: a page break implies a system break, so `new-page="yes"`
+       and `new-system="yes"` are asserted together. Refusing the system
+       break while asserting the page break is not a layout — it is a
+       contradiction, and the positive assertion is the one that can be
+       honored.
+    2. **Page SUPPRESS preserves the system break it is removing.** This
+       is the §3.1 A3/A4 fix and the exact mirror of M5's D7: Dorico
+       encodes a page break as `new-page` ALONE, so clearing it would
+       clear the measure's only break marker and silently merge two
+       systems the user never asked to merge. So the suppression also
+       asserts `new-system="yes"` — UNLESS the user has separately asked
+       to suppress the system break too, which is a coherent pair (both
+       negative) and means exactly what it says.
+       A page SUPPRESS where nothing is encoded to suppress writes
+       nothing at all, so the canonical XML stays a true delta.
+    3. **With no page override, the system rules of M5 apply unchanged**,
+       D7 included: a system SUPPRESS also clears a coincident
+       `new-page`, because leaving it would make the suppression a lie.
+    """
+    if page_mode is PageBreak.FORCE:                       # (1)
+        return "yes", "yes"
+    if page_mode is PageBreak.SUPPRESS:                    # (2)
+        if encoded_page != "yes":
+            return _system_only(sys_mode, encoded_system, encoded_page)
+        return ("no" if sys_mode is SystemBreak.SUPPRESS else "yes"), "no"
+    if page_mode is not None:
+        raise ValueError(f"unknown page break mode {page_mode!r}")
+    return _system_only(sys_mode, encoded_system, encoded_page)          # (3)
+
+
+def _system_only(sys_mode: SystemBreak | None,
+                 encoded_system: str | None,
+                 encoded_page: str | None) -> tuple[str | None, str | None]:
+    """Rule 3 of `_wanted_break_attrs` — M5's system-break behaviour,
+    unchanged, including D7's coincident-page clearing."""
+    if sys_mode is None:
+        return None, None
+    if sys_mode is SystemBreak.FORCE:
+        return "yes", None
+    if sys_mode is SystemBreak.SUPPRESS:
+        if encoded_system == "yes" or encoded_page == "yes":
+            return "no", ("no" if encoded_page == "yes" else None)
+        # nothing encoded to suppress: writing "no" would assert a
+        # negative the file never claimed, so write nothing (the
+        # override is inert, and reported as such)
+        return None, None
+    raise ValueError(f"unknown system break mode {sys_mode!r}")
+
+
+def _apply_breaks(root: ET.Element,
+                  system_overrides: Mapping[int, SystemBreak],
+                  page_overrides: Mapping[int, PageBreak] | None = None
+                  ) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Apply the user's break intent to `<print>` (M5 systems, M6 pages).
 
     A deliberate twin of `_repaginate` — part 1 only (Verovio reads print
     layout from the first part, spike section D), keyed by 1-based
     document ordinal (never the printed number, adapter item 12),
-    creating `<print>` when absent — with two differences that matter:
+    creating `<print>` when a positive assertion needs one — with one
+    difference that matters: it is STORED intent, not a derived plan, so
+    unlike `_repaginate` it never strips the encoded breaks first. It is
+    a sparse DELTA, on both axes: a measure with no override keeps
+    whatever the file encodes.
 
-    - It is STORED intent, not a derived plan, so unlike `_repaginate` it
-      never strips the encoded breaks first. It is a sparse DELTA: a
-      measure with no override keeps whatever the file encodes.
-    - SUPPRESS also clears a coincident `new-page` (D7, measured in
-      spikes/system_breaks.py F2). A page break implies a system break,
-      so leaving it would make the suppression a lie — the systems
-      simply would not merge. The consequence, stated plainly:
-      suppressing a SYSTEM break can move a PAGE break. That is
-      acceptable because rule 7(a) already establishes that we own page
-      breaks whenever the encoded ones cannot hold their systems, and
-      pagination re-derives from here.
+    **ONE pass over both maps, not two racing ones** (D3). The two
+    override maps write two attributes of the SAME `<print>` element, and
+    §3.4 measured what two passes cost: whichever ran first, the second
+    found the element already rewritten and reported the user's override
+    as inert — `break-override-inert` firing on gestures that had worked
+    perfectly. Computing both attributes in one visit removes those false
+    warnings by construction rather than by ordering luck, and puts the
+    semantic couplings between the two axes in one readable place
+    (`_wanted_break_attrs`).
 
-    SUPPRESS on a measure with no `<print>` at all writes NOTHING: there
-    is no encoded break to suppress, so the override is inert rather than
-    an assertion that the measure must not start a system (Verovio would
-    honor it identically either way — spike section A3 — but not writing
-    keeps the canonical XML a true delta).
-
-    Returns the ordinals that wrote NOTHING, in score order — D10's
-    "break-override-inert" warning. That is precisely the set of
-    overrides that could not be applied AT THIS SEAM: an ordinal past the
-    end of a score since shortened (the loop never reaches it), and a
-    suppression whose encoded break has gone (writing "no" over "no").
+    Returns `(inert_system_ordinals, inert_page_ordinals)`, each in score
+    order — the two D8 warnings' input. An override is inert when this
+    pass changed nothing on ITS OWN attribute: an ordinal past the end of
+    a score since shortened (the loop never reaches it), a suppression
+    whose encoded break has gone, or an assertion the file already made.
     It deliberately does NOT mean "had no visible effect", which only a
-    second no-override load could establish: forcing a break on a measure
-    that already starts a system rewrites the attribute and so is not
-    reported, even though the layout is unchanged.
+    second no-override load could establish — nor "was overruled", which
+    is never-clip's business and gets its own code (D8).
     """
-    if not overrides:
-        return ()
+    page_overrides = page_overrides or {}
+    if not system_overrides and not page_overrides:
+        return (), ()
     parts = root.findall("part")
     if not parts:
-        return tuple(sorted(overrides))
-    inert = set(overrides)
+        return tuple(sorted(system_overrides)), tuple(sorted(page_overrides))
+
+    inert_system = set(system_overrides)
+    inert_page = set(page_overrides)
     for ordinal, measure in enumerate(parts[0].findall("measure"), start=1):
-        mode = overrides.get(ordinal)
-        if mode is None:
+        sys_mode = system_overrides.get(ordinal)
+        page_mode = page_overrides.get(ordinal)
+        if sys_mode is None and page_mode is None:
             continue
         pr = measure.find("print")
-        if mode is SystemBreak.FORCE:
-            if pr is None:
-                pr = ET.Element("print")
-                measure.insert(0, pr)
-            if pr.get("new-system") != "yes":
-                pr.set("new-system", "yes")
-                inert.discard(ordinal)
-        elif mode is SystemBreak.SUPPRESS:
-            if pr is not None and (pr.get("new-system") == "yes"
-                                   or pr.get("new-page") == "yes"):
-                pr.set("new-system", "no")
-                if pr.get("new-page") == "yes":
-                    pr.set("new-page", "no")       # D7
-                inert.discard(ordinal)
-        else:
-            raise ValueError(f"unknown system break mode {mode!r}")
-    return tuple(sorted(inert))
+        want_system, want_page = _wanted_break_attrs(
+            sys_mode, page_mode,
+            None if pr is None else pr.get("new-system"),
+            None if pr is None else pr.get("new-page"))
+        if want_system is None and want_page is None:
+            continue
+        if pr is None:
+            pr = ET.Element("print")
+            measure.insert(0, pr)
+        # An override is credited only with its OWN attribute changing,
+        # so a page FORCE that also asserts the implied system break does
+        # not silently "un-inert" a system override that wrote nothing.
+        if want_system is not None and pr.get("new-system") != want_system:
+            pr.set("new-system", want_system)
+            inert_system.discard(ordinal)
+        if want_page is not None and pr.get("new-page") != want_page:
+            pr.set("new-page", want_page)
+            inert_page.discard(ordinal)
+    return tuple(sorted(inert_system)), tuple(sorted(inert_page))
 
 
 def _promote_page_breaks_to_system(root: ET.Element) -> int:

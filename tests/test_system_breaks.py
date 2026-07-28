@@ -20,7 +20,7 @@ from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.score.identity import ElementKind
 from scoreanim.core.score.musicxml_prep import SystemBreak, prepare
-from scoreanim.core.score.musicxml_rewrite import _apply_system_breaks
+from scoreanim.core.score.musicxml_rewrite import _apply_breaks
 
 from .conftest import BIGBAND_SCORE, TALL_SYSTEM_SCORE, TESTSCORE
 
@@ -55,7 +55,7 @@ def _starts_a_system(engraved, ordinal: int) -> bool:
 def _rewritten(overrides) -> list[dict[str, str]]:
     """Part 1's <print> attributes per measure ordinal, after the pass."""
     root = ET.fromstring(TESTSCORE.read_bytes())
-    _apply_system_breaks(root, overrides)
+    _apply_breaks(root, overrides)
     out = []
     for measure in root.findall("part")[0].findall("measure"):
         pr = measure.find("print")
@@ -86,7 +86,7 @@ def _bare() -> ET.Element:
 def test_force_creates_a_print_element_when_absent() -> None:
     root = _bare()
     second = root.findall("part")[0].findall("measure")[1]
-    _apply_system_breaks(root, {2: SystemBreak.FORCE})
+    _apply_breaks(root, {2: SystemBreak.FORCE})
     pr = second.find("print")
     assert pr is not None and pr.get("new-system") == "yes"
     assert list(second).index(pr) == 0               # inserted first
@@ -111,7 +111,7 @@ def test_suppress_without_an_encoded_print_writes_nothing() -> None:
     delta. Verovio would honor it identically either way (spike A3)."""
     root = _bare()
     before = ET.tostring(root)
-    _apply_system_breaks(root, {2: SystemBreak.SUPPRESS})
+    _apply_breaks(root, {2: SystemBreak.SUPPRESS})
     assert ET.tostring(root) == before
 
 
@@ -122,7 +122,7 @@ def test_the_pass_touches_part_1_only() -> None:
     parts = root.findall("part")
     assert len(parts) > 1
     others_before = [ET.tostring(p) for p in parts[1:]]
-    _apply_system_breaks(root, {3: SystemBreak.FORCE, 9: SystemBreak.SUPPRESS})
+    _apply_breaks(root, {3: SystemBreak.FORCE, 9: SystemBreak.SUPPRESS})
     assert [ET.tostring(p) for p in root.findall("part")[1:]] == others_before
 
 
@@ -131,6 +131,8 @@ def test_no_overrides_leaves_the_canonical_xml_untouched() -> None:
     plain = prepare(TESTSCORE).canonical_xml
     assert prepare(TESTSCORE, system_breaks={}).canonical_xml == plain
     assert prepare(TESTSCORE, system_breaks=None).canonical_xml == plain
+    assert prepare(TESTSCORE, page_breaks={}).canonical_xml == plain
+    assert prepare(TESTSCORE, page_breaks=None).canonical_xml == plain
 
 
 # ---------------------------------------------------------------------------

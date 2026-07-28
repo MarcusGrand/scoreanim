@@ -49,6 +49,32 @@ def system_bands(layout: Layout) -> tuple[SystemBand, ...]:
     return tuple(bands)
 
 
+def page_of_measure(bands: tuple[SystemBand, ...],
+                    system_of_measure: Mapping[int, int]) -> dict[int, int]:
+    """Measure ordinal → 1-based page, derived from data every load
+    already produces (M6, §1.2). The page twin of `system_of_measure`
+    needs NO adapter change and no new `EngravedScore` field: a band
+    knows its page, a measure knows its system, and that composes.
+
+    Derived on demand, never stored (rule 5) — the page a measure lands
+    on is a consequence of the engraving, not intent."""
+    page_by_system = {b.system: b.page for b in bands}
+    return {measure: page_by_system[system]
+            for measure, system in system_of_measure.items()
+            if system in page_by_system}
+
+
+def page_starts(page_of_measure: Mapping[int, int]) -> frozenset[int]:
+    """The measure ordinals that START a page — the set a page-break
+    override map is a delta on, and what D5's toggle reads to decide
+    between suppressing and forcing."""
+    first: dict[int, int] = {}
+    for measure, page in page_of_measure.items():
+        if measure < first.get(page, 1 << 30):
+            first[page] = measure
+    return frozenset(first.values())
+
+
 def plan_page_breaks(bands: tuple[SystemBand, ...], page_height: float,
                      first_measure_by_system: Mapping[int, int]
                      ) -> tuple[int, ...]:

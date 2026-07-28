@@ -38,11 +38,11 @@ from scoreanim.core.score.identity import PartId
 # re-exported here so `prepare`'s callers and the tests that reach for a
 # single pass keep importing from one place.
 from scoreanim.core.score.musicxml_rewrite import (  # noqa: F401
-    PageBreak, SystemBreak, _apply_condense, _apply_system_breaks,
+    PageBreak, SystemBreak, _apply_breaks, _apply_condense,
     _apply_text_overrides, _drop_redundant_trailing_forwards,
     _inject_part_groups, _neutralize_octave_only_transposes,
     _promote_page_breaks_to_system, _repaginate, _set_part_text,
-    _voice_cursor)
+    _voice_cursor, _wanted_break_attrs)
 
 # <slash-type> note value → quarter-note units
 _SLASH_UNIT_QUARTERS = {
@@ -154,10 +154,15 @@ class PreparedScore:
     page_width: float            # page units (1/10 mm)
     page_height: float
     units_per_tenth: float       # tenths → page units (1/10 mm) factor
-    # Break overrides this prep could not apply (M5, D10): an ordinal past
-    # the end of the score, or a suppression whose encoded break has gone.
-    # Derived here, warned by the provider — never stored (rule 5).
+    # Break overrides this prep could not apply (M5 D10 / M6 D8): an
+    # ordinal past the end of the score, a suppression whose encoded break
+    # has gone, or an assertion the file already made. Derived here,
+    # warned by the provider — never stored (rule 5). The page half is
+    # only PROVISIONALLY inert: never-clip's planner sees the same
+    # overrides and can honor a page ordinal this seam could not, so the
+    # provider subtracts what the planner acted on before warning (M6.3).
     inert_system_breaks: tuple[int, ...] = ()
+    inert_page_breaks: tuple[int, ...] = ()
 
     def part_for_staff(self, staff_n: int) -> PartInfo:
         for p in self.parts:
@@ -300,7 +305,8 @@ def prepare(score_path: Path,
             texts: tuple[PartTextSpec, ...] = (),
             condense: tuple[PartCondenseSpec, ...] = (),
             page_break_measures: tuple[int, ...] = (),
-            system_breaks: Mapping[int, SystemBreak] | None = None
+            system_breaks: Mapping[int, SystemBreak] | None = None,
+            page_breaks: Mapping[int, PageBreak] | None = None
             ) -> PreparedScore:
     root = ET.fromstring(score_path.read_bytes())
     if root.tag != "score-partwise":
@@ -320,13 +326,18 @@ def prepare(score_path: Path,
     width, height, units_per_tenth = _page_size(root)
     _neutralize_octave_only_transposes(root)
     _inject_part_groups(root, groups)
-    # User break intent first, our never-clip repagination on top: the
-    # page-break plan the caller passes was measured from an engrave that
-    # ALREADY saw these breaks, so repaginating over them is correct
-    # (rule 7(a) owning the page count, D7).
+    # User break intent first — BOTH maps, in one pass (M6, D3) — and our
+    # never-clip repagination on top: the page-break plan the caller
+    # passes was measured from an engrave that ALREADY saw these breaks,
+    # so repaginating over them is correct (rule 7(a) owning the page
+    # count, D7). This ordering is why authored PAGE intent cannot stop
+    # here: `_repaginate` strips what this pass just wrote, so the same
+    # intent is also an INPUT to the planner (D1, provider side).
     inert_breaks: tuple[int, ...] = ()
-    if system_breaks:
-        inert_breaks = _apply_system_breaks(root, system_breaks)
+    inert_pages: tuple[int, ...] = ()
+    if system_breaks or page_breaks:
+        inert_breaks, inert_pages = _apply_breaks(root, system_breaks or {},
+                                                  page_breaks or {})
     if page_break_measures:
         _repaginate(root, page_break_measures)
 
@@ -340,4 +351,5 @@ def prepare(score_path: Path,
         page_height=height,
         units_per_tenth=units_per_tenth,
         inert_system_breaks=inert_breaks,
+        inert_page_breaks=inert_pages,
     )

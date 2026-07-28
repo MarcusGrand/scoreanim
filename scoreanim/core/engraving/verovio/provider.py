@@ -28,7 +28,7 @@ from scoreanim.core.engraving.verovio import (attribution, decompose,
                                               identity, kinds, mei_index,
                                               records, synthesis)
 from scoreanim.core.score.identity import Beats, ElementKind
-from scoreanim.core.score.musicxml_prep import (PartCondenseSpec,
+from scoreanim.core.score.musicxml_prep import (PageBreak, PartCondenseSpec,
                                                 PartGroupSpec, PartTextSpec,
                                                 PreparedScore, SystemBreak,
                                                 prepare)
@@ -71,10 +71,12 @@ class VerovioEngravingProvider(EngravingProvider):
              condense: tuple[PartCondenseSpec, ...] = (),
              strict: bool = True,
              hide_first_system: bool = False,
-             system_breaks: Mapping[int, SystemBreak] | None = None) -> Layout:
+             system_breaks: Mapping[int, SystemBreak] | None = None,
+             page_breaks: Mapping[int, PageBreak] | None = None) -> Layout:
         return self.load_detailed(score_path, params, groups, texts,
                                   hide_empty_staves, condense, strict,
-                                  hide_first_system, system_breaks).layout
+                                  hide_first_system, system_breaks,
+                                  page_breaks).layout
 
     def load_detailed(self, score_path: Path, params: EngravingParams,
                       groups: tuple[PartGroupSpec, ...] = (),
@@ -83,14 +85,15 @@ class VerovioEngravingProvider(EngravingProvider):
                       condense: tuple[PartCondenseSpec, ...] = (),
                       strict: bool = True,
                       hide_first_system: bool = False,
-                      system_breaks: Mapping[int, SystemBreak] | None = None
+                      system_breaks: Mapping[int, SystemBreak] | None = None,
+                      page_breaks: Mapping[int, PageBreak] | None = None
                       ) -> records.EngravedScore:
         # strict (Phase 11.4): when False (the app path) an unknown
         # drawable SVG class degrades to a static OTHER element plus a
         # "unknown-class" warning instead of raising; True (the default,
         # and pytest / the doctor's --strict) keeps coverage gaps loud.
         prep = prepare(score_path, groups, texts, condense,
-                       system_breaks=system_breaks)
+                       system_breaks=system_breaks, page_breaks=page_breaks)
         extra: list[LoadWarning] = []
         effective_hide = hide_empty_staves
         engraved, first_measure = self._engrave_prepared(
@@ -102,9 +105,10 @@ class VerovioEngravingProvider(EngravingProvider):
             # first-class (rule 10 family), so they win over the option:
             # engrave flat, flagged (spikes/NOTES.md Phase 10R / 12).
             # This retry re-engraves the SAME `prep`, so the user's
-            # system breaks ride along for free — unlike the two retries
-            # below, which re-prepare and must pass system_breaks
-            # explicitly or silently lose them (M5.2, pinned by test).
+            # breaks ride along for free — unlike the two retries below,
+            # which re-prepare and must pass BOTH override maps
+            # explicitly or silently lose them (the M5.2 trap, times two
+            # since M6; all three paths are pinned by test).
             effective_hide = False
             extra.append(LoadWarning(
                 "hide-unavailable",
@@ -129,7 +133,8 @@ class VerovioEngravingProvider(EngravingProvider):
             if breaks:
                 prep = prepare(score_path, groups, texts, condense,
                                page_break_measures=breaks,
-                               system_breaks=system_breaks)
+                               system_breaks=system_breaks,
+                               page_breaks=page_breaks)
                 engraved, _ = self._engrave_prepared(
                     score_path, prep, params, effective_hide, strict,
                     hide_first_system=hide_first_system)
@@ -153,7 +158,8 @@ class VerovioEngravingProvider(EngravingProvider):
                                  * kinds._FIT_MARGIN))
                 prep = prepare(score_path, groups, texts, condense,
                                page_break_measures=breaks,
-                               system_breaks=system_breaks)
+                               system_breaks=system_breaks,
+                               page_breaks=page_breaks)
                 engraved, _ = self._engrave_prepared(
                     score_path, prep, params, effective_hide, strict,
                     scale=fit, hide_first_system=hide_first_system)
