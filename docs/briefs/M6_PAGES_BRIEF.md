@@ -459,6 +459,34 @@ the last word — §3.2 B2 shows suppression is nonetheless honored at its
 own ordinal in every measured case, with the planner re-breaking
 elsewhere.
 
+> **REFINEMENT, found at build (M6.3, 2026-07-28).** `plan` is built as
+> ruled, with one correction the spike's data could not distinguish:
+> **the suppressed set is not subtracted from the plan, and
+> `plan_page_breaks` takes no `suppressed` parameter at all.**
+>
+> The suppression is applied at the prep seam, so the bands the planner
+> measures ALREADY honor it — the planner is looking at the piled-up
+> layout the suppression produced and deciding from scratch where pages
+> must fall, so every break it emits is one it needs. Subtracting the
+> suppressed ordinals therefore deletes breaks never-clip requires.
+> Measured on the post-D3 build: bigband1 with both page breaks
+> suppressed drops from a 4-page plan to a 2-page one and is rescued by
+> **scale-to-fit at 40%**; testscore's A6 row lands at **51%**. Legal
+> and unclipped — but a far worse score than the extra page the planner
+> asked for, and never-clip keeping the last word in form while losing
+> it in substance.
+>
+> Not subtracting gives exactly the ruled behaviour instead, in the
+> ROADMAP amendment's own words: *"a suppressed one is overridden, and
+> warned, whenever honoring it would clip ink."* A suppression is
+> honored wherever the planner does not need that break — which is
+> every case §3.2 measured, since `plan ∩ suppressed` was empty in all
+> of them, so the two formulations agree on all measured data — and
+> overruled where it does, reported by `page-break-repaginated`.
+> bigband1 now lands on 4 pages saying which two overrides it could not
+> honor, and complex3 with all twenty suppressed keeps its 21 pages
+> rather than collapsing to the spike's single scaled-down one.
+
 The consequence to state plainly, and the reason this is stop-and-ask:
 **a suppressed page break is a request, not a guarantee.** The page count
 stays owned (rule 7(a), and M5's D7 already established the principle for

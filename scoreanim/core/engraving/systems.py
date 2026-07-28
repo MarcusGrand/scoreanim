@@ -76,7 +76,8 @@ def page_starts(page_of_measure: Mapping[int, int]) -> frozenset[int]:
 
 
 def plan_page_breaks(bands: tuple[SystemBand, ...], page_height: float,
-                     first_measure_by_system: Mapping[int, int]
+                     first_measure_by_system: Mapping[int, int],
+                     forced: frozenset[int] | set[int] = frozenset(),
                      ) -> tuple[int, ...]:
     """Greedy repagination plan (Phase 10R, rule-7 amendment): measure
     numbers whose systems should start a NEW page so that no system
@@ -88,7 +89,44 @@ def plan_page_breaks(bands: tuple[SystemBand, ...], page_height: float,
     the measured pass and the re-engraved one (observed ~0.5% on the
     Phase 10R fixture — never-clip beats an occasional extra page).
     Pure and deterministic — the plan is derived data, re-computed on
-    every load, never stored (rule 5)."""
+    every load, never stored (rule 5).
+
+    `forced` is the user's authored page intent (M6, D1), and this is the
+    ONE place it meets never-clip. `_repaginate` strips every encoded
+    page break before asserting this plan, so a FORCE written at the prep
+    seam is destroyed exactly when the guard engages — measured, and
+    measured to fail RARELY and SILENTLY, which is the worst failure
+    shape available (§3.2 B1/B3). Layering intent over the plan instead
+    would put the user above never-clip, which rule 7 does not permit. So
+    the FORCE is an INPUT: forced ordinals join the plan, and the planner
+    still owns what it packs around them.
+
+    A forced ordinal is honored only where it is a real system start.
+    That is not a restriction in practice — the seam has already written
+    `new-system="yes"` there, so the measured pass that produced these
+    bands already breaks the system — but it keeps the plan well-formed
+    if an override is stale (rule 5) or names a measure that no longer
+    exists.
+
+    **A SUPPRESS is deliberately NOT a parameter**, and that is the
+    ruling ("a suppressed one is overridden, and warned, whenever
+    honoring it would clip ink"), not an omission. The suppression is
+    applied at the prep seam, so the `bands` measured here ALREADY honor
+    it: this planner is looking at the piled-up layout the suppression
+    produced and deciding, from scratch, where pages must fall. Every
+    break it emits is one it needed. Subtracting the suppressed ordinals
+    from that plan would therefore remove breaks that never-clip
+    requires, and measurement says the cost is real — bigband1 with its
+    two page breaks suppressed drops from a 4-page plan to a 2-page one
+    and is then rescued by scale-to-fit at **40%**, and testscore at
+    **51%**. Legal, unclipped, and a much worse score than the extra
+    page the planner asked for.
+
+    So a suppression is honored wherever the planner does not need that
+    break — which is every case the spike measured, since there
+    `plan ∩ suppressed` was empty — and overruled where it does, with
+    the caller reporting exactly that (D8's `page-break-repaginated`).
+    The page count stays owned (rule 7)."""
     if not bands:
         return ()
     limit = page_height * 0.98
@@ -109,7 +147,10 @@ def plan_page_breaks(bands: tuple[SystemBand, ...], page_height: float,
             breaks.append(first_measure_by_system[band.system])
             y = top_margin
         y += h + gap
-    return tuple(breaks)
+    if not forced:
+        return tuple(breaks)
+    starts = set(first_measure_by_system.values())
+    return tuple(sorted(set(breaks) | (set(forced) & starts)))
 
 
 def centered_fit(inner_w: float, inner_h: float,

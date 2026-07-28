@@ -19,13 +19,15 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 
-from scoreanim.core.engraving.systems import (page_of_measure, page_starts,
+from scoreanim.core.engraving.systems import (SystemBand, page_of_measure,
+                                              page_starts, plan_page_breaks,
                                               system_bands)
-from scoreanim.core.engraving.types import EngravingParams
+from scoreanim.core.engraving.types import EngravingParams, Rect
 from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.score.musicxml_prep import PageBreak, SystemBreak, prepare
 from scoreanim.core.score.musicxml_rewrite import _apply_breaks
 
+from .conftest import BIGBAND_SCORE as BIGBAND
 from .conftest import TALL_SYSTEM_SCORE, TESTSCORE
 
 # testscore, baseline (spike §3.1): 5 systems of 4, 4, 4, 4, 3 measures on
@@ -55,6 +57,12 @@ def _pages(engraved) -> dict[int, int]:
 
 def _starts(engraved) -> tuple[int, ...]:
     return tuple(sorted(page_starts(_pages(engraved))))
+
+
+def _warning(engraved, code):
+    matches = [w for w in engraved.warnings if w.code == code]
+    assert matches, f"no {code} warning in {[w.code for w in engraved.warnings]}"
+    return matches[0]
 
 
 def _clipped(engraved) -> list[int]:
@@ -330,3 +338,152 @@ def test_hide_unavailable_retry_carries_both_maps() -> None:
     assert codes.count("hide-unavailable") == 1
     assert _starts(out) == (1, 3, 5, 13)
     assert not _clipped(out)
+
+
+# ---------------------------------------------------------------------------
+# M6.3 — never-clip composition (D1). Authored intent is an INPUT to the
+# plan, never a pass layered over it, and never-clip keeps the last word.
+# ---------------------------------------------------------------------------
+
+def _plan(*breaks_at, forced=frozenset()):
+    """The planner over synthetic bands: three 400-high systems on a
+    1000-high page, so the third always needs a new page."""
+    bands = tuple(SystemBand(system=i, page=1,
+                             rect=Rect(0, 50 + (i - 1) * 430, 1000, 400))
+                  for i in (1, 2, 3))
+    return plan_page_breaks(bands, 1000.0, {1: 1, 2: 5, 3: 9}, forced)
+
+
+def test_the_planner_unions_forced_ordinals_into_its_plan() -> None:
+    assert _plan() == (9,)
+    assert _plan(forced={5}) == (5, 9)
+    assert _plan(forced={9}) == (9,)                 # already needed
+
+
+def test_the_planner_ignores_a_forced_ordinal_that_is_no_system_start() -> None:
+    """Defence for a stale override (rule 5): the plan stays well-formed
+    rather than naming a measure no system begins at."""
+    assert _plan(forced={7}) == (9,)
+    assert _plan(forced={9999}) == (9,)
+
+
+def test_a_forced_page_break_survives_a_load_that_repaginates() -> None:
+    """§3.2 B1/B3, the row the naive `pre` design LOSES — and loses
+    rarely and silently, which is why `pre` was disqualified. The system
+    FORCE at m19 makes the plan diverge from the encoded set, which is
+    exactly the condition under which `_repaginate` destroys authored
+    page intent written upstream of it."""
+    out = _load(system_breaks={19: SystemBreak.FORCE},
+                page_breaks={3: PageBreak.FORCE})
+    assert "repaginated" in {w.code for w in out.warnings}
+    assert _starts(out) == (1, 3, 5, 13, 19)
+    assert _spans(out)[max(_spans(out))] == (19, 19)   # and the system break
+    assert not _clipped(out)
+
+
+def test_a_suppression_the_planner_does_not_need_is_honored() -> None:
+    """§3.2 B2: the planner re-broke the score ELSEWHERE (5,13 → 9,17)
+    and no suppressed ordinal came back. The user is never told "no" —
+    they are told "yes, and here is where the pages fell instead"."""
+    out = _load(page_breaks={5: PageBreak.SUPPRESS, 13: PageBreak.SUPPRESS})
+    assert _starts(out) == (1, 9, 17)
+    assert not _clipped(out)
+    warning = _warning(out, "page-break-repaginated")
+    assert "1, 9, 17" in warning.message
+    assert "could not be honored" not in warning.message
+
+
+def test_a_suppression_that_would_clip_is_overruled_and_says_so() -> None:
+    """Rule 7 keeping the last word, and the ruled amendment's own
+    words: "a suppressed one is overridden, and warned, whenever
+    honoring it would clip ink". The planner is looking at the piled-up
+    layout the suppression produced, so every break it emits is one it
+    NEEDS — which is why the suppressed set is not subtracted from its
+    plan (see plan_page_breaks). Dropping them instead measured as a
+    two-page bigband1 rescued by scale-to-fit at 40%: legal, unclipped,
+    and a much worse score than the extra page."""
+    out = _load(BIGBAND, strict=False,
+                page_breaks={12: PageBreak.SUPPRESS, 20: PageBreak.SUPPRESS})
+    assert _starts(out) == (1, 12, 20, 26)
+    assert not _clipped(out)
+    assert "scaled-to-fit" not in {w.code for w in out.warnings}
+    message = _warning(out, "page-break-repaginated").message
+    assert "override(s) at measure 12, 20 could not be honored" in message
+
+
+def test_the_two_page_warnings_say_different_things() -> None:
+    """D8's whole point: "your override was stale" and "your override
+    was overruled to avoid clipping ink" want different things from the
+    user, so they are different codes."""
+    stale = _load(page_breaks={99: PageBreak.FORCE})
+    assert {w.code for w in stale.warnings} & {"page-break-override-inert"}
+    assert "page-break-repaginated" not in {w.code for w in stale.warnings}
+    assert "measure 99" in _warning(stale, "page-break-override-inert").message
+    assert not _clipped(stale)
+
+    overruled = _load(page_breaks={3: PageBreak.FORCE,
+                                   13: PageBreak.SUPPRESS})
+    codes = {w.code for w in overruled.warnings}
+    assert "page-break-repaginated" in codes
+    assert "page-break-override-inert" not in codes
+
+
+def test_no_ordinal_is_reported_both_stale_and_overruled() -> None:
+    """The two codes are read off the FINAL layout, so they partition
+    rather than overlap. Here m20's page break IS cleared at the seam and
+    then reinstated by the planner (overruled), while m30 — where the
+    score has no page break at all — wrote nothing and was not overruled
+    (stale). Reporting either one twice, or under the other's code,
+    would tell the user to do the wrong thing about it."""
+    out = _load(BIGBAND, strict=False,
+                page_breaks={12: PageBreak.SUPPRESS,
+                             20: PageBreak.SUPPRESS,
+                             30: PageBreak.SUPPRESS})
+    overruled = _warning(out, "page-break-repaginated").message
+    stale = _warning(out, "page-break-override-inert").message
+    assert overruled.endswith("override(s) at measure 12, 20 could not "
+                              "be honored")
+    assert stale == ("1 page-break override(s) had no effect (measure 30)")
+    assert 30 in out.prepared.inert_page_breaks
+    assert not _clipped(out)
+
+
+def test_never_clip_holds_on_every_authored_page_edit() -> None:
+    """The invariant this milestone is most able to break, asserted
+    directly on every row §3 measured rather than inferred from the
+    warning set."""
+    cases = [
+        (TESTSCORE, True, dict(page_breaks={3: PageBreak.FORCE})),
+        (TESTSCORE, True, dict(page_breaks={9: PageBreak.FORCE})),
+        (TESTSCORE, True, dict(page_breaks={5: PageBreak.SUPPRESS})),
+        (TESTSCORE, True, dict(page_breaks={5: PageBreak.SUPPRESS,
+                                            13: PageBreak.SUPPRESS})),
+        (TESTSCORE, True, dict(system_breaks={19: SystemBreak.FORCE},
+                               page_breaks={3: PageBreak.FORCE})),
+        (BIGBAND, False, dict(page_breaks={7: PageBreak.FORCE})),
+        (BIGBAND, False, dict(hide_empty_staves=True,
+                              page_breaks={7: PageBreak.FORCE})),
+        (BIGBAND, False, dict(page_breaks={12: PageBreak.SUPPRESS,
+                                           20: PageBreak.SUPPRESS})),
+        (TALL_SYSTEM_SCORE, False, dict(page_breaks={2: PageBreak.FORCE})),
+    ]
+    for path, strict, kw in cases:
+        out = _load(path, strict=strict, **kw)
+        assert not _clipped(out), (path.name, kw)
+
+
+def test_the_downstream_sweep_survives_page_authoring() -> None:
+    """§3.5 E1/E3/E6: hiding, condensing and scale-to-fit are unchanged
+    by a page edit, and the warning set does not grow."""
+    base = _load(BIGBAND, strict=False, hide_empty_staves=True)
+    out = _load(BIGBAND, strict=False, hide_empty_staves=True,
+                page_breaks={7: PageBreak.FORCE})
+    assert _starts(out) == (1, 7, 12, 20)
+    assert len(out.layout.pages) == len(base.layout.pages) + 1
+    # the page edit adds no NEW kind of warning
+    assert {w.code for w in out.warnings} <= {w.code for w in base.warnings}
+
+    tall = _load(TALL_SYSTEM_SCORE, strict=False,
+                 page_breaks={2: PageBreak.FORCE})
+    assert "scaled-to-fit" in {w.code for w in tall.warnings}
+    assert len(tall.layout.pages) == 2

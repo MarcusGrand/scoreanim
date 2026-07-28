@@ -19,7 +19,8 @@ from xml.etree import ElementTree
 import verovio
 
 from scoreanim.core.engraving.provider import EngravingProvider
-from scoreanim.core.engraving.systems import plan_page_breaks, system_bands
+from scoreanim.core.engraving.systems import (page_of_measure, page_starts,
+                                              plan_page_breaks, system_bands)
 from scoreanim.core.engraving.types import (TRANSPOSE_TO_SOUNDING_PITCH,
                                             EngravingParams, Layout,
                                             LoadWarning, MeasureTimeline,
@@ -58,6 +59,14 @@ def _sig_change_measures(canonical_xml: str) -> dict[
                     if attrs.find(tag) is not None:
                         out[kind].setdefault(pid, set()).add(ordinal)
     return out
+
+
+def _page_starts_of(engraved: "records.EngravedScore",
+                    bands) -> frozenset[int]:
+    """The measure ordinals starting a page in one engrave — derived
+    (§1.2), never a stored field. Used to compare what the overrides
+    asked for against what never-clip ended up doing (D8)."""
+    return page_starts(page_of_measure(bands, engraved.system_of_measure))
 
 
 class VerovioEngravingProvider(EngravingProvider):
@@ -125,11 +134,24 @@ class VerovioEngravingProvider(EngravingProvider):
         # SYSTEM breaks and repaginate ourselves at the prep seam.
         # Page-scoped ids (score:p{n}:…) shift — accepted; musical ids
         # are pagination-independent.
+        #
+        # Authored page intent (M6, D1) is an INPUT to that plan, not a
+        # pass layered over it: `_repaginate` strips what the prep seam
+        # wrote, so a forced page break has to be re-asserted HERE or it
+        # is lost exactly when the guard engages. Never-clip keeps the
+        # last word, which is what rule 7 requires.
+        forced = {o for o, m in (page_breaks or {}).items()
+                  if m is PageBreak.FORCE}
+        suppressed = {o for o, m in (page_breaks or {}).items()
+                      if m is PageBreak.SUPPRESS}
         page_h = engraved.layout.pages[0].height
         bands = system_bands(engraved.layout)
         breaks: tuple[int, ...] = ()
+        # where the pages fell with the overrides honored and never-clip
+        # not yet consulted — i.e. what the overrides asked for (D8)
+        asked_starts = _page_starts_of(engraved, bands)
         if any(b.rect.y + b.rect.h > page_h for b in bands):
-            breaks = plan_page_breaks(bands, page_h, first_measure)
+            breaks = plan_page_breaks(bands, page_h, first_measure, forced)
             if breaks:
                 prep = prepare(score_path, groups, texts, condense,
                                page_break_measures=breaks,
@@ -187,6 +209,40 @@ class VerovioEngravingProvider(EngravingProvider):
                 "break-override-inert",
                 f"{len(ordinals)} system-break override(s) had no effect "
                 f"(measure {', '.join(str(m) for m in ordinals)})"))
+        # Authored PAGE intent has two ways of not landing, and D8 gives
+        # them two codes because they want different things from the
+        # user. Both are read off the FINAL layout, so no ordinal is ever
+        # reported under both.
+        #
+        #   OVERRULED — never-clip re-derived the page plan and the
+        #   result disagrees with the override. Not the user's fault and
+        #   not an error: rule 7 says the page count stays owned. Only
+        #   reachable when a repagination actually ran; without one the
+        #   seam's write is what Verovio honors.
+        got_starts = _page_starts_of(engraved, system_bands(engraved.layout))
+        overruled = sorted((forced - got_starts) | (suppressed & got_starts)) \
+            if breaks else []
+        if page_breaks and breaks and got_starts != asked_starts:
+            detail = (f"; override(s) at measure "
+                      f"{', '.join(str(m) for m in overruled)} could not "
+                      f"be honored" if overruled else "")
+            extra.append(LoadWarning(
+                "page-break-repaginated",
+                f"page breaks were re-derived to keep every system on its "
+                f"page; pages now start at measure "
+                f"{', '.join(str(m) for m in sorted(got_starts))}{detail}"))
+        #   STALE — the override wrote nothing at the seam AND was not
+        #   overruled, so it is simply redundant or out of date: an
+        #   ordinal past the end of a shortened score, a suppression
+        #   where no page break exists, an assertion the file already
+        #   makes. Rule 5 accepts that; silence would not.
+        stale_pages = tuple(o for o in engraved.prepared.inert_page_breaks
+                            if o not in overruled)
+        if stale_pages:
+            extra.append(LoadWarning(
+                "page-break-override-inert",
+                f"{len(stale_pages)} page-break override(s) had no effect "
+                f"(measure {', '.join(str(m) for m in stale_pages)})"))
         if extra:
             engraved = replace(engraved,
                                warnings=engraved.warnings + tuple(extra))
