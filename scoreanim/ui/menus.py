@@ -128,6 +128,7 @@ class MainMenus:
         self.view_menu.addAction(self.prev_action)
         self.view_menu.addAction(self.next_action)
         self.view_menu.addSeparator()
+        self.view_menu.addAction(window.layout_zone.toggleViewAction())
         self.view_menu.addAction(window.inspector.toggleViewAction())
         self.view_menu.addAction(window.lower_zone.toggleViewAction())
 

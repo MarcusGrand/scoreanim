@@ -38,6 +38,7 @@ from scoreanim.ui.break_action import BreakActionController
 from scoreanim.ui.document_sync import DocumentSync
 from scoreanim.ui.file_actions import FileActions
 from scoreanim.ui.inspector import Inspector
+from scoreanim.ui.layout_zone import LayoutZone
 from scoreanim.ui.menus import MainMenus
 from scoreanim.ui.nudge import NudgeController
 from scoreanim.ui.parts_menu import PartsMenu
@@ -134,6 +135,18 @@ class MainWindow(QMainWindow):
         self.view.drag_finished.connect(self.nudge.finish)
         self.view.nudge_key.connect(self.nudge.nudge_by)
 
+        # break authoring (M5.4, M5.7, M6.5): the controller owns the
+        # three QActions and keeps the policy out of the menu builder;
+        # the layout zone (M6.6, BACKLOG 17) is a LEFT dock over those
+        # SAME action objects, so the two surfaces cannot diverge. Both
+        # are built BEFORE the chrome, because the View menu picks up the
+        # zone's toggleViewAction with the other two docks' and the Score
+        # menu re-inserts the actions per load.
+        self.break_action = BreakActionController(self.app_state, self)
+        self.layout_zone = LayoutZone(self.app_state,
+                                      self.break_action.actions, self)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea,
+                           self.layout_zone)
         # static chrome (M1.5): the five menus, the slim toolbar, and
         # window-level shortcut registration; the window keeps the refs
         # it mutates (undo text, enable-on-load, page readout)
@@ -152,11 +165,9 @@ class MainWindow(QMainWindow):
         # Owns the three part-shaped dialogs too since M3.0 (BACKLOG 9b)
         self.parts_menu = PartsMenu(self.menus.score_menu, self.app_state,
                                     self)
-        # system-break authoring (M5.4, M5.7): the actions live in the
-        # Score menu with the other layout choices; the controller keeps
-        # the policy out of the menu builder, and the shortcuts are
+        # the Score menu is cleared per load, so the break actions are
+        # handed to its builder to re-insert; the shortcuts are
         # registered window-level so they fire regardless of focus
-        self.break_action = BreakActionController(self.app_state, self)
         self.parts_menu.set_break_actions(*self.break_action.actions)
         for action in self.break_action.actions:
             self.addAction(action)
@@ -230,6 +241,7 @@ class MainWindow(QMainWindow):
         self.playback.set_style(doc.style)
         self.lower_zone.strip.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
+        self.layout_zone.sync_from_document(doc)
         self.parts_menu.sync_from_document(doc)
         self.break_action.sync()      # overrides move the action's label
         self.router.sync_presentation_mode(doc.stage.mode)
@@ -265,26 +277,33 @@ class MainWindow(QMainWindow):
                                   text_overrides or {},
                                   hide_empty_staves, condense_groups,
                                   hide_first_system,
-                                  self.app_state.doc.system_break_overrides)
+                                  self.app_state.doc.system_break_overrides,
+                                  self.app_state.doc.page_break_overrides)
         self._install(loaded)
         self.router.reset()
         return loaded.stage
 
     def _break_anchor(self, doc: ProjectDoc) -> int | None:
         """Which measure a break edit touched, for the view to re-anchor
-        to (M5.5, D8). Diffed against the loader's applied inputs rather
-        than passed down from the action, so undo and redo re-anchor on
-        the same path — and so a change that touches many ordinals at
-        once (a project load) anchors nowhere and keeps the position.
+        to (M5.5 D8; generalized to both override maps in M6.5, D11).
+        Diffed against the loader's applied inputs rather than passed
+        down from the action, so undo and redo re-anchor on the same
+        path — and so a change that touches many ordinals at once (a
+        project load) anchors nowhere and keeps the position.
 
-        A gesture writes at most TWO ordinals (M5.7's move-up: suppress
-        this system's start, force the remainder), and the anchor is the
-        LOWEST of them — the merge half, whose measure is exactly the
-        music that just moved onto the previous system (D14)."""
-        before = self.loader.applied_breaks
-        after = dict(doc.system_break_overrides)
-        changed = {o for o in set(before) | set(after)
-                   if before.get(o) != after.get(o)}
+        A gesture writes at most TWO ordinals over the UNION of the two
+        maps — M5.7's move-up suppresses this system's start and forces
+        the remainder; a page toggle writes its own ordinal plus, at
+        most, the clearing of a contradicting system override at the
+        SAME ordinal (D3) — and the anchor is the LOWEST of them, which
+        is where the affected music is (D14)."""
+        changed: set[int] = set()
+        for before, after in ((self.loader.applied_breaks,
+                               dict(doc.system_break_overrides)),
+                              (self.loader.applied_page_breaks,
+                               dict(doc.page_break_overrides))):
+            changed |= {o for o in set(before) | set(after)
+                        if before.get(o) != after.get(o)}
         return min(changed) if 1 <= len(changed) <= 2 else None
 
     def _reengrave(self, doc: ProjectDoc,
@@ -298,7 +317,8 @@ class MainWindow(QMainWindow):
                                   doc.stage, doc.style, doc.staff_groups,
                                   doc.text_overrides, doc.hide_empty_staves,
                                   doc.condense_groups, doc.hide_first_system,
-                                  doc.system_break_overrides)
+                                  doc.system_break_overrides,
+                                  doc.page_break_overrides)
         self._install(loaded)
         # a break edit re-anchors to the measure it touched, so the stage
         # stays where you were working (D8); everything else re-shows the
@@ -318,7 +338,8 @@ class MainWindow(QMainWindow):
         self.selection.bind_scenes(loaded.scenes)   # also clears selection
         self.router.bind(loaded.scenes, loaded.band_by_system,
                          loaded.applier, loaded.system_of_measure)
-        self.break_action.bind(loaded.system_of_measure)
+        self.break_action.bind(loaded.system_of_measure,
+                               loaded.page_of_measure)
         self.text_edit.bind(loaded.scenes, loaded.animation_inputs.layout,
                             loaded.parts)
         self.nudge.bind_scenes(loaded.scenes)

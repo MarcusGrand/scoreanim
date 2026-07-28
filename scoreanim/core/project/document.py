@@ -20,7 +20,7 @@ from scoreanim.core.animation.style import StyleRules
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.stage_config import StageConfig
 from scoreanim.core.score.identity import Beats, ElementId, PartId
-from scoreanim.core.score.musicxml_prep import SystemBreak
+from scoreanim.core.score.musicxml_prep import PageBreak, SystemBreak
 from scoreanim.core.timing.swing import SwingRegion
 from scoreanim.core.timing.taps import TapSession
 from scoreanim.core.timing.tempo_map import TempoEvent
@@ -132,8 +132,23 @@ class ProjectDoc:
     # (warned at load, D10).
     system_break_overrides: Mapping[int, SystemBreak] = \
         field(default_factory=dict)
+    # Page-break intent (schema v9, M6) — the twin of the map above, same
+    # sparse-delta shape, same ordinal key convention (the measure that
+    # STARTS the page, which is what `<print new-page="yes">` and
+    # `_repaginate`'s break_measures already mean).
+    #
+    # One thing is NOT symmetric, and it is the milestone's sharpest
+    # point: page breaks are the one layout input the app already OWNED
+    # before the user could author them. Rule 7(a)'s never-clip
+    # repagination re-derives the whole page plan whenever a system would
+    # overflow, so this intent is honored WITHIN that guarantee rather
+    # than above it — a forced page break is an input to the plan, and a
+    # suppressed one is a request the planner may overrule to avoid
+    # clipping ink (warned, D8). The page count stays owned (rule 7).
+    page_break_overrides: Mapping[int, PageBreak] = \
+        field(default_factory=dict)
 
 
 __all__ = ["DEFAULT_BPM", "FileRef", "HIDE_EMPTY_STAVES_DEFAULT",
-           "LayoutOverride", "PartTextOverride", "ProjectDoc", "StaffGroup",
-           "StyleRules", "SystemBreak", "TimingConfig", "Beats"]
+           "LayoutOverride", "PageBreak", "PartTextOverride", "ProjectDoc",
+           "StaffGroup", "StyleRules", "SystemBreak", "TimingConfig", "Beats"]

@@ -415,7 +415,26 @@ scale-to-fit). Parked:
 ## M5 Breaks (2026-07-28)
 
 16. **`_repaginate` destroys a system break that is encoded only as a
-    page break.** CLAUDE.md rule 7(a) says the never-clip repagination
+    page break.** **CLOSED 2026-07-28 (M6.0)** — paid as its own commit
+    with no feature code, per the brief's D0. `_repaginate` now promotes
+    every encoded `new-page="yes"` to also carry `new-system="yes"`
+    before it strips, so a repagination may not change SYSTEM content —
+    which is what rule 7(a) always claimed and did not do, and is now
+    written into rule 7's M6 amendment.
+
+    One correction to the "likely fix" note below, found at build: the
+    fix is **not** golden-free. The brief's F1 probe measured it as a
+    no-op on all four fixtures, but probed each in one configuration and
+    missed both golden loads that actually repaginate. `video_test_flat`
+    moves only its canonical-XML hash and its load-warning ORDER (the
+    engraving is byte-identical; a new `<sb>` shifts Verovio's seeded id
+    sequence), and `complex3_hidden` goes from 20 systems to **21 —
+    exactly its encoded set**. The hidden load had been silently losing
+    an encoded system break on `main`, so the movement is the damage
+    being repaired, not new. Both baselines re-captured in the fixing
+    commit, the golden suite's own protocol.
+
+    CLAUDE.md rule 7(a) says the never-clip repagination
     "keeps the system breaks, re-derives page breaks". It does not:
     `core/score/musicxml_rewrite.py:_repaginate` strips ALL encoded
     `new-page` attributes before asserting its own plan, and a measure
@@ -448,6 +467,19 @@ scale-to-fit). Parked:
     change system content at all.
 
 17. **Left-side retractable layout zone** (deferred at M5.7, 2026-07-28).
+    **CLOSED 2026-07-28 (M6.6/M6.7)** — built as the re-home this entry
+    specified, once M6's page toggle made it three actions. It is a
+    re-home structurally, not just in intent: `ui/layout_zone.py`'s
+    buttons take the Score menu's QAction objects as their
+    `defaultAction`, so label, enabled state, status tip and trigger come
+    from ONE object and the two surfaces cannot diverge; the zone syncs
+    nothing of its own, and the menu keeps every action. It adds no
+    document field, no command and no engraving input — the overrides
+    readout (`ui/panels/break_overrides.py`) clears an entry with the
+    same `mode=None` the toggle already sends. The existing `saveState`
+    pair persists the third dock with no new code, and `_STATE_VERSION`
+    did not need bumping (measured, D10).
+
     A collapsible panel down the left of the stage collecting the
     layout/engraving affordances: today's two system-break actions
     ("Toggle System Break Here", "Move to Previous System"), and

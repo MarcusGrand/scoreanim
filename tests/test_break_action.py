@@ -27,7 +27,7 @@ from scoreanim.core.editing.breaks import (FIRST_SYSTEM,  # noqa: E402
 from scoreanim.core.score.identity import ElementKind  # noqa: E402
 from scoreanim.core.score.musicxml_prep import SystemBreak  # noqa: E402
 from scoreanim.ui.break_action import (MOVE_UP_SHORTCUT,  # noqa: E402
-                                       SHORTCUT)
+                                       PAGE_SHORTCUT, SHORTCUT)
 from scoreanim.ui.main_window import MainWindow  # noqa: E402
 
 TESTSCORE = Path(__file__).parent.parent / "testdata" / "testscore.musicxml"
@@ -433,3 +433,218 @@ def test_the_selection_survives_a_move_up(window) -> None:
     assert window.app_state.selected.element_id == eid
     assert window.selection.highlighted is window._scenes.items[eid]
     assert window.break_action._system_of_measure[6] == 1
+
+
+# -- M6.5: the page toggle, on the same spine -------------------------------
+
+def _pages(window) -> dict[int, int]:
+    return dict(window.break_action._page_of_measure)
+
+
+def _page_starts(window) -> tuple[int, ...]:
+    first: dict[int, int] = {}
+    for measure, page in _pages(window).items():
+        first[page] = min(first.get(page, 1 << 30), measure)
+    return tuple(v for _, v in sorted(first.items()))
+
+
+def test_the_page_map_reaches_the_controller(window) -> None:
+    """Derived per load and handed to the same bind() as the system map
+    (§1.2 — no adapter change, no new EngravedScore field)."""
+    assert _page_starts(window) == (1, 5, 13)
+    assert _pages(window)[19] == 3
+
+
+def test_toggling_a_barline_splits_the_page(window) -> None:
+    from scoreanim.core.project import PageBreak
+
+    _barline_in(window, 2)
+    assert window.break_action.page_action.isEnabled()
+    assert "Force" in window.break_action.page_action.text()
+    window.break_action.trigger_page()
+
+    assert window.app_state.doc.page_break_overrides == {3: PageBreak.FORCE}
+    assert _page_starts(window) == (1, 3, 5, 13)
+    assert window.app_state.doc.system_break_overrides == {}
+
+
+def test_undo_merges_the_pages_back(window) -> None:
+    before = _page_starts(window)
+    _barline_in(window, 2)
+    window.break_action.trigger_page()
+    assert _page_starts(window) != before
+
+    window.app_state.undo()
+    assert window.app_state.doc.page_break_overrides == {}
+    assert _page_starts(window) == before
+    window.app_state.redo()
+    assert _page_starts(window) != before
+
+
+def test_one_reengrave_per_page_toggle(window, monkeypatch) -> None:
+    calls = []
+    real = window.loader.load
+    monkeypatch.setattr(window.loader, "load",
+                        lambda *a, **kw: (calls.append(1), real(*a, **kw))[1])
+    _barline_in(window, 2)
+    assert not calls
+    window.break_action.trigger_page()
+    assert len(calls) == 1
+
+
+def test_a_second_page_toggle_clears_the_override(window) -> None:
+    before = _page_starts(window)
+    _barline_in(window, 2)
+    window.break_action.trigger_page()
+    _barline_in(window, 2)                     # the re-engrave rebuilt items
+    assert "Clear" in window.break_action.page_action.text()
+    window.break_action.trigger_page()
+    assert window.app_state.doc.page_break_overrides == {}
+    assert _page_starts(window) == before
+
+
+def test_suppressing_an_encoded_page_break(window) -> None:
+    """m5's break is encoded as new-page="yes", so the barline at the end
+    of m4 offers SUPPRESS — and the systems must NOT merge with it (the
+    §3.1 A3/A4 fix, all the way through the UI)."""
+    from scoreanim.core.project import PageBreak
+
+    _barline_in(window, 4)
+    assert "Remove" in window.break_action.page_action.text()
+    window.break_action.trigger_page()
+    assert window.app_state.doc.page_break_overrides == {
+        5: PageBreak.SUPPRESS}
+    assert 5 not in _page_starts(window)
+    assert _spans(window) == {1: (1, 4), 2: (5, 8), 3: (9, 12),
+                              4: (13, 16), 5: (17, 19)}
+
+
+def test_the_page_action_disables_with_each_reason(window) -> None:
+    from scoreanim.core.editing.page_breaks import (LAST_MEASURE as PG_LAST,
+                                                    NO_MEASURE as PG_NO_MEAS,
+                                                    NOT_A_BARLINE as PG_NOT_BL)
+    from scoreanim.core.editing.page_breaks import (
+        NO_SELECTION as PG_NO_SEL)
+
+    action = window.break_action.page_action
+    assert not action.isEnabled() and action.statusTip() == PG_NO_SEL
+
+    _select(window, lambda el: (
+        el.identity.kind is ElementKind.BARLINE
+        and str(el.identity.element_id).startswith("score:p")))
+    assert not action.isEnabled() and action.statusTip() == PG_NO_MEAS
+
+    _select(window, lambda el: el.identity.kind is ElementKind.NOTEHEAD)
+    assert not action.isEnabled() and action.statusTip() == PG_NOT_BL
+
+    _select_identity(window, "score:m19:barline:0")
+    assert not action.isEnabled() and action.statusTip() == PG_LAST
+
+    _barline_in(window, 2)                     # …and it clears when enabled
+    assert action.isEnabled() and action.statusTip() == ""
+
+
+def test_triggering_the_disabled_page_action_does_nothing(window) -> None:
+    _select_identity(window, "score:m19:barline:0")
+    window.break_action.trigger_page()
+    assert window.app_state.doc.page_break_overrides == {}
+
+
+def test_the_page_action_has_a_shortcut_and_sits_in_the_score_menu(
+        window) -> None:
+    action = window.break_action.page_action
+    assert action.shortcut().toString() == PAGE_SHORTCUT
+    assert action in window.menus.score_menu.actions()
+    window.files.open_score(TESTSCORE)          # a second load
+    assert action in window.menus.score_menu.actions()
+
+
+def test_the_selection_survives_a_page_toggle(window) -> None:
+    """D9 unchanged for pages: §3.3 measured measure-scoped ids surviving
+    a page edit for the same reason they survive a system edit."""
+    barline = _barline_in(window, 2)
+    eid = barline.identity.element_id
+    before = window._scenes
+    window.break_action.trigger_page()
+
+    assert window._scenes is not before        # it really re-engraved
+    assert window.app_state.selected is not None
+    assert window.app_state.selected.element_id == eid
+    assert window.selection.highlighted is window._scenes.items[eid]
+    assert window.break_action.page_action.isEnabled()
+    assert "Clear" in window.break_action.page_action.text()
+
+
+def test_the_view_re_anchors_after_a_page_edit(window) -> None:
+    """D11: the anchor diff now reads BOTH maps, so a page gesture
+    re-anchors on exactly the path a system gesture does."""
+    window.router.show_page(3)
+    _barline_in(window, 2)
+    window.break_action.trigger_page()
+    assert window.router.page == _pages(window)[3]
+
+
+def test_undo_of_a_page_edit_re_anchors_too(window) -> None:
+    _barline_in(window, 2)
+    window.break_action.trigger_page()
+    window.router.show_page(4)
+    window.app_state.undo()
+    assert window.router.page == 1
+
+
+def test_a_page_force_clears_a_contradicting_system_suppress(window) -> None:
+    """D3's prevention half through the UI, in ONE undo entry (rule 8):
+    the document never ends up holding a pair that argues with itself."""
+    from scoreanim.core.project import PageBreak, SystemBreak
+
+    _barline_in(window, 8)
+    window.break_action.trigger()              # system SUPPRESS at m9
+    assert window.app_state.doc.system_break_overrides == {
+        9: SystemBreak.SUPPRESS}
+
+    # re-selected by identity, not by click: the merge moved m8's barline
+    # into the middle of a system where the hit policy prefers other ink.
+    # An M2 hit-geometry nuance, not an M6 one (the `_select_identity`
+    # precedent above).
+    _select_identity(window, "score:m8:barline:0")
+    window.break_action.trigger_page()         # page FORCE at m9
+    doc = window.app_state.doc
+    assert doc.page_break_overrides == {9: PageBreak.FORCE}
+    assert doc.system_break_overrides == {}    # cleared with it
+    assert 9 in _page_starts(window)
+
+    window.app_state.undo()                    # ONE entry restores both
+    restored = window.app_state.doc
+    assert restored.page_break_overrides == {}
+    assert restored.system_break_overrides == {9: SystemBreak.SUPPRESS}
+
+
+def test_a_system_suppress_clears_a_contradicting_page_force(window) -> None:
+    """The mirror, also one entry."""
+    from scoreanim.core.project import PageBreak, SystemBreak
+
+    _barline_in(window, 8)
+    window.break_action.trigger_page()         # page FORCE at m9
+    assert window.app_state.doc.page_break_overrides == {9: PageBreak.FORCE}
+
+    _select_identity(window, "score:m8:barline:0")
+    window.break_action.trigger()              # system SUPPRESS at m9
+    doc = window.app_state.doc
+    assert doc.system_break_overrides == {9: SystemBreak.SUPPRESS}
+    assert doc.page_break_overrides == {}
+
+    window.app_state.undo()
+    assert window.app_state.doc.page_break_overrides == {9: PageBreak.FORCE}
+
+
+def test_a_stale_page_override_warns_at_load(window) -> None:
+    """D8's inert code, through the same counted load-warning path as
+    every other anomaly (flag-and-continue)."""
+    from scoreanim.core.project import PageBreak, SetPageBreak
+
+    window.app_state.execute(SetPageBreak(9999, PageBreak.FORCE))
+    codes = [w.code for w in window.loader.load(
+        TESTSCORE, window.app_state.doc.engraving, None,
+        window.app_state.doc.style,
+        page_breaks={9999: PageBreak.FORCE}).warnings]
+    assert "page-break-override-inert" in codes

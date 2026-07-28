@@ -485,6 +485,81 @@ def test_set_system_break_also_writes_several_ordinals(doc) -> None:
         SetSystemBreak(5, SystemBreak.SUPPRESS, ((0, None),)).apply(doc)
 
 
+def test_set_page_break_writes_pops_and_describes(doc) -> None:
+    """M6.1: SetSystemBreak's sibling, same sparse-delta contract."""
+    from scoreanim.core.project import PageBreak, SetPageBreak
+
+    assert doc.page_break_overrides == {}
+    forced = SetPageBreak(3, PageBreak.FORCE).apply(doc)
+    assert forced.page_break_overrides == {3: PageBreak.FORCE}
+    assert doc.page_break_overrides == {}            # apply is pure
+    # and it leaves the OTHER map alone
+    assert forced.system_break_overrides == {}
+
+    both = SetPageBreak(9, PageBreak.SUPPRESS).apply(forced)
+    assert both.page_break_overrides == {3: PageBreak.FORCE,
+                                         9: PageBreak.SUPPRESS}
+    assert SetPageBreak(3, PageBreak.SUPPRESS).apply(both) \
+        .page_break_overrides[3] is PageBreak.SUPPRESS
+
+    cleared = SetPageBreak(3, None).apply(forced)
+    assert cleared.page_break_overrides == {}
+    assert cleared == doc
+    assert SetPageBreak(7, None).apply(doc) == doc   # popping nothing
+
+    assert SetPageBreak(3, PageBreak.FORCE).describe() == "force page break"
+    assert SetPageBreak(3, PageBreak.SUPPRESS).describe() \
+        == "suppress page break"
+    assert SetPageBreak(3, None).describe() == "clear page break"
+
+    for bad in (0, -1):
+        with pytest.raises(CommandError, match=">= 1"):
+            SetPageBreak(bad, PageBreak.FORCE).apply(doc)
+    # past the end is STORED and left inert — the command does not know
+    # the engraved layout (rule 5's staleness trade, D8's warning tells)
+    assert SetPageBreak(9999, PageBreak.FORCE).apply(doc) \
+        .page_break_overrides == {9999: PageBreak.FORCE}
+
+
+def test_a_break_command_writes_both_maps_in_one_step(doc) -> None:
+    """D3's prevention half: the one INCOHERENT pair the two maps admit
+    is page FORCE + system SUPPRESS at one ordinal, and the toggle
+    clears the contradiction in the SAME gesture rather than leaving the
+    document arguing with itself. Rule 8 counts gestures — one entry."""
+    from scoreanim.core.project import (PageBreak, SetPageBreak,
+                                        SetSystemBreak, SystemBreak)
+
+    stale = SetSystemBreak(9, SystemBreak.SUPPRESS).apply(doc)
+    stack = UndoStack()
+    fixed = stack.execute(
+        SetPageBreak(9, PageBreak.FORCE, also_system=((9, None),)), stale)
+    assert fixed.page_break_overrides == {9: PageBreak.FORCE}
+    assert fixed.system_break_overrides == {}
+    assert stack.undo_text() == "change breaks"
+    assert stack.undo() == stale                     # ONE entry restores both
+
+    # and the mirror: the system toggle clears a contradicting page FORCE
+    stale_page = SetPageBreak(9, PageBreak.FORCE).apply(doc)
+    back = SetSystemBreak(9, SystemBreak.SUPPRESS,
+                          also_page=((9, None),)).apply(stale_page)
+    assert back.system_break_overrides == {9: SystemBreak.SUPPRESS}
+    assert back.page_break_overrides == {}
+    assert SetSystemBreak(9, SystemBreak.SUPPRESS,
+                          also_page=((9, None),)).describe() == "change breaks"
+
+
+def test_page_break_also_carries_extra_page_ordinals(doc) -> None:
+    from scoreanim.core.project import PageBreak, SetPageBreak
+
+    fat = SetPageBreak(5, PageBreak.SUPPRESS, ((9, PageBreak.FORCE),))
+    assert fat.entries == ((5, PageBreak.SUPPRESS), (9, PageBreak.FORCE))
+    assert fat.apply(doc).page_break_overrides == {5: PageBreak.SUPPRESS,
+                                                   9: PageBreak.FORCE}
+    assert fat.describe() == "change page breaks"
+    with pytest.raises(CommandError, match=">= 1"):
+        SetPageBreak(5, PageBreak.SUPPRESS, ((0, None),)).apply(doc)
+
+
 def test_system_break_undo_counts_the_gesture_not_the_ordinals(doc) -> None:
     """Rule 8 on the composed gesture: two ordinals, ONE undo entry."""
     from scoreanim.core.project import SetSystemBreak, SystemBreak

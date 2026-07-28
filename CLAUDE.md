@@ -89,6 +89,31 @@ frozen v0.1-alpha build history — reference, never appended to.)
    make the suppression inert — and pagination then re-derives by the
    rule-7(a) mechanism below, so suppressing a SYSTEM break can move a
    PAGE break: the page count is **owned, not clipped** (D7).
+   Amendment (M6, 2026-07-28): the honored PAGE-break set is likewise
+   the encoded page breaks ⊕ the user's in-app page-break overrides
+   (`doc.page_break_overrides`), written by the SAME prep-seam pass as
+   the system delta — `_apply_breaks` visits one `<print>` once and
+   writes both attributes, because two passes racing on one element
+   manufacture false inert warnings. Page breaks are the one layout
+   input the app already OWNED before the user could author them —
+   rule 7(a)'s never-clip repagination re-derives them whenever a system
+   would overflow — so authored page intent is honored *within* that
+   guarantee, not above it: a forced page break is an INPUT to the
+   re-derived plan and survives repagination, and a suppressed one is
+   overridden, and warned (`page-break-repaginated`), whenever honoring
+   it would clip ink. Never-clip stays absolute; the page count stays
+   owned. Where the two maps disagree at one ordinal, **a page break
+   implies a system break**: page FORCE beats a coincident system
+   SUPPRESS, and page SUPPRESS asserts `new-system="yes"` rather than
+   clearing the measure's only marker (the mirror of D7 above) — unless
+   the system break is separately suppressed too, which is a coherent
+   pair of negatives. The toggles clear the one contradicting pair in
+   the same undo entry (`core/editing/break_coherence.py`), so that
+   precedence exists for hand-edited files and rule-5 staleness rather
+   than for anything the UI can author. And a repagination may NOT
+   change SYSTEM content: `_repaginate` promotes every encoded
+   `new-page="yes"` to also carry `new-system="yes"` before it strips
+   (BACKLOG 16, paid in M6.0).
    Three further amendments (Phase 10R 2026-07-13; (c) Phase 12.5
    2026-07-21):
    (a) encoded PAGE breaks are honored unless a system would overflow
@@ -239,10 +264,14 @@ scoreanim/
                            # nudge.py       NUDGEABLE_KINDS + step sizes
                            # segments.py    the :seg family a per-element
                            #                override fans out to
-                           # breaks.py      may a break gesture fire, and
-                           #                what would it write (M5): the
-                           #                toggle, and M5.7's move-to-
+                           # breaks.py      may a SYSTEM break gesture fire,
+                           #                and what would it write (M5):
+                           #                the toggle, and M5.7's move-to-
                            #                previous-system entry set
+                           # page_breaks.py the PAGE twin (M6.4) — one
+                           #                module per document map
+                           # break_coherence.py  what the two maps may say
+                           #                about ONE ordinal (M6, D3)
     project/               # Project document, serialization; commands/ —
                            # undoable commands split by domain (base/timing/
                            # style/stage/layout/undo, M4 exit audit)
@@ -279,12 +308,20 @@ scoreanim/
                            #   nudge.py         drag-to-nudge (M3.2): preview by
                            #                    setPos, ONE SetLayoutOverride
                            #                    per gesture
-                           #   break_action.py  the Score-menu break actions —
-                           #                    the toggle (M5.4) and Move to
-                           #                    Previous System (M5.7): owns
-                           #                    the QActions, their enable/
+                           #   break_action.py  the break actions — the
+                           #                    system toggle (M5.4), Move to
+                           #                    Previous System (M5.7) and the
+                           #                    page toggle (M6.5): owns the
+                           #                    three QActions, their enable/
                            #                    label sync and their triggers;
                            #                    policy stays in core
+                           #   layout_zone.py   left dock (M6.6, BACKLOG 17):
+                           #                    buttons whose defaultAction IS
+                           #                    the Score menu's QAction, so
+                           #                    the two surfaces cannot
+                           #                    diverge; hosts the overrides
+                           #                    readout (panels/
+                           #                    break_overrides.py, M6.7)
                            #   transport.py     lower zone: strip + lanes dock
                            #   file_actions.py  open/save/import/export handlers
                            #   score_loader.py  engrave→scene load pipeline
