@@ -188,6 +188,21 @@ See `spikes/NOTES.md` for the full investigation of each.
    open** — `measure_ordinal_of` still duplicates `schedule.py`'s
    private `_MEASURE_RE`, and M3 added no third caller.
 
+   **(b) CLOSED (M5.5, 2026-07-28), (c) still open.** M5 was the first
+   milestone with a concrete reason to want (b): toggling a break
+   deselected the barline you had just clicked, so toggling back needed
+   a fresh click on ink that had moved. `SelectionController.bind_scenes`
+   now re-resolves the held identity against the FRESH item table —
+   restored when the id survived, cleared when it did not — which the
+   spike justified by measuring all 19 of testscore's measure-scoped
+   barline ids byte-identical across both a forced and a suppressed
+   break. Re-resolution, not retention: the restored identity is the new
+   item's. One wrinkle worth remembering: `AppState.set_selection`
+   no-ops on an EQUAL identity and fires no signal, so the controller
+   re-lights the tint explicitly rather than making AppState re-emit for
+   everyone. (c) is untouched — M5 read `Selection.measure_ordinal` as
+   the M2.8 note asked, so there is still no third caller.
+
    **M2.8 (2026-07-27) removed the hard part of the color case:**
    authored color and the selection tint are separate channels composed
    in `ElementItem`, so a per-element override is written through
@@ -396,6 +411,41 @@ scale-to-fit). Parked:
     entries (rule 8) or need a command that does not exist. Undo and
     drag-back cover it today. Revisit if a combined "reset this element"
     is actually wanted.
+
+## M5 Breaks (2026-07-28)
+
+16. **`_repaginate` destroys a system break that is encoded only as a
+    page break.** CLAUDE.md rule 7(a) says the never-clip repagination
+    "keeps the system breaks, re-derives page breaks". It does not:
+    `core/score/musicxml_rewrite.py:_repaginate` strips ALL encoded
+    `new-page` attributes before asserting its own plan, and a measure
+    whose only break marker was `new-page="yes"` loses its system break
+    with it. Both fixtures have such measures — testscore encodes m5 and
+    m13 that way, bigband1 m12 and m20.
+
+    Pre-existing Phase 10R behaviour, and latent until now for a precise
+    reason: complex3 is the only fixture that repaginates at baseline,
+    ALL twenty of its breaks are page-encoded, and `plan_page_breaks`
+    happens to re-derive exactly the same twenty positions — so the
+    strip-and-re-assert is a no-op in effect. M5 is the first feature
+    that changes system heights and can therefore make the plan diverge
+    from the encoded set. Forcing a break at testscore's m19 repaginates
+    and merges systems 1+2 and 3+4 as a side effect; on bigband1,
+    forcing at m3 takes 9 systems to 8 rather than 10 for the same
+    reason (the spike recorded the count, brief §3.3 C1, without
+    identifying the cause).
+
+    Every M5 mechanism is correct on top of it — the forced break
+    survives the retry, the page count stays owned rather than clipped,
+    and the beat authority does not move — so this was flagged rather
+    than fixed inside a milestone whose charter is a layout-intent edit.
+
+    Likely fix, small but golden-touching: before stripping, promote
+    each encoded `new-page="yes"` to an explicit `new-system="yes"` on
+    the same measure, so the system break survives the page-break
+    re-derivation. Needs a golden re-run on complex3 (where it should be
+    a no-op) and a decision on whether a repagination is allowed to
+    change system content at all.
 
 ## Deferred (from PHASES.md "Later")
 

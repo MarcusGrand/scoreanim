@@ -3,10 +3,12 @@
 Scope authority is `docs/ROADMAP.md` §M5. This file is how it gets
 built. Written after the audit and the spike, before any feature code.
 
-Status: **ruled 2026-07-28, building.** §4's eleven decisions (D0–D10)
-were all ruled as recommended, with two riders (see §4). §5 is the build
-order. The rule-7 amendment stays a draft in ROADMAP until M5.6 applies
-it to CLAUDE.md with the ruling date.
+Status: **built M5.0–M5.6, 2026-07-28.** §4's eleven decisions (D0–D10)
+were all ruled as recommended, with two riders (see §4); §6b records
+what was built and where reality differed. Suite 924 passed / 1
+xfailed, goldens byte-identical. The rule-7 amendment is applied to
+CLAUDE.md with the ruling date and the D7 rider sentence. Awaiting the
+§6 interactive exit run.
 
 ---
 
@@ -626,6 +628,46 @@ path; headless tests and spikes against it must pass `strict=False`.
 The spike does; §3.3's numbers are all app-path.
 
 ---
+
+## 6b. As built (2026-07-28)
+
+M5.0–M5.6 landed in order, each with its §5 check done before the next
+started. Suite **924 passed / 1 xfailed** (858 at the branch point);
+goldens byte-identical at every commit. The full record of where reality
+differed from this brief is in ROADMAP §M5's close; the six that matter
+most here:
+
+1. **`EngravedScore.system_of_measure` moved from M5.3 to M5.2**, because
+   M5.2's own verification asserts on it. Goldens unaffected, as D4
+   predicted — `tests/golden.py` names its fields explicitly.
+2. **The trap is real, but one of its three paths was free.**
+   `load_detailed` calls `prepare()` three times, not four: the
+   hide-unavailable retry re-engraves the SAME prep. The other two
+   re-prepare and had to be told. All three pinned.
+3. **`SystemBreak` gets no neutral twin** — a two-valued vocabulary has
+   no fields to twin, and `core/project` may already import
+   `core/score`.
+4. **A fourth disable case**: the action requires a BARLINE. Rule 13
+   names it as M5's only handle, and D2's arithmetic only holds for a
+   measure's right barline.
+5. **D10 warns on "not applied at the seam"**, not "no visible effect"
+   — the latter needs a second load. Suppression became a stricter
+   delta as a consequence.
+6. **D9 needed one unanticipated line**: `AppState.set_selection`
+   no-ops on an equal identity, so the controller re-lights the tint
+   explicitly across a re-engrave.
+
+Two findings were raised rather than absorbed. The larger one is
+**BACKLOG 16**: `_repaginate` destroys a system break encoded only as a
+page break, contradicting rule 7(a)'s own wording. It is pre-existing
+Phase 10R behaviour, latent because complex3's re-derived plan happens
+to match its encoded breaks exactly; M5 is simply the first feature that
+can make the two diverge. §3.3 C1's "9 → 8 systems" is that effect,
+recorded here without its cause being identified at spike time. Every
+M5 mechanism is correct on top of it. The smaller: testscore's FINAL
+barline does not resolve to a click at its bbox centre (a heavy double
+bar, the gap exceeds M2's 6-unit tolerance) — harmless, since D6
+disables the action there anyway.
 
 ## 7. Invariants in force throughout
 
