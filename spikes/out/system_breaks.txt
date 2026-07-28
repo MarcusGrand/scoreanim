@@ -1,0 +1,140 @@
+
+========================================================================
+A — Verovio honors forced and suppressed system breaks (testscore)
+========================================================================
+A0 baseline systems: {1: [1, 2, 3, 4], 2: [5, 6, 7, 8], 3: [9, 10, 11, 12], 4: [13, 14, 15, 16], 5: [17, 18, 19]}
+   pages=3 warnings=['dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner']
+
+A1 force break before m3  -> {1: [1, 2], 2: [3, 4], 3: [5, 6, 7, 8], 4: [9, 10, 11, 12], 5: [13, 14, 15, 16], 6: [17, 18, 19]}
+   HONORED: True  (want sys1=[1,2], sys2=[3,4])
+   pages=3 warnings=['dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner']
+
+A2 suppress encoded break at m9 -> {1: [1, 2, 3, 4], 2: [5, 6, 7, 8, 9, 10, 11, 12], 3: [13, 14, 15, 16], 4: [17, 18, 19]}
+   HONORED (m8 and m9 share a system): True
+   pages=3 warnings=['dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner']
+
+A3 suppress at m3 (no encoded break) -> {1: [1, 2, 3, 4], 2: [5, 6, 7, 8], 3: [9, 10, 11, 12], 4: [13, 14, 15, 16], 5: [17, 18, 19]}
+   NO-OP vs baseline: True
+
+A4 force at m1 -> {1: [1, 2, 3, 4], 2: [5, 6, 7, 8], 3: [9, 10, 11, 12], 4: [13, 14, 15, 16], 5: [17, 18, 19]}
+   NO-OP vs baseline: True
+   force at LAST measure m19 -> {1: [1, 2, 3, 4, 5, 6, 7, 8], 2: [9, 10, 11, 12, 13, 14, 15, 16], 3: [17, 18], 4: [19]}
+   pages=3 warnings=['dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'repaginated']
+
+A5 suppress at m5 (encoded new-page='yes') -> {1: [1, 2, 3, 4, 5, 6, 7, 8], 2: [9, 10, 11, 12, 13, 14, 15, 16], 3: [17, 18, 19]}
+   pages 3 -> 3  warnings=['dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'repaginated']
+   page_of_measure: {1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 2, 10: 2, 11: 2, 12: 2, 13: 2, 14: 2, 15: 2, 16: 2, 17: 3, 18: 3, 19: 3}
+
+A6 force m3 + suppress m9 -> {1: [1, 2], 2: [3, 4], 3: [5, 6, 7, 8, 9, 10, 11, 12], 4: [13, 14, 15, 16], 5: [17, 18, 19]}
+   pages=3 warnings=['dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner']
+
+========================================================================
+B — ElementIds of unaffected measures survive (testscore)
+========================================================================
+
+B1 force break before m3
+   measures with byte-identical id sets: 18/19
+   differing measures: [3]
+     m3: -[] +['P1:m3:s1:v0:clef:0', 'P1:m3:s1:v0:key_sig:0', 'P2:m3:s1:v0:clef:0', 'P2:m3:s1:v0:key_sig:0']
+   (measures the break itself moves: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])
+   measure-less (page/system-scoped) ids: 32 -> 38, identical: False
+     -[]
+     +['score:p1:barline:1', 'score:p1:text:10', 'score:p1:text:11', 'score:p1:text:7', 'score:p1:text:8', 'score:p1:text:9']
+
+B2 suppress encoded break at m9
+   measures with byte-identical id sets: 17/19
+   differing measures: [8, 9]
+     m8: -['P3:m8:s1:v1:ledger_lines:6', 'P3:m8:s1:v1:tie:0:seg1', 'P3:m8:s1:v1:tie:1:seg1', 'P4:m8:s1:v1:ledger_lines:5'] +[]
+     m9: -['P1:m9:s1:v0:clef:0', 'P1:m9:s1:v0:key_sig:0', 'P2:m9:s1:v0:clef:0', 'P2:m9:s1:v0:key_sig:0'] +[]
+   (measures the break itself moves: [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])
+   measure-less (page/system-scoped) ids: 32 -> 26, identical: False
+     -['score:p2:barline:1', 'score:p2:text:5', 'score:p2:text:6', 'score:p2:text:7', 'score:p2:text:8', 'score:p2:text:9']
+     +[]
+
+B3 force m3: part-scoped ids identical: False (1631 vs 1645)
+     -[]
+     +['P1:m3:s1:v0:clef:0', 'P1:m3:s1:v0:key_sig:0', 'P2:m3:s1:v0:clef:0', 'P2:m3:s1:v0:key_sig:0', 'P3:m3:s1:v0:clef:0', 'P3:m3:s1:v0:key_sig:0']
+
+B3 suppress m9: part-scoped ids identical: False (1631 vs 1607)
+     -['P1:m9:s1:v0:clef:0', 'P1:m9:s1:v0:key_sig:0', 'P2:m9:s1:v0:clef:0', 'P2:m9:s1:v0:key_sig:0', 'P3:m8:s1:v1:ledger_lines:6', 'P3:m8:s1:v1:tie:0:seg1']
+     +[]
+
+========================================================================
+C — downstream flow (bigband1, app path; complex2 for condensing)
+========================================================================
+C0 bigband1 baseline: systems={1: [1, 2, 3, 4], 2: [5, 6, 7, 8], 3: [9, 10, 11], 4: [12, 13], 5: [14, 15, 16], 6: [17, 18, 19], 7: [20, 21, 22], 8: [23, 24, 25], 9: [26, 27, 28]}
+   pages=3 warnings=['unknown-class', 'unknown-class', 'unknown-class', 'stray-path', 'stray-path', 'stray-path', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner']
+
+C1 force before m3: systems={1: [1, 2], 2: [3, 4], 3: [5, 6, 7, 8], 4: [9, 10, 11, 12, 13], 5: [14, 15, 16], 6: [17, 18, 19, 20, 21, 22], 7: [23, 24, 25], 8: [26, 27, 28]}
+   pages=4 warnings=['unknown-class', 'unknown-class', 'unknown-class', 'stray-path', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'repaginated']
+
+C1 suppress encoded m5: systems={1: [1, 2, 3, 4, 5, 6, 7, 8], 2: [9, 10, 11], 3: [12, 13], 4: [14, 15, 16], 5: [17, 18, 19], 6: [20, 21, 22], 7: [23, 24, 25], 8: [26, 27, 28]}
+   pages=3 warnings=['unknown-class', 'unknown-class', 'unknown-class', 'stray-path', 'stray-path', 'stray-path', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner']
+
+C1 force before m7 (mid-system): systems={1: [1, 2, 3, 4], 2: [5, 6], 3: [7, 8], 4: [9, 10, 11, 12, 13], 5: [14, 15, 16], 6: [17, 18, 19, 20, 21, 22], 7: [23, 24, 25], 8: [26, 27, 28]}
+   pages=4 warnings=['unknown-class', 'unknown-class', 'unknown-class', 'stray-path', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'repaginated']
+
+C2 hide_empty_staves=True
+   baseline  systems={1: [1, 2, 3, 4], 2: [5, 6, 7, 8], 3: [9, 10, 11], 4: [12, 13], 5: [14, 15, 16], 6: [17, 18, 19], 7: [20, 21, 22], 8: [23, 24, 25], 9: [26, 27, 28]} warnings=['unknown-class', 'unknown-class', 'unknown-class', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'stray-path', 'stray-path', 'stray-path', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner']
+   force m3  systems={1: [1, 2], 2: [3, 4], 3: [5, 6, 7, 8], 4: [9, 10, 11, 12, 13], 5: [14, 15, 16], 6: [17, 18, 19, 20, 21, 22], 7: [23, 24, 25], 8: [26, 27, 28]} warnings=['unknown-class', 'unknown-class', 'unknown-class', 'reclaimed-spanner-ink', 'stray-path', 'stray-path', 'segment-count-mismatch', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'unattributed-continuation', 'repaginated']
+   suppr m5  systems={1: [1, 2, 3, 4, 5, 6, 7, 8], 2: [9, 10, 11], 3: [12, 13], 4: [14, 15, 16], 5: [17, 18, 19], 6: [20, 21, 22], 7: [23, 24, 25], 8: [26, 27, 28]} warnings=['unknown-class', 'unknown-class', 'unknown-class', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'reclaimed-spanner-ink', 'stray-path', 'stray-path', 'stray-path', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner']
+
+C3 forced breaks that overflow the page (repagination retry)
+   force every measure 2..15: systems=18 pages=7
+   warnings=['unknown-class', 'unknown-class', 'unknown-class', 'stray-path', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'repaginated']
+   systems overflowing the page after retries: []
+
+C4 suppress every encoded break
+   systems={1: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]}
+   pages=1 warnings=['unknown-class', 'unknown-class', 'unknown-class', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner']
+
+C5 condensing + a forced break (complex2)
+   condensed baseline: systems=20 pages=20 warnings=['dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'repaginated', 'scaled-to-fit']
+   condensed + force m4: systems=21 pages=21 warnings=['dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'dropped-spanner', 'repaginated', 'scaled-to-fit']
+   system_of_measure head: [(1, 1), (2, 1), (3, 1), (4, 2), (5, 2), (6, 2), (7, 2), (8, 2), (9, 2), (10, 2)]
+
+========================================================================
+D — triggers and reveal edges on split / merged systems
+========================================================================
+
+D1 force m3
+   join complete: True -> True
+   triggers: 89 -> 89
+   beats_by_element identical: False
+     shared ids with CHANGED beat: 0 []
+     only-base 0, only-edited 14
+   timemap score_end: 70.0 -> 70.0
+   reveal tracks (system,part): 35 -> 42
+   tracks with non-monotonic edge x: 0 []
+   tracks per system: {1: 7, 2: 7, 3: 7, 4: 7, 5: 7, 6: 7}
+
+D1 suppress m9
+   join complete: True -> True
+   triggers: 89 -> 89
+   beats_by_element identical: False
+     shared ids with CHANGED beat: 5 ['P4:m8:s1:v1:ledger_lines:4', 'P3:m9:s1:v1:ledger_lines:2', 'P3:m8:s1:v1:ledger_lines:1', 'P3:m8:s1:v1:ledger_lines:3']
+     only-base 17, only-edited 0
+   timemap score_end: 70.0 -> 70.0
+   reveal tracks (system,part): 35 -> 28
+   tracks with non-monotonic edge x: 0 []
+   tracks per system: {1: 7, 2: 7, 3: 7, 4: 7}
+
+========================================================================
+E — what a barline id offers as M5's handle (rule 13)
+========================================================================
+
+testscore: 24 barlines — 19 carry a measure ordinal, 5 do not
+   measures=19 systems=5
+   measure-less barline ids (system-start): ['score:p1:barline:0', 'score:p2:barline:0', 'score:p2:barline:1', 'score:p3:barline:0', 'score:p3:barline:1']
+   barlines per measure histogram: {1: 19}
+   measures with NO barline of their own: []
+   last measure of each system: {1: 4, 2: 8, 3: 12, 4: 16, 5: 19}
+
+bigband1: 37 barlines — 28 carry a measure ordinal, 9 do not
+   measures=28 systems=9
+   measure-less barline ids (system-start): ['score:p1:barline:0', 'score:p1:barline:1', 'score:p1:barline:2', 'score:p2:barline:0', 'score:p2:barline:1', 'score:p2:barline:2']
+   barlines per measure histogram: {1: 28}
+   measures with NO barline of their own: []
+   last measure of each system: {1: 4, 2: 8, 3: 11, 4: 13, 5: 16, 6: 19, 7: 22, 8: 25, 9: 28}
+
+done.
