@@ -143,7 +143,8 @@ class MainWindow(QMainWindow):
         # zone's toggleViewAction with the other two docks' and the Score
         # menu re-inserts the actions per load.
         self.break_action = BreakActionController(self.app_state, self)
-        self.layout_zone = LayoutZone(self.break_action.actions, self)
+        self.layout_zone = LayoutZone(self.app_state,
+                                      self.break_action.actions, self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea,
                            self.layout_zone)
         # static chrome (M1.5): the five menus, the slim toolbar, and
@@ -240,6 +241,7 @@ class MainWindow(QMainWindow):
         self.playback.set_style(doc.style)
         self.lower_zone.strip.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
+        self.layout_zone.sync_from_document(doc)
         self.parts_menu.sync_from_document(doc)
         self.break_action.sync()      # overrides move the action's label
         self.router.sync_presentation_mode(doc.stage.mode)

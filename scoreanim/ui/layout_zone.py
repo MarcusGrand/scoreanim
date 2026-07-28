@@ -22,8 +22,8 @@ than assumed (D10), including that a stored layout predating this dock
 still places it sanely.
 
 Scrolled, for the reason the inspector is: a dock must never dictate the
-window's minimum height, and this one will accrue rows as M6.7's
-overrides readout fills up.
+window's minimum height, and this one accrues rows as the M6.7 overrides
+readout fills up.
 """
 from __future__ import annotations
 
@@ -32,11 +32,15 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (QDockWidget, QLabel, QScrollArea, QSizePolicy,
                                QToolButton, QVBoxLayout, QWidget)
 
+from scoreanim.core.project import ProjectDoc
+from scoreanim.ui.app_state import AppState
+from scoreanim.ui.panels import BreakOverridesList
+
 
 class LayoutZone(QDockWidget):
     """Left dock: the break actions, and what they have written so far."""
 
-    def __init__(self, actions: tuple[QAction, ...],
+    def __init__(self, app_state: AppState, actions: tuple[QAction, ...],
                  parent: QWidget | None = None) -> None:
         super().__init__("Layout", parent)
         self.setObjectName("LayoutZone")     # saveState identity (M1.8)
@@ -57,6 +61,13 @@ class LayoutZone(QDockWidget):
         for button in self.buttons:
             column.addWidget(button)
 
+        column.addSpacing(8)
+        overrides_heading = QLabel("Overrides")
+        overrides_heading.setStyleSheet("font-weight: 600;")
+        column.addWidget(overrides_heading)
+        # its own widget module rather than a limb on the dock (D9)
+        self.overrides = BreakOverridesList(app_state, body)
+        column.addWidget(self.overrides)
         column.addStretch(1)
 
         scroller = QScrollArea(self)
@@ -83,3 +94,8 @@ class LayoutZone(QDockWidget):
         button.setSizePolicy(QSizePolicy.Policy.Expanding,
                              QSizePolicy.Policy.Fixed)
         return button
+
+    def sync_from_document(self, doc: ProjectDoc) -> None:
+        """Only the readout has document state to resync; the buttons
+        follow their shared actions, which the break controller syncs."""
+        self.overrides.sync_from_document(doc)

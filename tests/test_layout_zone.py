@@ -182,3 +182,110 @@ def test_the_zone_round_trips_through_the_existing_persistence(qapp,
     assert not third.layout_zone.isHidden()
     assert third.dockWidgetArea(third.layout_zone) \
         == Qt.DockWidgetArea.LeftDockWidgetArea
+
+
+# -- M6.7: the overrides readout --------------------------------------------
+
+def _rows(window) -> list[str]:
+    from PySide6.QtWidgets import QLabel
+    return [row.findChild(QLabel).text()
+            for row in window.layout_zone.overrides._rows]
+
+
+def _clear_buttons(window):
+    from PySide6.QtWidgets import QPushButton
+    return [row.findChild(QPushButton)
+            for row in window.layout_zone.overrides._rows]
+
+
+def test_the_readout_is_empty_until_something_is_authored(window) -> None:
+    assert _rows(window) == []
+    assert window.layout_zone.overrides._empty.isVisibleTo(
+        window.layout_zone.overrides)
+
+
+def test_the_readout_lists_both_maps_in_measure_order(window) -> None:
+    """One list, because the user authors both in one pass down the
+    score and thinks of them that way."""
+    from scoreanim.core.project import (PageBreak, SetPageBreak,
+                                        SetSystemBreak, SystemBreak)
+
+    window.app_state.execute(SetPageBreak(12, PageBreak.FORCE))
+    window.app_state.execute(SetSystemBreak(3, SystemBreak.FORCE))
+    window.app_state.execute(SetSystemBreak(7, SystemBreak.SUPPRESS))
+    assert _rows(window) == ["m3: force system break",
+                             "m7: remove system break",
+                             "m12: force page break"]
+
+
+def test_a_row_appears_for_each_axis_at_one_ordinal(window) -> None:
+    from scoreanim.core.project import (PageBreak, SetPageBreak,
+                                        SetSystemBreak, SystemBreak)
+
+    window.app_state.execute(SetSystemBreak(9, SystemBreak.FORCE))
+    window.app_state.execute(SetPageBreak(9, PageBreak.SUPPRESS))
+    assert _rows(window) == ["m9: force system break",
+                             "m9: remove page break"]
+
+
+def test_the_readout_refreshes_on_every_document_change(window) -> None:
+    from scoreanim.core.project import PageBreak, SetPageBreak
+
+    window.app_state.execute(SetPageBreak(3, PageBreak.FORCE))
+    assert _rows(window) == ["m3: force page break"]
+    window.app_state.undo()
+    assert _rows(window) == []
+    window.app_state.redo()
+    assert _rows(window) == ["m3: force page break"]
+
+
+def test_a_row_clear_pops_exactly_that_entry_in_one_undo_step(
+        window) -> None:
+    """D12: no new command — `mode=None` already pops — and it goes
+    through execute(), so it re-engraves on the same path the menu
+    action does."""
+    from scoreanim.core.project import (PageBreak, SetPageBreak,
+                                        SetSystemBreak, SystemBreak)
+
+    window.app_state.execute(SetSystemBreak(3, SystemBreak.FORCE))
+    window.app_state.execute(SetPageBreak(9, PageBreak.FORCE))
+    before = window._scenes
+
+    _clear_buttons(window)[1].click()                  # the page row
+    doc = window.app_state.doc
+    assert doc.page_break_overrides == {}
+    assert doc.system_break_overrides == {3: SystemBreak.FORCE}
+    assert _rows(window) == ["m3: force system break"]
+    assert window._scenes is not before                # it re-engraved
+    assert window.app_state.undo_text() == "clear page break"
+
+    window.app_state.undo()
+    assert window.app_state.doc.page_break_overrides == {9: PageBreak.FORCE}
+    assert _rows(window) == ["m3: force system break",
+                             "m9: force page break"]
+
+
+def test_clearing_a_system_row_sends_the_system_command(window) -> None:
+    from scoreanim.core.project import SetSystemBreak, SystemBreak
+
+    window.app_state.execute(SetSystemBreak(5, SystemBreak.SUPPRESS))
+    _clear_buttons(window)[0].click()
+    assert window.app_state.doc.system_break_overrides == {}
+    assert window.app_state.undo_text() == "clear system break"
+
+
+def test_the_readout_is_pure_data_a_test_can_assert(window) -> None:
+    """`entries` is static so the content can be checked without going
+    through widgets — and so the widget has nothing to get wrong beyond
+    drawing it."""
+    from scoreanim.core.project import PageBreak, ProjectDoc, SystemBreak
+    from scoreanim.ui.panels import BreakOverridesList
+
+    doc = ProjectDoc(system_break_overrides={12: SystemBreak.FORCE},
+                     page_break_overrides={3: PageBreak.SUPPRESS,
+                                           12: PageBreak.FORCE})
+    assert BreakOverridesList.entries(doc) == (
+        (3, True, PageBreak.SUPPRESS),
+        (12, False, SystemBreak.FORCE),
+        (12, True, PageBreak.FORCE))
+    assert BreakOverridesList.entries(ProjectDoc()) == ()

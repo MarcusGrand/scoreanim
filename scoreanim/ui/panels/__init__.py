@@ -4,9 +4,15 @@ inspector composes them and delegates `sync_from_document`.
 
 SelectionPanel (M2.5) is the exception that proves the rule: it is
 driven by transient selection state, so it subscribes to
-`AppState.selection_changed` itself and has no document resync."""
+`AppState.selection_changed` itself and has no document resync.
+
+BreakOverridesList (M6.7) is a section body of the LAYOUT ZONE rather
+than the inspector — same contract, different dock: the zone composes it
+and delegates `sync_from_document`."""
+from scoreanim.ui.panels.break_overrides import BreakOverridesList
 from scoreanim.ui.panels.effects_panel import EffectsPanel
 from scoreanim.ui.panels.selection_panel import SelectionPanel
 from scoreanim.ui.panels.selection_style import SelectionStyleControls
 
-__all__ = ["EffectsPanel", "SelectionPanel", "SelectionStyleControls"]
+__all__ = ["BreakOverridesList", "EffectsPanel", "SelectionPanel",
+           "SelectionStyleControls"]
