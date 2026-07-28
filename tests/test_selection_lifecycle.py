@@ -54,17 +54,24 @@ def _select_a_notehead(window) -> object:
 
 # -- clears --------------------------------------------------------------
 
-def test_reengrave_clears_the_selection(window) -> None:
-    """Toggling Hide Empty Staves rebuilds every ElementItem; a held
-    identity would name objects that no longer exist."""
-    _select_a_notehead(window)
+def test_reengrave_carries_a_surviving_selection(window) -> None:
+    """M5.5 (D9) changed this: a re-engrave rebuilds every ElementItem,
+    but the identity is re-resolved against the fresh table, so a
+    selection whose musical id survived comes back — on the NEW item,
+    tint and all. Before D9 it cleared, and toggling a break deselected
+    the barline you had just clicked."""
+    note = _select_a_notehead(window)
     assert window.app_state.selected is not None
     before = window._scenes
     doc = window.app_state.doc
     window.app_state.execute(SetHideEmptyStaves(not doc.hide_empty_staves))
     assert window._scenes is not before      # a re-engrave really happened
-    assert window.app_state.selected is None
-    assert window.selection.highlighted is None
+
+    eid = note.identity.element_id
+    assert window.app_state.selected is not None
+    assert window.app_state.selected.element_id == eid
+    assert window.selection.highlighted is window._scenes.items[eid]
+    assert window.selection.highlighted is not before.items[eid]
 
 
 def test_fresh_load_clears_the_selection(window) -> None:

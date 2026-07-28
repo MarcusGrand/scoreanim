@@ -44,6 +44,7 @@ class ViewRouter:
         self._menus = menus
         self._scenes: ScoreScenes | None = None
         self._band_by_system: dict = {}          # derived, never saved
+        self._system_of_measure: dict = {}       # ditto (M5.5, D8)
         self._applier: AnimationApplier | None = None
         self._page = 1
         self._system = 1
@@ -52,11 +53,13 @@ class ViewRouter:
     # -- per-load binding ------------------------------------------------------
 
     def bind(self, scenes: ScoreScenes, band_by_system: dict,
-             applier: AnimationApplier) -> None:
+             applier: AnimationApplier,
+             system_of_measure: dict | None = None) -> None:
         """Adopt one load's derived world (`MainWindow._install`)."""
         self._scenes = scenes
         self._band_by_system = band_by_system
         self._applier = applier
+        self._system_of_measure = dict(system_of_measure or {})
 
     def reset(self) -> None:
         """Back to the first unit — a FRESH load only; a re-engrave
@@ -115,6 +118,30 @@ class ViewRouter:
             self.show_system(self._system)
         else:
             self.show_page(self._page)
+
+    def show_measure(self, ordinal: int) -> None:
+        """Re-anchor to the unit HOLDING a measure (M5.5, D8).
+
+        `show_current` re-shows the same page/system INDEX, which both
+        accessors clamp — so nothing goes out of range after a break
+        edit, but the same index is different music: forcing a break
+        takes testscore from 5 systems to 6 and suppressing one takes it
+        to 4. In system mode the stage would jump away from the edit.
+        Anchoring by measure is what every notation editor does, and it
+        reads off the same measure→system map the toggle policy needs.
+
+        Falls back to `show_current` for a measure the fresh layout does
+        not have — a shortened score, or an unbound router.
+        """
+        system = self._system_of_measure.get(ordinal)
+        if system is None:
+            self.show_current()
+            return
+        if self._applied_mode is PresentationMode.SYSTEM:
+            self.show_system(system)
+            return
+        band = self._band_by_system.get(system)
+        self.show_page(band.page if band is not None else self._page)
 
     # -- follow ----------------------------------------------------------------
 

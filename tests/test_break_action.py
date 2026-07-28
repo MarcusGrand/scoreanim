@@ -222,3 +222,63 @@ def test_a_stale_override_warns_at_load(window) -> None:
         window.app_state.doc.style,
         system_breaks=window.app_state.doc.system_break_overrides).warnings]
     assert "break-override-inert" in codes
+
+
+# -- M5.5: position and selection across the re-engrave ---------------------
+
+def test_the_selection_survives_a_break_toggle(window) -> None:
+    """D9: the barline you clicked is still selected afterwards, so
+    toggling back needs no fresh click on ink that has just moved. The
+    spike measured all 19 measure-scoped barline ids byte-identical
+    across both edits, which is what makes this possible."""
+    barline = _barline_in(window, 3)
+    eid = barline.identity.element_id
+    before = window._scenes
+    window.break_action.trigger()
+
+    assert window._scenes is not before        # it really re-engraved
+    assert window.app_state.selected is not None
+    assert window.app_state.selected.element_id == eid
+    # the tint moved to the NEW item, not the destroyed one
+    assert window.selection.highlighted is window._scenes.items[eid]
+    # and the action is immediately ready to toggle back
+    assert window.break_action.action.isEnabled()
+    assert "Clear" in window.break_action.action.text()
+
+
+def test_the_view_re_anchors_to_the_edited_measure(window) -> None:
+    """D8: `show_current` would re-show the same INDEX, which after a
+    break is different music. In system mode that jumps away from the
+    edit; anchoring by measure keeps the stage where you were working."""
+    from scoreanim.core.project import PresentationMode, SetPresentationMode
+
+    window.app_state.execute(SetPresentationMode(PresentationMode.SYSTEM))
+    _barline_in(window, 16)                    # last bar of system 4
+    window.router.show_system(4)
+    window.break_action.trigger()              # m17's break is encoded
+    # systems 4 and 5 merged, so the edited measure is in system 4 —
+    # and the router is looking at it rather than at a clamped index
+    assert window.router.system == \
+        window.break_action._system_of_measure[17]
+
+
+def test_an_unrelated_reengrave_keeps_the_position(window) -> None:
+    """Only a break edit re-anchors; everything else re-shows where it
+    was (the anchor is diffed from the override map, so a change that
+    touches no ordinal yields None)."""
+    from scoreanim.core.project import SetHideEmptyStaves
+
+    window.router.show_page(2)
+    doc = window.app_state.doc
+    window.app_state.execute(SetHideEmptyStaves(not doc.hide_empty_staves))
+    assert window.router.page == 2
+
+
+def test_undo_re_anchors_too(window) -> None:
+    """The anchor is diffed against the loader's applied inputs rather
+    than passed down from the action, so undo travels the same path."""
+    _barline_in(window, 3)
+    window.break_action.trigger()
+    window.router.show_page(3)
+    window.app_state.undo()
+    assert window.router.page == 1             # back at the edited measure

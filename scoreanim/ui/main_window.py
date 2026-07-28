@@ -215,7 +215,7 @@ class MainWindow(QMainWindow):
         # scenes in the same pass
         if (self._scenes is not None and doc.score is not None
                 and self.loader.needs_reengrave(doc)):
-            self._reengrave(doc)
+            self._reengrave(doc, self._break_anchor(doc))
         self.playback.set_timing_config(*self.timing_config(doc))
         self.doc_sync.sync_styles(doc)
         if self.doc_sync.sync_stage(doc) \
@@ -269,19 +269,38 @@ class MainWindow(QMainWindow):
         self.router.reset()
         return loaded.stage
 
-    def _reengrave(self, doc: ProjectDoc) -> None:
+    def _break_anchor(self, doc: ProjectDoc) -> int | None:
+        """Which measure a break edit touched, for the view to re-anchor
+        to (M5.5, D8). Diffed against the loader's applied inputs rather
+        than passed down from the action, so undo and redo re-anchor on
+        the same path — and so a change that touches several ordinals at
+        once (a project load) anchors nowhere and keeps the position."""
+        before = self.loader.applied_breaks
+        after = dict(doc.system_break_overrides)
+        changed = {o for o in set(before) | set(after)
+                   if before.get(o) != after.get(o)}
+        return changed.pop() if len(changed) == 1 else None
+
+    def _reengrave(self, doc: ProjectDoc,
+                   anchor_measure: int | None = None) -> None:
         """Re-derive the engraved world after a staff-group, part-label,
-        or hide-empty-staves change, preserving page/system/zoom (no
-        view.fit, no position reset). ~0.6 s on the GUI thread per call
-        (engrave + scene rebuild), so these commands must arrive via
-        execute(), never preview()."""
+        hide-empty-staves, or system-break change, preserving
+        page/system/zoom (no view.fit, no position reset). ~0.6 s on the
+        GUI thread per call (engrave + scene rebuild), so these commands
+        must arrive via execute(), never preview()."""
         loaded = self.loader.load(Path(doc.score.path), doc.engraving,
                                   doc.stage, doc.style, doc.staff_groups,
                                   doc.text_overrides, doc.hide_empty_staves,
                                   doc.condense_groups, doc.hide_first_system,
                                   doc.system_break_overrides)
         self._install(loaded)
-        self.router.show_current()       # install the fresh scene
+        # a break edit re-anchors to the measure it touched, so the stage
+        # stays where you were working (D8); everything else re-shows the
+        # position it had
+        if anchor_measure is not None:
+            self.router.show_measure(anchor_measure)
+        else:
+            self.router.show_current()   # install the fresh scene
 
     def _install(self, loaded: LoadedScore) -> None:
         """Adopt one load's derived world and point every consumer at
@@ -292,7 +311,7 @@ class MainWindow(QMainWindow):
         self.doc_sync.bind_scenes(loaded.scenes, loaded.stage.texts)
         self.selection.bind_scenes(loaded.scenes)   # also clears selection
         self.router.bind(loaded.scenes, loaded.band_by_system,
-                         loaded.applier)
+                         loaded.applier, loaded.system_of_measure)
         self.break_action.bind(loaded.system_of_measure)
         self.text_edit.bind(loaded.scenes, loaded.animation_inputs.layout,
                             loaded.parts)

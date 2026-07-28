@@ -48,13 +48,40 @@ class SelectionController(QObject):
     # -- lifecycle ---------------------------------------------------------
 
     def bind_scenes(self, scenes: ScoreScenes | None) -> None:
-        """Adopt one load's scenes. Clears the selection: a re-engrave
-        rebuilds every ElementItem, so the held identity would point at
-        objects that no longer exist (and the item carrying the tint is
-        being dropped with them)."""
+        """Adopt one load's scenes, carrying the selection across if the
+        element survived (M5.5, D9 — BACKLOG 9 seam (b), open since M2).
+
+        A re-engrave rebuilds every ElementItem, so the OLD item is gone
+        either way and the tint goes with it. What the selection names,
+        though, is a musical id, and musical ids are minted from position
+        and mostly survive: the spike measured all 19 of testscore's
+        measure-scoped barline ids byte-identical across both a forced
+        and a suppressed break. So the identity is re-resolved against
+        the FRESH item table — restored when the id is still there,
+        cleared when it is not. Without this, toggling a break deselects
+        the barline you clicked, and toggling back needs a fresh click on
+        ink that has just moved.
+
+        Re-resolution, not retention: the restored identity is the new
+        item's, so nothing downstream can hold a stale one."""
+        previous = self._state.selected
         self._unmark()
         self._scenes = scenes
-        self._state.set_selection(None)
+        survivor = self._surviving(previous)
+        self._state.set_selection(survivor)
+        if survivor is not None:
+            # AppState.set_selection no-ops on an EQUAL identity and so
+            # fires no signal — which is right for its own contract, and
+            # exactly wrong here: the identity is unchanged but the item
+            # carrying the tint is a different object. Re-light it
+            # explicitly rather than making AppState re-emit for everyone.
+            self._refresh_highlight()
+
+    def _surviving(self, identity) -> object | None:
+        if identity is None or self._scenes is None:
+            return None
+        item = self._scenes.items.get(identity.element_id)
+        return item.identity if item is not None else None
 
     # -- hit-testing -------------------------------------------------------
 

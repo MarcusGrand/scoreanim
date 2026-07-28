@@ -67,6 +67,13 @@ class ScoreLoader:
         self._applied_condense: tuple = ()   # condense groups ditto
         self._applied_breaks: dict = {}    # system-break overrides ditto
 
+    @property
+    def applied_breaks(self) -> dict:
+        """The system-break overrides the LAST load used — the window
+        diffs against it to find which measure a break edit touched, so
+        the view can re-anchor there (M5.5, D8)."""
+        return dict(self._applied_breaks)
+
     def needs_reengrave(self, doc: ProjectDoc) -> bool:
         """Staff groups, part-label overrides, hide-empty-staves (and
         its first-system extension), condense groups, and system-break
