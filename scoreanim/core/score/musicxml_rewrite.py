@@ -281,6 +281,58 @@ def _inject_part_groups(root: ET.Element,
         part_list.insert(first, start)
 
 
+def _apply_system_breaks(root: ET.Element,
+                         overrides: Mapping[int, SystemBreak]) -> None:
+    """Apply the user's system-break intent to `<print new-system>` (M5).
+
+    A deliberate twin of `_repaginate` — part 1 only (Verovio reads print
+    layout from the first part, spike section D), keyed by 1-based
+    document ordinal (never the printed number, adapter item 12),
+    creating `<print>` when absent — with two differences that matter:
+
+    - It is STORED intent, not a derived plan, so unlike `_repaginate` it
+      never strips the encoded breaks first. It is a sparse DELTA: a
+      measure with no override keeps whatever the file encodes.
+    - SUPPRESS also clears a coincident `new-page` (D7, measured in
+      spikes/system_breaks.py F2). A page break implies a system break,
+      so leaving it would make the suppression a lie — the systems
+      simply would not merge. The consequence, stated plainly:
+      suppressing a SYSTEM break can move a PAGE break. That is
+      acceptable because rule 7(a) already establishes that we own page
+      breaks whenever the encoded ones cannot hold their systems, and
+      pagination re-derives from here.
+
+    SUPPRESS on a measure with no `<print>` at all writes NOTHING: there
+    is no encoded break to suppress, so the override is inert rather than
+    an assertion that the measure must not start a system (Verovio would
+    honor it identically either way — spike section A3 — but not writing
+    keeps the canonical XML a true delta). D10's load warning names such
+    ordinals.
+    """
+    if not overrides:
+        return
+    parts = root.findall("part")
+    if not parts:
+        return
+    for ordinal, measure in enumerate(parts[0].findall("measure"), start=1):
+        mode = overrides.get(ordinal)
+        if mode is None:
+            continue
+        pr = measure.find("print")
+        if mode is SystemBreak.FORCE:
+            if pr is None:
+                pr = ET.Element("print")
+                measure.insert(0, pr)
+            pr.set("new-system", "yes")
+        elif mode is SystemBreak.SUPPRESS:
+            if pr is not None:
+                pr.set("new-system", "no")
+                if pr.get("new-page") == "yes":
+                    pr.set("new-page", "no")       # D7
+        else:
+            raise ValueError(f"unknown system break mode {mode!r}")
+
+
 def _repaginate(root: ET.Element, break_measures: tuple[int, ...]) -> None:
     """Replace the encoded PAGE breaks with our own (Phase 10R, rule-7
     amendment): keep every encoded system break, strip all new-page

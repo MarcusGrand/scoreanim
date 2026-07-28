@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import abc
 from pathlib import Path
+from typing import Mapping
 
 from scoreanim.core.engraving.types import EngravingParams, Layout
 from scoreanim.core.score.musicxml_prep import (PartCondenseSpec,
-                                                PartGroupSpec, PartTextSpec)
+                                                PartGroupSpec, PartTextSpec,
+                                                SystemBreak)
 
 
 class EngravingProvider(abc.ABC):
@@ -17,10 +19,12 @@ class EngravingProvider(abc.ABC):
              texts: tuple[PartTextSpec, ...] = (),
              hide_empty_staves: bool = False,
              condense: tuple[PartCondenseSpec, ...] = (),
-             hide_first_system: bool = False) -> Layout:
+             hide_first_system: bool = False,
+             system_breaks: Mapping[int, SystemBreak] | None = None) -> Layout:
         """Engrave the score and decompose it into an identity-tagged,
         paged Layout. Must be deterministic for (file contents, params,
-        groups, texts, hide_empty_staves, condense, hide_first_system).
+        groups, texts, hide_empty_staves, condense, hide_first_system,
+        system_breaks).
         `groups` are staff groups injected as <part-group> at the prep
         seam (Phase 8); `texts` are part-label overrides rewritten into
         the part-list there (Phase 9.3); `hide_empty_staves` (Phase 10R)
@@ -29,8 +33,13 @@ class EngravingProvider(abc.ABC):
         extends the hiding to the first system, dropping the
         first-system-full convention (no effect unless
         hide_empty_staves); `condense` (Phase 12.3) merges contiguous
-        like parts onto one staff there — engraving inputs, never
-        persisted, and separate arguments (NOT EngravingParams fields:
-        params serialize in the doc and would duplicate
-        doc.staff_groups / doc.text_overrides / doc.hide_empty_staves /
-        doc.condense_groups)."""
+        like parts onto one staff there; `system_breaks` (M5) is the
+        user's sparse force/suppress delta on the score's encoded
+        system breaks, applied at the prep seam UPSTREAM of all of the
+        above so hiding, condensing, repagination and scale-to-fit
+        operate on the edited break set exactly as they do on the
+        encoded one — engraving inputs, never persisted, and separate
+        arguments (NOT EngravingParams fields: params serialize in the
+        doc and would duplicate doc.staff_groups / doc.text_overrides /
+        doc.hide_empty_staves / doc.condense_groups /
+        doc.system_break_overrides)."""

@@ -31,13 +31,14 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
 from scoreanim.core.score.identity import PartId
 # The tree-rewriting passes live in their own module (M5.0); they are
 # re-exported here so `prepare`'s callers and the tests that reach for a
 # single pass keep importing from one place.
 from scoreanim.core.score.musicxml_rewrite import (  # noqa: F401
-    SystemBreak, _apply_condense, _apply_text_overrides,
+    SystemBreak, _apply_condense, _apply_system_breaks, _apply_text_overrides,
     _drop_redundant_trailing_forwards, _inject_part_groups,
     _neutralize_octave_only_transposes, _repaginate, _set_part_text,
     _voice_cursor)
@@ -293,7 +294,9 @@ def prepare(score_path: Path,
             groups: tuple[PartGroupSpec, ...] = (),
             texts: tuple[PartTextSpec, ...] = (),
             condense: tuple[PartCondenseSpec, ...] = (),
-            page_break_measures: tuple[int, ...] = ()) -> PreparedScore:
+            page_break_measures: tuple[int, ...] = (),
+            system_breaks: Mapping[int, SystemBreak] | None = None
+            ) -> PreparedScore:
     root = ET.fromstring(score_path.read_bytes())
     if root.tag != "score-partwise":
         raise ValueError(f"expected score-partwise MusicXML, got <{root.tag}>")
@@ -312,6 +315,12 @@ def prepare(score_path: Path,
     width, height, units_per_tenth = _page_size(root)
     _neutralize_octave_only_transposes(root)
     _inject_part_groups(root, groups)
+    # User break intent first, our never-clip repagination on top: the
+    # page-break plan the caller passes was measured from an engrave that
+    # ALREADY saw these breaks, so repaginating over them is correct
+    # (rule 7(a) owning the page count, D7).
+    if system_breaks:
+        _apply_system_breaks(root, system_breaks)
     if page_break_measures:
         _repaginate(root, page_break_measures)
 
