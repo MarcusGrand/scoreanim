@@ -81,10 +81,15 @@ move, but usually the alpha just stays put.
 | M3 | **Direct edit** | Double-click text editing in place; drag-to-nudge (consumes dx/dy); per-element style overrides from selection. |
 | M4 | **Effects** | Effects panel: global default effect ("pop for everything"), tunable pop amplitude / settle / peak offset / note-value relax, floor + reveal controls rehomed. **Pulled forward — runs alongside M2.** |
 | M5 | **Breaks** | System-break authoring: select a barline, toggle a system break; prep-seam re-engrave. |
+| M6 | **Pages** | Page-break authoring on the M5 pattern, plus the left layout zone that finally gives break authoring a home. |
 
 Dependency shape: M1 first (every later control lands in its chrome).
 M2 before M3 and M5 (both act on a selection). M4 needs only M1 and can
-be pulled earlier if a break is wanted between selection work.
+be pulled earlier if a break is wanted between selection work. M6 needs
+M2 for the selection, M5 for the whole pattern it repeats (stored
+sparse intent, prep-seam rewrite, pure toggle policy, fat-apply
+command, D8/D9 re-anchor and selection restore) and M1 for the dock
+shape its layout zone copies.
 
 ---
 
@@ -780,6 +785,152 @@ A left-side retractable **layout zone** — a panel collecting these
 layout affordances, and page-break authoring when it lands — is
 **BACKLOG 17**, deliberately deferred until more than one action needs a
 home. It is a candidate M6 pairing with page-break authoring.
+**Ruled into M6 on 2026-07-28**; see §M6 below.
+
+---
+
+## M6 — Pages (page-break authoring + the layout zone)
+
+**Status — ruled 2026-07-28 (Marcus).** Two halves in one milestone,
+paired because they want the same home and share a seam: page-break
+authoring, and the left layout zone BACKLOG 17 deferred until more than
+one action needed one. Closes as **`v0.2-beta.5`**.
+
+**Goal.** Select a barline, toggle "Page break" — the score repaginates
+with it, on exactly the machinery M5 built for systems. And the layout
+affordances stop living in a menu: a retractable zone down the left of
+the stage collects them, so break authoring can be done in a pass down a
+score instead of a menu round trip per edit.
+
+### Half 1 — page-break authoring
+
+**Design.** The M5 pattern, repeated. Nothing below is a new kind of
+thing; every bullet names its M5 twin.
+
+- **Document**: `page_break_overrides` (schema **v9**) — a sparse map of
+  measure ordinal → FORCE | SUPPRESS, keyed by the measure that STARTS
+  the new page (the D2 convention, which is also what `<print
+  new-page>` and `_repaginate`'s `break_measures` already mean). User
+  intent only; the layout re-derives (rule 5). Ordinals, never printed
+  numbers.
+- **Prep seam**: a `new-page` rewrite in
+  `core/score/musicxml_rewrite.py`, a sparse delta on the encoded set.
+  Whether that is a second pass beside `_apply_system_breaks` or one
+  combined pass over both maps is a brief decision — the two write the
+  same `<print>` element, and the measurement bears on it.
+- **Policy**: `core/editing/breaks.py` grows the page toggle — the same
+  barline handle, the same N+1 arithmetic, the same enable rules (no
+  selection / not a barline / no measure ordinal / last measure), the
+  same three-step toggle sense (clear an existing override, else
+  suppress where a page already starts, else force). Pure, no Qt,
+  headless-tested on synthetic maps.
+- **Command**: `SetPageBreak`, undoable, sparse (`mode=None` pops),
+  arriving via `execute()` never `preview()` — the re-engrave cost is
+  M5's. It carries the fat-apply shape so one gesture that must touch
+  both override maps is still one undo entry (rule 8).
+- **Warning**: a D10-style inert-override `LoadWarning`, counted in the
+  status bar like every other — plus, if never-clip is allowed to
+  overrule authored page intent (question 1), a way for the app to say
+  so rather than fail silently.
+- **Inherited whole from M5**: D8's re-anchor (`ViewRouter.show_measure`
+  off the measure the edit touched) and D9's selection restore across
+  the re-engrave. Both generalize to two override maps rather than
+  being rebuilt.
+
+**The three questions this half must MEASURE, not assume.** They are why
+M6 gets a spike before it gets code, and they are the reason page-break
+authoring was deferred at all rather than shipped inside M5.
+
+1. **Composition with rule-7(a) repagination.** `_repaginate` STRIPS
+   every encoded page break when it fires and re-derives its own plan.
+   So a user FORCE written upstream of it is destroyed exactly when the
+   never-clip guard engages, and a user SUPPRESS can create the overflow
+   that engages it. Both directions get measured, and the milestone must
+   propose what wins, with what warning. The likely shape — to be
+   confirmed, not assumed — is that user page intent becomes an INPUT to
+   the plan rather than a pass the plan overwrites.
+2. **Collisions between the two override maps at one ordinal.** A page
+   break implies a system start, and M5's D7 already couples the two
+   attributes in one direction (a system SUPPRESS clears a coincident
+   `new-page`). The four combinations get measured through the real
+   pipeline, and the milestone proposes either a precedence rule at the
+   seam or prevention at the policy level.
+3. **Pass ordering, and the M5.2 trap times two.** Where the page
+   rewrite sits relative to the system rewrite and to `_repaginate`, and
+   the fact that all three `prepare()` calls in `load_detailed` must now
+   carry BOTH override sets. M5 found one of the three free (the
+   hide-unavailable retry re-engraves the same prep); that does not make
+   the other two free twice.
+
+Plus the §3.3 downstream sweep re-run for pages: scale-to-fit and
+hide-empty-staves under forced and suppressed page breaks, warning sets
+compared against baseline.
+
+**Draft CLAUDE.md rule 7 amendment** (applied at build with the ruling
+date — the M5.6 pattern; the never-clip precedence sentence is a draft
+until the question-1 measurement is ruled):
+
+> Amendment (M6, 2026-07-28): the honored PAGE-break set is the encoded
+> page breaks ⊕ the user's in-app page-break overrides
+> (`doc.page_break_overrides`), applied at the prep seam beside the
+> system-break delta. Page breaks are the one layout input the app
+> already OWNED before the user could author them — rule 7(a)'s
+> never-clip repagination re-derives them whenever a system would
+> overflow — so authored page intent is honored *within* that guarantee,
+> not above it: a forced page break survives repagination, and a
+> suppressed one is overridden, and warned, whenever honoring it would
+> clip ink. Never-clip stays absolute; the page count stays owned.
+
+### Half 2 — the layout zone
+
+**Design.** BACKLOG 17, built as an **M1-style re-home of existing
+commands, not new semantics**. A LEFT retractable dock on the M1 dock
+pattern: `QDockWidget` with an `objectName` for `saveState` identity,
+its `toggleViewAction()` in the View menu, persisted by the existing
+`window_state.py` pair (which saves the whole `QMainWindow` state, so it
+should cover a third dock without new persistence code — verify, and
+consider whether `_STATE_VERSION` must bump so an existing stored layout
+does not place the new dock badly).
+
+v1 content is a re-home and a readout, nothing more:
+
+- the system-break toggle, Move to Previous System, and the new
+  page-break toggle — **the same QActions** the Score menu holds, so the
+  panel and the menu drive the same commands and cannot diverge;
+- a readout of the active break overrides (both maps, by ordinal) with a
+  per-entry clear, which needs no new command: `mode=None` already pops
+  an entry.
+
+**Menu actions stay.** The Score menu keeps every action; the zone is a
+second surface over the same controller (`ui/break_action.py`), exactly
+as D1 said a context menu would be. Own module(s) under `ui/` — no
+monoliths.
+
+**Boundaries.** Half 2 adds no document field, no command, and no
+engraving input. If it starts wanting one, that is the flag.
+
+**Exit criteria.** On bigband1 (app path, the `gliss` caveat): force a
+page break mid-score — the page splits, systems and reveal edges stay
+correct on both pages, and `score_end` and the trigger count do not move
+(rule 12: a page break is a layout choice). Suppress an encoded page
+break — the pages merge, or never-clip overrides it *and says so*. Both
+undo cleanly in one entry each; save/reload reproduces (v9); a v8
+project loads with no overrides and an unchanged look. The layout zone
+drives all three actions, mirrors their enabled state, lists the active
+overrides and clears them individually. Goldens byte-identical for
+unmodified fixtures. Full suite green.
+
+**Fixture caveat, unchanged from M5.** bigband1 does not load strict
+(`unknown SVG class 'gliss'`), so the interactive exit run is the app
+path and headless tests/spikes against it must pass `strict=False`.
+
+**BACKLOG 16 is M6's to rule on.** `_repaginate` destroying a system
+break encoded only as a page break was flagged rather than fixed inside
+M5, on the grounds that M5's charter was a layout-intent edit. M6's
+charter is page breaks, the bug is in the page-break machinery, and
+question 1 above cannot be answered cleanly around it. Whether M6 pays
+it — as its own commit before any feature code, the M5.0 shape — is a
+decision for the brief, with the golden impact measured first.
 
 ---
 
@@ -789,7 +940,9 @@ Unchanged from the alpha backlog (`docs/BACKLOG.md` is still the live
 list): single-wavefront sweep (BACKLOG 8 — its own design round),
 per-region swing UI (7), condensing sophistication (a2/divisi),
 per-voice reveal (10), repeat-skipping recordings, glow,
-auto-alignment, continuous scroll. Page-break authoring (as opposed to
-system breaks) is deliberately deferred until M5 proves the pattern —
-which it now has, twice (the toggle and M5.7's composition), so it is a
-candidate for M6 together with BACKLOG 17's layout zone.
+auto-alignment, continuous scroll.
+
+Page-break authoring **is no longer on this list**. It was deferred
+until M5 proved the pattern; M5 proved it twice (the toggle and M5.7's
+composition), and Marcus ruled it into **§M6 — Pages** on 2026-07-28,
+paired with BACKLOG 17's layout zone.
