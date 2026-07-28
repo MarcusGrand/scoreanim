@@ -40,8 +40,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
+from scoreanim.core.editing.break_coherence import normalize
 from scoreanim.core.score.identity import ElementKind
-from scoreanim.core.score.musicxml_prep import SystemBreak
+from scoreanim.core.score.musicxml_prep import PageBreak, SystemBreak
 from scoreanim.core.selection.context import Selection
 
 # Status-tip text for each disabled case (D1 rider: the disabled state
@@ -74,10 +75,17 @@ class BreakAction:
     composed gesture (M5.7) puts its essential half first and the rest in
     `also` — which is also the order the view's re-anchor diff reads,
     since the primary ordinal is the lowest one (D14).
+
+    `also_page` (M6, D3) is the cross-map half: a system SUPPRESS at an
+    ordinal carrying a page FORCE is the one incoherent pair the two maps
+    admit, and the gesture clears it rather than leaving the document
+    arguing with itself. Same command, same undo entry (rule 8). The page
+    twin of this type is `PageBreakAction` in `core/editing/page_breaks`.
     """
     ordinal: int | None = None
     mode: SystemBreak | None = None
     also: tuple[tuple[int, SystemBreak | None], ...] = ()
+    also_page: tuple[tuple[int, PageBreak | None], ...] = ()
     reason: str | None = None
 
     @property
@@ -99,9 +107,31 @@ def first_measures(system_of_measure: Mapping[int, int]) -> dict[int, int]:
     return first
 
 
+def contradicting_page_entries(target: int,
+                               mode: SystemBreak | None,
+                               page_overrides: Mapping[int, PageBreak]
+                               ) -> tuple[tuple[int, PageBreak | None], ...]:
+    """The page-map entries a system gesture must also write (M6, D3) —
+    the mirror of `page_breaks.contradicting_system_entries`.
+
+    At most one entry: a system SUPPRESS where a page FORCE is stored is
+    the one incoherent pair, and the coherent resolution drops the SYSTEM
+    entry, not the page one. So the gesture the user just made would be
+    the one thrown away — which is the wrong way round for a toggle they
+    pressed on purpose. The page FORCE is cleared instead, and the
+    clearing travels in the same command so it is one undo entry.
+    """
+    stored = page_overrides.get(target)
+    if not stored or normalize(mode, stored) == (mode, stored):
+        return ()
+    return ((target, None),)
+
+
 def resolve(selection: Selection | None,
             overrides: Mapping[int, SystemBreak],
-            system_of_measure: Mapping[int, int]) -> BreakAction:
+            system_of_measure: Mapping[int, int],
+            page_overrides: Mapping[int, PageBreak] | None = None
+            ) -> BreakAction:
     """The whole policy, in the order the decisions were ruled."""
     if not system_of_measure:
         return BreakAction(reason=NO_SCORE)
@@ -117,8 +147,11 @@ def resolve(selection: Selection | None,
         return BreakAction(reason=LAST_MEASURE)
 
     target = measure + 1                                  # D2
-    return BreakAction(ordinal=target, mode=toggle_mode(
-        target, overrides, system_of_measure))
+    mode = toggle_mode(target, overrides, system_of_measure)
+    return BreakAction(
+        ordinal=target, mode=mode,
+        also_page=contradicting_page_entries(target, mode,
+                                             page_overrides or {}))
 
 
 def toggle_mode(target: int,
@@ -203,7 +236,9 @@ def move_up_entries(measure: int,
 
 def resolve_move_up(selection: Selection | None,
                     overrides: Mapping[int, SystemBreak],
-                    system_of_measure: Mapping[int, int]) -> BreakAction:
+                    system_of_measure: Mapping[int, int],
+                    page_overrides: Mapping[int, PageBreak] | None = None
+                    ) -> BreakAction:
     """The move-up policy, in the order the decisions were ruled (D13).
 
     Unlike the toggle this reads ANY selected object, not only a barline:
@@ -230,4 +265,10 @@ def resolve_move_up(selection: Selection | None,
     if not entries:
         return BreakAction(reason=NO_EFFECT)
     (ordinal, mode), *rest = entries
-    return BreakAction(ordinal=ordinal, mode=mode, also=tuple(rest))
+    # the composed gesture writes up to two ordinals, so it clears a
+    # contradicting page FORCE at either of them (M6, D3)
+    also_page = tuple(entry for o, m in entries
+                      for entry in contradicting_page_entries(
+                          o, m, page_overrides or {}))
+    return BreakAction(ordinal=ordinal, mode=mode, also=tuple(rest),
+                       also_page=also_page)
