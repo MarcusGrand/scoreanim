@@ -168,6 +168,19 @@ class VerovioEngravingProvider(EngravingProvider):
                             "system-overflow",
                             f"system {b.system} still overflows page "
                             f"{b.page} after scale-to-fit"))
+        # A break override that could not be applied at the seam (D10):
+        # an ordinal past the end of a score since shortened, or a
+        # suppression whose encoded break has gone. Rule 5 accepts
+        # override staleness, but silence here is the difference between
+        # "my break did nothing" and "my break did nothing AND the app
+        # told me" — so it is a counted load warning like every other
+        # (flag-and-continue, Phase 10 ruling b).
+        if engraved.prepared.inert_system_breaks:
+            ordinals = engraved.prepared.inert_system_breaks
+            extra.append(LoadWarning(
+                "break-override-inert",
+                f"{len(ordinals)} system-break override(s) had no effect "
+                f"(measure {', '.join(str(m) for m in ordinals)})"))
         if extra:
             engraved = replace(engraved,
                                warnings=engraved.warnings + tuple(extra))

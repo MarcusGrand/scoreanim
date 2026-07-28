@@ -55,9 +55,17 @@ class PartsMenu:
         self._app_state = app_state
         self._parent = parent
         self._parts: tuple = ()          # PartInfos of the current build
+        self._break_action: QAction | None = None
         self._hide_staves_action: QAction | None = None
         self._hide_first_action: QAction | None = None
         self._color_actions: dict[PartId, dict] = {}
+
+    def set_break_action(self, action: QAction) -> None:
+        """The Score menu is cleared per load, so M5's break action is
+        handed here to be re-inserted rather than added once in the
+        static chrome. This module owns WHERE it sits, never what it
+        does — ui/break_action.py keeps that."""
+        self._break_action = action
 
     # -- the part-shaped dialogs -----------------------------------------------
 
@@ -129,6 +137,12 @@ class PartsMenu:
             lambda checked: self._app_state.execute(
                 SetHideFirstSystem(checked)))
         menu.addAction(self._hide_first_action)
+        # a layout-intent edit, so it belongs with the layout choices —
+        # and, like them, an engraving input that re-engraves via the
+        # loader's applied-input diff (M5.4)
+        if self._break_action is not None:
+            menu.addSeparator()
+            menu.addAction(self._break_action)
         menu.addSeparator()
         for info in parts:
             pid = PartId(info.part_id)

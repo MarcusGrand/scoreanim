@@ -34,6 +34,7 @@ from scoreanim.core.timing.taps import (TapSession, derive_tempo_events,
 from scoreanim.render.export import AnimationInputs
 from scoreanim.render.scene import ScoreScenes
 from scoreanim.ui.app_state import AppState
+from scoreanim.ui.break_action import BreakActionController
 from scoreanim.ui.document_sync import DocumentSync
 from scoreanim.ui.file_actions import FileActions
 from scoreanim.ui.inspector import Inspector
@@ -151,6 +152,13 @@ class MainWindow(QMainWindow):
         # Owns the three part-shaped dialogs too since M3.0 (BACKLOG 9b)
         self.parts_menu = PartsMenu(self.menus.score_menu, self.app_state,
                                     self)
+        # system-break authoring (M5.4): the action lives in the Score
+        # menu with the other layout choices; the controller keeps the
+        # policy out of the menu builder, and the shortcut is registered
+        # window-level so it fires regardless of focus
+        self.break_action = BreakActionController(self.app_state, self)
+        self.parts_menu.set_break_action(self.break_action.action)
+        self.addAction(self.break_action.action)
         # load pipeline + document→scene diff-sync (M1.7): the loader
         # returns a LoadedScore bundle _install adopts; the sync owns
         # the applied caches the document-changed pass diffs against
@@ -222,6 +230,7 @@ class MainWindow(QMainWindow):
         self.lower_zone.strip.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
         self.parts_menu.sync_from_document(doc)
+        self.break_action.sync()      # overrides move the action's label
         self.router.sync_presentation_mode(doc.stage.mode)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
@@ -254,7 +263,8 @@ class MainWindow(QMainWindow):
                                   self.app_state.doc.style, groups,
                                   text_overrides or {},
                                   hide_empty_staves, condense_groups,
-                                  hide_first_system)
+                                  hide_first_system,
+                                  self.app_state.doc.system_break_overrides)
         self._install(loaded)
         self.router.reset()
         return loaded.stage
@@ -268,7 +278,8 @@ class MainWindow(QMainWindow):
         loaded = self.loader.load(Path(doc.score.path), doc.engraving,
                                   doc.stage, doc.style, doc.staff_groups,
                                   doc.text_overrides, doc.hide_empty_staves,
-                                  doc.condense_groups, doc.hide_first_system)
+                                  doc.condense_groups, doc.hide_first_system,
+                                  doc.system_break_overrides)
         self._install(loaded)
         self.router.show_current()       # install the fresh scene
 
@@ -282,6 +293,7 @@ class MainWindow(QMainWindow):
         self.selection.bind_scenes(loaded.scenes)   # also clears selection
         self.router.bind(loaded.scenes, loaded.band_by_system,
                          loaded.applier)
+        self.break_action.bind(loaded.system_of_measure)
         self.text_edit.bind(loaded.scenes, loaded.animation_inputs.layout,
                             loaded.parts)
         self.nudge.bind_scenes(loaded.scenes)

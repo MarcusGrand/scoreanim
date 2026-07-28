@@ -282,7 +282,8 @@ def _inject_part_groups(root: ET.Element,
 
 
 def _apply_system_breaks(root: ET.Element,
-                         overrides: Mapping[int, SystemBreak]) -> None:
+                         overrides: Mapping[int, SystemBreak]
+                         ) -> tuple[int, ...]:
     """Apply the user's system-break intent to `<print new-system>` (M5).
 
     A deliberate twin of `_repaginate` — part 1 only (Verovio reads print
@@ -306,14 +307,24 @@ def _apply_system_breaks(root: ET.Element,
     is no encoded break to suppress, so the override is inert rather than
     an assertion that the measure must not start a system (Verovio would
     honor it identically either way — spike section A3 — but not writing
-    keeps the canonical XML a true delta). D10's load warning names such
-    ordinals.
+    keeps the canonical XML a true delta).
+
+    Returns the ordinals that wrote NOTHING, in score order — D10's
+    "break-override-inert" warning. That is precisely the set of
+    overrides that could not be applied AT THIS SEAM: an ordinal past the
+    end of a score since shortened (the loop never reaches it), and a
+    suppression whose encoded break has gone (writing "no" over "no").
+    It deliberately does NOT mean "had no visible effect", which only a
+    second no-override load could establish: forcing a break on a measure
+    that already starts a system rewrites the attribute and so is not
+    reported, even though the layout is unchanged.
     """
     if not overrides:
-        return
+        return ()
     parts = root.findall("part")
     if not parts:
-        return
+        return tuple(sorted(overrides))
+    inert = set(overrides)
     for ordinal, measure in enumerate(parts[0].findall("measure"), start=1):
         mode = overrides.get(ordinal)
         if mode is None:
@@ -323,14 +334,19 @@ def _apply_system_breaks(root: ET.Element,
             if pr is None:
                 pr = ET.Element("print")
                 measure.insert(0, pr)
-            pr.set("new-system", "yes")
+            if pr.get("new-system") != "yes":
+                pr.set("new-system", "yes")
+                inert.discard(ordinal)
         elif mode is SystemBreak.SUPPRESS:
-            if pr is not None:
+            if pr is not None and (pr.get("new-system") == "yes"
+                                   or pr.get("new-page") == "yes"):
                 pr.set("new-system", "no")
                 if pr.get("new-page") == "yes":
                     pr.set("new-page", "no")       # D7
+                inert.discard(ordinal)
         else:
             raise ValueError(f"unknown system break mode {mode!r}")
+    return tuple(sorted(inert))
 
 
 def _repaginate(root: ET.Element, break_measures: tuple[int, ...]) -> None:

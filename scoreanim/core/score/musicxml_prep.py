@@ -153,6 +153,10 @@ class PreparedScore:
     page_width: float            # page units (1/10 mm)
     page_height: float
     units_per_tenth: float       # tenths → page units (1/10 mm) factor
+    # Break overrides this prep could not apply (M5, D10): an ordinal past
+    # the end of the score, or a suppression whose encoded break has gone.
+    # Derived here, warned by the provider — never stored (rule 5).
+    inert_system_breaks: tuple[int, ...] = ()
 
     def part_for_staff(self, staff_n: int) -> PartInfo:
         for p in self.parts:
@@ -319,8 +323,9 @@ def prepare(score_path: Path,
     # page-break plan the caller passes was measured from an engrave that
     # ALREADY saw these breaks, so repaginating over them is correct
     # (rule 7(a) owning the page count, D7).
+    inert_breaks: tuple[int, ...] = ()
     if system_breaks:
-        _apply_system_breaks(root, system_breaks)
+        inert_breaks = _apply_system_breaks(root, system_breaks)
     if page_break_measures:
         _repaginate(root, page_break_measures)
 
@@ -333,4 +338,5 @@ def prepare(score_path: Path,
         page_width=width,
         page_height=height,
         units_per_tenth=units_per_tenth,
+        inert_system_breaks=inert_breaks,
     )
