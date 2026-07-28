@@ -43,6 +43,24 @@ class SystemBreak(str, Enum):
     SUPPRESS = "suppress"    # do NOT start a system at this measure
 
 
+class PageBreak(str, Enum):
+    """What the user asked of one measure's page break (M6).
+
+    `SystemBreak`'s twin, for the `<print new-page>` attribute, and the
+    same reasoning applies: it lives with the pass that writes the
+    attribute, is re-exported from `musicxml_prep`, and has no neutral
+    twin in `core/project` because a two-valued vocabulary has no fields
+    to twin.
+
+    Kept a SEPARATE enum from `SystemBreak` rather than one shared
+    Force/Suppress vocabulary: the two maps are different documents
+    fields with different meanings at the seam, and a mis-keyed value
+    should be a type error rather than a silently plausible one.
+    """
+    FORCE = "force"          # start a page at this measure
+    SUPPRESS = "suppress"    # do NOT start a page at this measure
+
+
 def _drop_redundant_trailing_forwards(root: ET.Element) -> int:
     """Dorico positions <harmony> with a <backup>/<forward> pair. When the
     last chord symbol of a measure sits on that measure's last note, the

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.project import (FileRef, LayoutOverride,
+from scoreanim.core.project import (FileRef, LayoutOverride, PageBreak,
                                     PartTextOverride, PresentationMode,
                                     ProjectDoc, StaffGroup, StageConfig,
                                     StageTextElement, StyleRules,
@@ -82,6 +82,9 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
         # from their numeric one (the writer sorts numerically)
         system_break_overrides={3: SystemBreak.FORCE,
                                 12: SystemBreak.SUPPRESS},
+        # v9: the page twin, both directions, same numeric-sort trap
+        page_break_overrides={5: PageBreak.SUPPRESS,
+                              21: PageBreak.FORCE},
     )
 
 
@@ -140,10 +143,10 @@ def test_v1_part_colors_fold_into_style_rules() -> None:
     }
     assert legacy.style.reveal_mode is RevealMode.STEPPED
     assert legacy.style.elements == {}
-    # new files declare version 8 (M5); a build from the future is refused
-    assert to_dict(ProjectDoc())["version"] == 8
+    # new files declare version 9 (M6); a build from the future is refused
+    assert to_dict(ProjectDoc())["version"] == 9
     with pytest.raises(ValueError, match="version"):
-        from_dict({"version": 9})
+        from_dict({"version": 10})
 
 
 def test_v4_hide_empty_staves() -> None:
@@ -285,6 +288,59 @@ def test_v8_rejects_unknown_break_mode() -> None:
         from_dict({"version": 8, "system_break_overrides": {"3": "maybe"}})
 
 
+def test_v9_page_break_overrides() -> None:
+    """v9 (M6, 2026-07-28): the page delta round-trips exactly as the
+    system one does; every older file loads with {} — the pre-option
+    look, so no read gate (D6)."""
+    assert ProjectDoc().page_break_overrides == {}
+    doc = ProjectDoc(page_break_overrides={5: PageBreak.SUPPRESS,
+                                           21: PageBreak.FORCE})
+    payload = to_dict(doc)
+    assert payload["page_break_overrides"] == {"5": "suppress",
+                                               "21": "force"}
+    # numeric sort, not string: "21" must not precede "5"
+    assert list(payload["page_break_overrides"]) == ["5", "21"]
+    assert from_dict(payload) == doc
+    assert from_dict(to_dict(ProjectDoc())).page_break_overrides == {}
+    for version in (1, 2, 3, 4, 5, 6, 7, 8):
+        assert from_dict({"version": version}).page_break_overrides == {}
+
+
+def test_v9_rejects_unknown_page_break_mode() -> None:
+    with pytest.raises(ValueError, match="page break"):
+        from_dict({"version": 9, "page_break_overrides": {"3": "maybe"}})
+
+
+def test_the_two_break_maps_are_independent() -> None:
+    """Same key shape, same JSON encoding — so the round trip must keep
+    them apart rather than folding one onto the other."""
+    doc = ProjectDoc(system_break_overrides={4: SystemBreak.SUPPRESS},
+                     page_break_overrides={4: PageBreak.FORCE})
+    out = from_dict(to_dict(doc))
+    assert out.system_break_overrides == {4: SystemBreak.SUPPRESS}
+    assert out.page_break_overrides == {4: PageBreak.FORCE}
+    assert out == doc
+
+
+def test_v9_file_is_refused_by_a_v8_reader() -> None:
+    """The gate's own test, per D6: a tagged v8 build (v0.2-beta.4) must
+    REFUSE a v9 file rather than silently drop the page breaks and
+    destroy them on the next save (the v2 rationale). This is the whole
+    point of bumping, since the field itself needs no read gate."""
+    import scoreanim.core.project.serialize as ser
+
+    payload = to_dict(ProjectDoc(
+        page_break_overrides={3: PageBreak.FORCE}))
+    assert payload["version"] == 9
+    original = ser._READABLE_VERSIONS
+    ser._READABLE_VERSIONS = tuple(v for v in original if v <= 8)
+    try:
+        with pytest.raises(ValueError, match="version"):
+            ser.from_dict(payload)
+    finally:
+        ser._READABLE_VERSIONS = original
+
+
 def test_v8_file_is_refused_by_a_v7_reader() -> None:
     """The gate's own test: the strict-by-version rule is the point of
     bumping at all — a tagged v7 build (v0.2-beta.3) must REFUSE a v8
@@ -343,4 +399,5 @@ def test_never_persists_derived_data() -> None:
                             "layout_overrides", "timing", "style", "stage",
                             "staff_groups", "text_overrides",
                             "hide_empty_staves", "hide_first_system",
-                            "condense_groups", "system_break_overrides"}
+                            "condense_groups", "system_break_overrides",
+                            "page_break_overrides"}

@@ -21,9 +21,10 @@ from scoreanim.core.animation.reveal import RevealMode
 from scoreanim.core.animation.style import ElementStyle, StyleRules
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.document import (CondenseGroup, FileRef,
-                                             LayoutOverride, PartTextOverride,
-                                             ProjectDoc, StaffGroup,
-                                             SystemBreak, TimingConfig)
+                                             LayoutOverride, PageBreak,
+                                             PartTextOverride, ProjectDoc,
+                                             StaffGroup, SystemBreak,
+                                             TimingConfig)
 from scoreanim.core.project.stage_config import (PresentationMode,
                                                  StageConfig,
                                                  StageTextElement)
@@ -66,8 +67,15 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 # exactly the pre-option look for every v<=7 file. The bump keeps
 # v0.2-beta.3 (a TAGGED v7 reader) refusing loudly instead of silently
 # dropping the user's breaks on a resave — the v2 rationale.
-PROJECT_VERSION = 8
-_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8)
+# 9 (M6 Pages, 2026-07-28): page_break_overrides — the twin of v8's map,
+# same sparse {measure ordinal: "force"|"suppress"} shape, same
+# stringified-and-numerically-sorted keys. No read gate, for the identical
+# reason: a missing key defaults to {}, which is "no overrides", which is
+# exactly the pre-option look for every v<=8 file. The bump keeps
+# v0.2-beta.4 (a TAGGED v8 reader) refusing loudly instead of silently
+# dropping the user's page breaks on a resave.
+PROJECT_VERSION = 9
+_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9)
 SUFFIX = ".scoreanim"
 
 
@@ -155,6 +163,11 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
         "system_break_overrides": {
             str(ordinal): mode.value
             for ordinal, mode in sorted(doc.system_break_overrides.items())
+        },
+        # v9: the page twin, written exactly the same way
+        "page_break_overrides": {
+            str(ordinal): mode.value
+            for ordinal, mode in sorted(doc.page_break_overrides.items())
         },
     }
 
@@ -245,6 +258,12 @@ def from_dict(data: dict[str, Any],
                 for ordinal, mode in
                 data.get("system_break_overrides", {}).items()
             },
+            # v9: missing key → {} again, so no read gate (D6)
+            page_break_overrides={
+                int(ordinal): _page_break_in(mode)
+                for ordinal, mode in
+                data.get("page_break_overrides", {}).items()
+            },
         )
     except (KeyError, TypeError) as exc:
         raise ValueError(f"malformed project data: {exc!r}") from exc
@@ -273,6 +292,13 @@ def _system_break_in(value: Any) -> SystemBreak:
         return SystemBreak(str(value))
     except ValueError as exc:
         raise ValueError(f"unknown system break mode {value!r}") from exc
+
+
+def _page_break_in(value: Any) -> PageBreak:
+    try:
+        return PageBreak(str(value))
+    except ValueError as exc:
+        raise ValueError(f"unknown page break mode {value!r}") from exc
 
 
 def _text_override_out(override: PartTextOverride) -> dict[str, Any]:
