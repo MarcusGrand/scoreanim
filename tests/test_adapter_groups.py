@@ -25,7 +25,7 @@ from scoreanim.core.engraving.verovio.mei_index import _MeiIndex
 from scoreanim.core.engraving.verovio.records import _LoadState
 from scoreanim.core.score.identity import ElementKind
 from scoreanim.core.score.musicxml_prep import PartGroupSpec
-from tests.conftest import TESTSCORE
+from tests.conftest import TESTSCORE, VIDEO_SCORE
 
 SAX_GROUP = PartGroupSpec(parts=("P1", "P2"))
 # Two disjoint groups: the configuration that re-opened BACKLOG 1 —
@@ -109,6 +109,30 @@ def test_kinds_stable_under_grouping(engraved, engraved_grouped) -> None:
                for e in engraved_grouped.layout.elements
                if e.identity.kind is not ElementKind.GROUP_SYMBOL}
     assert grouped == base
+
+
+def test_group_survives_hidden_interior_staves() -> None:
+    """A bracket whose INTERIOR staves are hidden for a whole system
+    (rule 7(b)) must still engrave.
+
+    It used to raise "expected a contiguous non-empty range" mid-load,
+    and the unguarded re-engrave swallowed the exception — the user
+    applied a bracket and saw neither bracket nor error (2026-07-29).
+    The span then names the visible ends on each system, so one authored
+    group mints more than one span key across the score.
+    """
+    engraved = VerovioEngravingProvider().load_detailed(
+        VIDEO_SCORE, EngravingParams(),
+        groups=(PartGroupSpec(parts=("P2", "P3", "P4", "P5")),),
+        hide_empty_staves=True)
+    spans = Counter(str(e.identity.element_id).rsplit(":", 1)[-1]
+                    for e in _grpsyms(engraved.layout))
+    # the full span on the systems that draw all four staves...
+    assert spans["P2-P5"]
+    # ...and narrowed ones where hiding took an end or an interior staff
+    # away. Both must occur, or the fixture has stopped exercising the
+    # gap this test exists for.
+    assert {"P2-P4", "P3-P4", "P2-P2"} <= set(spans)
 
 
 # --- Phase 10: N>=2 groups (BACKLOG 1, re-opened and closed here) ----------

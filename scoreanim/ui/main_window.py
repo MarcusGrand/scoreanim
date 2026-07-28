@@ -19,6 +19,7 @@ install.
 
 from __future__ import annotations
 
+import traceback
 from dataclasses import replace as _dc_replace
 from pathlib import Path
 
@@ -227,7 +228,17 @@ class MainWindow(QMainWindow):
         # scenes in the same pass
         if (self._scenes is not None and doc.score is not None
                 and self.loader.needs_reengrave(doc)):
-            self._reengrave(doc, self._break_anchor(doc))
+            try:
+                self._reengrave(doc, self._break_anchor(doc))
+            except Exception as exc:
+                # An engraving failure is NOT a CommandError, so
+                # AppState.execute never sees it and it would otherwise
+                # escape this slot silently — the edit lands in the
+                # document and the score just never redraws (the 2026-07-29
+                # bracket report). Say so, and keep the last good render
+                # until the next successful re-engrave.
+                traceback.print_exc()
+                self.app_state.status.emit(f"re-engrave failed: {exc}")
         self.playback.set_timing_config(*self.timing_config(doc))
         self.doc_sync.sync_styles(doc)
         if self.doc_sync.sync_stage(doc) \
