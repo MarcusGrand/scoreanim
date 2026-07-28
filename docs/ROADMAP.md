@@ -446,8 +446,11 @@ needed it to be usable, so no case was made.
 ## M4 — Effects (the pop you can actually use)
 
 **Status — CLOSED (built 2026-07-25 on `beta/m4-effects`, M4.1–M4.8
-per docs/briefs/M4_EFFECTS_BRIEF.md; awaiting Marcus's interactive
-exit run and the merge/tag).** The build's rulings, where reality
+per docs/briefs/M4_EFFECTS_BRIEF.md; merged to `main` together with M2
+at `8e06f7d`, tagged `v0.2-beta.2`).** Because that tag covered two
+milestones, the milestone→tag mapping in "Versioning & conventions" is
+offset by one from here on: M3 closed as `v0.2-beta.3`, and M5 closes
+as **`v0.2-beta.4`**. The build's rulings, where reality
 amended this section (details in the brief §0/§5):
 
 - **F1/durations**: the engraved timemap's `off`/`restsOff` arrays are
@@ -645,6 +648,13 @@ splits, downstream repagination stays sane, animation and reveal
 edges are correct on both new systems; suppress an encoded break —
 systems merge; both undo cleanly; save/reload reproduces; goldens for
 unmodified fixtures unchanged. Suite green.
+
+**Fixture caveat (from M3, `spikes/seg_fanout.py`):** bigband1 does
+NOT load under the strict path — `unknown SVG class 'gliss'` raises in
+`load_detailed(strict=True)`, the pytest/doctor default. The app path
+degrades it to a warned OTHER (rule 4 amendment), so the interactive
+exit run is fine; headless tests and spikes against bigband1 must use
+the app path (`strict=False`) or a fixture that loads strict.
 
 ---
 
