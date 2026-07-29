@@ -15,7 +15,8 @@ from PySide6.QtWidgets import QGraphicsSimpleTextItem
 
 from scoreanim.core.engraving.types import TextPrimitive, TextRun
 from scoreanim.core.project.stage_config import StageTextElement
-from scoreanim.render.items import DEFAULT_COLOR, ElementItem
+from scoreanim.render.items import (DEFAULT_COLOR, ElementItem,
+                                    fill_tracks_color)
 from scoreanim.render.qpath import to_qtransform
 
 _FALLBACK_FAMILIES = ["Times New Roman", "Times", "Georgia"]
@@ -60,7 +61,7 @@ def add_text_rows(parent: ElementItem, primitive: TextPrimitive) -> None:
         # applies A first, so the local translation precedes tf.
         local = QTransform.fromTranslate(x, primitive.y - metric.ascent())
         item.setTransform(local * tf, combine=False)
-        parent.add_text_child(item, fill_tracks=run.fill is None)
+        parent.add_text_child(item, fill_tracks=fill_tracks_color(run.fill))
         x += advance
 
 

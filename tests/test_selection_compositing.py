@@ -276,3 +276,51 @@ def schedule_for_compositing(engraved, join_mapping, score_model):
     from scoreanim.core.animation import build_trigger_schedule
     return build_trigger_schedule(engraved.layout, join_mapping,
                                   score_model.measures)
+
+
+# -- every visible element tints, including the ones Verovio fills black --
+#
+# The gap this closes (Marcus, 2026-07-29): selecting the expression
+# text "bucket mute" went from dimmed to BLACK instead of orange. Its
+# runs carry an explicit fill="#000000" from Verovio, and the render
+# layer read any explicit fill as an authored colour choice not to be
+# overwritten — so the ink tracked nothing and the tint had nowhere to
+# land. Black is not a choice; it is the default written out.
+
+def test_a_black_filled_text_run_still_takes_the_tint(scenes,
+                                                      engraved) -> None:
+    direction = next(el for el in engraved.layout.elements
+                     if el.text_class == "dir")
+    # non-vacuous: this is the element with the explicit fill
+    assert any(run.fill == "#000000"
+               for prim in direction.glyph.texts for run in prim.runs)
+
+    item = scenes.items[direction.identity.element_id]
+    assert item._tracked                       # it tracks something now
+    assert _painted(item) == "#000000"
+    item.set_selected(True)
+    assert _painted(item) == SELECTION_COLOR
+    item.set_selected(False)
+    assert _painted(item) == "#000000"
+
+
+def test_every_element_with_ink_can_show_a_selection(scenes) -> None:
+    """The general form: an element nobody can see selected is a bug,
+    whatever kind it is."""
+    unshowable = [str(eid) for eid, item in scenes.items.items()
+                  if item.identity is not None and item.childItems()
+                  and not item._tracked]
+    assert unshowable == []
+
+
+def test_an_authored_colour_is_still_never_overwritten(qapp) -> None:
+    """The rule that made explicit fills untracked in the first place
+    still holds for real colour choices — only black is exempt."""
+    from scoreanim.render.items import fill_tracks_color
+
+    assert fill_tracks_color(None) is True          # SVG said nothing
+    assert fill_tracks_color("#000000") is True     # the default, written out
+    assert fill_tracks_color("black") is True
+    assert fill_tracks_color("none") is False       # nothing to paint
+    assert fill_tracks_color("#808080") is False    # a choice
+    assert fill_tracks_color("#ff6a00") is False
