@@ -50,7 +50,8 @@ def test_file_and_edit_contents(window) -> None:
     assert _texts(window.menus.file_menu) \
         == ["Open Score…", "Open Project…", "Save Project",
             "Save Project As…", "Export Video…"]
-    assert _texts(window.menus.edit_menu) == ["Undo", "Redo", "Texts…"]
+    assert _texts(window.menus.edit_menu) == ["Undo", "Redo", "Delete",
+                                              "Texts…"]
     assert not window.menus.export_action.isEnabled()   # needs a score
     assert not window.menus.texts_action.isEnabled()
 

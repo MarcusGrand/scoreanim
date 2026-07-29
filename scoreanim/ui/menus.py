@@ -121,6 +121,11 @@ class MainMenus:
         self.edit_menu.addAction(self.undo_action)
         self.edit_menu.addAction(self.redo_action)
         self.edit_menu.addSeparator()
+        # the SAME action object the stage view holds, so the menu and
+        # the key cannot disagree about when it may fire (the shared
+        # QAction idiom)
+        self.edit_menu.addAction(window.delete_action.action)
+        self.edit_menu.addSeparator()
         self.edit_menu.addAction(self.texts_action)
 
         self.view_menu = menubar.addMenu("&View")
