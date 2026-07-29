@@ -399,6 +399,31 @@ scale-to-fit). Parked:
     rejected as fragile (hidden staves and condensing perturb both, and
     rule 13's spirit is that context comes from the id grammar, never
     from position). Until then, Part Names… remains the way to rename.
+
+    **MEASURED 2026-07-29 (`spikes/label_part.py`, 129 labels over 6
+    configurations). The MEI-index hypothesis above is FALSE: 0/129.**
+    A rendered label's SVG id does not exist in the MEI at all —
+    Verovio mints a throwaway id for the drawn object and
+    `getElementAttr` answers "Element not found". Notes join fine (the
+    spike's control), so this is specific to labels.
+    What the spike DID find is a join that works: the MEI side is clean
+    (every label hangs on a `staffDef` carrying `@n`, the global staff
+    number, which `part_for_staff` turns into a part), and pairing a
+    system's drawn labels against its visible staves **filtered to
+    those whose staffDef carries a label of the class being drawn**
+    (`label` on system 1, `labelAbbr` after) is exact — 129/129 with
+    zero text disagreements, under hidden staves and condensing alike.
+    Naive order without that filter is 101/129 and MIS-ATTRIBUTES
+    rather than failing, because a part with an empty abbreviation
+    draws nothing after system 1.
+    The join is self-checking: each pairing can be verified against the
+    staffDef's own label text, so the adapter can attribute only on
+    agreement and leave the label part-less otherwise — the failure
+    mode is then a disabled action, never a renamed wrong instrument.
+    A condensed label names the KEPT part (`parts[0]`), so condensing
+    raises no extra decision.
+    Still milestone work: it moves the goldens (36 label elements in
+    bigband1_hidden alone) and changes what the adapter mints.
     The routing policy is written and unit-tested
     (`tests/test_text_route.py`), and `tests/test_text_edit.py`
     asserts the current limitation so it fails the moment labels gain a
