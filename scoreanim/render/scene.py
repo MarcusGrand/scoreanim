@@ -29,7 +29,8 @@ from scoreanim.core.project.document import LayoutOverride
 from scoreanim.core.project.stage_config import StageConfig, StageTextElement
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.render.items import (DEFAULT_COLOR, ElementItem,
-                                    RevealPathItem, svg_pen)
+                                    RevealPathItem, fill_tracks_color,
+                                    svg_pen)
 from scoreanim.render.qpath import to_qpainter_path, to_qtransform
 from scoreanim.render.text import add_stage_text, add_text_rows
 
@@ -174,11 +175,15 @@ class ScoreScenes:
 
     def set_element_hidden(self, element_id: ElementId,
                            hidden: bool) -> None:
-        """Show/hide one element (Phase 9.2 tempo overlays: the engraved
-        mark hides behind its replacement stage text). Plain item
-        visibility on the group parent — TEXT is neither animated nor
-        tinted, so nothing else touches these items. Unknown id = no-op
-        (override staleness accepted)."""
+        """Show/hide one element: a tempo overlay hiding the engraved
+        mark (Phase 9.2), or the user deleting an object.
+
+        Plain item visibility on the group parent, which is why it
+        composes with everything else safely — Qt does not paint the
+        children of an invisible parent, so the animation's opacity, the
+        selection tint and a spanner's reveal clip all keep writing to an
+        item that simply does not draw. Unknown id = no-op (override
+        staleness accepted)."""
         item = self.items.get(element_id)
         if item is not None:
             item.setVisible(not hidden)
@@ -220,7 +225,7 @@ class ScoreScenes:
         child = cls(self._qpath(prim.d))
         child.setTransform(to_qtransform(prim.transform))
 
-        fill_tracks = prim.fill is None
+        fill_tracks = fill_tracks_color(prim.fill)
         if prim.fill is None:
             child.setBrush(QBrush(DEFAULT_COLOR))
         elif prim.fill == "none":

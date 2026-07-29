@@ -22,8 +22,8 @@ than assumed (D10), including that a stored layout predating this dock
 still places it sanely.
 
 Scrolled, for the reason the inspector is: a dock must never dictate the
-window's minimum height, and this one accrues rows as the M6.7 overrides
-readout fills up.
+window's minimum height, and this one accrues rows as the two readouts
+fill up — break overrides, and the objects the user has deleted.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (QDockWidget, QLabel, QScrollArea, QSizePolicy,
 
 from scoreanim.core.project import ProjectDoc
 from scoreanim.ui.app_state import AppState
-from scoreanim.ui.panels import BreakOverridesList
+from scoreanim.ui.panels import BreakOverridesList, DeletedElementsList
 
 
 class LayoutZone(QDockWidget):
@@ -68,6 +68,15 @@ class LayoutZone(QDockWidget):
         # its own widget module rather than a limb on the dock (D9)
         self.overrides = BreakOverridesList(app_state, body)
         column.addWidget(self.overrides)
+
+        column.addSpacing(8)
+        deleted_heading = QLabel("Deleted")
+        deleted_heading.setStyleSheet("font-weight: 600;")
+        column.addWidget(deleted_heading)
+        # deleted ink is not clickable, so this list is the only way back
+        # other than undo — it belongs where the work is, not in a dialog
+        self.deleted = DeletedElementsList(app_state, body)
+        column.addWidget(self.deleted)
         column.addStretch(1)
 
         scroller = QScrollArea(self)
@@ -96,6 +105,7 @@ class LayoutZone(QDockWidget):
         return button
 
     def sync_from_document(self, doc: ProjectDoc) -> None:
-        """Only the readout has document state to resync; the buttons
+        """Only the readouts have document state to resync; the buttons
         follow their shared actions, which the break controller syncs."""
         self.overrides.sync_from_document(doc)
+        self.deleted.sync_from_document(doc)

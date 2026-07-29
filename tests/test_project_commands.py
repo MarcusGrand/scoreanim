@@ -1013,3 +1013,82 @@ def test_dirty_when_saved_state_truncated(doc) -> None:
     stack.execute(SetOffset(4.0), d1)                      # truncates saved
     stack.undo()                                           # depth 1 again
     assert stack.is_dirty                                  # saved state gone
+
+
+# -- delete / restore elements ------------------------------------------------
+
+HAIRPIN = "P1:m4:s1:v1:hairpin:0"
+HAIRPIN_SEG = "P1:m4:s1:v1:hairpin:0:seg1"
+DYNAMIC = "P2:m9:s1:v1:dynamic:0"
+
+
+def _hide(*eids: str, hidden: bool = True):
+    from scoreanim.core.project import SetElementsHidden
+    from scoreanim.core.score.identity import ElementId
+    return SetElementsHidden(tuple(ElementId(e) for e in eids), hidden)
+
+
+def test_delete_hides_and_leaves_the_before_doc_alone(doc) -> None:
+    from scoreanim.core.score.identity import ElementId
+    out = _hide(HAIRPIN).apply(doc)
+    assert out.layout_overrides[ElementId(HAIRPIN)].hidden is True
+    assert doc.layout_overrides == {}                     # before untouched
+
+
+def test_a_broken_spanner_hides_as_one_family(doc) -> None:
+    """One gesture, one command, one undo entry (rule 8) — hiding half a
+    hairpin is never what anybody meant."""
+    from scoreanim.core.score.identity import ElementId
+    stack = UndoStack()
+    out = stack.execute(_hide(HAIRPIN, HAIRPIN_SEG), doc)
+    assert all(out.layout_overrides[ElementId(e)].hidden
+               for e in (HAIRPIN, HAIRPIN_SEG))
+    assert stack.undo_text() == "delete element"
+    assert stack.undo() == doc                            # ONE entry
+
+
+def test_restore_drops_the_entry_when_nothing_else_is_set(doc) -> None:
+    deleted = _hide(HAIRPIN).apply(doc)
+    back = _hide(HAIRPIN, hidden=False).apply(deleted)
+    assert back.layout_overrides == {}                    # sparse doc
+    assert back == doc
+
+
+def test_a_nudge_survives_a_delete_and_a_restore(doc) -> None:
+    from dataclasses import replace as rep
+
+    from scoreanim.core.project import LayoutOverride
+    from scoreanim.core.score.identity import ElementId
+    eid = ElementId(DYNAMIC)
+    nudged = rep(doc, layout_overrides={eid: LayoutOverride(dx=4.0, dy=-2.0)})
+    deleted = _hide(DYNAMIC).apply(nudged)
+    assert deleted.layout_overrides[eid] == LayoutOverride(dx=4.0, dy=-2.0,
+                                                           hidden=True)
+    back = _hide(DYNAMIC, hidden=False).apply(deleted)
+    assert back.layout_overrides[eid] == LayoutOverride(dx=4.0, dy=-2.0)
+
+
+def test_delete_of_nothing_is_refused(doc) -> None:
+    with pytest.raises(CommandError, match="no elements"):
+        _hide().apply(doc)
+
+
+def test_describe_says_what_it_wrote(doc) -> None:
+    assert _hide(HAIRPIN).describe() == "delete element"
+    assert _hide(HAIRPIN, HAIRPIN_SEG).describe() == "delete element"
+    # one broken spanner is one object, however many ids it takes
+    assert _hide(HAIRPIN, HAIRPIN_SEG,
+                 hidden=False).describe() == "restore element"
+    assert _hide(HAIRPIN, DYNAMIC,
+                 hidden=False).describe() == "restore elements"
+
+
+def test_restore_all_is_one_undo_entry(doc) -> None:
+    stack = UndoStack()
+    deleted = stack.execute(_hide(HAIRPIN, HAIRPIN_SEG), doc)
+    deleted = stack.execute(_hide(DYNAMIC), deleted)
+    back = stack.execute(_hide(HAIRPIN, HAIRPIN_SEG, DYNAMIC, hidden=False),
+                         deleted)
+    assert back.layout_overrides == {}
+    assert stack.undo_text() == "restore elements"
+    assert stack.undo() == deleted

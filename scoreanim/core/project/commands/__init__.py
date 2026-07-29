@@ -15,10 +15,12 @@ Split along the command-domain seams at the M4 exit audit (the single
 module had grown past 950 lines — the no-monoliths rule): base.py the
 contract, timing.py tempo/taps/swing, style.py rules and effect
 params, stage.py presentation/texts/overlays, layout.py the
-engraving-input commands, undo.py the stack. This façade re-exports
-every public name, so import sites are unchanged.
+engraving-input commands, breaks.py the two break maps (split out of
+layout.py when it passed 400 lines), undo.py the stack. This façade
+re-exports every public name, so import sites are unchanged.
 """
 from scoreanim.core.project.commands.base import Command, CommandError
+from scoreanim.core.project.commands.breaks import SetPageBreak, SetSystemBreak
 from scoreanim.core.project.commands.layout import (AddCondenseGroup,
                                                     AddStaffGroup,
                                                     ApplyScoreSetup,
@@ -26,10 +28,9 @@ from scoreanim.core.project.commands.layout import (AddCondenseGroup,
                                                     EditStaffGroup,
                                                     RemoveCondenseGroup,
                                                     RemoveStaffGroup,
+                                                    SetElementsHidden,
                                                     SetLayoutOverride,
-                                                    SetPageBreak,
-                                                    SetPartText,
-                                                    SetSystemBreak)
+                                                    SetPartText)
 from scoreanim.core.project.commands.stage import (AddTempoOverlay,
                                                    EditStageText,
                                                    RemoveTempoOverlay,
@@ -67,6 +68,7 @@ __all__ = [
     "RemoveTapSession", "RemoveTempoEvent", "RemoveTempoOverlay",
     "ResetEffectSettings",
     "SetDefaultEffect", "SetEffectParam", "SetElementStyle",
+    "SetElementsHidden",
     "SetFloorOpacity", "SetGlobalSwing", "SetHideEmptyStaves",
     "SetHideFirstSystem", "SetOffset", "SetPartColor", "SetPartEffect",
     "SetLayoutOverride", "SetPageBreak",

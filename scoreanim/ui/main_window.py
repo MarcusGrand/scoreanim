@@ -36,6 +36,7 @@ from scoreanim.render.export import AnimationInputs
 from scoreanim.render.scene import ScoreScenes
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.break_action import BreakActionController
+from scoreanim.ui.delete_action import DeleteActionController
 from scoreanim.ui.document_sync import DocumentSync
 from scoreanim.ui.file_actions import FileActions
 from scoreanim.ui.inspector import Inspector
@@ -144,6 +145,12 @@ class MainWindow(QMainWindow):
         # zone's toggleViewAction with the other two docks' and the Score
         # menu re-inserts the actions per load.
         self.break_action = BreakActionController(self.app_state, self)
+        # delete = hide the selected object (restorable from the layout
+        # zone). Its shortcut is added to the VIEW, not the window: the
+        # tempo lane already owns Delete/Backspace for its points, and a
+        # window-level shortcut would eat them (see delete_action.py)
+        self.delete_action = DeleteActionController(self.app_state, self)
+        self.view.addAction(self.delete_action.action)
         self.layout_zone = LayoutZone(self.app_state,
                                       self.break_action.actions, self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea,
@@ -255,6 +262,7 @@ class MainWindow(QMainWindow):
         self.layout_zone.sync_from_document(doc)
         self.parts_menu.sync_from_document(doc)
         self.break_action.sync()      # overrides move the action's label
+        self.delete_action.sync()     # a delete disables its own action
         self.router.sync_presentation_mode(doc.stage.mode)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
@@ -347,6 +355,7 @@ class MainWindow(QMainWindow):
         self.animation_inputs = loaded.animation_inputs
         self.doc_sync.bind_scenes(loaded.scenes, loaded.stage.texts)
         self.selection.bind_scenes(loaded.scenes)   # also clears selection
+        self.delete_action.bind_scenes(loaded.scenes)   # the :seg registry
         self.router.bind(loaded.scenes, loaded.band_by_system,
                          loaded.applier, loaded.system_of_measure)
         self.break_action.bind(loaded.system_of_measure,
