@@ -7,14 +7,61 @@ recording, and exports deterministically. `docs/PHASES.md` is frozen as
 the alpha build history — read it for how anything was built; never add
 to it.
 
-Beta work is organized as **named milestones**, in order, in this file.
-The discipline is unchanged from the phase era: one milestone at a
-time, every task ends with a concrete verification, exit criteria
-close a milestone, flag architecture problems instead of silently
-deviating. All CLAUDE.md rules stay in force; where a milestone needs a
-rule amendment, the amendment is drafted here and applied to CLAUDE.md
-in the session that builds it (with the ruling date), the established
-pattern.
+Beta work runs on **two tracks** (ruling: Marcus, 2026-07-29 — see
+"Process — two tracks" just below): substantial, architecture-touching
+work as **named milestones** in this file, one at a time; everything
+else as one-session **features**. The discipline is the same on both:
+every change ends with a concrete verification, flag problems instead
+of silently deviating, and all CLAUDE.md rules stay in force. Where
+work needs a rule amendment, the amendment is drafted here and applied
+to CLAUDE.md in the session that builds it (with the ruling date), the
+established pattern.
+
+## Process — two tracks (Marcus, 2026-07-29)
+
+**Feature track — the default.** One Claude Code session per feature:
+
+1. The session reads CLAUDE.md (automatic), `docs/WORKLOG.md` (current
+   state) and `docs/PATTERNS.md` (the idioms).
+2. It proposes a SHORT plan **as a conversation message** — no brief
+   file — and waits for approval. Every plan must name:
+   (a) which existing seam/idiom it rides (a PATTERNS.md entry or an
+   ARCHITECTURE section); (b) what it will NOT touch; (c) a concrete
+   verification per step; (d) the escalation check — does this need a
+   schema bump? an adapter/golden change? a rule amendment? **If any
+   answer is yes, stop: it is milestone work.**
+3. Build in small verified steps: headless tests for pure logic as it
+   is written, full suite + goldens green before the merge.
+4. The session manages git itself — branch `beta/f-<name>`, commit as
+   it goes, and after Marcus confirms the feature in the running app,
+   merge to `main`. No per-feature tag; batch tags `v0.2-beta.N` when
+   Marcus asks.
+5. Append one line to `docs/WORKLOG.md`.
+
+Feature-session prompt template (copy, fill the middle):
+
+```
+Read docs/WORKLOG.md and docs/PATTERNS.md. Feature-track session
+(ROADMAP "Process — two tracks"): plan first as a short message, build
+after I approve, escalate per the plan checklist.
+
+Feature: <what you want, in plain words — behavior, not implementation>
+
+Then build on beta/f-<name>, commit as you go, keep suite + goldens
+green, update WORKLOG.md, and merge to main after I confirm it works.
+No tag.
+```
+
+**Milestone track** — REQUIRED whenever work bumps the project schema,
+changes adapter/prep-seam semantics or moves goldens, or amends a
+CLAUDE.md rule. The ceremony is unchanged: a scope section in this file
+→ a brief in `docs/briefs/` (audit of what exists, spike-first
+measurements through the whole pipeline, decisions proposed and
+recommended but NOT decided) → Marcus rules the decisions → build,
+task by task, each with its verification → his interactive exit run →
+merge + tag. Escalation from the feature track is one-way and
+mandatory; the reverse (running trivial work through the full ceremony)
+is the failure mode this ruling exists to end.
 
 ## Versioning & conventions
 

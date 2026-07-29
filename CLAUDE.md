@@ -4,12 +4,35 @@ Desktop app (Python/PySide6) that animates an already-formatted music score
 (Dorico-exported MusicXML) in sync with a recorded audio performance
 (wav/mp3), for overlay on performance video.
 
-Read `docs/ARCHITECTURE.md` before making design decisions.
-Read `docs/ROADMAP.md` to see what is in scope right now — beta work is
-organized there as named milestones (M1 Shell, M2 Selection, …), one at
-a time, each expanded into a brief in `docs/briefs/` before building.
-Do not build ahead of the current milestone. (`docs/PHASES.md` is the
-frozen v0.1-alpha build history — reference, never appended to.)
+## Session protocol — read in this order
+
+- `docs/WORKLOG.md` — where the project is RIGHT NOW. Read it first;
+  append one line at session end.
+- `docs/ROADMAP.md` — the process ("Process — two tracks", including the
+  feature-plan checklist) and milestone scope. Do not build ahead of
+  what is agreed there.
+- `docs/PATTERNS.md` — the established idioms and traps. Every plan
+  names which idiom it rides; deviating from one is a flag-and-stop.
+- `docs/ARCHITECTURE.md` — design decisions; read before making new ones.
+- `docs/PHASES.md` — frozen v0.1-alpha build history; reference, never
+  appended to. `docs/briefs/` hold how each milestone was built.
+
+## Process — two tracks (Marcus, 2026-07-29)
+
+**Feature track (the default):** one session per feature — propose a
+short plan in-conversation and wait for approval; build in small
+verified steps with headless tests for pure logic; suite + goldens
+green; the session manages branch/commits/merge itself after Marcus
+confirms in the running app; append to WORKLOG.md. No per-feature tag.
+
+**Milestone track** — REQUIRED when work bumps the project schema,
+changes adapter/prep-seam semantics or moves goldens, or amends a rule
+in this file: ROADMAP scope → brief with spike-first measurements →
+Marcus rules the decisions → build → his exit run → merge + tag.
+
+**Escalation is one-way and mandatory:** feature work that discovers it
+needs any of the above STOPS and flags — it becomes milestone work.
+The full plan checklist lives in ROADMAP §"Process — two tracks".
 
 ## Non-negotiable rules (the load-bearing walls)
 
@@ -229,132 +252,46 @@ frozen v0.1-alpha build history — reference, never appended to.)
 
 ## Package layout
 
+One-line map only — module histories and per-milestone detail live in
+ARCHITECTURE §7 and `docs/PATTERNS.md`; do not re-grow them here.
+
 ```
 scoreanim/
-  core/                    # pure Python, no Qt
-    score/                 # music21 parsing → ScoreModel, ElementIdentity;
-                           # musicxml_prep.py the prep seam (spec types,
-                           # scanners, prepare() as pass-order orchestrator)
-                           # and musicxml_rewrite.py the tree-rewriting
-                           # passes it names (M5.0 split)
-    engraving/             # EngravingProvider ABC, neutral Layout types
-      verovio/             # the adapter package (Phase R), one module per
-                           # pipeline stage:
-                           #   kinds.py      policy tables, no logic
-                           #   mei_index.py  MEI XML → per-id lookup tables
-                           #   records.py    AdapterNoteRecord, EngravedScore,
-                           #                 _LoadState
-                           #   decompose.py  page SVG → element accumulators
-                           #   attribution.py post-passes (rehome, ledger,
-                           #                 spanner segments, tie flags)
-                           #   identity.py   ElementId minting + onset chain
-                           #   synthesis.py  slash / bar-repeat synthesis
-                           #   provider.py   toolkit, retry loops, pipeline
-    timing/                # TempoMap (BPM events, taps, swing), beat↔seconds
-    animation/             # properties, Envelope, Effect, RevealMode, state(t);
-                           # durations.py — the note-value duration-resolution
-                           # seam (M4): engraved durations → per-element map
-    selection/             # policy.py — PURE hit-priority policy (M2):
-                           # HitCandidate, pick(), measure_ordinal_of();
-                           # no Qt, headless-tested on synthetic lists;
-                           # context.py Selection, highlight.py colors
-    editing/               # PURE direct-edit policy (M3), same shape:
-                           # text_route.py  double-click → which existing
-                           #                command edits this text
-                           # nudge.py       NUDGEABLE_KINDS + step sizes
-                           # segments.py    the :seg family a per-element
-                           #                override fans out to
-                           # breaks.py      may a SYSTEM break gesture fire,
-                           #                and what would it write (M5):
-                           #                the toggle, and M5.7's move-to-
-                           #                previous-system entry set
-                           # page_breaks.py the PAGE twin (M6.4) — one
-                           #                module per document map
-                           # break_coherence.py  what the two maps may say
-                           #                about ONE ordinal (M6, D3)
-    project/               # Project document, serialization; commands/ —
-                           # undoable commands split by domain (base/timing/
-                           # style/stage/layout/undo, M4 exit audit)
-  render/                  # Qt only: Layout → QGraphicsItems, property application
-  ui/                      # Qt shell (M1: window = composition root;
-                           # M3.0 paid BACKLOG 9b — the window was AT the
-                           # 400-line ceiling and split before M3 wired
-                           # anything into it, 399 → 312; 317 as built):
-                           #   main_window.py   composition + document→world sync
-                           #   view_router.py   page/system presentation routing
-                           #                    (M3.0): position state, step,
-                           #                    follow, mode diff; stub-tested
-                           #   menus.py         static chrome + shortcuts
-                           #   parts_menu.py    dynamic Score-menu content, and
-                           #                    the three part-shaped dialogs
-                           #                    it launches (M3.0)
-                           #   inspector.py     right dock, scrolled
-                           #                    (collapsible.py sections)
-                           #   panels/          inspector section bodies (M4:
-                           #                    effects_panel.py — Appearance &
-                           #                    Effects controls + resync; M2:
-                           #                    selection_panel.py — identity
-                           #                    readout, observes
-                           #                    selection_changed, no doc sync;
-                           #                    M3: selection_style.py — colour/
-                           #                    effect writes, element-or-part
-                           #                    scope, :seg fan-out)
-                           #   selection.py     SelectionController (M2):
-                           #                    scene hits → core policy →
-                           #                    AppState + highlight tint
-                           #   text_edit.py     in-place text editing (M3.1):
-                           #                    own hit path (D5 stands), the
-                           #                    QLineEdit overlay, Texts… dialog
-                           #   nudge.py         drag-to-nudge (M3.2): preview by
-                           #                    setPos, ONE SetLayoutOverride
-                           #                    per gesture
-                           #   break_action.py  the break actions — the
-                           #                    system toggle (M5.4), Move to
-                           #                    Previous System (M5.7) and the
-                           #                    page toggle (M6.5): owns the
-                           #                    three QActions, their enable/
-                           #                    label sync and their triggers;
-                           #                    policy stays in core
-                           #   layout_zone.py   left dock (M6.6, BACKLOG 17):
-                           #                    buttons whose defaultAction IS
-                           #                    the Score menu's QAction, so
-                           #                    the two surfaces cannot
-                           #                    diverge; hosts the overrides
-                           #                    readout (panels/
-                           #                    break_overrides.py, M6.7)
-                           #   transport.py     lower zone: strip + lanes dock
-                           #   file_actions.py  open/save/import/export handlers
-                           #   score_loader.py  engrave→scene load pipeline
-                           #   document_sync.py document→scene diff-sync
-                           #   window_state.py  QSettings UI-state persistence
-                           #   + stage view, tempo lane, waveform, playback,
-                           #     app_state, dialogs
+  core/            # pure Python, no Qt (rule 1)
+    score/         # music21 → ScoreModel; musicxml_prep.py (prep-seam
+                   # orchestrator) + musicxml_rewrite.py (the passes)
+    engraving/     # EngravingProvider ABC, neutral Layout types
+      verovio/     # adapter package, one module per pipeline stage:
+                   # kinds (policy tables) · mei_index · records ·
+                   # decompose · attribution · identity · synthesis ·
+                   # provider (toolkit, retries, pipeline)
+    timing/        # TempoMap (BPM events, taps, swing), beat↔seconds
+    animation/     # Envelope, Effect, state(t); durations.py seam
+    selection/     # pure hit-priority policy, Selection context,
+                   # highlight colors
+    editing/       # pure edit policies: text_route · nudge · segments ·
+                   # breaks · page_breaks · break_coherence
+    project/       # document, serialization (schema version lives
+                   # here), commands/ split by domain
+  render/          # Qt only: Layout → QGraphicsItems, property
+                   # application, reveal clipping, export scenes
+  ui/              # Qt shell; window = composition root, one module per
+                   # responsibility: view_router · menus · parts_menu ·
+                   # inspector + panels/ · selection · text_edit ·
+                   # nudge · break_action · layout_zone · transport ·
+                   # file_actions · score_loader · document_sync ·
+                   # window_state · stage view, lanes, playback,
+                   # app_state, dialogs
   app.py
-tests/                     # headless: core logic tested without any GUI
-testdata/                  # testscore.musicxml (Dorico export) + companion
-                           # PDF — primary fixture for spikes and tests;
-                           # video_test.musicxml — production score with
-                           # a multi-staff piano (Phase 10 fixture);
-                           # complex1.musicxml — 14-part Dorico robustness
-                           # fixture (Phase 11: tremolo, mRest ledger,
-                           # grace-join gap); complex2.musicxml — orchestral
-                           # (36 parts/37 staves, bar repeats, appoggiaturas),
-                           # lays out via Phase 12 (order-based join,
-                           # condensing, bar-repeat synthesis, scale-to-fit);
-                           # bar_repeat_min / condense_min / tall_system_min —
-                           # small Phase 12 fixtures extracted from complex2;
-                           # bigband1.musicxml — 4-part big-band chart whose
-                           # hide-empty-staves load exposed the cross-system
-                           # stray-path leak (ARCHITECTURE §3 item 11, fixed
-                           # 2026-07-21); complex3.musicxml — 14-part
-                           # orchestral chart with a Dorico "X0" pickup bar;
-                           # drove the measure-identity=ordinal fix (§3 item
-                           # 12), the start-staff continuation-segment fix
-                           # (§3 item 13, phantom slurs), and monotonic
-                           # view-follow (2026-07-21); pickup_min.musicxml —
-                           # 3-bar "X0"-pickup unit fixture for the identity
-                           # invariant
-docs/
+tests/             # headless; tests/goldens/ pins fixture loads
+                   # byte-for-byte
+testdata/          # Dorico fixtures: testscore (primary) · video_test ·
+                   # complex1..3 · bigband1 (app-path only: 'gliss') ·
+                   # bar_repeat_min · condense_min · tall_system_min ·
+                   # pickup_min · brackets
+docs/              # WORKLOG (state) · ROADMAP (process + milestones) ·
+                   # PATTERNS (idioms) · ARCHITECTURE (design) ·
+                   # BACKLOG · briefs/ · PHASES (frozen)
 ```
 
 ## Working style
@@ -363,25 +300,28 @@ docs/
   module has ONE clear responsibility and stays small enough to read top
   to bottom. Treat a file approaching ~400 lines, or one that has started
   doing two jobs, as a refactor signal: split it along a real seam BEFORE
-  adding more, not "later". This holds for existing code as much as new —
-  M1 Shell (2026-07-24) decomposed the former worst offender,
-  `ui/main_window.py` (~1170 lines), into the component seams named in
-  the package layout below; keep every `ui/` module under that line
-  (the M1 exit audit enforced it). Readability, maintainability, and
-  robustness beat
-  expedience everywhere: no god-objects, narrow interfaces between
-  modules, pure logic factored out of Qt so it can be tested headless
-  (rule 1 already forces this seam for core/). When a change would bloat a
-  module, stop and split first — flag-and-stop applies to code hygiene,
-  not just architecture.
-- Small, verifiable steps. Each task in the current milestone brief
-  (`docs/briefs/`, planned from `docs/ROADMAP.md`) ends with a concrete
-  check ("run X, see Y"). Do the check before moving on.
+  adding more, not "later" — and the split is its own commit with no
+  feature code in it (PATTERNS: "the split-first commit"). No
+  god-objects, narrow interfaces, pure logic factored out of Qt so it
+  can be tested headless (rule 1 already forces this seam for core/).
+  Readability, maintainability, and robustness beat expedience
+  everywhere; flag-and-stop applies to code hygiene, not just
+  architecture.
+- Small, verifiable steps. Every task — milestone-brief task or
+  feature-plan step — ends with a concrete check ("run X, see Y"). Do
+  the check before moving on.
 - Write headless tests for core logic as you build it, not after. Core
   must be testable with plain `pytest`, no display server.
 - Type hints everywhere in `core/`. Frozen dataclasses for model types.
 - Prefer boring, explicit code over cleverness. No premature abstraction
   beyond the seams named in the architecture (provider, clock, envelope).
+- **Plain language everywhere you write words (Marcus, 2026-07-29).**
+  Code comments, docstrings, plan messages, commit messages, user-facing
+  warnings, and doc updates are written in plain, everyday language:
+  short sentences, one idea each, no dense or overly compressed
+  phrasing, no jargon where a common word works. If a sentence needs
+  re-reading to parse, rewrite it. Explaining simply beats sounding
+  technical.
 - If a Verovio or music21 behavior is uncertain, write a tiny spike script
   in `spikes/` to confirm before integrating. Keep spikes; they document
   library behavior.
@@ -393,6 +333,7 @@ docs/
 ```
 pytest                         # all headless tests
 pytest tests/test_no_qt_in_core.py   # boundary check
-python -m scoreanim            # launch app (phases 2+)
+python -m scoreanim            # launch app
 python spikes/<name>.py        # spike scripts
+python -m scoreanim.tools.check_score <file>   # score doctor (triage)
 ```
