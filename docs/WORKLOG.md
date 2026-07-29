@@ -1,7 +1,9 @@
 # ScoreAnim — Worklog
 
-**NOW:** `beta/f-delete-elements` built and green, awaiting Marcus's
-check in the app + merge to main. No tag.
+**NOW:** main is clean; delete-elements merged (`38ed04a`, no tag).
+Staff-label editing was asked for and STOPPED as milestone work — the
+join is now measured (BACKLOG 14, `spikes/label_part.py`), so a
+milestone can start from evidence rather than a hypothesis.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -9,11 +11,17 @@ lines — history lives in git, ROADMAP, and the briefs.
 
 ---
 
+- 2026-07-29 — Staff-label direct edit requested → **flag-and-stop**,
+  milestone work (moves goldens). Spiked it instead: the M3 MEI-id
+  hypothesis is dead (0/129), order-over-labelled-staves is exact
+  (129/129). BACKLOG 14 updated with the measurement.
 - 2026-07-29 — `beta/f-delete-elements`: delete = hide, for engraving
   cleanup only. Del/Backspace on the stage + Edit menu, texts/slurs/
   hairpins/dynamics only, restorable from the layout zone's new
   "Deleted" readout. Rides `LayoutOverride.hidden`; no schema bump, no
-  re-engrave. Break commands split out of `layout.py` first. UNMERGED.
+  re-engrave. Break commands split out of `layout.py` first. Also fixed
+  a tint gap it surfaced (black-filled texts never took the selection
+  colour). Merged `38ed04a`, no tag.
 - 2026-07-29 — Docs: two-track process encoded (ROADMAP §"Process — two
   tracks"), PATTERNS.md and this file created, CLAUDE.md slimmed
   (rules untouched).
