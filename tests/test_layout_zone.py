@@ -289,3 +289,116 @@ def test_the_readout_is_pure_data_a_test_can_assert(window) -> None:
         (12, False, SystemBreak.FORCE),
         (12, True, PageBreak.FORCE))
     assert BreakOverridesList.entries(ProjectDoc()) == ()
+
+
+# -- the deleted-elements readout -------------------------------------------
+
+def _deleted_rows(window) -> list[str]:
+    from PySide6.QtWidgets import QLabel
+    return [row.findChild(QLabel).text()
+            for row in window.layout_zone.deleted._rows]
+
+
+def _restore_buttons(window):
+    from PySide6.QtWidgets import QPushButton
+    return [row.findChild(QPushButton)
+            for row in window.layout_zone.deleted._rows]
+
+
+def _delete_first(window, kind):
+    """Select the first element of `kind` and delete it."""
+    element = next(el for el in window.animation_inputs.layout.elements
+                   if el.identity.kind is kind)
+    window.app_state.set_selection(element.identity)
+    window.delete_action.trigger()
+    return element.identity.element_id
+
+
+def test_nothing_deleted_until_something_is(window) -> None:
+    panel = window.layout_zone.deleted
+    assert _deleted_rows(window) == []
+    assert panel._empty.isVisibleTo(panel)
+    assert not panel.restore_all_button.isEnabled()
+
+
+def test_a_delete_adds_a_row_and_undo_removes_it(window) -> None:
+    _delete_first(window, ElementKind.TEXT)
+    assert len(_deleted_rows(window)) == 1
+    assert window.layout_zone.deleted.restore_all_button.isEnabled()
+    window.app_state.undo()
+    assert _deleted_rows(window) == []
+
+
+def test_a_broken_spanner_is_one_row(window) -> None:
+    """Three hidden ids, one deleted object."""
+    from scoreanim.core.project import LayoutOverride, ProjectDoc
+    from scoreanim.core.score.identity import ElementId
+    from scoreanim.ui.panels import DeletedElementsList
+
+    hairpin = "P1:m4:s1:v1:hairpin:0"
+    doc = ProjectDoc(layout_overrides={
+        ElementId(hairpin): LayoutOverride(hidden=True),
+        ElementId(hairpin + ":seg1"): LayoutOverride(hidden=True),
+        ElementId(hairpin + ":seg2"): LayoutOverride(hidden=True)})
+    assert DeletedElementsList.entries(doc) == (
+        (ElementId(hairpin), ElementId(hairpin + ":seg1"),
+         ElementId(hairpin + ":seg2")),)
+
+
+def test_a_row_restores_exactly_that_object_in_one_undo_step(window) -> None:
+    first = _delete_first(window, ElementKind.TEXT)
+    _delete_first(window, ElementKind.DYNAMIC)
+    assert len(_deleted_rows(window)) == 2
+
+    row = [i for i, family in
+           enumerate(window.layout_zone.deleted.entries(window.app_state.doc))
+           if family[0] == first][0]
+    _restore_buttons(window)[row].click()
+
+    doc = window.app_state.doc
+    assert first not in doc.layout_overrides
+    assert len(_deleted_rows(window)) == 1
+    assert window._scenes.items[first].isVisible()      # back on screen
+    assert window.app_state.undo_text() == "restore element"
+
+
+def test_restore_all_brings_everything_back_in_one_undo_step(window) -> None:
+    _delete_first(window, ElementKind.TEXT)
+    _delete_first(window, ElementKind.DYNAMIC)
+    before = dict(window.app_state.doc.layout_overrides)
+
+    window.layout_zone.deleted.restore_all_button.click()
+
+    assert window.app_state.doc.layout_overrides == {}
+    assert _deleted_rows(window) == []
+    assert window.app_state.undo_text() == "restore elements"
+    window.app_state.undo()                              # ONE entry
+    assert window.app_state.doc.layout_overrides == before
+
+
+def test_a_text_replaced_by_an_overlay_is_not_listed_as_deleted(
+        window) -> None:
+    """It is hidden, but it is REPLACED, not deleted — restoring it here
+    would leave the engraved mark under its replacement text. Its own
+    restore lives in the Texts dialog."""
+    from dataclasses import replace as rep
+
+    from scoreanim.core.project import (OVERLAY_PREFIX, AddTempoOverlay,
+                                        LayoutOverride, ProjectDoc)
+    from scoreanim.core.project.stage_config import seed_overlay_text
+    from scoreanim.core.score.identity import ElementId
+    from scoreanim.ui.panels import DeletedElementsList
+
+    text = next(el for el in window.animation_inputs.layout.elements
+                if el.identity.kind is ElementKind.TEXT)
+    eid = text.identity.element_id
+    seed = rep(seed_overlay_text(text), content="replaced")
+    assert window.app_state.execute(AddTempoOverlay(eid, seed))
+
+    assert window.app_state.doc.layout_overrides[eid].hidden is True
+    assert _deleted_rows(window) == []           # hidden, but not deleted
+    assert seed.element_id == OVERLAY_PREFIX + str(eid)
+
+    # ... and once the overlay is gone it would list normally
+    doc = ProjectDoc(layout_overrides={eid: LayoutOverride(hidden=True)})
+    assert DeletedElementsList.entries(doc) == ((ElementId(eid),),)
