@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 
+from scoreanim.core.editing.segments import source_of
 from scoreanim.core.project.commands.base import Command, CommandError
 from scoreanim.core.project.document import (CondenseGroup, LayoutOverride,
                                              PartTextOverride, ProjectDoc,
@@ -300,3 +301,47 @@ class SetLayoutOverride(Command):
     def describe(self) -> str:
         return "move element"
 
+@dataclass(frozen=True)
+class SetElementsHidden(Command):
+    """Delete (hide) or restore elements — the second consumer of
+    `LayoutOverride.hidden`, after the text overlay of Phase 9.2.
+
+    Deleting is engraving and cosmetic cleanup only: it hides ink and
+    changes nothing else, and `core/editing/deletion.py` owns which
+    kinds may be deleted and why. Like a nudge and unlike a break, this
+    is NOT an engraving input — the hide is applied to the scene the
+    engraving already produced, so nothing re-engraves.
+
+    Several ids, one command, because a spanner broken across systems is
+    several elements and ONE object: hiding half a hairpin is never what
+    anybody meant. Rule 8 counts gestures, not documents touched — the
+    'fat apply' idiom `SetElementStyle.segments` and `SetSystemBreak.also`
+    already use. "Restore all" is the same shape with a wider list.
+
+    `dx/dy` are preserved in both directions, so a nudged dynamic comes
+    back where the user put it; an entry that falls back to the default
+    disappears entirely (the sparse-doc idiom)."""
+    element_ids: tuple[ElementId, ...]
+    hidden: bool
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not self.element_ids:
+            raise CommandError("no elements to hide")
+        overrides = dict(doc.layout_overrides)
+        for eid in self.element_ids:
+            updated = replace(overrides.get(eid, LayoutOverride()),
+                              hidden=self.hidden)
+            if updated == LayoutOverride():
+                overrides.pop(eid, None)
+            else:
+                overrides[eid] = updated
+        return replace(doc, layout_overrides=overrides)
+
+    def describe(self) -> str:
+        # Says what it wrote, never what the button was called (the M3.5
+        # rule). Families, not ids: restoring one broken hairpin writes
+        # three ids and is still one object.
+        if self.hidden:
+            return "delete element"
+        families = {source_of(eid) for eid in self.element_ids}
+        return "restore element" if len(families) == 1 else "restore elements"
