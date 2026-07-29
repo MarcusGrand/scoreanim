@@ -191,3 +191,60 @@ def test_both_delete_keys_are_bound(window) -> None:
 
 def test_the_edit_menu_hosts_the_same_action_object(window) -> None:
     assert window.delete_action.action in window.menus.edit_menu.actions()
+
+
+# -- export parity ----------------------------------------------------------
+#
+# The live stage and an exported frame must agree about a deletion, and
+# they take different paths to it: the stage diffs the override onto its
+# scenes, export applies the whole override map to private scenes it
+# built itself. The M3 nudge harness, one field over.
+
+def _digest(image) -> str:
+    import hashlib
+    rgba = image.convertToFormat(image.format())
+    return hashlib.sha256(bytes(rgba.constBits())).hexdigest()
+
+
+def _render(window):
+    """One export frame at t=0 through the real FrameRenderer, carrying
+    the document's overrides exactly as FileActions passes them."""
+    from scoreanim.core.animation import StyleRules
+    from scoreanim.core.timing import TempoMap
+    from scoreanim.render.export import ExportFormat, ExportSpec, FrameRenderer
+
+    doc = window.app_state.doc
+    spec = ExportSpec(fps=30, height=360, start_seconds=0.0,
+                      end_seconds=0.1, offset_seconds=0.0,
+                      format=ExportFormat.PNG_SEQUENCE, out_path=Path("x"))
+    return FrameRenderer(window.animation_inputs, doc.style or StyleRules(),
+                         TempoMap(list(doc.timing.tempo_events)), (), spec,
+                         overrides=dict(doc.layout_overrides))
+
+
+def test_a_deleted_spanner_is_absent_from_an_exported_frame(window) -> None:
+    home = _digest(_render(window).render_frame(0))
+
+    eid = _delete_via_selection(window, ElementKind.HAIRPIN)
+
+    after = _render(window)
+    assert not after._scenes.items[eid].isVisible()   # export's own scenes
+    assert _digest(after.render_frame(0)) != home     # and it shows
+
+    window.app_state.undo()
+    # byte round trip: hiding is the ONLY thing the override contributed
+    assert _digest(_render(window).render_frame(0)) == home
+
+
+def test_a_deleted_slur_is_absent_from_an_exported_frame(window) -> None:
+    home = _digest(_render(window).render_frame(0))
+    eid = _delete_via_selection(window, ElementKind.SLUR)
+    after = _render(window)
+    assert not after._scenes.items[eid].isVisible()
+    assert _digest(after.render_frame(0)) != home
+
+
+def _delete_via_selection(window, kind):
+    element = _select_kind_directly(window, kind)
+    window.delete_action.trigger()
+    return element.identity.element_id

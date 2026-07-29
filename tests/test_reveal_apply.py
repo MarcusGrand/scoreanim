@@ -209,3 +209,113 @@ def test_scrub_statelessness_includes_clips(qapp, engraved_spanners,
                                            RevealMode.CONTINUOUS)
     fresh_applier.refresh(21.3)
     assert walked == _clip_states(fresh_scenes)
+
+
+# -- deleting a revealed spanner (hide) --------------------------------------
+#
+# The existing users of LayoutOverride.hidden are all TEXT, which has no
+# reveal clip and no ghost. Deleting reaches SLUR and HAIRPIN, so what
+# hiding does to clip-revealed ink is measured here rather than assumed.
+
+def _revealed(scenes, kind):
+    return next(item for item in scenes.items.values()
+                if item.identity is not None and item.identity.kind is kind
+                and item.reveal_children)
+
+
+def _paints(item) -> bool:
+    """Effective visibility: an item whose ancestor is hidden does not
+    paint, whatever its own flag says."""
+    node = item
+    while node is not None:
+        if not node.isVisible():
+            return False
+        node = node.parentItem()
+    return True
+
+
+@pytest.mark.parametrize("kind", [ElementKind.SLUR, ElementKind.HAIRPIN])
+def test_hiding_a_spanner_takes_its_clipped_copy_and_its_ghost(
+        qapp, engraved_spanners, spanner_setup, kind) -> None:
+    scenes, applier, score_end = _make(qapp, engraved_spanners,
+                                       spanner_setup)
+    applier.refresh(score_end)                  # everything grown
+    item = _revealed(scenes, kind)
+    eid = item.element_key
+    assert all(_paints(child) for child in item.childItems())
+
+    scenes.set_element_hidden(eid, True)
+
+    assert not _paints(item)
+    # both layers: the clipped copy AND the dimmed ghost under it
+    assert not any(_paints(child) for child in item.childItems())
+    assert item.reveal_children                 # non-vacuous: it HAS them
+
+    scenes.set_element_hidden(eid, False)
+    assert all(_paints(child) for child in item.childItems())
+
+
+def test_hiding_does_not_disturb_the_clip_it_hides(qapp, engraved_spanners,
+                                                   spanner_setup) -> None:
+    """Hide and show is a mask, not a reset: the reveal edge in force
+    survives the round trip, so a spanner restored mid-playback is where
+    playback left it rather than back at zero."""
+    scenes, applier, score_end = _make(qapp, engraved_spanners,
+                                       spanner_setup)
+    applier.refresh(score_end * 0.5)
+    item = _revealed(scenes, ElementKind.HAIRPIN)
+    before = tuple(c.clip_right for c in item.reveal_children)
+
+    scenes.set_element_hidden(item.element_key, True)
+    scenes.set_element_hidden(item.element_key, False)
+
+    assert tuple(c.clip_right for c in item.reveal_children) == before
+
+
+def test_hiding_one_spanner_changes_no_other_animation(qapp,
+                                                       engraved_spanners,
+                                                       spanner_setup) -> None:
+    """The whole promise of delete-as-hide: the rest of the score
+    animates exactly as it did.
+
+    Guarded against the vacuous-pin trap — the sample time is chosen so
+    a neighbouring spanner is genuinely MID-GROW, and the test fails if
+    no such time exists rather than passing over frozen state.
+    """
+    scenes, applier, score_end = _make(qapp, engraved_spanners,
+                                       spanner_setup)
+    victim = _revealed(scenes, ElementKind.HAIRPIN).element_key
+
+    def growing(sample_t) -> bool:
+        """Is some OTHER spanner part-way through its grow?"""
+        applier.refresh(sample_t)
+        for eid, item in scenes.items.items():
+            if eid == victim or not item.reveal_children:
+                continue
+            for child in item.reveal_children:
+                edge = child.clip_right
+                if edge is None:                 # saturated
+                    continue
+                left = child.boundingRect().left()
+                if edge > left:                  # started, not finished
+                    return True
+        return False
+
+    steps = 60
+    t = next((score_end * i / steps for i in range(1, steps)
+              if growing(score_end * i / steps)), None)
+    assert t is not None, "no mid-grow sample time — the pin would be vacuous"
+
+    applier.refresh(t)
+    before = _clip_states(scenes)
+    opacities = {eid: item.opacity() for eid, item in scenes.items.items()}
+
+    scenes.set_element_hidden(victim, True)
+    applier.refresh(t)                           # same time, same state
+
+    after = _clip_states(scenes)
+    assert {k: v for k, v in after.items() if k != victim} == \
+        {k: v for k, v in before.items() if k != victim}
+    assert {eid: item.opacity() for eid, item in scenes.items.items()
+            if eid != victim} == \
+        {eid: value for eid, value in opacities.items() if eid != victim}
