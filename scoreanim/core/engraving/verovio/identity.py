@@ -13,7 +13,8 @@ RenderedElements, AdapterNoteRecords, the staff-lines geometry map
 synthesis positions from, and per-element note/rest durations (M4.1:
 timemap off − on, keyed by minted ElementId). _LoadState READS: prep,
 mei, onset_by_id, off_by_id, measure_start, staff_centers_by_system
-(grpSym span), suppressed_spanners, sig_changes + last_of_system
+(grpSym span, resolved by group_span.covered_staves), suppressed_spanners,
+sig_changes + last_of_system
 (courtesy-sig retime, FINDING-4). WRITES: warnings
 ("unattributed-continuation").
 """
@@ -28,6 +29,7 @@ from scoreanim.core.animation.schedule import (REVEALED_KINDS, SIG_KINDS,
 from scoreanim.core.engraving.types import (LoadWarning, Rect,
                                             RenderedElement,
                                             RenderPrimitive)
+from scoreanim.core.engraving.verovio import group_span
 from scoreanim.core.engraving.verovio.attribution import _tstamp_extent
 from scoreanim.core.engraving.verovio.decompose import _ElementAccumulator
 from scoreanim.core.engraving.verovio.kinds import (_ID_TAG,
@@ -228,17 +230,18 @@ def _identity_for(acc: _ElementAccumulator, page: int, st: _LoadState,
         # overlaps its part (triage spike, section E). Injected groups
         # keep their exact Phase 8 ids (score:sys{n}:grpsym:P1-P2); a
         # multi-staff part's own brace mints its part id alone
-        # (score:sys{n}:grpsym:P5).
+        # (score:sys{n}:grpsym:P5). Under hide-empty-staves the span
+        # names the VISIBLE ends on THIS system, so one authored bracket
+        # can mint P7-P11 on a full system and P7-P10 where the Double
+        # Bass staff is hidden — ids are per-system already, and
+        # GROUP_SYMBOL is static scaffold no override keys on.
         if acc.system is None or acc.bbox is None:
             raise ValueError("group symbol without system/bbox")
         centers = st.staff_centers_by_system.get(acc.system, {})
-        covered = sorted(n for n, cy in centers.items()
-                         if acc.bbox.y <= cy <= acc.bbox.y + acc.bbox.h)
-        if not covered or covered != list(range(covered[0],
-                                                covered[-1] + 1)):
-            raise ValueError(
-                f"group symbol in system {acc.system} spans staves "
-                f"{covered} — expected a contiguous non-empty range")
+        try:
+            covered = group_span.covered_staves(centers, acc.bbox)
+        except ValueError as exc:
+            raise ValueError(f"system {acc.system}: {exc}") from exc
         first = prep.part_for_staff(covered[0])
         last = prep.part_for_staff(covered[-1])
         if first is last and first.staff_count > 1:

@@ -503,6 +503,29 @@ scale-to-fit). Parked:
     deferred until M5 proved the pattern. Two features that want the
     same home and share a seam are cheaper together than apart.
 
+## Staff groups (bracket bug fix, 2026-07-29)
+
+18. **`condense_groups` and `staff_groups` are validated against
+    different part orders.** `_validated_groups`
+    (`core/project/commands/layout.py:23`) checks a staff group against
+    the part order the document was loaded with, but `_apply_condense`
+    runs BEFORE `_inject_part_groups` at the prep seam
+    (`musicxml_prep.py:315`) and physically removes absorbed parts from
+    the `<part-list>`. So a condense group that swallows a part named by
+    a staff group passes command validation and then raises
+    `ValueError: staff group names unknown part 'P2'` mid-load. Both
+    sets are authorable in one `ApplyScoreSetup`, and a saved project
+    can carry the pair. There is no cross-validation and no test.
+
+    Found while fixing the bracket-over-hidden-staves crash, which had
+    the same shape: a seam-level `ValueError` reaching an unguarded
+    re-engrave. That guard (`main_window._on_document_changed`) now
+    turns this into a visible "re-engrave failed: …" instead of a
+    silent no-op, which is why this is a backlog item and not a bug.
+    The real fix is to validate the staff groups against the
+    POST-condense part order — one shared helper, since the two
+    commands already share `ApplyScoreSetup`.
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score
