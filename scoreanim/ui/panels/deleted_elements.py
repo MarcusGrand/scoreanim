@@ -82,6 +82,10 @@ class DeletedElementsList(QWidget):
         captured ids can never go stale behind its button."""
         for row in self._rows:
             self._column.removeWidget(row)
+            # unparent BEFORE deleteLater: removeWidget only takes the
+            # row out of the layout, so until the deferred delete runs
+            # the widget is still a child and still paints where it was
+            row.setParent(None)
             row.deleteLater()
         self._rows = []
         for index, family in enumerate(self.entries(doc)):
