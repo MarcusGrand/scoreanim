@@ -102,6 +102,17 @@ A second surface for an action hosts the SAME QAction object
 ceiling or two jobs), the split is its OWN commit with no feature code
 and byte-identical goldens, BEFORE the feature lands (M3.0, M5.0, M6.0).
 
+**Delete is a hide, never a rewrite** — deleting an element is for
+engraving and cosmetic cleanup ONLY. It hides ink through
+`LayoutOverride.hidden` (a render-side mask, not an engraving input, so
+nothing re-engraves), changes no timing and no other element, and is
+always restorable — by undo, or from the layout zone's "Deleted"
+readout, which is the only way back once the ink is unclickable. What
+may be deleted follows from that sentence: marks ON the music (texts,
+slurs, hairpins, dynamics), never the music itself and never scaffold.
+The set lives in `core/editing/deletion.py`; adding a kind to it means
+arguing the sentence still holds.
+
 **Two hit paths, on purpose** — selection resolves rule-13 OBJECTS;
 double-click-to-edit has its own resolver that also reaches stage
 texts. Stage texts are editable but never selectable (they carry no
@@ -135,6 +146,12 @@ measure/part). Do not merge the paths.
   it destroys the system break too unless promoted/asserted.
 - **`QMainWindow.saveState` covers docks, not inner splitters** — lane
   splitters need their own persistence if wanted.
+- **A stage key must not become a window shortcut** if another widget
+  already handles that key. Qt matches shortcuts BEFORE the key reaches
+  the focused widget, so a window-level Delete silently eats the tempo
+  lane's point deletion. Stage keys use
+  `WidgetWithChildrenShortcut` + `view.addAction(...)` (Delete), or the
+  view's own `keyPressEvent` (Esc, arrows) — never `window.addAction`.
 - **Break edits legitimately change element sets**: system-start
   restatement furniture (clef/key per part) and courtesy signatures
   appear/vanish; `ledger_lines` seq ids re-use across re-layout (id

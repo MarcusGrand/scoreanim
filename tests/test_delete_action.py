@@ -248,3 +248,27 @@ def _delete_via_selection(window, kind):
     element = _select_kind_directly(window, kind)
     window.delete_action.trigger()
     return element.identity.element_id
+
+
+def test_a_deleted_text_is_no_longer_reachable_by_a_double_click(
+        window) -> None:
+    """Hidden ink is out of every hit path, not just the selection's —
+    otherwise a double-click would open an editor over ink nobody can
+    see. The layout zone is the way back."""
+    # the first TEXT that the editor actually opens on — page furniture
+    # and part labels route differently (tests/test_text_edit.py)
+    for el in window.animation_inputs.layout.elements:
+        if el.identity.kind is not ElementKind.TEXT:
+            continue
+        item = window._scenes.items[el.identity.element_id]
+        centre, scene = item.bbox.center(), item.scene()
+        if window.text_edit.edit_at(centre, scene):
+            break
+    else:
+        pytest.fail("no editable text in this fixture")
+    window.text_edit.close()
+
+    window.app_state.set_selection(el.identity)
+    window.delete_action.trigger()
+
+    assert not window.text_edit.edit_at(centre, scene)

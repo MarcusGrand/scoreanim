@@ -1,9 +1,7 @@
 # ScoreAnim — Worklog
 
-**NOW:** `fix/bracket-hidden-staves` (beb5218) awaiting Marcus's check +
-merge to main. Next feature (feature track): **delete elements** — ride
-`LayoutOverride.hidden`, Delete key + Edit menu, restorable from the
-layout zone's overrides readout.
+**NOW:** `beta/f-delete-elements` built and green, awaiting Marcus's
+check in the app + merge to main. No tag.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -11,6 +9,11 @@ lines — history lives in git, ROADMAP, and the briefs.
 
 ---
 
+- 2026-07-29 — `beta/f-delete-elements`: delete = hide, for engraving
+  cleanup only. Del/Backspace on the stage + Edit menu, texts/slurs/
+  hairpins/dynamics only, restorable from the layout zone's new
+  "Deleted" readout. Rides `LayoutOverride.hidden`; no schema bump, no
+  re-engrave. Break commands split out of `layout.py` first. UNMERGED.
 - 2026-07-29 — Docs: two-track process encoded (ROADMAP §"Process — two
   tracks"), PATTERNS.md and this file created, CLAUDE.md slimmed
   (rules untouched).
