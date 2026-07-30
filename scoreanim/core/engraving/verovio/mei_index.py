@@ -216,3 +216,37 @@ def _container_ns(mei_xml: str, tag: str) -> dict[str, int]:
         if el_id and el.get("n"):
             result[el_id] = _int_or(el.get("n"), 0)
     return result
+
+
+# Staff-label classes, in the two flavours Verovio draws: the full name on
+# system 1, the abbreviation on later systems.
+LABEL_CLASSES = ("label", "labelAbbr")
+
+
+def staffdef_labels(mei_xml: str) -> dict[tuple[int, str], str]:
+    """Which staff carries which label text: (staff number, class) → text.
+
+    The MEI side of the label→part join (M7, measured in
+    spikes/label_part.py). Every <label>/<labelAbbr> hangs on a <staffDef>
+    that carries @n, the GLOBAL staff number, which
+    PreparedScore.part_for_staff turns into a part. A drawn label's own
+    SVG id is a throwaway that does not exist in the MEI at all (0/129
+    measured), so this table plus document order is the only join there is.
+
+    A part with no abbreviation gets a "label" entry and no "labelAbbr"
+    one — which is exactly the filter the join needs, because such a part
+    draws nothing after system 1.
+    """
+    root = ET.fromstring(mei_xml)
+    result: dict[tuple[int, str], str] = {}
+    for staff_def in root.iter(f"{_MEI_NS}staffDef"):
+        staff_n = staff_def.get("n")
+        if not staff_n:
+            continue
+        for cls in LABEL_CLASSES:
+            label = staff_def.find(f"{_MEI_NS}{cls}")
+            if label is None:
+                continue
+            result[(_int_or(staff_n, 0), cls)] = "".join(
+                label.itertext()).strip()
+    return result
