@@ -41,13 +41,15 @@ from scoreanim.core.timing.grid import EMPTY, GridTick, TickGrid
 from scoreanim.ui.lane_style import BOTTOM_PAD, GRID_TEXT, HIT_PX, TOP_PAD
 from scoreanim.ui.readouts import format_time
 
+_BAR = QColor("#5b6472")         # barline, brighter here than the host's
 _SUB = QColor("#3d424c")         # subdivision line
 _SUB_STRONG = QColor("#4b5563")  # subdivision on a whole beat
 _HANDLE = QColor("#7fb8e8")      # the line under the pointer, or dragging
 _BPM_TEXT = QColor("#6f7681")
 
 _SUB_TOP = 0.42                  # subdivisions start this far down the lane
-_BPM_MIN_PX = 46.0               # narrower bars get no bpm readout
+_BPM_MIN_PX = 34.0               # about the text's own width: a narrower
+                                 # bar gets no bpm readout
 _EDGE_PX = 60.0                  # how far off-screen to still consider ticks
 _EPS = 1e-6
 _OFFSET_MIN, _OFFSET_MAX = -60.0, 3600.0     # the Offset field's own range
@@ -123,7 +125,12 @@ class TickAlignMode:
         w, h = self._lane.width(), self._lane.height()
         top = TOP_PAD + (h - TOP_PAD - BOTTOM_PAD) * _SUB_TOP
         for x, tick in self._visible():
-            if tick.barline:                 # the host already drew these
+            if tick.barline:
+                # over the host's grid line: in this mode a barline is a
+                # handle, so it has to read as structure, not as one more
+                # tick in the row
+                painter.setPen(QPen(_BAR, 1))
+                painter.drawLine(QPointF(x, TOP_PAD), QPointF(x, h))
                 continue
             whole = abs(tick.beat - round(tick.beat)) < _EPS
             painter.setPen(QPen(_SUB_STRONG if whole else _SUB, 1))
@@ -137,22 +144,26 @@ class TickAlignMode:
             painter.drawLine(QPointF(x, TOP_PAD), QPointF(x, h))
 
     def _draw_bar_tempos(self, painter: QPainter, w: int, h: int) -> None:
-        """Each bar's effective tempo, in place of the red line."""
+        """Each bar's effective tempo, in place of the red line — but only
+        where it CHANGES. The same number under every bar is a wall of
+        noise; printing the changes makes them the thing you see."""
         painter.setPen(_BPM_TEXT)
         tempo_map = self._lane.tempo_map
+        previous: float | None = None
         for measure in self._state.measures:
-            x = self._x_of_tick(measure.start)
-            if not -20.0 <= x <= w:
-                continue
-            span = (tempo_map.seconds_at(measure.start + measure.quarter_length)
+            end = measure.start + measure.quarter_length
+            span = (tempo_map.seconds_at(end)
                     - tempo_map.seconds_at(measure.start))
             if span <= 0.0 or measure.quarter_length <= 0.0:
                 continue
-            if self._x_of_tick(measure.start + measure.quarter_length) - x \
-                    < _BPM_MIN_PX:
-                continue
             bpm = 60.0 * measure.quarter_length / span
-            painter.drawText(QPointF(x + 3, h - 4), f"{bpm:.1f}")
+            changed = previous is None or abs(bpm - previous) > 0.05
+            previous = bpm
+            x = self._x_of_tick(measure.start)
+            if not (changed and -20.0 <= x <= w):
+                continue
+            if self._x_of_tick(end) - x >= _BPM_MIN_PX:
+                painter.drawText(QPointF(x + 3, h - 4), f"{bpm:.1f}")
 
     # -- interaction ------------------------------------------------------------
 

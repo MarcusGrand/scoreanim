@@ -598,6 +598,39 @@ scale-to-fit). Parked:
     Related: item 18, the same family of "validated against the wrong
     part order" bug.
 
+## Grid alignment (2026-07-30)
+
+21. **A repeated pass gets subdivision ticks but no barlines.** The lane's
+    grid takes its bars from `MeasureInfo`, which holds one entry per
+    document-order measure, so the bar at a repeat end carries a
+    `quarter_length` covering the whole second pass (measured on
+    complex3: ordinal 37 spans 12.0 for a 4/4 bar, because
+    `provider._engrave_prepared` keeps first-pass starts only —
+    `setdefault` plus the `measure_by_id` guard drops the `-rend<k>`
+    expansion clones). The pass offset is a whole number of quarters, so
+    the beat ticks across it are still real beats and dragging them is
+    correct; only the interior barlines and their numbers are missing.
+    Pre-existing — today's measure grid has always drawn it this way.
+
+    The fix, if it is wanted: strip the `-rend<k>` suffix in the provider,
+    map the base id back through `mei.measure_by_id`, and carry the extra
+    pass starts on `MeasureTimeline` as derived data (rule 5, no schema
+    bump). It touches the beat-authority seam, so it deserves its own
+    decision rather than riding along.
+
+22. **The lane's mode, grid step and Pin/Ripple are not persisted.** They
+    are view state by design (rule 5), so they reset to Tempo / Bars / Pin
+    every launch. If that gets annoying they belong in `window_state`
+    with the dock geometry, not in the project file.
+
+23. **No snapping a dragged line to the audio.** The obvious next want is
+    for a barline to snap to a transient under it. We have peaks, not
+    onsets, so this is a real piece of work (onset detection, plus a
+    modifier to defeat it), not a tweak.
+
+24. **`commands/timing.py` now does three jobs** (tempo events, taps,
+    swing) in ~300 lines. The next timing command should split it first.
+
 ## Deferred (from docs/history/PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

@@ -969,10 +969,33 @@ selection + shared time-axis zoom/scroll):
   View-level on purpose: export scenes structurally cannot see the
   mask. Follow emits page AND system; the window routes by mode;
   prev/next step the current presentation unit. Paged stays default.
-- **TempoLaneView**: tempo events as draggable points; shares the time
-  axis with the waveform. Swing is a single global ratio set numerically
-  on the transport bar in v1 (ruling 2026-07-11); the SwingRegion data
-  model is unchanged and per-region authoring returns later (BACKLOG 7).
+- **TempoLaneView**: the lane under the waveform, sharing its time axis.
+  A host widget with two modes, chosen by `AppState.grid.display`
+  (`ui/grid_options.py` — view state, never document intent). The host
+  owns what they share: background, measure grid, playhead, the beat ⇄ x
+  mapping, the cached `TempoMap`, click-to-seek and wheel zoom; each mode
+  owns its drawing and its gestures, and gets first refusal on every
+  event. `ui/lane_tempo.py` is tempo events as draggable points (the red
+  step line); `ui/lane_ticks.py` makes the grid lines themselves the drag
+  handles — see "Grid alignment" below. Swing is a single global ratio
+  set numerically on the transport bar in v1 (ruling 2026-07-11); the
+  SwingRegion data model is unchanged and per-region authoring returns
+  later (BACKLOG 7).
+
+  **Grid alignment (2026-07-30).** Dragging a grid line onto the waveform
+  is solved back into `(position, bpm)` tempo events —
+  `core/timing/retime.py`, one command `AlignBeat`. `tempo_events` stays
+  the only tempo representation, so there is no anchor field, no schema
+  bump, and the same edit reads as a step in tempo mode. The anchors a
+  drag holds still are the nearest BARLINE OR EXISTING TEMPO POINT either
+  side: neighbouring ticks would leave a 1/16 drag a few milliseconds of
+  travel before the bpm clamp stopped it, while barlines give every
+  resolution the same range, and each drag leaves a tempo point behind so
+  the next drag in the same bar anchors on it. Ripple is the same
+  function with the second anchor dropped. The first line has no anchor
+  before it, so it edits the offset instead. `retime_bounds` gives the
+  view the reachable window to clamp with, so a drag cannot build a
+  command that fails on release.
 - **WaveformView**: rendered peaks, playhead, click-to-seek; tap capture
   during playback.
 

@@ -128,6 +128,21 @@ slurs, hairpins, dynamics), never the music itself and never scaffold.
 The set lives in `core/editing/deletion.py`; adding a kind to it means
 arguing the sentence still holds.
 
+**The lane-mode seam** — the timeline lane hosts modes: the host owns
+what they share (axis mapping, measure grid, playhead, seek, wheel) and
+each mode owns its drawing and its gestures, getting first refusal on
+every event and returning False to let the host's click-to-seek have it.
+A mode cancels its own preview in `deactivate()` when the user switches
+away. Colours and paddings live in `ui/lane_style.py` so a mode never
+imports the host back.
+
+**Two beat domains at the tick seam** — a grid tick is a MUSICAL beat; a
+tempo event's `position` is a SWING-WARPED beat (`seconds_at` consumes
+warped beats). Anything crossing between them converts: ticks warp on the
+way to a pixel, event positions unwarp (`swing_unwarp`) on the way to
+being compared with ticks. Get this wrong and everything looks right at
+ratio 0.5 and drifts the moment swing is on.
+
 **Two hit paths, on purpose** — selection resolves rule-13 OBJECTS;
 double-click-to-edit has its own resolver that also reaches stage
 texts. Stage texts are editable but never selectable (they carry no

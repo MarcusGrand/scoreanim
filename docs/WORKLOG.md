@@ -1,9 +1,10 @@
 # ScoreAnim — Worklog
 
-**NOW:** Part labels rename by double-click, which closed the last piece
-of the direct-edit work. `main` is clean and unpushed. Two branches are
-still unmerged and independent: `beta/f-trackpad-gestures` and
-`fix/bracket-hidden-staves`.
+**NOW:** `beta/grid-align` adds a second mode to the timeline lane —
+drag a barline or a beat onto the waveform to line the score up with the
+recording. Built and green, waiting on Marcus's run in the app before it
+merges. Two other branches are still unmerged and independent:
+`beta/f-trackpad-gestures` and `fix/bracket-hidden-staves`.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -11,6 +12,14 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-07-30 — **Grid alignment** (`beta/grid-align`, UNMERGED): the lane
+  gets a Ticks mode where the grid lines are drag handles, at Bars / 1/4 /
+  1/8 / 1/8T / 1/16, with Pin or Ripple (Alt flips it). Solved back into
+  tempo events — no new document field, no schema bump. Anchors are the
+  nearest barline or tempo point, NOT the neighbouring ticks (those choke
+  a 1/16 drag). New pure `core/timing/grid.py` + `retime.py`, one command
+  `AlignBeat`, `swing_unwarp`, and the lane split into host + modes first.
+  Opened BACKLOG 21–24.
 - 2026-07-30 — Docs slimmed for lightweight working. The milestone
   ceremony and the two-track process are retired: one track now, no plan
   gate, ask first only for a schema bump, a golden re-capture, or a rule
