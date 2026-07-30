@@ -1,15 +1,14 @@
 # ScoreAnim — Worklog
 
-**NOW:** `beta/grid-align` rebuilds how tempo is authored: the timeline
-lane's Ticks mode (now the default) lines the score up with the recording
-by dragging barlines and beats, with double-click locks as the anchors,
-and the Tempo field sets the tempo from the selected line onward, with
-the ticks moving as you type it. Built
-and green, waiting on Marcus's run in the app before it merges. Open
-question for him: whether Tempo mode still earns its place. It carries a schema
-bump (v10), so a project saved on this branch will not open on
-`v0.2-beta.6`. Two other branches are still unmerged and independent:
-`beta/f-trackpad-gestures` and `fix/bracket-hidden-staves`.
+**NOW:** `beta/grid-align` is merged (`bb7b195`, no tag): tempo is
+authored by dragging the timeline lane's Ticks grid onto the recording,
+with double-click locks as the anchors, and the Tempo field sets the
+tempo from the selected line onward with the ticks moving as you type.
+Merged on Marcus's say-so before a run in the app, so `main` is
+unproven there. It carries the schema bump to v10, so a project saved
+from `main` now will not open on `v0.2-beta.6`. Open question: whether
+Tempo mode still earns its place. Two branches remain unmerged and
+independent: `beta/f-trackpad-gestures` and `fix/bracket-hidden-staves`.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
