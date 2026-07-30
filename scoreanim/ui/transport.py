@@ -130,14 +130,16 @@ class TransportStrip(QWidget):
         self._grid_unit.setToolTip("Which lines the grid shows")
         self._grid_unit.currentIndexChanged.connect(self._commit_grid_unit)
 
-        self._ripple_button = QToolButton()
-        self._ripple_button.setCheckable(True)
-        self._ripple_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._ripple_button.setToolTip(
-            "Pin: the lines either side of the one you drag stay put.\n"
-            "Ripple: the music after it slides along, keeping its tempo.\n"
+        self._shape_button = QToolButton()
+        self._shape_button.setCheckable(True)
+        self._shape_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._shape_button.setToolTip(
+            "Flatten: a dragged span comes out evenly spaced, at one "
+            "tempo.\n"
+            "Keep shape: it stretches instead, so tempo detail already "
+            "inside survives.\n"
             "Alt while dragging flips whichever is set.")
-        self._ripple_button.toggled.connect(self._commit_ripple)
+        self._shape_button.toggled.connect(self._commit_shape)
 
         row = QHBoxLayout(self)
         row.setContentsMargins(4, 2, 4, 2)
@@ -152,7 +154,7 @@ class TransportStrip(QWidget):
         row.addWidget(QLabel("Lane"))
         row.addWidget(self._lane_mode)
         row.addWidget(self._grid_unit)
-        row.addWidget(self._ripple_button)
+        row.addWidget(self._shape_button)
         row.addWidget(_action_button(self.arm_taps_action))
         row.addWidget(_action_button(self.tap_action))
         self._sync_from_grid()
@@ -185,8 +187,9 @@ class TransportStrip(QWidget):
         grid = self._state.grid
         ticks = grid.display is LaneDisplay.TICKS
         self._grid_unit.setEnabled(ticks)
-        self._ripple_button.setEnabled(ticks)
-        self._ripple_button.setText("Ripple" if grid.ripple else "Pin")
+        self._shape_button.setEnabled(ticks)
+        self._shape_button.setText("Flatten" if grid.flatten
+                                   else "Keep shape")
 
     def _commit_lane_mode(self) -> None:
         self._state.grid.set_display(self._lane_mode.currentData())
@@ -195,8 +198,9 @@ class TransportStrip(QWidget):
     def _commit_grid_unit(self) -> None:
         self._state.grid.set_unit(self._grid_unit.currentData())
 
-    def _commit_ripple(self, ripple: bool) -> None:
-        self._state.grid.set_ripple(ripple)
+    def _commit_shape(self, keep_shape: bool) -> None:
+        # the button is CHECKED for "keep shape", so the flag inverts
+        self._state.grid.set_flatten(not keep_shape)
         self._sync_from_grid()
 
     # -- commit handlers -------------------------------------------------------

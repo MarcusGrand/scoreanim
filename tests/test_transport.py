@@ -179,14 +179,16 @@ def test_lane_controls_drive_the_view_state_and_no_command(qapp) -> None:
     widget._lane_mode.setCurrentIndex(
         widget._lane_mode.findData(LaneDisplay.TICKS))
     assert state.grid.display is LaneDisplay.TICKS
-    assert widget._grid_unit.isEnabled() and widget._ripple_button.isEnabled()
+    assert widget._grid_unit.isEnabled() and widget._shape_button.isEnabled()
 
     widget._grid_unit.setCurrentIndex(GRID_UNITS.index(EIGHTH))
     assert state.grid.unit == EIGHTH
 
-    assert widget._ripple_button.text() == "Pin"
-    widget._ripple_button.setChecked(True)
-    assert state.grid.ripple and widget._ripple_button.text() == "Ripple"
+    # the button is CHECKED for "keep shape", so the flag inverts
+    assert widget._shape_button.text() == "Flatten" and state.grid.flatten
+    widget._shape_button.setChecked(True)
+    assert not state.grid.flatten
+    assert widget._shape_button.text() == "Keep shape"
 
     assert len(changes) == 3                     # one signal per real change
     assert not state.can_undo and not state.is_dirty

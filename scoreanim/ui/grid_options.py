@@ -27,7 +27,7 @@ class GridOptions(QObject):
         super().__init__(parent)
         self._display = LaneDisplay.TEMPO
         self._unit: GridUnit = BARS
-        self._ripple = False
+        self._flatten = True
 
     @property
     def display(self) -> LaneDisplay:
@@ -49,13 +49,13 @@ class GridOptions(QObject):
             self.changed.emit()
 
     @property
-    def ripple(self) -> bool:
-        """False pins the anchors either side of a dragged line; True lets
-        everything after it slide, keeping its tempo. Alt flips whichever
-        is set, for one drag."""
-        return self._ripple
+    def flatten(self) -> bool:
+        """True spaces a dragged span evenly, at one tempo; False
+        stretches it proportionally so tempo detail already inside
+        survives. Alt flips whichever is set, for one drag."""
+        return self._flatten
 
-    def set_ripple(self, ripple: bool) -> None:
-        if bool(ripple) is not self._ripple:
-            self._ripple = bool(ripple)
+    def set_flatten(self, flatten: bool) -> None:
+        if bool(flatten) is not self._flatten:
+            self._flatten = bool(flatten)
             self.changed.emit()

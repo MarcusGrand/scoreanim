@@ -12,6 +12,9 @@ BG = QColor("#1d1f24")
 GRID = QColor("#33363d")
 GRID_TEXT = QColor("#8a8f99")
 PLAYHEAD = QColor("#e8b34a")
+# a locked grid line: warmer and stronger than the playhead's
+# amber, which it sits next to
+LOCK = QColor("#f2761f")
 
 TOP_PAD = 16                     # measure-number strip
 BOTTOM_PAD = 6
