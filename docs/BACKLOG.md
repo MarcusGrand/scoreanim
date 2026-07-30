@@ -618,10 +618,11 @@ scale-to-fit). Parked:
     bump). It touches the beat-authority seam, so it deserves its own
     decision rather than riding along.
 
-22. **The lane's mode, grid step and Pin/Ripple are not persisted.** They
-    are view state by design (rule 5), so they reset to Tempo / Bars / Pin
-    every launch. If that gets annoying they belong in `window_state`
-    with the dock geometry, not in the project file.
+22. **The lane's mode, grid step and Flatten/Keep-shape are not
+    persisted.** They are view state by design (rule 5), so they reset to
+    Tempo / Bars / Flatten every launch. If that gets annoying they
+    belong in `window_state` with the dock geometry, not in the project
+    file.
 
 23. **No snapping a dragged line to the audio.** The obvious next want is
     for a barline to snap to a transient under it. We have peaks, not
@@ -630,6 +631,20 @@ scale-to-fit). Parked:
 
 24. **`commands/timing.py` now does three jobs** (tempo events, taps,
     swing) in ~300 lines. The next timing command should split it first.
+
+25. **A lock outside the score is inert and invisible.** Locks are beats,
+    so re-loading a score with fewer measures leaves any lock past the
+    new end with nothing to draw and nothing to anchor. It is inert
+    rather than wrong — the same treatment a stale break override gets —
+    but there is no readout saying so. If it bites, the layout zone's
+    "Deleted" readout is the precedent to copy.
+
+26. **Locks constrain tick drags only.** The Offset field, a tempo-point
+    drag in Tempo mode and a `.tempo` re-import all move locked beats;
+    only the last of those clears the locks. Solving the map against the
+    locks instead would make them a real constraint, which is a much
+    bigger change than it sounds and probably the wrong one — the user
+    reached for a more direct tool.
 
 ## Deferred (from docs/history/PHASES.md "Later")
 

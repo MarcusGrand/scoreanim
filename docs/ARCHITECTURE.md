@@ -982,20 +982,31 @@ selection + shared time-axis zoom/scroll):
   SwingRegion data model is unchanged and per-region authoring returns
   later (BACKLOG 7).
 
-  **Grid alignment (2026-07-30).** Dragging a grid line onto the waveform
-  is solved back into `(position, bpm)` tempo events —
+  **Grid alignment (2026-07-30).** Dragging a grid line onto the
+  waveform is solved back into `(position, bpm)` tempo events —
   `core/timing/retime.py`, one command `AlignBeat`. `tempo_events` stays
-  the only tempo representation, so there is no anchor field, no schema
-  bump, and the same edit reads as a step in tempo mode. The anchors a
-  drag holds still are the nearest BARLINE OR EXISTING TEMPO POINT either
-  side: neighbouring ticks would leave a 1/16 drag a few milliseconds of
-  travel before the bpm clamp stopped it, while barlines give every
-  resolution the same range, and each drag leaves a tempo point behind so
-  the next drag in the same bar anchors on it. Ripple is the same
-  function with the second anchor dropped. The first line has no anchor
-  before it, so it edits the offset instead. `retime_bounds` gives the
-  view the reachable window to clamp with, so a drag cannot build a
-  command that fails on release.
+  the only tempo representation, so the same edit reads as a step in
+  tempo mode.
+
+  What holds still is the user's LOCKS (`TimingConfig.locked_beats`,
+  schema v10), set by double-clicking a line. `lock_anchors` takes the
+  nearest lock either side — the score start standing in below, None
+  above meaning the music after keeps its tempo and slides. `AlignBeat`
+  reads them off the document rather than taking them as fields, so the
+  view cannot hand over a pair that disagrees with the locks, and it
+  locks the beat it just placed in the same command (one gesture, one
+  undo entry). A lock anchors its neighbours; dragging a locked line
+  moves it and re-locks it there.
+
+  Two rules, both holding the anchors: `flatten_span` (the default)
+  gives the span one constant bpm — evenly spaced, whatever was inside
+  is gone; `scale_span` multiplies the bpms instead, keeping tempo
+  detail worth having, like a tapped rubato passage. `span_bounds` gives
+  the view the reachable window for either, so a drag cannot build a
+  command that fails on release. The first line has no anchor before it,
+  so it edits the offset. Locks store beats only — the second is derived
+  (rule 5) — and constrain tick drags alone.
+
 - **WaveformView**: rendered peaks, playhead, click-to-seek; tap capture
   during playback.
 

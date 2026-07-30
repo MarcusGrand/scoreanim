@@ -2,8 +2,10 @@
 
 **NOW:** `beta/grid-align` adds a second mode to the timeline lane —
 drag a barline or a beat onto the waveform to line the score up with the
-recording. Built and green, waiting on Marcus's run in the app before it
-merges. Two other branches are still unmerged and independent:
+recording, with double-click locks as the anchors. Built and green,
+waiting on Marcus's run in the app before it merges. It carries a schema
+bump (v10), so a project saved on this branch will not open on
+`v0.2-beta.6`. Two other branches are still unmerged and independent:
 `beta/f-trackpad-gestures` and `fix/bracket-hidden-staves`.
 
 One dated line per session, newest first. Every session reads this file
@@ -12,6 +14,15 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-07-30 — **Grid alignment round 2**: double-click a line to LOCK
+  it (thick, orange, padlock); locks are the only drag anchors and they
+  persist (schema v10, `locked_beats`, beats only — the second is
+  derived). A drag now evens the span from the previous lock out to one
+  tempo and locks the line it placed, so aligning left to right holds;
+  Pin/Ripple became Flatten / Keep shape. Also fixed the view jumping
+  out mid-drag — three causes, the real one being that with no audio the
+  axis re-fits to the score's own changing length on every preview
+  frame. Opened BACKLOG 25-26.
 - 2026-07-30 — **Grid alignment** (`beta/grid-align`, UNMERGED): the lane
   gets a Ticks mode where the grid lines are drag handles, at Bars / 1/4 /
   1/8 / 1/8T / 1/16, with Pin or Ripple (Alt flips it). Solved back into

@@ -136,11 +136,30 @@ A mode cancels its own preview in `deactivate()` when the user switches
 away. Colours and paddings live in `ui/lane_style.py` so a mode never
 imports the host back.
 
+**Locks are the anchors, derived once** — what holds still during a grid
+drag is the user's locks (`TimingConfig.locked_beats`), never something
+inferred from barlines or stray tempo events. The view and the command
+both ask `core/timing/retime.lock_anchors`, so the clamp and the result
+cannot disagree — which is the only way a lock could end up inside a
+span that gets re-spaced. A lock stores only its beat; the second is
+derived (rule 5). It anchors tick drags and nothing else: the Offset
+field, a tempo-point drag and a `.tempo` import all move locked beats,
+and the last of those clears the locks outright.
+
+**A duration change must not steal the window** — with no audio bound
+the time axis's duration is the SCORE's length, so every tempo edit
+changes it, including each preview frame of a drag. `TimeAxis` re-fits
+only when the window is showing everything AND no gesture holds it;
+`AppState.preview` takes the hold and `execute`/`cancel_preview` release
+it, so no view has to remember. Both halves are needed — keeping a
+zoomed window alone still yanks the common case (no audio, fully zoomed
+out) on every mouse-move.
+
 **Two beat domains at the tick seam** — a grid tick is a MUSICAL beat; a
 tempo event's `position` is a SWING-WARPED beat (`seconds_at` consumes
-warped beats). Anything crossing between them converts: ticks warp on the
-way to a pixel, event positions unwarp (`swing_unwarp`) on the way to
-being compared with ticks. Get this wrong and everything looks right at
+warped beats). Locks are musical too. Anything crossing between them converts:
+ticks and locks warp on the way to a pixel, event positions unwarp
+(`swing_unwarp`) on the way to being compared with them. Get this wrong and everything looks right at
 ratio 0.5 and drifts the moment swing is on.
 
 **Two hit paths, on purpose** — selection resolves rule-13 OBJECTS;
