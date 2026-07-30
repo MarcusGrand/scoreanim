@@ -1,5 +1,10 @@
-"""Static window chrome: the five menus, the slim toolbar, and the
+"""Static window chrome: the five menus, the toolbar, and the
 window-level shortcut registration (M1.5).
+
+The three openers — Open Score, Open Audio, Import Tempo — live on the
+in-window toolbar, not in the menus (ruling 2026-07-30): they are what
+you reach for first, and on macOS the menus are up at the top of the
+screen.
 
 Menus are pure wiring — every handler lives on the window or on a
 component it owns; this module declares the chrome and holds the action
@@ -17,6 +22,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QLabel, QMenu
 
@@ -109,7 +115,6 @@ class MainMenus:
         menubar = window.menuBar()
 
         self.file_menu = menubar.addMenu("&File")
-        self.file_menu.addAction(open_score)         # off the toolbar (M1.5)
         self.file_menu.addAction(open_project)
         self.file_menu.addSeparator()
         self.file_menu.addAction(save)
@@ -144,14 +149,21 @@ class MainMenus:
         self.playback_menu.addAction(strip.play_action)
         self.playback_menu.addAction(window.inspector.follow_action)
         self.playback_menu.addSeparator()
-        self.playback_menu.addAction(open_audio)
-        self.playback_menu.addAction(open_tempo)
         self.playback_menu.addAction(reload_tempo)
 
-        # -- slim toolbar (ruling 2026-07-24): ◀ page-label ▶ · Fit ----------
+        # -- toolbar: the three openers · ◀ page-label ▶ · Fit ---------------
+        # The openers are the first thing you do with the app, so they sit
+        # in the window rather than in the OS menu bar (ruling 2026-07-30).
         toolbar = window.addToolBar("Main")
         toolbar.setObjectName("MainToolbar")   # saveState identity (M1.8)
         toolbar.setMovable(False)
+        # nothing here has an icon, so ask for the labels explicitly
+        toolbar.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        toolbar.addAction(open_score)
+        toolbar.addAction(open_audio)
+        toolbar.addAction(open_tempo)
+        toolbar.addSeparator()
         toolbar.addAction(self.prev_action)
         toolbar.addWidget(self.page_label)
         toolbar.addAction(self.next_action)
@@ -160,8 +172,7 @@ class MainMenus:
 
         # window-level so these shortcuts fire regardless of focus
         for action in (self.undo_action, self.redo_action, save,
-                       strip.play_action, strip.arm_taps_action,
-                       strip.tap_action, reload_tempo):
+                       open_score, strip.play_action, reload_tempo):
             window.addAction(action)
 
     def set_position(self, text: str, can_prev: bool, can_next: bool) -> None:
