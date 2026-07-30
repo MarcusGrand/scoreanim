@@ -384,8 +384,23 @@ scale-to-fit). Parked:
 ## M3 Direct edit (2026-07-27)
 
 14. **A part label carries no part, so it cannot be renamed by
-    double-clicking it** — the one M3 exit criterion left unmet, and the
-    one route of feature 1 that is not built. MEASURED, not assumed:
+    double-clicking it** — **CLOSED 2026-07-30 (M7).** The adapter now
+    joins a label to its staff by document order, self-checked against
+    the label text (ARCHITECTURE obligation 17,
+    `core/engraving/verovio/label_parts.py`), and the M3 route lit up
+    with no change to `SetPartText`, the prep seam, or the schema. The
+    goldens moved in exactly three fields on label rows — `part`,
+    `part_name`, `staff` — with no id, geometry or onset change, because
+    a label has no measure and so never took the part-bearing id form.
+    Building it turned up one case the spike's 6 configurations did not
+    contain: a MULTI-STAFF part hangs its label on the `<staffGrp>`
+    around its staves, not on a `<staffDef>`, and Verovio draws every
+    group label FIRST — so video_test placed 0 of 7 labels until the join
+    grew a second tier (measured 41/41, `spikes/label_group.py`). All 16
+    fixture configurations now place every label with zero warnings
+    (1354 labels). The original analysis, kept because it is what the
+    work was measured against:
+    MEASURED, not assumed:
     Verovio emits labels as direct children of `<g class="system">` with
     no staff or part ancestor, so the adapter mints them
     `score:p<PAGE>:text:<n>` with `part=None`, and `tests/goldens/`
@@ -550,6 +565,38 @@ scale-to-fit). Parked:
     The real fix is to validate the staff groups against the
     POST-condense part order — one shared helper, since the two
     commands already share `ApplyScoreSetup`.
+
+## Labels (M7, 2026-07-30)
+
+20. **The Score Setup dialog cannot edit a condense group once the score
+    is condensed.** MEASURED while building M7's condensed-label route.
+    The dialog is handed `LoadedScore.parts`, which is
+    `engraved.prepared.parts` — the POST-condense part list. So after
+    condensing P1+P2, the order it validates against is
+    `(P1, P3, P4, …)`, the group it is editing still names
+    `(P1, P2)`, and `_validated_condense_groups` raises
+    `CommandError: condense group names unknown part 'P2'`.
+    `AppState.execute` reports and swallows it, so renaming a condense
+    group in the dialog silently does nothing. The same list is also why
+    the dialog cannot offer P2 as a member of a NEW group.
+    (Number 19 is taken by `beta/f-trackpad-gestures`, unmerged.)
+
+    M7 needed the fix for its own route and took the narrow one:
+    `editing.flat_part_order` rebuilds the score's order from the
+    condensed one plus the groups — the exact inverse of
+    `_apply_condense`, which keeps each group's first part in place and
+    drops the rest. The dialog should use it too, but that is a wider
+    change (Score Setup, Staff Groups and Part Names all take the same
+    tuple) with its own blast radius, so it is not M7's to make.
+
+    The better fix, if it is worth the load cost, is for `ScoreLoader` to
+    retain the FLAT part order from a second `musicxml_prep.prepare`
+    (measured 14 ms on testscore, 349 ms on complex2 — noise against a
+    load that already takes 0.6 s to 20 s) and hand THAT to every dialog.
+    Then no caller has to reconstruct anything, and reconstruction cannot
+    go wrong on a stale group (rule 5) the way `flat_part_order` can.
+    Related: item 18, the same family of "validated against the wrong
+    part order" bug.
 
 ## Deferred (from PHASES.md "Later")
 

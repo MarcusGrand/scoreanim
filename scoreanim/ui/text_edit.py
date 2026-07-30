@@ -29,13 +29,14 @@ from dataclasses import replace
 from PySide6.QtCore import QObject, QPointF, Qt
 from PySide6.QtWidgets import QGraphicsScene, QLineEdit
 
-from scoreanim.core.editing import TextRoute, route_for
+from scoreanim.core.editing import TextRoute, flat_part_order, route_for
 from scoreanim.core.engraving.types import Layout
-from scoreanim.core.project import (AddTempoOverlay, EditStageText,
-                                    SetPartText, page_content_top)
+from scoreanim.core.project import (AddTempoOverlay, EditCondenseGroup,
+                                    EditStageText, SetPartText,
+                                    page_content_top)
 from scoreanim.core.project.stage_config import (is_header_text,
                                                  seed_overlay_text)
-from scoreanim.core.score.identity import ElementId
+from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.render.items import ElementItem
 from scoreanim.render.scene import ScoreScenes
 from scoreanim.ui.app_state import AppState
@@ -136,7 +137,8 @@ class InlineTextEditor(QObject):
         if found is None:
             return False
         item, eid = found
-        target = route_for(item.identity, eid, self._text_class(eid))
+        target = route_for(item.identity, eid, self._text_class(eid),
+                           self._condensed())
         if target is None:
             return False
         initial = self._current_content(target, eid)
@@ -189,6 +191,12 @@ class InlineTextEditor(QObject):
 
     def _band(self) -> float:
         return page_content_top(self._layout)
+
+    def _condensed(self) -> dict[PartId, int]:
+        """Each condense group's kept part → the group's index. A merged
+        staff's label names the group, so it edits the group (M7)."""
+        return {group.parts[0]: i
+                for i, group in enumerate(self._state.doc.condense_groups)}
 
     def _current_content(self, target, eid: ElementId) -> str | None:
         """What the field starts with — always what is ON SCREEN now."""
@@ -245,6 +253,22 @@ class InlineTextEditor(QObject):
             self._state.execute(SetPartText(
                 target.part, name, abbrev,
                 tuple(p.part_id for p in self._parts)))
+            return
+
+        if target.route is TextRoute.CONDENSE_LABEL:
+            groups = self._state.doc.condense_groups
+            if target.group is None or target.group >= len(groups):
+                return                   # the doc moved under the editor
+            group = groups[target.group]
+            edited = (replace(group, name=content) if target.field == "name"
+                      else replace(group, abbreviation=content))
+            # the SCORE's part order, not the condensed one this build
+            # reports: the group still names the parts it absorbed, and the
+            # command validates against what it is handed
+            self._state.execute(EditCondenseGroup(
+                target.group, edited,
+                flat_part_order(tuple(p.part_id for p in self._parts),
+                                [g.parts for g in groups])))
             return
 
         if target.route is TextRoute.STAGE_TEXT:

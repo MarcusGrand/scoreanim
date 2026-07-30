@@ -239,6 +239,22 @@ The full plan checklist lives in ROADMAP §"Process — two tracks".
     element can be selected (transient) and color-overridden (intent,
     rule 5) at the same time, and the two must stay distinguishable on
     screen.
+    Amendment (M7, 2026-07-30): a PART LABEL is the one object whose part
+    the id grammar cannot carry. Verovio draws it as a child of the
+    system, with no staff ancestor, no MEI `@staff`, and an SVG id that
+    does not appear in the MEI at all (measured 0/129,
+    `spikes/label_part.py`) — and the label has no measure, so the
+    part-bearing id form does not apply to it. Its part is therefore
+    joined in the ADAPTER, from document order: the labels a system draws,
+    paired against the staves whose MEI label matches the class being
+    drawn (`core/engraving/verovio/label_parts.py`). This is document
+    order, not geometry, and it is SELF-CHECKING — every pairing is
+    confirmed against the label text the score carries, and a label the
+    join will not vouch for keeps `part=None`, so the failure mode is a
+    disabled rename (warned, `LoadWarning "label-unattributed"`) and
+    never a renamed wrong instrument. Downstream still reads the part off
+    the identity the adapter minted, exactly as the rule intends; only
+    the adapter knows how it was found.
 
 ## Stack (do not substitute without discussion)
 

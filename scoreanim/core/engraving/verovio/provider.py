@@ -26,8 +26,8 @@ from scoreanim.core.engraving.types import (TRANSPOSE_TO_SOUNDING_PITCH,
                                             LoadWarning, MeasureTimeline,
                                             PageGeometry)
 from scoreanim.core.engraving.verovio import (attribution, decompose,
-                                              identity, kinds, mei_index,
-                                              records, synthesis)
+                                              identity, kinds, label_parts,
+                                              mei_index, records, synthesis)
 from scoreanim.core.score.identity import Beats, ElementKind
 from scoreanim.core.score.musicxml_prep import (PageBreak, PartCondenseSpec,
                                                 PartGroupSpec, PartTextSpec,
@@ -441,6 +441,12 @@ class VerovioEngravingProvider(EngravingProvider):
         attribution._attribute_ledger_dashes(accumulators, state)
         attribution._attribute_spanner_segments(accumulators, state)
         attribution._flag_implausible_ties(state)
+        # 6. _attribute_labels runs LAST: it is the only pass that WRITES
+        #    acc.staff, and every pass above reads it (ledger dashes,
+        #    note/rest scoping). They are all gated on notes, rests and
+        #    dashes, so none of them can see a label — but the ordering
+        #    keeps that true by construction rather than by coincidence.
+        label_parts._attribute_labels(accumulators, state)
         # Last measure of each system (courtesy-sig retime, FINDING-4) —
         # from system_of_measure, the measure-group nesting map, which is
         # element-free and so immune to the cross-system :seg ordinal

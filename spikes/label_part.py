@@ -61,6 +61,14 @@ A condensed label names the KEPT part (`parts[0]`), measured — which is
 also what `SetPartText` would need to write, so condensing raises no
 extra decision.
 
+INCOMPLETE, and measured as such later: none of the 6 cases below has a
+MULTI-STAFF part. Such a part hangs its label on the `<staffGrp>` around
+its staves rather than on a `<staffDef>`, and Verovio draws every group
+label FIRST, out of staff order — so D as written here places 0 of
+video_test's 7 labels. `spikes/label_group.py` measures that and is what
+the built join (M7) follows. D's SHAPE survived; its notion of "the
+labelled staves, in order" needed the group tier.
+
 Run: PYTHONPATH=. .venv/bin/python spikes/label_part.py
 """
 

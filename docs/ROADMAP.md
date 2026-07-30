@@ -129,6 +129,7 @@ move, but usually the alpha just stays put.
 | M4 | **Effects** | Effects panel: global default effect ("pop for everything"), tunable pop amplitude / settle / peak offset / note-value relax, floor + reveal controls rehomed. **Pulled forward — runs alongside M2.** |
 | M5 | **Breaks** | System-break authoring: select a barline, toggle a system break; prep-seam re-engrave. |
 | M6 | **Pages** | Page-break authoring on the M5 pattern, plus the left layout zone that finally gives break authoring a home. |
+| M7 | **Labels** | Attribute part labels to their parts in the adapter, which completes M3's staff-label rename. Short ceremony (see §M7). |
 
 Dependency shape: M1 first (every later control lands in its chrome).
 M2 before M3 and M5 (both act on a selection). M4 needs only M1 and can
@@ -1029,6 +1030,55 @@ changed either a measurement or a line of code:
 Suite **1042 passed / 1 xfailed** at M6.7, from 960 at the branch point;
 goldens byte-identical for every unmodified fixture at every commit
 after M6.0; no `ui/` module over ~400 lines.
+
+---
+
+## M7 — Labels (rename a staff label by double-clicking it)
+
+**Why it is a milestone at all.** Everything about this feature except
+one fact was built in M3: the routing policy, the inline editor, the
+`SetPartText` command, the prep-seam rewrite. The missing fact is that
+the adapter minted part labels with `part=None`, so the route could never
+fire (BACKLOG 14, the one unmet M3 exit criterion). Supplying it changes
+what the adapter mints and MOVES THE GOLDENS, which is milestone work by
+the rule in §"Process — two tracks" — the escalation that stopped this on
+2026-07-29 and produced `spikes/label_part.py` instead.
+
+**Short ceremony (Marcus, 2026-07-30).** No brief file: the spike-first
+measurement the ceremony exists to force had already been done, so the
+spike plus the session plan served as the brief. Decisions were ruled
+up front, then built in one session.
+
+**Rulings.**
+
+1. **Fill the fields, keep the id.** A label gains `part`/`part_name`/
+   `staff`; its ElementId does not change. (It could not have — the
+   part-bearing id form needs a measure, which a label has none of.)
+   CLAUDE.md rule 13 carries the amendment: for a part label the part is
+   joined in the adapter, from document order, self-checked.
+2. **Unattributable → inert plus a warning.** `part=None` and
+   `LoadWarning "label-unattributed"`. Refusing disables one rename;
+   guessing renames the wrong instrument.
+3. **A condensed label writes the condense group's name**, not the kept
+   part's override, so the score and the Score Setup dialog show one
+   string. `TextRoute.CONDENSE_LABEL` → the existing
+   `EditCondenseGroup`.
+
+**As built.** The join is order within the system over the staves whose
+MEI label matches the class being drawn, in two tiers: group labels
+first (a multi-staff part hangs its label on the `<staffGrp>`, and
+Verovio draws those ahead of the staff labels — measured 41/41,
+`spikes/label_group.py`), then staff labels. Every pairing is confirmed
+against the label text the score carries. All 16 fixture configurations
+place every label with zero warnings (1354 labels). Goldens moved in
+exactly three fields on label rows and nothing else. Two new pure
+modules (`core/engraving/verovio/label_parts.py`,
+`mei_index.staff_labels`); `identity.py` and `attribution.py` untouched.
+
+Opened BACKLOG 20 on the way: the Score Setup dialog cannot edit a
+condense group once the score is condensed, because it validates against
+the post-condense part order. M7 took the narrow fix it needed
+(`editing.flat_part_order`) and left the dialog's for its own session.
 
 ---
 

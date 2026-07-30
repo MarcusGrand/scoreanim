@@ -89,6 +89,8 @@ class EngravingProvider(ABC):
 #   decompose.py    one page SVG → identity-bearing element accumulators
 #   attribution.py  in-place post-passes: rehome strays, ledger dashes,
 #                   spanner segments, implausible ties
+#   label_parts.py  the part-label → staff join (obligation 17) and the
+#                   one post-pass that writes acc.staff, run last
 #   identity.py     ElementId minting + the svg_class-gated onset chain;
 #                   accumulators → RenderedElements + note records
 #   synthesis.py    slash / bar-repeat synthesis (rule 10)
@@ -98,12 +100,15 @@ class EngravingProvider(ABC):
 #
 #   engrave → parse MEI → timemap → decompose pages → rehome strays →
 #   attribute ledger dashes → attribute spanner segments → flag
-#   implausible ties → build elements → synthesize slash/repeat
+#   implausible ties → attribute part labels → build elements →
+#   synthesize slash/repeat
 #
 #   The order is a correctness invariant: rehoming must precede the other
 #   attribution passes (they must never claim ink that is about to move),
 #   implausible-tie flagging must follow segment pairing (bogus sources
-#   stay in the candidate pool so the remaining segments pair right), and
+#   stay in the candidate pool so the remaining segments pair right),
+#   label attribution runs last of the passes because it is the only one
+#   that WRITES acc.staff while the others read it, and
 #   synthesis follows element construction (it positions from the
 #   collected staff geometry; synthetic elements never enter the passes).
 #   tests/goldens/ pins 12 fixture loads byte-for-byte (the Phase R
@@ -398,6 +403,36 @@ class EngravingProvider(ABC):
 #    identity. Painting is unaffected — paint() is empty and
 #    boundingRect still reports the true extent — and the golden suite
 #    is byte-identical across the change.
+#
+# 17. Part labels reach their part by DOCUMENT ORDER, self-checked (M7,
+#    2026-07-30; CLAUDE.md rule 13 amendment). A label is the one object
+#    the id grammar cannot carry a part for: Verovio draws it as a child
+#    of the system with no staff ancestor and no MEI @staff, and its SVG
+#    id does not exist in the MEI at all (measured 0/129,
+#    spikes/label_part.py — the M3 id-join hypothesis is dead). What
+#    works, and is exact on every fixture: pair the labels a system draws
+#    against the MEI labels of the class being drawn, in order, filtered
+#    to the staves visible on that system. The filter is load-bearing —
+#    a part with no abbreviation draws NOTHING after system 1, and naive
+#    order without it is 101/129 and MIS-ATTRIBUTES rather than failing.
+#    Two hosts, two tiers: an ordinary part's label hangs on its
+#    <staffDef>, a MULTI-STAFF part's on the <staffGrp> around its
+#    staves, and Verovio draws every group label FIRST (measured 41/41,
+#    spikes/label_group.py), so group labels lead and staff labels
+#    follow. Plain staff order is kept as a second candidate and the
+#    label TEXT decides between them. Every pairing is confirmed against
+#    the text the MEI carries, so a label the join will not vouch for
+#    keeps part=None: the failure mode is a disabled rename, warned
+#    ("label-unattributed"), never a renamed wrong instrument.
+#    The pass (core/engraving/verovio/label_parts.py) runs LAST among the
+#    post-passes because it is the only one that WRITES acc.staff, and it
+#    writes nothing else: _identity_for already derives part/part_name/
+#    part-local staff from acc.staff, and the label's ElementId is
+#    unchanged (the part-bearing id form needs a measure, which a label
+#    has none of). So the goldens moved in exactly three fields on label
+#    rows — part, part_name, staff — with no id, geometry or onset
+#    change. Labels also stay STATIC: the onset gate is
+#    _STATIC_TEXT_CLASSES by svg_class, not part.
 
 # Followed page/system (render/animate.py) is MONOTONIC non-decreasing over
 # the time-ordered triggers (prefix-max): the view never turns backward
@@ -1057,6 +1092,34 @@ an object carries a measure and a part, which a stage text has neither
 of. This is load-bearing, not tidy: once a tempo mark is overlaid the
 thing on screen IS a stage text, so a shared path would make a
 just-created replacement uneditable.
+
+*The staff-label route, completed in M7 (2026-07-30).* M3 wrote and
+unit-tested the part-label route but could not reach it: the adapter
+minted labels with `part=None`, so `route_for` returned None for every
+real one and the first M3 exit criterion went unmet (BACKLOG 14). M7
+supplied the attribution in the adapter (obligation 17) and the route
+lit up with no change to `SetPartText`, the prep seam, or the document
+schema — the affordance was already built, waiting for a part.
+
+One route was ADDED: a **condensed** staff's label edits its condense
+group, not the kept part (ruling 2026-07-30). Its label IS the group's
+combined name and `doc.condense_groups` is where that name lives, so
+`TextRoute.CONDENSE_LABEL` runs the existing `EditCondenseGroup` and the
+score and the Score Setup dialog keep showing one string. `SetPartText`
+would also have worked — text overrides are applied after the condense
+rewrite at the prep seam, so the override wins — but then the two would
+disagree. Note the asymmetry this inherits: `CondenseGroup.name = ""`
+means "derive from the sources", where `SetPartText("")` means "no
+label", so blanking a condensed label restores the derived name.
+
+The condense route needs the SCORE's part order, not the condensed one
+the current build reports — a condensed score's part list has no P2 in
+it, while the group still names P2, and the condense commands validate
+against the order they are handed. `editing.flat_part_order` rebuilds it
+by putting each group's parts back at its kept part's position, the exact
+inverse of `_apply_condense`. Handing a condensed order to those commands
+makes them fail silently, which the Score Setup dialog still does
+(BACKLOG 20).
 
 *The nudge seam.* `LayoutOverride.dx/dy` were schema slots from Phase 4
 until `SetLayoutOverride` (M3.2). The delta is **absolute, not
