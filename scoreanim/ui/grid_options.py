@@ -11,6 +11,7 @@ from enum import Enum
 
 from PySide6.QtCore import QObject, Signal
 
+from scoreanim.core.score.identity import Beats
 from scoreanim.core.timing import BARS, GridUnit
 
 
@@ -25,9 +26,10 @@ class GridOptions(QObject):
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        self._display = LaneDisplay.TEMPO
+        self._display = LaneDisplay.TICKS
         self._unit: GridUnit = BARS
         self._flatten = True
+        self._selected_beat: Beats | None = None
 
     @property
     def display(self) -> LaneDisplay:
@@ -58,4 +60,21 @@ class GridOptions(QObject):
     def set_flatten(self, flatten: bool) -> None:
         if bool(flatten) is not self._flatten:
             self._flatten = bool(flatten)
+            self.changed.emit()
+
+    @property
+    def selected_beat(self) -> Beats | None:
+        """The grid line the user last clicked, or None.
+
+        Lane state, not a rule-13 score selection: rule 13 is about the
+        OBJECTS on the page — noteheads, dynamics, a barline's ink — and
+        this is a position on the time axis, which carries no part and no
+        ink. It never touches `AppState.selection`. What it is for: the
+        Tempo field sets the tempo from here on.
+        """
+        return self._selected_beat
+
+    def set_selected_beat(self, beat: Beats | None) -> None:
+        if beat != self._selected_beat:
+            self._selected_beat = beat
             self.changed.emit()

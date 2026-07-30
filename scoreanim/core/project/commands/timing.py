@@ -141,6 +141,40 @@ class AlignBeat(Command):
 
 
 @dataclass(frozen=True)
+class SetTempoFrom(Command):
+    """Set the tempo from a line onward: one bpm from `beat` to the end,
+    replacing every tempo event after it.
+
+    This is the numeric way to say what a drag says by hand, and it is
+    what the Tempo field does once a line is selected. Beats BEFORE the
+    line do not move, so anything already aligned up to there survives.
+
+    Locks after the line go, and that is the honest thing: their beats
+    have just been re-timed, so "this beat is where I put it" is no
+    longer true of any of them. A lock exactly on the line stays — its
+    own second did not change.
+    """
+    beat: Beats                  # musical beat of the selected line
+    bpm: float
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not (math.isfinite(self.beat) and math.isfinite(self.bpm)):
+            raise CommandError(f"tempo {self.bpm} at beat {self.beat} "
+                               f"is not finite")
+        position = swing_warp(self.beat, doc.timing.swing_regions)
+        kept = tuple(e for e in doc.timing.tempo_events
+                     if e.position < position - 1e-9)
+        events = kept + (TempoEvent(position, self.bpm),)
+        return _with_timing(
+            doc, tempo_events=_validated_events(events),
+            locked_beats=tuple(b for b in doc.timing.locked_beats
+                               if b <= self.beat + 1e-9))
+
+    def describe(self) -> str:
+        return "set tempo"
+
+
+@dataclass(frozen=True)
 class SetBeatLock(Command):
     """Pin a beat in the timeline lane, or let it go. A locked beat is
     what every grid drag anchors on, so this is how the user says which

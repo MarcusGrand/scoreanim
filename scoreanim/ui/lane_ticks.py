@@ -34,7 +34,7 @@ the painting and the hit-testing.
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QApplication
 
 from scoreanim.core.project import SetBeatLock
@@ -50,12 +50,14 @@ _BAR = QColor("#5b6472")         # barline, brighter here than the host's
 _SUB = QColor("#3d424c")         # subdivision line
 _SUB_STRONG = QColor("#4b5563")  # subdivision on a whole beat
 _HANDLE = QColor("#7fb8e8")      # the line under the pointer, or dragging
+_SELECTED = QColor("#6fa8d0")    # the line the Tempo field is aimed at
 _BPM_TEXT = QColor("#6f7681")
 
 _SUB_TOP = 0.42                  # subdivisions start this far down the lane
 _BPM_MIN_PX = 34.0               # about the text's own width: a narrower
                                  # bar gets no bpm readout
 _EDGE_PX = 60.0                  # how far off-screen to still consider ticks
+_LOCK_GAP = 8.0                  # the line breaks around the padlock
 _EPS = 1e-6
 
 
@@ -130,7 +132,7 @@ class TickAlignMode:
         locked = set(self._state.doc.timing.locked_beats)
         for x, tick in self._handles():
             if tick.beat in locked:
-                self._draw_lock(painter, x, h)
+                self._draw_lock(painter, x, h, top, tick.barline)
             elif tick.barline:
                 # over the host's grid line: in this mode a barline is a
                 # handle, so it has to read as structure, not as one more
@@ -142,6 +144,19 @@ class TickAlignMode:
                 painter.setPen(QPen(_SUB_STRONG if whole else _SUB, 1))
                 painter.drawLine(QPointF(x, top), QPointF(x, h - BOTTOM_PAD))
         self._draw_bar_tempos(painter, w, h)
+        selected = self._state.grid.selected_beat
+        if selected is not None:
+            # a caret at the top as well as the line, so the mark still
+            # shows on a locked line, where the orange owns the pixels
+            x = self._x_of_tick(selected)
+            if selected not in locked:
+                painter.setPen(QPen(_SELECTED, 2))
+                painter.drawLine(QPointF(x, TOP_PAD), QPointF(x, h))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(_SELECTED)
+            painter.drawPolygon(QPolygonF([QPointF(x - 4.0, TOP_PAD),
+                                           QPointF(x + 4.0, TOP_PAD),
+                                           QPointF(x, TOP_PAD + 5.0)]))
         handle = self._drag.beat if self._drag is not None else self._hover
         if handle is not None and handle not in locked:
             # the LIVE map, so the highlight sits on the previewed
@@ -151,16 +166,28 @@ class TickAlignMode:
             x = self._x_of_tick(handle)
             painter.drawLine(QPointF(x, TOP_PAD), QPointF(x, h))
 
-    def _draw_lock(self, painter: QPainter, x: float, h: int) -> None:
-        """A locked line, with a padlock drawn from primitives — a glyph
-        would land on whatever font the platform has."""
+    def _draw_lock(self, painter: QPainter, x: float, h: int, top: float,
+                   barline: bool) -> None:
+        """A locked line: orange and thicker. Only a BARLINE earns the
+        padlock — one on every locked subdivision would be a row of
+        badges, and the colour already says it. A subdivision keeps its
+        own shorter extent, so the grid's hierarchy still reads.
+
+        The padlock is drawn from a rect and an arc, never a font glyph:
+        the platform's font may not have one, and the tests grab this
+        widget offscreen."""
         painter.setPen(QPen(LOCK, 2))
-        painter.drawLine(QPointF(x, TOP_PAD), QPointF(x, h))
-        shackle = QRectF(x - 2.5, TOP_PAD - 10.5, 5.0, 5.0)
-        painter.drawArc(shackle, 0, 180 * 16)         # the loop on top
+        if not barline:
+            painter.drawLine(QPointF(x, top), QPointF(x, h - BOTTOM_PAD))
+            return
+        mid = (TOP_PAD + h) / 2.0
+        painter.drawLine(QPointF(x, TOP_PAD), QPointF(x, mid - _LOCK_GAP))
+        painter.drawLine(QPointF(x, mid + _LOCK_GAP), QPointF(x, h))
+        painter.drawArc(QRectF(x - 2.5, mid - 5.5, 5.0, 5.0),
+                        0, 180 * 16)                  # the shackle
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(LOCK)
-        painter.drawRect(QRectF(x - 3.5, TOP_PAD - 8.0, 7.0, 6.0))
+        painter.drawRect(QRectF(x - 3.5, mid - 3.0, 7.0, 6.0))
 
     def _draw_bar_tempos(self, painter: QPainter, w: int, h: int) -> None:
         """Each bar's effective tempo, in place of the red line — but only
@@ -213,7 +240,9 @@ class TickAlignMode:
             return False
         tick = self._tick_at(event.position().x())
         if tick is None:
+            self._state.grid.set_selected_beat(None)
             return False
+        self._state.grid.set_selected_beat(tick.beat)
         self._drag = drag_rules.begin(self._state, self._lane, tick.beat,
                                       self._label(tick),
                                       self.grid_unit())

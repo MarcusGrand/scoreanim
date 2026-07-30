@@ -971,6 +971,7 @@ selection + shared time-axis zoom/scroll):
   prev/next step the current presentation unit. Paged stays default.
 - **TempoLaneView**: the lane under the waveform, sharing its time axis.
   A host widget with two modes, chosen by `AppState.grid.display`
+  (Ticks is the default since 2026-07-30)
   (`ui/grid_options.py` — view state, never document intent). The host
   owns what they share: background, measure grid, playhead, the beat ⇄ x
   mapping, the cached `TempoMap`, click-to-seek and wheel zoom; each mode
@@ -1006,6 +1007,16 @@ selection + shared time-axis zoom/scroll):
   command that fails on release. The first line has no anchor before it,
   so it edits the offset. Locks store beats only — the second is derived
   (rule 5) — and constrain tick drags alone.
+
+  Setting a tempo numerically works off the same selection: clicking a
+  line sets `AppState.grid.selected_beat` (lane state — a position on the
+  time axis, not a rule-13 score object, and never in
+  `AppState.selection`), the Tempo field on the strip retitles itself
+  "Tempo from m5", and committing it runs `SetTempoFrom`, which replaces
+  every event after that line and releases the locks after it. With no
+  line selected the field edits the initial tempo, as it always did.
+  That is the whole job the tempo line's drag used to do, so Tempo mode
+  is now a second view rather than the way to work.
 
 - **WaveformView**: rendered peaks, playhead, click-to-seek; tap capture
   during playback.

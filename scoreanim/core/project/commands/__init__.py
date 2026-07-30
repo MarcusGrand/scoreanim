@@ -56,6 +56,7 @@ from scoreanim.core.project.commands.timing import (AddSwingRegion,
                                                     RemoveTempoEvent,
                                                     SetBeatLock,
                                                     SetGlobalSwing,
+                                                    SetTempoFrom,
                                                     SetOffset,
                                                     SetSwingRegion)
 from scoreanim.core.project.commands.undo import UndoStack
@@ -75,5 +76,5 @@ __all__ = [
     "SetHideFirstSystem", "SetOffset", "SetPartColor", "SetPartEffect",
     "SetLayoutOverride", "SetPageBreak",
     "SetPartText", "SetPresentationMode", "SetRevealMode",
-    "SetSwingRegion", "SetSystemBreak", "UndoStack",
+    "SetSwingRegion", "SetTempoFrom", "SetSystemBreak", "UndoStack",
 ]

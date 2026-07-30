@@ -10,6 +10,7 @@ import pytest
 
 from scoreanim.core.project import (AddSwingRegion, AddTempoEvent, AlignBeat,
                                     ApplyTaps, SetBeatLock,
+                                    SetTempoFrom,
                                     CommandError, ImportTempoSetup,
                                     MoveTempoEvent, ProjectDoc,
                                     RemoveSwingRegion, RemoveTapSession,
@@ -220,6 +221,37 @@ def test_set_beat_lock_toggles(doc) -> None:
         SetBeatLock(float("inf"), True).apply(doc)
     assert SetBeatLock(8.0, True).describe() == "lock beat"
     assert SetBeatLock(8.0, False).describe() == "unlock beat"
+
+
+def test_set_tempo_from_replaces_everything_after_the_line(doc) -> None:
+    doc = AddTempoEvent(8.0, 60.0).apply(doc)
+    out = SetTempoFrom(4.0, 100.0).apply(doc)
+    assert out.timing.tempo_events == (TempoEvent(0.0, 120.0),
+                                       TempoEvent(4.0, 100.0))
+    assert _at(out, 4.0) == pytest.approx(_at(doc, 4.0))     # before holds
+    assert _at(out, 8.0) == pytest.approx(_at(out, 4.0) + 4 * 60 / 100.0)
+
+
+def test_set_tempo_from_releases_the_locks_after_the_line(doc) -> None:
+    """Their beats have just been re-timed, so "this beat is where I put
+    it" is no longer true of any of them. A lock ON the line stays: its
+    own second did not move."""
+    for beat in (2.0, 4.0, 12.0):
+        doc = SetBeatLock(beat, True).apply(doc)
+    out = SetTempoFrom(4.0, 100.0).apply(doc)
+    assert out.timing.locked_beats == (2.0, 4.0)
+
+
+def test_set_tempo_from_the_start_sets_the_whole_piece(doc) -> None:
+    out = SetTempoFrom(0.0, 100.0).apply(doc)
+    assert out.timing.tempo_events == (TempoEvent(0.0, 100.0),)
+
+
+def test_set_tempo_from_rejects_bad_input(doc) -> None:
+    for bpm in (0.0, -5.0, float("inf")):
+        with pytest.raises(CommandError):
+            SetTempoFrom(4.0, bpm).apply(doc)
+    assert SetTempoFrom(4.0, 100.0).describe() == "set tempo"
 
 
 # -- taps --------------------------------------------------------------------

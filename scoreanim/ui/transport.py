@@ -21,14 +21,15 @@ from PySide6.QtWidgets import (QComboBox, QDockWidget, QDoubleSpinBox,
                                QHBoxLayout, QLabel, QSlider, QSplitter,
                                QToolButton, QVBoxLayout, QWidget)
 
-from scoreanim.core.project import (DEFAULT_BPM, MoveTempoEvent, ProjectDoc,
-                                    SetGlobalSwing, SetOffset)
+from scoreanim.core.project import (MoveTempoEvent, ProjectDoc,
+                                    SetGlobalSwing, SetOffset,
+                                    SetTempoFrom)
 from scoreanim.core.timing import GRID_UNITS
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.grid_options import LaneDisplay
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.readouts import (format_time, global_swing_ratio,
-                                   initial_tempo_event)
+                                   initial_tempo_event, tempo_scope)
 from scoreanim.ui.taps import TapRecorder
 from scoreanim.ui.tempo_lane import TempoLaneView
 from scoreanim.ui.waveform import WaveformView
@@ -94,8 +95,10 @@ class TransportStrip(QWidget):
         self._bpm_spin.setSingleStep(1.0)
         self._bpm_spin.setRange(20.0, 400.0)
         self._bpm_spin.setKeyboardTracking(False)
-        self._bpm_spin.setToolTip("Initial tempo (bpm) — drives no-audio "
-                                  "playback and the tempo map")
+        self._bpm_spin.setToolTip(
+            "Tempo in bpm. With a grid line selected in the lane it sets "
+            "the tempo\nfrom that line to the end and releases the locks "
+            "after it; with nothing\nselected it sets the initial tempo.")
         self._bpm_spin.editingFinished.connect(self._commit_bpm)
 
         self._offset_spin = QDoubleSpinBox()
@@ -146,8 +149,10 @@ class TransportStrip(QWidget):
         row.addWidget(_action_button(self.play_action))
         row.addWidget(self._slider, 1)
         row.addWidget(self._time_label)
-        for label, spin in (("Tempo", self._bpm_spin),
-                            ("Offset", self._offset_spin),
+        self._bpm_label = QLabel("Tempo")
+        row.addWidget(self._bpm_label)
+        row.addWidget(self._bpm_spin)
+        for label, spin in (("Offset", self._offset_spin),
                             ("Swing", self._swing_spin)):
             row.addWidget(QLabel(label))
             row.addWidget(spin)
@@ -161,6 +166,7 @@ class TransportStrip(QWidget):
 
         playback.time_changed.connect(self._on_time)
         playback.playing_changed.connect(self._on_playing)
+        app_state.grid.changed.connect(self._sync_from_grid)
 
     # -- document sync ---------------------------------------------------------
 
@@ -170,11 +176,7 @@ class TransportStrip(QWidget):
         self._offset_spin.blockSignals(True)
         self._offset_spin.setValue(doc.timing.offset_seconds)
         self._offset_spin.blockSignals(False)
-        first_tempo = initial_tempo_event(doc)
-        self._bpm_spin.blockSignals(True)
-        self._bpm_spin.setValue(first_tempo.bpm if first_tempo
-                                else DEFAULT_BPM)
-        self._bpm_spin.blockSignals(False)
+        self._sync_from_grid()           # the Tempo field lives there now
         self._swing_spin.blockSignals(True)
         self._swing_spin.setValue(global_swing_ratio(doc))
         self._swing_spin.blockSignals(False)
@@ -182,10 +184,22 @@ class TransportStrip(QWidget):
     # -- the lane's own controls -----------------------------------------------
 
     def _sync_from_grid(self) -> None:
-        """Label and enable the lane controls for the mode showing. Grid
-        step and Pin/Ripple only mean anything in ticks mode."""
+        """Label and enable the lane controls for the mode showing, and
+        retitle the Tempo field for whatever line is selected. Grid step
+        and Flatten only mean anything in ticks mode."""
         grid = self._state.grid
         ticks = grid.display is LaneDisplay.TICKS
+        if self._lane_mode.currentData() is not grid.display:
+            self._lane_mode.blockSignals(True)
+            self._lane_mode.setCurrentIndex(
+                self._lane_mode.findData(grid.display))
+            self._lane_mode.blockSignals(False)
+        label, bpm = tempo_scope(self._state.doc, self._selected_beat(),
+                                 self._state.measures)
+        self._bpm_label.setText(label)
+        self._bpm_spin.blockSignals(True)
+        self._bpm_spin.setValue(bpm)
+        self._bpm_spin.blockSignals(False)
         self._grid_unit.setEnabled(ticks)
         self._shape_button.setEnabled(ticks)
         self._shape_button.setText("Flatten" if grid.flatten
@@ -205,16 +219,30 @@ class TransportStrip(QWidget):
 
     # -- commit handlers -------------------------------------------------------
 
+    def _selected_beat(self):
+        """The lane's selected line, only while the lane is showing it."""
+        grid = self._state.grid
+        return grid.selected_beat if grid.display is LaneDisplay.TICKS \
+            else None
+
     def _commit_bpm(self) -> None:
-        """Set the initial (beat-0) tempo through the existing tempo-map
-        machinery — MoveTempoEvent on the first event, so a tempo curve's
-        later events survive. Drives no-audio playback (FIX 2)."""
-        first = initial_tempo_event(self._state.doc)
+        """With a line selected, set the tempo from there to the end
+        (SetTempoFrom); with nothing selected, edit the initial tempo
+        through the existing machinery — MoveTempoEvent on the first
+        event, so a tempo curve's later events survive."""
         value = self._bpm_spin.value()
-        if first is None or abs(value - first.bpm) < 1e-9:
+        _label, showing = tempo_scope(self._state.doc, self._selected_beat(),
+                                      self._state.measures)
+        if abs(value - showing) < 1e-9:
             return
-        self._state.execute(
-            MoveTempoEvent(first.position, first.position, value))
+        beat = self._selected_beat()
+        if beat is not None:
+            self._state.execute(SetTempoFrom(beat, value))
+            return
+        first = initial_tempo_event(self._state.doc)
+        if first is not None:
+            self._state.execute(
+                MoveTempoEvent(first.position, first.position, value))
 
     def _commit_offset(self) -> None:
         value = self._offset_spin.value()

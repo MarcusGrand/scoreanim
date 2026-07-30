@@ -307,3 +307,16 @@ def test_the_grid_step_is_frozen_for_the_length_of_a_drag(lane) -> None:
     assert mode.grid_unit() == QUARTER       # still the step we started on
     release(lane, 300.0)
     assert mode.grid_unit() == SIXTEENTH     # and it catches up after
+
+
+def test_clicking_a_line_selects_it_for_the_tempo_field(lane) -> None:
+    """The replacement for dragging the old tempo line: click a line,
+    then type a tempo. A click on nothing clears the aim."""
+    state = lane.state
+    press(lane, 160.0)
+    release(lane, 160.0)
+    assert state.grid.selected_beat == 8.0
+    assert not state.can_undo                # selecting edits nothing
+    press(lane, 100.0)                       # between the lines
+    release(lane, 100.0)
+    assert state.grid.selected_beat is None

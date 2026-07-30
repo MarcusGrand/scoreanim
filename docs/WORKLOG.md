@@ -1,9 +1,11 @@
 # ScoreAnim — Worklog
 
-**NOW:** `beta/grid-align` adds a second mode to the timeline lane —
-drag a barline or a beat onto the waveform to line the score up with the
-recording, with double-click locks as the anchors. Built and green,
-waiting on Marcus's run in the app before it merges. It carries a schema
+**NOW:** `beta/grid-align` rebuilds how tempo is authored: the timeline
+lane's Ticks mode (now the default) lines the score up with the recording
+by dragging barlines and beats, with double-click locks as the anchors,
+and the Tempo field sets the tempo from the selected line onward. Built
+and green, waiting on Marcus's run in the app before it merges. Open
+question for him: whether Tempo mode still earns its place. It carries a schema
 bump (v10), so a project saved on this branch will not open on
 `v0.2-beta.6`. Two other branches are still unmerged and independent:
 `beta/f-trackpad-gestures` and `fix/bracket-hidden-staves`.
@@ -14,6 +16,13 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-07-30 — **Ticks is the default lane**, and the Tempo field now
+  aims at the selected line: click a line, type a tempo, and it sets the
+  tempo from there to the end and releases the locks after it
+  (`SetTempoFrom`). That is the tempo line's whole job, so Marcus may
+  retire Tempo mode — kept for now. Cosmetics: the padlock is centred on
+  a locked BARLINE with the line breaking around it, and locked
+  subdivisions get the orange and the weight but no badge.
 - 2026-07-30 — **Grid alignment round 2**: double-click a line to LOCK
   it (thick, orange, padlock); locks are the only drag anchors and they
   persist (schema v10, `locked_beats`, beats only — the second is

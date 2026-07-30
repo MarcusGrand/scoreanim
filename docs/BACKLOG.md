@@ -646,6 +646,16 @@ scale-to-fit). Parked:
     bigger change than it sounds and probably the wrong one — the user
     reached for a more direct tool.
 
+27. **Does Tempo mode still earn its place?** (Marcus, 2026-07-30, on
+    first use of the Ticks lane: "I'm not sure if we even need the tempo
+    view anymore.") Everything it does now has a replacement — dragging
+    a line beats dragging a tempo point, and the Tempo field aimed at a
+    selected line replaces editing a point's bpm. What would go with it:
+    `ui/lane_tempo.py`, the Lane combo, `AddTempoEvent`/`MoveTempoEvent`/
+    `RemoveTempoEvent`'s only UI surface (the commands themselves stay —
+    the strip and tap derivation use them). Left in for now so he can
+    live with the new one first.
+
 ## Deferred (from docs/history/PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

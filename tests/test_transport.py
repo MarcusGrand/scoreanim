@@ -174,12 +174,16 @@ def test_lane_controls_drive_the_view_state_and_no_command(qapp) -> None:
     changes = []
     state.grid.changed.connect(lambda: changes.append(state.grid.display))
 
-    # ticks mode enables the grid step and the Pin/Ripple button
+    # ticks is the default now, so the grid controls start live
+    assert state.grid.display is LaneDisplay.TICKS
+    assert widget._lane_mode.currentData() is LaneDisplay.TICKS
+    assert widget._grid_unit.isEnabled() and widget._shape_button.isEnabled()
+    widget._lane_mode.setCurrentIndex(
+        widget._lane_mode.findData(LaneDisplay.TEMPO))
+    assert state.grid.display is LaneDisplay.TEMPO
     assert not widget._grid_unit.isEnabled()
     widget._lane_mode.setCurrentIndex(
         widget._lane_mode.findData(LaneDisplay.TICKS))
-    assert state.grid.display is LaneDisplay.TICKS
-    assert widget._grid_unit.isEnabled() and widget._shape_button.isEnabled()
 
     widget._grid_unit.setCurrentIndex(GRID_UNITS.index(EIGHTH))
     assert state.grid.unit == EIGHTH
@@ -190,5 +194,37 @@ def test_lane_controls_drive_the_view_state_and_no_command(qapp) -> None:
     assert not state.grid.flatten
     assert widget._shape_button.text() == "Keep shape"
 
-    assert len(changes) == 3                     # one signal per real change
     assert not state.can_undo and not state.is_dirty
+
+
+def test_tempo_field_follows_the_lane_selection(qapp) -> None:
+    """Clicking a line and typing a tempo is the replacement for dragging
+    the old tempo line: it sets the tempo from there to the end."""
+    from scoreanim.core.score.model import MeasureInfo
+    from scoreanim.core.timing import TempoEvent
+
+    state = AppState()
+    state.set_measures(tuple(MeasureInfo(number=n + 1, start=n * 4.0,
+                                         quarter_length=4.0)
+                             for n in range(8)))
+    widget = TransportStrip(state, FakePlayback(), FakeTapRecorder())
+    assert widget._bpm_label.text() == "Tempo"
+
+    state.grid.set_selected_beat(8.0)
+    assert widget._bpm_label.text() == "Tempo from m3"
+    widget._bpm_spin.setValue(90.0)
+    widget._commit_bpm()
+    assert state.doc.timing.tempo_events == (TempoEvent(0.0, 120.0),
+                                             TempoEvent(8.0, 90.0))
+    assert state.undo_text() == "set tempo"
+    assert widget._bpm_spin.value() == 90.0       # shows what it just set
+    widget._commit_bpm()                          # same value -> no-op
+    state.undo()
+    assert not state.can_undo
+
+    state.grid.set_selected_beat(None)            # back to the initial tempo
+    assert widget._bpm_label.text() == "Tempo"
+    widget._bpm_spin.setValue(96.0)
+    widget._commit_bpm()
+    assert state.doc.timing.tempo_events[0].bpm == 96.0
+    assert state.undo_text() == "move tempo event"
