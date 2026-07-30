@@ -1,12 +1,12 @@
 # ScoreAnim — Patterns
 
-The idiom book: how this codebase solves problems, distilled from six
-milestones of measured decisions. Every feature plan names which of
-these it rides; deviating from one is a flag-and-stop, not a judgment
-call. Deep sources: the closed sections of ROADMAP, the briefs in
-`docs/briefs/`, and ARCHITECTURE. Keep entries short and plainly
-worded — every session may read this file. When a session makes a
-mistake a one-line entry here would have prevented, add the line.
+The idiom book: how this codebase solves problems, distilled from work
+that was measured before it was built. When you are about to touch one
+of these seams, ride the idiom; deviating from one is a flag-and-stop,
+not a judgment call. The full reasoning is in ARCHITECTURE, and the
+original measurements are in `docs/history/`. Keep entries short and
+plainly worded. When a session makes a mistake a one-line entry here
+would have prevented, add the line.
 
 ## Idioms
 

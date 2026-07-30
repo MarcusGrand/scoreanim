@@ -1,5 +1,5 @@
 """Live-oracle: offscreen diagnosis harness for live-playback timing
-(docs/LIVE_TIMING_BRIEF.md, 2026-07-22). DIAGNOSIS ONLY — this tool
+(docs/history/LIVE_TIMING_BRIEF.md, 2026-07-22). DIAGNOSIS ONLY — this tool
 changes no behavior; it makes "it only happens live" deterministic.
 
 Every live symptom decomposes into one of three layers (the brief's

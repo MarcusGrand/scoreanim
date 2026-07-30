@@ -1,4 +1,4 @@
-"""Live-oracle checks (docs/LIVE_TIMING_BRIEF.md, diagnosis 2026-07-22)
+"""Live-oracle checks (docs/history/LIVE_TIMING_BRIEF.md, diagnosis 2026-07-22)
 wired as regression pins.
 
 Passing tests pin what the diagnosis found CLEAN (bigband1 everywhere;
@@ -6,7 +6,7 @@ the live path — D3/D4 — on every fixture). xfail(strict=True) tests pin
 the confirmed findings; a fix session flips its finding's tests to
 passing by removing the mark (strict=True makes the flip loud).
 
-Findings (full table in docs/PHASES.md, "Live-timing diagnosis"):
+Findings (full table in docs/history/PHASES.md, "Live-timing diagnosis"):
 
 - FINDING-1 (L0, score model): beat-domain shear — ScoreNote onsets /
   MeasureInfo starts / Verovio qstamps disagree on scores with

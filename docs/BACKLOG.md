@@ -598,7 +598,7 @@ scale-to-fit). Parked:
     Related: item 18, the same family of "validated against the wrong
     part order" bug.
 
-## Deferred (from PHASES.md "Later")
+## Deferred (from docs/history/PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score
 auto-alignment provider; custom engraving provider; MIDI input; richer
