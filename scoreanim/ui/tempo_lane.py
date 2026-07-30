@@ -6,7 +6,12 @@ background, the measure-number strip, the time-axis mapping, the cached
 mode that is showing:
 
 - `ui/lane_tempo.py` — tempo events as draggable points (the red step
-  line). The only mode until the tick grid lands.
+  line).
+- `ui/lane_ticks.py` — the grid lines as drag handles, for lining the
+  score up with the waveform.
+
+Which one is showing is `AppState.grid.display` (ui/grid_options.py),
+transient view state set from the transport strip.
 
 Observes AppState only — the same axis object as the waveform, so the two
 views scroll and zoom together without knowing of each other.
@@ -29,8 +34,10 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 from scoreanim.core.score.identity import Beats
 from scoreanim.core.timing import TempoMap
 from scoreanim.ui.app_state import AppState, apply_wheel
+from scoreanim.ui.grid_options import LaneDisplay
 from scoreanim.ui.lane_style import BG, GRID, GRID_TEXT, PLAYHEAD, TOP_PAD
 from scoreanim.ui.lane_tempo import TempoPointsMode
+from scoreanim.ui.lane_ticks import TickAlignMode
 
 
 class TempoLaneView(QWidget):
@@ -43,8 +50,12 @@ class TempoLaneView(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding,
                            QSizePolicy.Policy.Preferred)
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-        self._mode = TempoPointsMode(self)
+        self.setMouseTracking(True)           # the tick grid hovers
+        self._modes = {LaneDisplay.TEMPO: TempoPointsMode(self),
+                       LaneDisplay.TICKS: TickAlignMode(self)}
+        self._mode = self._modes[app_state.grid.display]
         app_state.axis.changed.connect(self.update)
+        app_state.grid.changed.connect(self._on_grid_changed)
         app_state.document_changed.connect(self._on_document_changed)
         app_state.playhead_changed.connect(lambda _t: self.update())
 
@@ -52,6 +63,15 @@ class TempoLaneView(QWidget):
         hint = super().sizeHint()
         hint.setHeight(130)
         return hint
+
+    def _on_grid_changed(self) -> None:
+        """Mode switch, or a new grid step. A mode that was mid-drag when
+        the user switched away cancels its preview on the way out."""
+        mode = self._modes[self._state.grid.display]
+        if mode is not self._mode:
+            self._mode.deactivate()
+            self._mode = mode
+        self.update()
 
     def _on_document_changed(self) -> None:
         self._map = TempoMap(list(self._state.doc.timing.tempo_events))

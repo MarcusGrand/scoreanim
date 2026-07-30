@@ -105,6 +105,11 @@ class TempoPointsMode:
 
     # -- interaction --------------------------------------------------------------
 
+    def deactivate(self) -> None:
+        if self._drag is not None:
+            self._drag = None
+            self._state.cancel_preview()
+
     def document_changed(self) -> None:
         if self._selected is not None and not any(
                 e.position == self._selected

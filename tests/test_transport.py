@@ -161,3 +161,32 @@ def test_lower_zone_is_a_fixed_bottom_dock(qapp) -> None:
     # strip above the two lanes, lanes on the internal splitter
     assert zone.strip is not None
     assert zone.waveform.parent() is zone.tempo_lane.parent()  # the splitter
+
+
+def test_lane_controls_drive_the_view_state_and_no_command(qapp) -> None:
+    """Which lines the lane shows is view state (rule 5): the controls set
+    AppState.grid and never touch the document or the undo stack."""
+    from scoreanim.core.timing import EIGHTH, GRID_UNITS
+    from scoreanim.ui.grid_options import LaneDisplay
+
+    state = AppState()
+    widget = TransportStrip(state, FakePlayback(), FakeTapRecorder())
+    changes = []
+    state.grid.changed.connect(lambda: changes.append(state.grid.display))
+
+    # ticks mode enables the grid step and the Pin/Ripple button
+    assert not widget._grid_unit.isEnabled()
+    widget._lane_mode.setCurrentIndex(
+        widget._lane_mode.findData(LaneDisplay.TICKS))
+    assert state.grid.display is LaneDisplay.TICKS
+    assert widget._grid_unit.isEnabled() and widget._ripple_button.isEnabled()
+
+    widget._grid_unit.setCurrentIndex(GRID_UNITS.index(EIGHTH))
+    assert state.grid.unit == EIGHTH
+
+    assert widget._ripple_button.text() == "Pin"
+    widget._ripple_button.setChecked(True)
+    assert state.grid.ripple and widget._ripple_button.text() == "Ripple"
+
+    assert len(changes) == 3                     # one signal per real change
+    assert not state.can_undo and not state.is_dirty

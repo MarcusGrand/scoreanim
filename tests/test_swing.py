@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from scoreanim.core.timing import (SwingRegion, TempoEvent, TempoMap,
-                                   resolve_seconds, swing_warp,
-                                   validate_regions)
+                                   resolve_seconds, swing_unwarp,
+                                   swing_warp, validate_regions)
 
 REGION = (SwingRegion((4.0, 8.0), 0.667),)
 
@@ -86,3 +86,17 @@ def test_validate_regions() -> None:
         validate_regions((SwingRegion((0.0, 4.0), 1.0),))
     with pytest.raises(ValueError, match="empty or reversed"):
         validate_regions((SwingRegion((4.0, 4.0), 0.6),))
+
+
+@pytest.mark.parametrize("ratio", [0.5, 0.6, 0.667, 0.75, 0.9])
+def test_unwarp_inverts_the_warp_exactly(ratio: float) -> None:
+    regions = (SwingRegion((4.0, 8.0), ratio),)
+    for i in range(4 * 64 + 1):                # every 1/64 through the region
+        beat = 4.0 + i / 64
+        assert swing_unwarp(swing_warp(beat, regions), regions) == \
+            pytest.approx(beat, abs=1e-12)
+
+
+def test_unwarp_is_identity_outside_regions_and_at_whole_beats() -> None:
+    for beat in (0.0, 3.999, 4.0, 5.0, 8.0, 10.5):
+        assert swing_unwarp(beat, REGION) == pytest.approx(beat)

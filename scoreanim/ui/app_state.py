@@ -29,6 +29,7 @@ from scoreanim.core.project import (Command, CommandError, FileRef,
 from scoreanim.core.score.identity import ElementIdentity
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.selection import Selection
+from scoreanim.ui.grid_options import GridOptions
 
 if TYPE_CHECKING:                # core/audio arrives with task 4.2
     from scoreanim.core.audio.peaks import PeakCache
@@ -135,6 +136,7 @@ class AppState(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self.axis = TimeAxis(self)
+        self.grid = GridOptions(self)     # what the lane shows (view state)
         self._committed = ProjectDoc()
         self._preview: ProjectDoc | None = None
         self._stack = UndoStack()

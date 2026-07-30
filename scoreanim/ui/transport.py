@@ -17,13 +17,15 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (QDockWidget, QDoubleSpinBox, QHBoxLayout,
-                               QLabel, QSlider, QSplitter, QToolButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QDockWidget, QDoubleSpinBox,
+                               QHBoxLayout, QLabel, QSlider, QSplitter,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from scoreanim.core.project import (DEFAULT_BPM, MoveTempoEvent, ProjectDoc,
                                     SetGlobalSwing, SetOffset)
+from scoreanim.core.timing import GRID_UNITS
 from scoreanim.ui.app_state import AppState
+from scoreanim.ui.grid_options import LaneDisplay
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.readouts import (format_time, global_swing_ratio,
                                    initial_tempo_event)
@@ -113,6 +115,30 @@ class TransportStrip(QWidget):
         self._swing_spin.setKeyboardTracking(False)
         self._swing_spin.editingFinished.connect(self._commit_swing)
 
+        # what the lane shows, and how a tick drag behaves (view state, so
+        # no command and nothing in sync_from_document)
+        self._lane_mode = QComboBox()
+        for display in LaneDisplay:
+            self._lane_mode.addItem(display.value, display)
+        self._lane_mode.setToolTip("Tempo: the tempo line, as points.\n"
+                                   "Ticks: drag the grid onto the waveform.")
+        self._lane_mode.currentIndexChanged.connect(self._commit_lane_mode)
+
+        self._grid_unit = QComboBox()
+        for unit in GRID_UNITS:
+            self._grid_unit.addItem(unit.label, unit)
+        self._grid_unit.setToolTip("Which lines the grid shows")
+        self._grid_unit.currentIndexChanged.connect(self._commit_grid_unit)
+
+        self._ripple_button = QToolButton()
+        self._ripple_button.setCheckable(True)
+        self._ripple_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._ripple_button.setToolTip(
+            "Pin: the lines either side of the one you drag stay put.\n"
+            "Ripple: the music after it slides along, keeping its tempo.\n"
+            "Alt while dragging flips whichever is set.")
+        self._ripple_button.toggled.connect(self._commit_ripple)
+
         row = QHBoxLayout(self)
         row.setContentsMargins(4, 2, 4, 2)
         row.addWidget(_action_button(self.play_action))
@@ -123,8 +149,13 @@ class TransportStrip(QWidget):
                             ("Swing", self._swing_spin)):
             row.addWidget(QLabel(label))
             row.addWidget(spin)
+        row.addWidget(QLabel("Lane"))
+        row.addWidget(self._lane_mode)
+        row.addWidget(self._grid_unit)
+        row.addWidget(self._ripple_button)
         row.addWidget(_action_button(self.arm_taps_action))
         row.addWidget(_action_button(self.tap_action))
+        self._sync_from_grid()
 
         playback.time_changed.connect(self._on_time)
         playback.playing_changed.connect(self._on_playing)
@@ -145,6 +176,28 @@ class TransportStrip(QWidget):
         self._swing_spin.blockSignals(True)
         self._swing_spin.setValue(global_swing_ratio(doc))
         self._swing_spin.blockSignals(False)
+
+    # -- the lane's own controls -----------------------------------------------
+
+    def _sync_from_grid(self) -> None:
+        """Label and enable the lane controls for the mode showing. Grid
+        step and Pin/Ripple only mean anything in ticks mode."""
+        grid = self._state.grid
+        ticks = grid.display is LaneDisplay.TICKS
+        self._grid_unit.setEnabled(ticks)
+        self._ripple_button.setEnabled(ticks)
+        self._ripple_button.setText("Ripple" if grid.ripple else "Pin")
+
+    def _commit_lane_mode(self) -> None:
+        self._state.grid.set_display(self._lane_mode.currentData())
+        self._sync_from_grid()
+
+    def _commit_grid_unit(self) -> None:
+        self._state.grid.set_unit(self._grid_unit.currentData())
+
+    def _commit_ripple(self, ripple: bool) -> None:
+        self._state.grid.set_ripple(ripple)
+        self._sync_from_grid()
 
     # -- commit handlers -------------------------------------------------------
 
