@@ -1,6 +1,11 @@
 # ScoreAnim — Worklog
 
-**NOW:** `beta/grid-align` is merged (`bb7b195`, no tag): tempo is
+**NOW:** `beta/live-fields` is unmerged and unproven in the app: every
+number field previews as you type. It sits on top of `beta/shell-layout`
+(also unmerged), which moved the openers to the toolbar and the grid
+controls under the lanes.
+
+`beta/grid-align` is merged (`bb7b195`, no tag): tempo is
 authored by dragging the timeline lane's Ticks grid onto the recording,
 with double-click locks as the anchors, and the Tempo field sets the
 tempo from the selected line onward with the ticks moving as you type.
@@ -16,6 +21,15 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-07-31 — **Every number field previews as you type** — the new
+  default (`ui/live_field.py`), not the Tempo field's special case:
+  Offset, Swing, Amplitude, Settle, Peak offset and Floor opacity all
+  show the result on every keystroke and still commit as one undo entry.
+  A test scans each host's `live_fields`, so a spinbox added without the
+  helper fails the suite. Two things it turned up: a resync must never
+  gray out a live field (disabling drops focus, and focus-out commits),
+  and Cmd-S was writing the preview instead of the committed document —
+  fixed. PATTERNS rewritten; unproven in the app so far.
 - 2026-07-30 — **The Tempo field previews as you type**: the ticks move
   on every digit instead of waiting for the click outside, so you can
   see whether a tempo fits the recording while you are still setting it.

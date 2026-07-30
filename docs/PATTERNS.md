@@ -146,19 +146,40 @@ derived (rule 5). It anchors tick drags and nothing else: the Offset
 field, a tempo-point drag and a `.tempo` import all move locked beats,
 and the last of those clears the locks outright.
 
-**A field can preview as you type** — a spinbox whose result the user
-has to LOOK at (the Tempo field: do the ticks fit the recording yet?)
-runs the same preview/commit pair as a drag. Keyboard tracking on,
-`valueChanged` → `preview`, `editingFinished` → `commit`: one undo entry
-for the typing session, and Qt withholds `valueChanged` for text that
-does not validate in range, so a half-typed number never previews. Two
-things this costs, both load-bearing: the no-op guard must read
-`AppState.committed`, because `doc` hands the field back its own preview
-and it would then never commit; and the resync must skip the `setValue`
-while the edit is live, because `preview` emits `document_changed` and
-comes straight back to rewrite the text under the cursor (`blockSignals`
-stops a re-commit, not that). Fields whose value speaks for itself
-(Offset, Swing) stay commit-only — this is not the default.
+**A number field previews as you type** — the DEFAULT for every spinbox
+that edits the document (Marcus, 2026-07-31). The user has to look at
+the result to know whether the number is right, so the result has to be
+on screen while they are still typing it. `ui/live_field.py` owns the
+wiring: keyboard tracking on, `valueChanged` → `preview`,
+`editingFinished` → `commit`, so the whole typing session is ONE undo
+entry, and Qt withholds `valueChanged` for text that does not validate
+in range, so a half-typed number never previews. Each field supplies one
+`edit(value) -> Command | None`, used by BOTH the preview and the
+commit, so the two cannot ask for different things. The host keeps its
+fields in a `live_fields` tuple — that is what holds them alive, and
+`tests/test_live_field.py` scans it, so a spinbox added without one
+fails the suite.
+
+Four things this costs, all load-bearing and all handled by the helper:
+the no-op guard reads `AppState.committed`, because `doc` hands the
+field back its own preview and it would then never commit; the resync
+skips its `setValue` while the edit is live, because `preview` emits
+`document_changed` and comes straight back to rewrite the text under the
+cursor (`blockSignals` stops a re-commit, not that); "am I previewing"
+is `live AND doc is not committed`, so an undo or a project load takes
+the field back instead of leaving it on a number nothing is showing; and
+a resync must never DISABLE a live field, because disabling drops focus
+and focus-out commits. One field is live at a time — reaching another
+spinbox moves focus, and focus-out ends the first edit. A shortcut does
+not move focus, so Cmd-S writes `committed`, and an undo mid-edit takes
+the unfinished edit with it.
+
+Three exclusions, and only three. An engraving input never previews —
+anything `ScoreLoader.needs_reengrave` diffs runs through `execute()`
+only (0.25–1.3 s per re-engrave). A modal dialog's fields never preview:
+the dialog owns its own OK/Cancel, and a preview would outlive a Cancel.
+And checkboxes and combos are not in scope — they have no half-typed
+state, so they already commit atomically.
 
 **A duration change must not steal the window** — with no audio bound
 the time axis's duration is the SCORE's length, so every tempo edit
