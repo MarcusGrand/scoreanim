@@ -9,15 +9,12 @@ Ruling (Marcus, 2026-07-24): everything time-related lives in the lower
 zone, not in the inspector. The inspector keeps the non-time controls
 (Follow/Systems, appearance).
 
-The commit wiring is the alpha's: commit on `editingFinished`, an
-epsilon no-op guard, and a `blockSignals` resync through
-`sync_from_document` — the window calls that on every document change,
-so a resync never re-executes a command.
-
-Offset and Swing keep keyboard tracking off and only speak on commit.
-Tempo previews as you type instead (the preview/commit pair the lane
-drags use), because the grid has to move with the number for you to see
-whether it fits the recording.
+All three number fields preview as you type (`ui/live_field.py`): the
+ticks move with the number, so you can see whether a tempo, an offset
+or a swing ratio fits the recording while you are still setting it.
+Each supplies the one `_*_edit` function its preview and its commit both
+call, and each resyncs through `sync_from_document` — the window calls
+that on every document change, so a resync never re-executes a command.
 """
 from __future__ import annotations
 
@@ -25,10 +22,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout,
                                QLabel, QToolButton, QWidget)
 
-from scoreanim.core.project import ProjectDoc, SetGlobalSwing, SetOffset
+from scoreanim.core.project import (Command, ProjectDoc, SetGlobalSwing,
+                                    SetOffset)
 from scoreanim.core.timing import GRID_UNITS
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.grid_options import LaneDisplay
+from scoreanim.ui.live_field import LiveField
 from scoreanim.ui.readouts import (global_swing_ratio, tempo_command,
                                    tempo_scope)
 
@@ -45,32 +44,20 @@ class TimelineBar(QWidget):
         # existing tempo-map machinery (MoveTempoEvent) — not a parallel
         # path. With no audio it sets the no-audio playback pace; the
         # offset is simply 0 then.
-        #
-        # Alone among the fields it previews while you type (keyboard
-        # tracking ON): the ticks have to move with the number, or you
-        # cannot see whether the tempo fits the recording yet. Qt only
-        # emits valueChanged for text that already validates in range, so
-        # a half-typed number never previews.
-        self._bpm_live = False           # this field owns a live preview
         self._bpm_spin = QDoubleSpinBox()
         self._bpm_spin.setDecimals(1)
         self._bpm_spin.setSingleStep(1.0)
         self._bpm_spin.setRange(20.0, 400.0)
-        self._bpm_spin.setKeyboardTracking(True)
         self._bpm_spin.setToolTip(
             "Tempo in bpm. With a grid line selected in the lane it sets "
             "the tempo\nfrom that line to the end and releases the locks "
             "after it; with nothing\nselected it sets the initial tempo.")
-        self._bpm_spin.valueChanged.connect(self._preview_bpm)
-        self._bpm_spin.editingFinished.connect(self._commit_bpm)
 
         self._offset_spin = QDoubleSpinBox()
         self._offset_spin.setSuffix(" s")      # a unit, not a label
         self._offset_spin.setDecimals(2)
         self._offset_spin.setSingleStep(0.05)
         self._offset_spin.setRange(-60.0, 3600.0)
-        self._offset_spin.setKeyboardTracking(False)
-        self._offset_spin.editingFinished.connect(self._commit_offset)
 
         # global swing ratio (ruling 2026-07-11): 0.50 straight … 0.67
         # triplet, one value for the whole piece; regions later (BACKLOG 7)
@@ -78,8 +65,13 @@ class TimelineBar(QWidget):
         self._swing_spin.setDecimals(2)
         self._swing_spin.setSingleStep(0.01)
         self._swing_spin.setRange(0.50, 0.75)
-        self._swing_spin.setKeyboardTracking(False)
-        self._swing_spin.editingFinished.connect(self._commit_swing)
+
+        self._bpm = LiveField(self._bpm_spin, app_state, self._bpm_edit)
+        self._offset = LiveField(self._offset_spin, app_state,
+                                 self._offset_edit)
+        self._swing = LiveField(self._swing_spin, app_state, self._swing_edit)
+        # the tuple is what holds the fields alive, and the test scans it
+        self.live_fields = (self._bpm, self._offset, self._swing)
 
         # what the lane shows, and how a tick drag behaves (view state, so
         # no command and nothing in sync_from_document)
@@ -129,14 +121,11 @@ class TimelineBar(QWidget):
 
     def sync_from_document(self, doc: ProjectDoc) -> None:
         """Resync the time fields from document intent (execute, undo,
-        redo, and project load all arrive here via the window)."""
-        self._offset_spin.blockSignals(True)
-        self._offset_spin.setValue(doc.timing.offset_seconds)
-        self._offset_spin.blockSignals(False)
+        redo, and project load all arrive here via the window). A field
+        with a live edit keeps its number — see `LiveField.resync`."""
+        self._offset.resync(doc.timing.offset_seconds)
         self._sync_from_grid()           # the Tempo field lives there now
-        self._swing_spin.blockSignals(True)
-        self._swing_spin.setValue(global_swing_ratio(doc))
-        self._swing_spin.blockSignals(False)
+        self._swing.resync(global_swing_ratio(doc))
 
     # -- the lane's own controls -----------------------------------------------
 
@@ -154,14 +143,7 @@ class TimelineBar(QWidget):
         label, bpm = tempo_scope(self._state.doc, self._selected_beat(),
                                  self._state.measures)
         self._bpm_label.setText(label)
-        # A preview of our own comes straight back here (it emits
-        # document_changed), and setValue would rewrite the text under the
-        # cursor mid-edit — blockSignals stops a re-commit, not that. The
-        # label still follows.
-        if not self._bpm_previewing():
-            self._bpm_spin.blockSignals(True)
-            self._bpm_spin.setValue(bpm)
-            self._bpm_spin.blockSignals(False)
+        self._bpm.resync(bpm)            # skipped while the edit is live
         self._grid_unit.setEnabled(ticks)
         self._shape_button.setEnabled(ticks)
         self._shape_button.setText("Flatten" if grid.flatten
@@ -179,7 +161,13 @@ class TimelineBar(QWidget):
         self._state.grid.set_flatten(not keep_shape)
         self._sync_from_grid()
 
-    # -- commit handlers -------------------------------------------------------
+    # -- what each field means by a number -------------------------------------
+    #
+    # One function per field, called by both its preview and its commit,
+    # so the two can never ask for different edits. All three read the
+    # COMMITTED document: `state.doc` hands a field back its own preview,
+    # so a no-op guard reading it would compare the value with itself and
+    # never let anything commit. None means "changes nothing".
 
     def _selected_beat(self):
         """The lane's selected line, only while the lane is showing it."""
@@ -187,13 +175,11 @@ class TimelineBar(QWidget):
         return grid.selected_beat if grid.display is LaneDisplay.TICKS \
             else None
 
-    def _bpm_edit(self, value: float):
-        """The command for a typed bpm, or None when it changes nothing.
-
-        Always read against the COMMITTED document: `state.doc` hands back
-        our own preview once one is live, so the no-op guard would compare
-        the value with itself and never let anything commit.
-        """
+    def _bpm_edit(self, value: float) -> Command | None:
+        """With a line selected it sets the tempo from there to the end
+        (SetTempoFrom); with nothing selected it edits the initial tempo
+        through the existing machinery — MoveTempoEvent on the first
+        event, so a tempo curve's later events survive."""
         doc = self._state.committed
         beat = self._selected_beat()
         _label, showing = tempo_scope(doc, beat, self._state.measures)
@@ -201,55 +187,18 @@ class TimelineBar(QWidget):
             return None
         return tempo_command(doc, beat, value)
 
-    def _bpm_previewing(self) -> bool:
-        """This field has an unfinished edit showing. Self-healing on
-        purpose: an undo or a project load drops the preview out from
-        under us, and the field goes back to following the document
-        instead of sitting on a number nothing is showing."""
-        return self._bpm_live and self._state.doc is not self._state.committed
+    def _offset_edit(self, value: float) -> Command | None:
+        if abs(value - self._state.committed.timing.offset_seconds) < 1e-9:
+            return None
+        return SetOffset(value)
 
-    def _preview_bpm(self, value: float) -> None:
-        """Typing (or stepping) shows the tempo everywhere at once — the
-        ticks, the waveform and playback all read the previewed document.
-        Nothing is committed and the undo stack is untouched until the
-        edit finishes."""
-        command = self._bpm_edit(value)
-        if command is None:              # typed back to where it started
-            self._drop_bpm_preview()
-            return
-        self._bpm_live = True
-        self._state.preview(command)
-
-    def _drop_bpm_preview(self) -> None:
-        live, self._bpm_live = self._bpm_previewing(), False
-        if live:
-            self._state.cancel_preview()
-
-    def _commit_bpm(self) -> None:
-        """Enter or focus-out ends the edit: one undo entry for the whole
-        typing session, whatever the preview did along the way. With a
-        line selected it sets the tempo from there to the end
-        (SetTempoFrom); with nothing selected it edits the initial tempo
-        through the existing machinery — MoveTempoEvent on the first
-        event, so a tempo curve's later events survive."""
-        command = self._bpm_edit(self._bpm_spin.value())
-        if command is None:
-            self._drop_bpm_preview()
-            return
-        self._bpm_live = False           # clear first: commit lands back
-        self._state.commit(command)      # here as a resync
-
-    def _commit_offset(self) -> None:
-        value = self._offset_spin.value()
-        if abs(value - self._state.doc.timing.offset_seconds) > 1e-9:
-            self._state.execute(SetOffset(value))
-
-    def _commit_swing(self) -> None:
-        value = self._swing_spin.value()
-        if abs(value - global_swing_ratio(self._state.doc)) < 1e-9:
-            return
+    def _swing_edit(self, value: float) -> Command | None:
+        """No measures loaded means no score extent to swing, so the
+        field says nothing at all — no preview and no commit."""
+        if abs(value - global_swing_ratio(self._state.committed)) < 1e-9:
+            return None
         measures = self._state.measures
         if not measures:
-            return
+            return None
         end_beat = measures[-1].start + measures[-1].quarter_length
-        self._state.execute(SetGlobalSwing(value, end_beat))
+        return SetGlobalSwing(value, end_beat)
