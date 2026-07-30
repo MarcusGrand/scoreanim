@@ -7,7 +7,9 @@ from dataclasses import dataclass, replace
 from scoreanim.core.project.commands.base import Command, CommandError
 from scoreanim.core.project.document import ProjectDoc
 from scoreanim.core.score.identity import Beats
-from scoreanim.core.timing.swing import SwingRegion, validate_regions
+from scoreanim.core.timing.retime import retime
+from scoreanim.core.timing.swing import (SwingRegion, swing_warp,
+                                         validate_regions)
 from scoreanim.core.timing.taps import TapSession
 from scoreanim.core.timing.tempo_map import TempoEvent, TempoMap
 
@@ -90,6 +92,42 @@ class RemoveTempoEvent(Command):
 
     def describe(self) -> str:
         return "remove tempo event"
+
+
+@dataclass(frozen=True)
+class AlignBeat(Command):
+    """Drag a grid line onto the waveform: put `beat` at `seconds` of the
+    recording by retiming the spans around it, holding the anchors `left`
+    and `right` where they are. `right=None` ripples instead — the tempo
+    after `beat` is untouched and slides with it, which is also the only
+    thing dragging the last line can mean.
+
+    `seconds` is AUDIO seconds, straight off the time axis; the offset is
+    document state, so this subtracts it here. Everything else is derived
+    from the document it is applied to, so preview, commit, undo and redo
+    all replay identically.
+    """
+    beat: Beats                  # musical beat of the dragged line
+    seconds: float               # audio seconds under the cursor
+    left: Beats                  # the anchor before it
+    right: Beats | None = None   # the anchor after it, or None to ripple
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        regions = doc.timing.swing_regions
+        try:
+            events = retime(
+                doc.timing.tempo_events,
+                beat=swing_warp(self.beat, regions),
+                seconds=self.seconds - doc.timing.offset_seconds,
+                left=swing_warp(self.left, regions),
+                right=(None if self.right is None
+                       else swing_warp(self.right, regions)))
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        return _with_timing(doc, tempo_events=_validated_events(events))
+
+    def describe(self) -> str:
+        return "align beat"
 
 
 @dataclass(frozen=True)

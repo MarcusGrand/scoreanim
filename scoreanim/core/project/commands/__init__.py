@@ -47,6 +47,7 @@ from scoreanim.core.project.commands.style import (ResetEffectSettings,
                                                    SetRevealMode)
 from scoreanim.core.project.commands.timing import (AddSwingRegion,
                                                     AddTempoEvent,
+                                                    AlignBeat,
                                                     ApplyTaps,
                                                     ImportTempoSetup,
                                                     MoveTempoEvent,
@@ -60,7 +61,7 @@ from scoreanim.core.project.commands.undo import UndoStack
 
 __all__ = [
     "AddCondenseGroup", "AddStaffGroup", "AddSwingRegion", "AddTempoEvent",
-    "AddTempoOverlay", "ApplyScoreSetup", "ApplyTaps",
+    "AddTempoOverlay", "AlignBeat", "ApplyScoreSetup", "ApplyTaps",
     "Command", "CommandError",
     "EditCondenseGroup", "EditStaffGroup", "EditStageText",
     "ImportTempoSetup", "MoveTempoEvent",

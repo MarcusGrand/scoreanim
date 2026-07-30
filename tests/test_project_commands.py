@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from scoreanim.core.project import (AddSwingRegion, AddTempoEvent, ApplyTaps,
+from scoreanim.core.project import (AddSwingRegion, AddTempoEvent, AlignBeat,
+                                    ApplyTaps,
                                     CommandError, ImportTempoSetup,
                                     MoveTempoEvent, ProjectDoc,
                                     RemoveSwingRegion, RemoveTapSession,
@@ -17,7 +18,8 @@ from scoreanim.core.project import (AddSwingRegion, AddTempoEvent, ApplyTaps,
                                     SetOffset, SetPartColor, SetSwingRegion,
                                     TimingConfig, UndoStack)
 from scoreanim.core.score.identity import PartId
-from scoreanim.core.timing import SwingRegion, Tap, TapSession, TempoEvent
+from scoreanim.core.timing import (SwingRegion, Tap, TapSession, TempoEvent,
+                                   TempoMap, swing_warp)
 
 
 @pytest.fixture
@@ -96,6 +98,63 @@ def test_import_tempo_setup_replaces_events_keeps_swing_and_taps(doc) -> None:
     assert out.timing.tap_sessions == doc.timing.tap_sessions
     with pytest.raises(CommandError):
         ImportTempoSetup(0.0, (), "x.tempo").apply(doc)
+
+
+# -- align a grid line ------------------------------------------------------
+#
+# The maths is pinned in tests/test_retime.py; these pin the command's own
+# two jobs — audio seconds minus the offset, and beats warped by the
+# document's swing — plus rule 8.
+
+def _at(doc, beat: float) -> float:
+    """Audio seconds of a beat, the way the lane draws it."""
+    return doc.timing.offset_seconds + TempoMap(
+        list(doc.timing.tempo_events)).seconds_at(beat)
+
+
+def test_align_beat_puts_the_beat_at_the_audio_second(doc) -> None:
+    out = AlignBeat(8.0, _at(doc, 8.0) + 0.4, 4.0, 12.0).apply(doc)
+    assert _at(out, 8.0) == pytest.approx(_at(doc, 8.0) + 0.4)
+    assert _at(out, 4.0) == pytest.approx(_at(doc, 4.0))     # anchors hold
+    assert _at(out, 12.0) == pytest.approx(_at(doc, 12.0))
+    assert out.timing.offset_seconds == doc.timing.offset_seconds
+    assert doc.timing.tempo_events == (
+        TempoEvent(0.0, 120.0), TempoEvent(16.0, 90.0))      # before untouched
+
+
+def test_align_beat_ripples_when_there_is_no_anchor_after(doc) -> None:
+    out = AlignBeat(8.0, _at(doc, 8.0) + 0.4, 4.0, None).apply(doc)
+    assert _at(out, 8.0) == pytest.approx(_at(doc, 8.0) + 0.4)
+    for beat in (12.0, 20.0, 40.0):
+        assert _at(out, beat) == pytest.approx(_at(doc, beat) + 0.4)
+
+
+def test_align_beat_warps_the_beat_through_swing(doc) -> None:
+    """An off-beat inside a swing region does not sound where the tempo
+    map alone would put it, so the command warps before retiming."""
+    swung = AddSwingRegion(SwingRegion((0.0, 16.0), 0.62)).apply(doc)
+    target = _at(swung, swing_warp(6.5, swung.timing.swing_regions)) + 0.2
+    out = AlignBeat(6.5, target, 4.0, 8.0).apply(swung)
+    warped = swing_warp(6.5, out.timing.swing_regions)
+    assert _at(out, warped) == pytest.approx(target)
+    assert _at(out, 4.0) == pytest.approx(_at(swung, 4.0))   # barlines hold
+    assert _at(out, 8.0) == pytest.approx(_at(swung, 8.0))
+
+
+def test_align_beat_rejects_the_unreachable(doc) -> None:
+    for seconds in (float("nan"), _at(doc, 4.0) - 1.0, 1e6):
+        with pytest.raises(CommandError):
+            AlignBeat(8.0, seconds, 4.0, 12.0).apply(doc)
+    with pytest.raises(CommandError):                        # beat <= anchor
+        AlignBeat(4.0, _at(doc, 4.0), 4.0, 12.0).apply(doc)
+
+
+def test_align_beat_is_one_undo_entry(doc) -> None:
+    stack = UndoStack()
+    out = stack.execute(AlignBeat(8.0, _at(doc, 8.0) + 0.4, 4.0, 12.0), doc)
+    assert stack.undo_text() == "align beat"
+    assert out.timing.tempo_events != doc.timing.tempo_events   # non-vacuous
+    assert stack.undo().timing.tempo_events == doc.timing.tempo_events
 
 
 # -- taps --------------------------------------------------------------------

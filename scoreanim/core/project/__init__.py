@@ -1,6 +1,7 @@
 from scoreanim.core.project.commands import (AddCondenseGroup, AddStaffGroup,
                                              AddSwingRegion,
                                              AddTempoEvent, AddTempoOverlay,
+                                             AlignBeat,
                                              ApplyScoreSetup,
                                              ApplyTaps, Command, CommandError,
                                              EditCondenseGroup,
@@ -50,7 +51,7 @@ from scoreanim.core.project.stage_config import (OVERLAY_PREFIX,
 
 __all__ = [
     "AddCondenseGroup", "AddStaffGroup", "AddSwingRegion", "AddTempoEvent",
-    "AddTempoOverlay",
+    "AddTempoOverlay", "AlignBeat",
     "ApplyScoreSetup", "ApplyTaps",
     "Command", "CommandError", "CondenseGroup", "DEFAULT_BPM",
     "EditCondenseGroup", "EditStaffGroup",
