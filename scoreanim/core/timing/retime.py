@@ -1,17 +1,27 @@
-"""Retiming a span: put a beat at a given second without moving its
-neighbours.
+"""Retiming a span: put a beat at a given second without moving the
+anchors either side.
 
-This is what dragging a grid line onto the waveform means. To put beat
-`B` at second `S` while the anchors `L` and `R` either side stay exactly
-where they are: give each span a boundary event, then multiply the bpm of
-every event inside `[L, B)` by `old_span / new_span`, and the same inside
-`[B, R)`. Scaling by a constant divides the span's duration by that
-constant and preserves any tempo shape already inside it.
+This is what dragging a grid line onto the waveform means, and there are
+two rules for it. Both hold `left` and `right` still and touch nothing
+outside `[left, right)`; they differ in what happens to the tempo INSIDE.
 
-`right=None` is the ripple case: only the span before `B` retimes, and
-everything after `B` keeps its tempo and slides by the same amount. It is
-also what dragging the last line means, since there is no anchor after
-it.
+- `flatten_span` — the default. The span comes out evenly spaced: one
+  constant bpm from `left` to `beat`, and another from `beat` to `right`.
+  Whatever tempo detail was inside is gone, which is the point — "these
+  bars, evenly, between the two things I have pinned".
+- `scale_span` — keep the shape. Multiply the bpm of every event inside
+  each span by `old_span / new_span`, which divides the span's duration
+  by that constant and leaves the tempo's shape intact. This is the one
+  to use after tapping a rubato passage, where flattening would throw the
+  taps away.
+
+`right=None` means there is no anchor after the beat: only the span
+before it retimes, and everything after keeps its tempo and slides by the
+same amount.
+
+The anchors come from the user's locks — `lock_anchors` picks the nearest
+one either side, with the score start standing in when nothing is locked
+before.
 
 Positions here are beats in the domain `TempoMap.seconds_at` consumes —
 already swing-warped. The caller warps (`swing.swing_warp`); this module
@@ -21,12 +31,12 @@ Two things that look like details and are not:
 
 - The events are normalized with a beat-0 event first. `TempoMap` anchors
   `seconds_at(0) == 0` by extending the FIRST event's bpm backwards, so
-  scaling that event would move every second before it — including the
+  rewriting that event would move every second before it — including the
   anchor we promised not to move. A document made in the app always has
   a beat-0 event already, so the normalization is usually a no-op; a
   `.tempo` sidecar import is where it earns its keep.
-- `retime_bounds` gives the caller the reachable window, so a drag can
-  clamp the cursor and `retime` never has to fail half way through a
+- `span_bounds` gives the caller the reachable window, so a drag can
+  clamp the cursor and the retime never has to fail half way through a
   gesture.
 """
 from __future__ import annotations
@@ -54,26 +64,67 @@ def bpm_at(events: Sequence[TempoEvent], beat: Beats) -> float:
     return prevailing
 
 
-def retime(events: Sequence[TempoEvent], *, beat: Beats, seconds: float,
-           left: Beats, right: Beats | None) -> tuple[TempoEvent, ...]:
-    """Rewrite bpms so `seconds_at(beat) == seconds`, with `seconds_at`
-    unchanged at `left`, at `right`, and everywhere outside `[left,
-    right)`. Raises ValueError when the target is unreachable."""
+def lock_anchors(locked: Sequence[Beats],
+                 beat: Beats) -> tuple[Beats, Beats | None]:
+    """The nearest locked beat either side of `beat`.
+
+    `left` is never None: with nothing locked before it, the score start
+    stands in, which is what "even out everything before this line"
+    means when the user has pinned nothing yet. `right` is None when
+    nothing is locked after — then the tail simply slides.
+    """
+    left = max((b for b in locked if b < beat - _EPS), default=0.0)
+    right = min((b for b in locked if b > beat + _EPS), default=None)
+    return left, right
+
+
+def flatten_span(events: Sequence[TempoEvent], *, beat: Beats,
+                 seconds: float, left: Beats,
+                 right: Beats | None) -> tuple[TempoEvent, ...]:
+    """Put `beat` at `seconds` and space each span evenly: one constant
+    bpm from `left` to `beat`, another from `beat` to `right`. Events
+    inside are dropped — that is the rule, not a side effect. Anchors and
+    everything outside `[left, right)` hold still."""
+    events = _normalized(events)
+    _check_anchors(beat, seconds, left, right)
+    tempo_map = TempoMap(list(events))
+    s_left = tempo_map.seconds_at(left)
+    _check_room(seconds - s_left, seconds, left, s_left)
+
+    kept = [e for e in events if e.position < left - _EPS]
+    kept.append(TempoEvent(left, _uniform_bpm(beat - left, seconds - s_left)))
+    if right is None:
+        # the tail keeps its tempo and slides: an event at `beat` carrying
+        # what was in force there stops the flattened span bleeding past it
+        kept.append(TempoEvent(beat, bpm_at(events, beat)))
+        kept.extend(e for e in events if e.position > beat + _EPS)
+    else:
+        s_right = tempo_map.seconds_at(right)
+        _check_room(s_right - seconds, seconds, right, s_right)
+        kept.append(TempoEvent(beat, _uniform_bpm(right - beat,
+                                                  s_right - seconds)))
+        kept.append(TempoEvent(right, bpm_at(events, right)))
+        kept.extend(e for e in events if e.position > right + _EPS)
+    return tuple(sorted(kept, key=lambda e: e.position))
+
+
+def scale_span(events: Sequence[TempoEvent], *, beat: Beats, seconds: float,
+               left: Beats, right: Beats | None) -> tuple[TempoEvent, ...]:
+    """Put `beat` at `seconds` by scaling every bpm inside each span, so
+    the tempo's shape survives. `seconds_at` is unchanged at `left`, at
+    `right`, and everywhere outside `[left, right)`. Raises ValueError
+    when the target is unreachable."""
     events = _normalized(events)
     _check_anchors(beat, seconds, left, right)
     tempo_map = TempoMap(list(events))
     s_left = tempo_map.seconds_at(left)
     s_beat = tempo_map.seconds_at(beat)
-    if seconds - s_left < MIN_SPAN_SECONDS:
-        raise ValueError(f"target {seconds:.4f}s crowds the anchor at beat "
-                         f"{left:g} ({s_left:.4f}s)")
+    _check_room(seconds - s_left, seconds, left, s_left)
     ratio_left = (s_beat - s_left) / (seconds - s_left)
     ratio_right = None
     if right is not None:
         s_right = tempo_map.seconds_at(right)
-        if s_right - seconds < MIN_SPAN_SECONDS:
-            raise ValueError(f"target {seconds:.4f}s crowds the anchor at "
-                             f"beat {right:g} ({s_right:.4f}s)")
+        _check_room(s_right - seconds, seconds, right, s_right)
         ratio_right = (s_right - s_beat) / (s_right - seconds)
 
     wanted = [left, beat] + ([] if right is None else [right])
@@ -84,21 +135,26 @@ def retime(events: Sequence[TempoEvent], *, beat: Beats, seconds: float,
     return _pruned(events, inserted)
 
 
-def retime_bounds(events: Sequence[TempoEvent], *, beat: Beats, left: Beats,
-                  right: Beats | None) -> tuple[float, float]:
+def span_bounds(events: Sequence[TempoEvent], *, beat: Beats, left: Beats,
+                right: Beats | None, flatten: bool) -> tuple[float, float]:
     """The window of score seconds `beat` can be moved into with every
     bpm still inside [BPM_MIN, BPM_MAX]. The view clamps the cursor with
-    this, so `retime` is never asked for the impossible."""
+    this, so neither retime is ever asked for the impossible.
+
+    Flattening replaces the span's bpms with one value, so its window
+    depends only on the span's LENGTH IN BEATS; scaling keeps them, so
+    its window is bounded by the most extreme bpm already inside."""
     events = _normalized(events)
     _check_anchors(beat, None, left, right)
     tempo_map = TempoMap(list(events))
     s_left = tempo_map.seconds_at(left)
     s_beat = tempo_map.seconds_at(beat)
-    slow, fast = _duration_range(events, left, beat, s_beat - s_left)
+    slow, fast = _duration_range(events, left, beat, s_beat - s_left, flatten)
     lo, hi = s_left + fast, s_left + slow
     if right is not None:
         s_right = tempo_map.seconds_at(right)
-        slow, fast = _duration_range(events, beat, right, s_right - s_beat)
+        slow, fast = _duration_range(events, beat, right, s_right - s_beat,
+                                     flatten)
         lo = max(lo, s_right - slow)
         hi = min(hi, s_right - fast)
     return lo, hi
@@ -139,9 +195,28 @@ def _span_bpms(events: Sequence[TempoEvent], lo: Beats,
     return (bpm_at(events, lo),) + tuple(inside)
 
 
+def _check_room(span: float, seconds: float, anchor: Beats,
+                s_anchor: float) -> None:
+    if span < MIN_SPAN_SECONDS:
+        raise ValueError(f"target {seconds:.4f}s crowds the anchor at beat "
+                         f"{anchor:g} ({s_anchor:.4f}s)")
+
+
+def _uniform_bpm(beats: Beats, seconds: float) -> float:
+    """The one bpm that spaces `beats` evenly over `seconds`."""
+    bpm = 60.0 * beats / seconds
+    if not BPM_MIN - _EPS <= bpm <= BPM_MAX + _EPS:
+        raise ValueError(f"spacing {beats:g} beats over {seconds:.3f}s would "
+                         f"need {bpm:.1f} bpm")
+    return bpm
+
+
 def _duration_range(events: Sequence[TempoEvent], lo: Beats, hi: Beats,
-                    duration: float) -> tuple[float, float]:
+                    duration: float, flatten: bool) -> tuple[float, float]:
     """(slowest, fastest) seconds this span can be stretched to."""
+    if flatten:                  # one bpm: only the span's beats matter
+        return (60.0 * (hi - lo) / BPM_MIN,
+                max(60.0 * (hi - lo) / BPM_MAX, MIN_SPAN_SECONDS))
     bpms = _span_bpms(events, lo, hi)
     ratio_max = min(BPM_MAX / bpm for bpm in bpms)      # fastest
     ratio_min = max(BPM_MIN / bpm for bpm in bpms)      # slowest

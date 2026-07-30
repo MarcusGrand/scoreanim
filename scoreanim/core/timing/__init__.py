@@ -3,8 +3,9 @@ from scoreanim.core.timing.grid import (BARS, EIGHTH, EIGHTH_TRIPLET,
                                         GRID_UNITS, QUARTER, SIXTEENTH,
                                         GridTick, GridUnit, TickGrid,
                                         coarsened, grid_ticks)
-from scoreanim.core.timing.retime import (BPM_MAX, BPM_MIN, bpm_at, retime,
-                                          retime_bounds)
+from scoreanim.core.timing.retime import (BPM_MAX, BPM_MIN, bpm_at,
+                                          flatten_span, lock_anchors,
+                                          scale_span, span_bounds)
 from scoreanim.core.timing.swing import (SwingRegion, resolve_seconds,
                                          swing_unwarp, swing_warp,
                                          validate_regions)
@@ -17,6 +18,7 @@ __all__ = ["BARS", "BPM_MAX", "BPM_MIN", "Clock", "EIGHTH",
            "GridUnit", "ManualClock", "QUARTER", "SIXTEENTH", "SwingRegion",
            "Tap", "TapSession", "TempoEvent", "TempoMap", "TempoSetup",
            "TickGrid", "bpm_at", "coarsened", "grid_ticks",
-           "parse_tempo_file", "resolve_seconds", "retime", "retime_bounds",
+           "flatten_span", "lock_anchors", "parse_tempo_file",
+           "resolve_seconds", "scale_span", "span_bounds",
            "swing_unwarp", "swing_warp",
            "validate_regions"]
