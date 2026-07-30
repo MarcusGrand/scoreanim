@@ -192,7 +192,13 @@ class FileActions:
     def save_project(self) -> bool:
         if self.project_path is None:
             return self.save_project_as()
-        write_project_file(self._window.app_state.doc, self.project_path)
+        # the COMMITTED document, not `doc`: Cmd-S is a shortcut, so it
+        # does not move focus, and a field being typed in still has its
+        # preview up. An unfinished edit is not the document — writing it
+        # would put a value in the file that the undo stack never saw,
+        # and mark_saved would then call that clean.
+        write_project_file(self._window.app_state.committed,
+                           self.project_path)
         self._window.app_state.mark_saved()
         self._window.statusBar().showMessage(
             f"saved {self.project_path.name}")
