@@ -146,6 +146,20 @@ derived (rule 5). It anchors tick drags and nothing else: the Offset
 field, a tempo-point drag and a `.tempo` import all move locked beats,
 and the last of those clears the locks outright.
 
+**A field can preview as you type** — a spinbox whose result the user
+has to LOOK at (the Tempo field: do the ticks fit the recording yet?)
+runs the same preview/commit pair as a drag. Keyboard tracking on,
+`valueChanged` → `preview`, `editingFinished` → `commit`: one undo entry
+for the typing session, and Qt withholds `valueChanged` for text that
+does not validate in range, so a half-typed number never previews. Two
+things this costs, both load-bearing: the no-op guard must read
+`AppState.committed`, because `doc` hands the field back its own preview
+and it would then never commit; and the resync must skip the `setValue`
+while the edit is live, because `preview` emits `document_changed` and
+comes straight back to rewrite the text under the cursor (`blockSignals`
+stops a re-commit, not that). Fields whose value speaks for itself
+(Offset, Swing) stay commit-only — this is not the default.
+
 **A duration change must not steal the window** — with no audio bound
 the time axis's duration is the SCORE's length, so every tempo edit
 changes it, including each preview frame of a drag. `TimeAxis` re-fits

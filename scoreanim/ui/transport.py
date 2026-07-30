@@ -21,15 +21,13 @@ from PySide6.QtWidgets import (QComboBox, QDockWidget, QDoubleSpinBox,
                                QHBoxLayout, QLabel, QSlider, QSplitter,
                                QToolButton, QVBoxLayout, QWidget)
 
-from scoreanim.core.project import (MoveTempoEvent, ProjectDoc,
-                                    SetGlobalSwing, SetOffset,
-                                    SetTempoFrom)
+from scoreanim.core.project import ProjectDoc, SetGlobalSwing, SetOffset
 from scoreanim.core.timing import GRID_UNITS
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.grid_options import LaneDisplay
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.readouts import (format_time, global_swing_ratio,
-                                   initial_tempo_event, tempo_scope)
+                                   tempo_command, tempo_scope)
 from scoreanim.ui.taps import TapRecorder
 from scoreanim.ui.tempo_lane import TempoLaneView
 from scoreanim.ui.waveform import WaveformView
@@ -46,11 +44,15 @@ class TransportStrip(QWidget):
     `_on_playing` behavior, moved here with the widgets).
 
     Tempo/Offset/Swing are labeled fields (the prefix-in-spinbox look
-    is retired) with the alpha commit wiring verbatim: keyboard
-    tracking off, commit on editingFinished, epsilon no-op guard, and
-    a blockSignals resync via `sync_from_document` — the window calls
-    it on every document change, so a resync never re-executes a
-    command.
+    is retired) with the alpha commit wiring: commit on
+    editingFinished, epsilon no-op guard, and a blockSignals resync via
+    `sync_from_document` — the window calls it on every document
+    change, so a resync never re-executes a command.
+
+    Offset and Swing keep keyboard tracking off and only speak on
+    commit. Tempo previews as you type instead (the preview/commit pair
+    the lane drags use), because the grid has to move with the number
+    for you to see whether it fits the recording.
     """
 
     def __init__(self, app_state: AppState, playback: PlaybackController,
@@ -90,15 +92,23 @@ class TransportStrip(QWidget):
         # existing tempo-map machinery (MoveTempoEvent) — not a parallel
         # path. With no audio it sets the no-audio playback pace; the
         # offset is simply 0 then.
+        #
+        # Alone among the fields it previews while you type (keyboard
+        # tracking ON): the ticks have to move with the number, or you
+        # cannot see whether the tempo fits the recording yet. Qt only
+        # emits valueChanged for text that already validates in range, so
+        # a half-typed number never previews.
+        self._bpm_live = False           # this field owns a live preview
         self._bpm_spin = QDoubleSpinBox()
         self._bpm_spin.setDecimals(1)
         self._bpm_spin.setSingleStep(1.0)
         self._bpm_spin.setRange(20.0, 400.0)
-        self._bpm_spin.setKeyboardTracking(False)
+        self._bpm_spin.setKeyboardTracking(True)
         self._bpm_spin.setToolTip(
             "Tempo in bpm. With a grid line selected in the lane it sets "
             "the tempo\nfrom that line to the end and releases the locks "
             "after it; with nothing\nselected it sets the initial tempo.")
+        self._bpm_spin.valueChanged.connect(self._preview_bpm)
         self._bpm_spin.editingFinished.connect(self._commit_bpm)
 
         self._offset_spin = QDoubleSpinBox()
@@ -197,9 +207,14 @@ class TransportStrip(QWidget):
         label, bpm = tempo_scope(self._state.doc, self._selected_beat(),
                                  self._state.measures)
         self._bpm_label.setText(label)
-        self._bpm_spin.blockSignals(True)
-        self._bpm_spin.setValue(bpm)
-        self._bpm_spin.blockSignals(False)
+        # A preview of our own comes straight back here (it emits
+        # document_changed), and setValue would rewrite the text under the
+        # cursor mid-edit — blockSignals stops a re-commit, not that. The
+        # label still follows.
+        if not self._bpm_previewing():
+            self._bpm_spin.blockSignals(True)
+            self._bpm_spin.setValue(bpm)
+            self._bpm_spin.blockSignals(False)
         self._grid_unit.setEnabled(ticks)
         self._shape_button.setEnabled(ticks)
         self._shape_button.setText("Flatten" if grid.flatten
@@ -225,24 +240,57 @@ class TransportStrip(QWidget):
         return grid.selected_beat if grid.display is LaneDisplay.TICKS \
             else None
 
+    def _bpm_edit(self, value: float):
+        """The command for a typed bpm, or None when it changes nothing.
+
+        Always read against the COMMITTED document: `state.doc` hands back
+        our own preview once one is live, so the no-op guard would compare
+        the value with itself and never let anything commit.
+        """
+        doc = self._state.committed
+        beat = self._selected_beat()
+        _label, showing = tempo_scope(doc, beat, self._state.measures)
+        if abs(value - showing) < 1e-9:
+            return None
+        return tempo_command(doc, beat, value)
+
+    def _bpm_previewing(self) -> bool:
+        """This field has an unfinished edit showing. Self-healing on
+        purpose: an undo or a project load drops the preview out from
+        under us, and the field goes back to following the document
+        instead of sitting on a number nothing is showing."""
+        return self._bpm_live and self._state.doc is not self._state.committed
+
+    def _preview_bpm(self, value: float) -> None:
+        """Typing (or stepping) shows the tempo everywhere at once — the
+        ticks, the waveform and playback all read the previewed document.
+        Nothing is committed and the undo stack is untouched until the
+        edit finishes."""
+        command = self._bpm_edit(value)
+        if command is None:              # typed back to where it started
+            self._drop_bpm_preview()
+            return
+        self._bpm_live = True
+        self._state.preview(command)
+
+    def _drop_bpm_preview(self) -> None:
+        live, self._bpm_live = self._bpm_previewing(), False
+        if live:
+            self._state.cancel_preview()
+
     def _commit_bpm(self) -> None:
-        """With a line selected, set the tempo from there to the end
-        (SetTempoFrom); with nothing selected, edit the initial tempo
+        """Enter or focus-out ends the edit: one undo entry for the whole
+        typing session, whatever the preview did along the way. With a
+        line selected it sets the tempo from there to the end
+        (SetTempoFrom); with nothing selected it edits the initial tempo
         through the existing machinery — MoveTempoEvent on the first
         event, so a tempo curve's later events survive."""
-        value = self._bpm_spin.value()
-        _label, showing = tempo_scope(self._state.doc, self._selected_beat(),
-                                      self._state.measures)
-        if abs(value - showing) < 1e-9:
+        command = self._bpm_edit(self._bpm_spin.value())
+        if command is None:
+            self._drop_bpm_preview()
             return
-        beat = self._selected_beat()
-        if beat is not None:
-            self._state.execute(SetTempoFrom(beat, value))
-            return
-        first = initial_tempo_event(self._state.doc)
-        if first is not None:
-            self._state.execute(
-                MoveTempoEvent(first.position, first.position, value))
+        self._bpm_live = False           # clear first: commit lands back
+        self._state.commit(command)      # here as a resync
 
     def _commit_offset(self) -> None:
         value = self._offset_spin.value()

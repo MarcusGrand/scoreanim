@@ -228,3 +228,90 @@ def test_tempo_field_follows_the_lane_selection(qapp) -> None:
     widget._commit_bpm()
     assert state.doc.timing.tempo_events[0].bpm == 96.0
     assert state.undo_text() == "move tempo event"
+
+
+def test_tempo_previews_while_you_type(qapp) -> None:
+    """The ticks have to move with the number, not wait for the click
+    outside: every valid value previews, and the whole typing session
+    still lands as ONE undo entry."""
+    from scoreanim.core.score.model import MeasureInfo
+    from scoreanim.core.timing import TempoEvent
+
+    state = AppState()
+    state.set_measures(tuple(MeasureInfo(number=n + 1, start=n * 4.0,
+                                         quarter_length=4.0)
+                             for n in range(8)))
+    widget = TransportStrip(state, FakePlayback(), FakeTapRecorder())
+    state.grid.set_selected_beat(8.0)
+    repaints = []
+    state.document_changed.connect(lambda: repaints.append(state.doc))
+
+    widget._bpm_spin.setValue(100.0)              # typing, box still focused
+    assert state.doc.timing.tempo_events == (TempoEvent(0.0, 120.0),
+                                             TempoEvent(8.0, 100.0))
+    assert len(repaints) == 1                     # the lanes were told
+    assert state.committed.timing.tempo_events == (TempoEvent(0.0, 120.0),)
+    assert not state.can_undo                     # nothing committed yet
+
+    widget._bpm_spin.setValue(90.0)               # still typing
+    assert state.doc.timing.tempo_events[1].bpm == 90.0
+    # previews apply to the COMMITTED doc, so they never stack up
+    assert len(state.doc.timing.tempo_events) == 2
+    assert not state.can_undo
+
+    widget._commit_bpm()                          # Enter / click away
+    assert state.committed.timing.tempo_events == (TempoEvent(0.0, 120.0),
+                                                   TempoEvent(8.0, 90.0))
+    assert state.undo_text() == "set tempo"
+    state.undo()
+    assert not state.can_undo                     # exactly one entry
+
+
+def test_resync_does_not_fight_the_typing(qapp) -> None:
+    """A preview emits document_changed, which comes straight back here
+    as a resync — it must not rewrite the number under the cursor."""
+    state = AppState()
+    widget = TransportStrip(state, FakePlayback(), FakeTapRecorder())
+
+    widget._bpm_spin.setValue(100.0)
+    widget.sync_from_document(state.doc)          # what the window does
+    assert widget._bpm_spin.value() == 100.0
+    widget._sync_from_grid()
+    assert widget._bpm_spin.value() == 100.0
+    assert not state.can_undo
+
+    widget._commit_bpm()
+    assert state.committed.timing.tempo_events[0].bpm == 100.0
+    # the edit is over: a resync owns the field again
+    state.undo()
+    widget.sync_from_document(state.doc)
+    assert widget._bpm_spin.value() == 120.0
+
+
+def test_typing_back_to_the_start_cancels_the_preview(qapp) -> None:
+    state = AppState()
+    widget = TransportStrip(state, FakePlayback(), FakeTapRecorder())
+
+    widget._bpm_spin.setValue(100.0)
+    assert state.doc is not state.committed       # a preview is live
+    widget._bpm_spin.setValue(120.0)              # back where it started
+    assert state.doc is state.committed           # preview dropped
+    assert not state.axis._held                   # and the axis released
+    widget._commit_bpm()
+    assert not state.can_undo and not state.is_dirty
+
+
+def test_undo_during_an_edit_takes_the_field_back(qapp) -> None:
+    """An undo (or a project load) drops the preview from under the
+    field. It must let go rather than sit on a number nothing shows."""
+    state = AppState()
+    widget = TransportStrip(state, FakePlayback(), FakeTapRecorder())
+    widget._bpm_spin.setValue(100.0)
+    widget._commit_bpm()
+
+    widget._bpm_spin.setValue(90.0)               # typing again
+    assert state.doc.timing.tempo_events[0].bpm == 90.0
+    state.undo()                                  # pulls the rug out
+    widget.sync_from_document(state.doc)
+    assert widget._bpm_spin.value() == 120.0      # follows the document
+    assert not widget._bpm_previewing()

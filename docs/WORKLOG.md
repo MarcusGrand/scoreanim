@@ -3,7 +3,8 @@
 **NOW:** `beta/grid-align` rebuilds how tempo is authored: the timeline
 lane's Ticks mode (now the default) lines the score up with the recording
 by dragging barlines and beats, with double-click locks as the anchors,
-and the Tempo field sets the tempo from the selected line onward. Built
+and the Tempo field sets the tempo from the selected line onward, with
+the ticks moving as you type it. Built
 and green, waiting on Marcus's run in the app before it merges. Open
 question for him: whether Tempo mode still earns its place. It carries a schema
 bump (v10), so a project saved on this branch will not open on
@@ -16,6 +17,14 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-07-30 — **The Tempo field previews as you type**: the ticks move
+  on every digit instead of waiting for the click outside, so you can
+  see whether a tempo fits the recording while you are still setting it.
+  It runs the drag's own preview/commit pair, so the typing session is
+  still one undo entry. Two gotchas, now in PATTERNS: the no-op guard has
+  to read the new `AppState.committed` (`doc` hands the field back its
+  own preview, and it would never commit), and the resync has to skip
+  the `setValue` mid-edit or it rewrites the number under the cursor.
 - 2026-07-30 — **Ticks is the default lane**, and the Tempo field now
   aims at the selected line: click a line, type a tempo, and it sets the
   tempo from there to the end and releases the locks after it

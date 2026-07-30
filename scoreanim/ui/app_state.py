@@ -173,6 +173,13 @@ class AppState(QObject):
     def doc(self) -> ProjectDoc:
         return self._preview if self._preview is not None else self._committed
 
+    @property
+    def committed(self) -> ProjectDoc:
+        """The document with no preview on top — what a live edit has to
+        compare against to know whether it changed anything. `doc` would
+        hand it back its own preview."""
+        return self._committed
+
     def reset_document(self, doc: ProjectDoc) -> None:
         """Open score / open project: new document, fresh undo stack."""
         self.axis.hold(False)

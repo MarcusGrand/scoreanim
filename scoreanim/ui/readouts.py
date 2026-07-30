@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from scoreanim.core.project import DEFAULT_BPM, ProjectDoc
+from scoreanim.core.project import (DEFAULT_BPM, Command, MoveTempoEvent,
+                                    ProjectDoc, SetTempoFrom)
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.timing.retime import bpm_at
 from scoreanim.core.timing.swing import swing_warp
@@ -54,3 +55,20 @@ def tempo_scope(doc: ProjectDoc, beat: float | None,
     where = f"m{number}" if number is not None else f"beat {beat:g}"
     return f"Tempo from {where}", bpm_at(
         doc.timing.tempo_events, swing_warp(beat, doc.timing.swing_regions))
+
+
+def tempo_command(doc: ProjectDoc, beat: float | None,
+                  bpm: float) -> Command | None:
+    """The command the Tempo field means by a bpm — the mirror of
+    `tempo_scope`, which says what it is showing.
+
+    Lives here, not with the widget, because the field both previews and
+    commits: one function so the two cannot ask for different things.
+    None when there is nothing to edit (an empty tempo map).
+    """
+    if beat is not None:
+        return SetTempoFrom(beat, bpm)
+    first = initial_tempo_event(doc)
+    if first is None:
+        return None
+    return MoveTempoEvent(first.position, first.position, bpm)
