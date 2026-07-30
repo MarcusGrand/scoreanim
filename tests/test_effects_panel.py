@@ -49,11 +49,11 @@ def test_effect_dropdown_commits_default_effect(panel) -> None:
 def test_amplitude_and_settle_commit_pop_params(panel) -> None:
     widget, state = panel
     widget._amplitude_spin.setValue(2.0)
-    widget._commit_amplitude()
-    assert state.doc.style.effect_params["pop"]["scale"] == 2.0
-    widget._commit_amplitude()                   # epsilon no-op
+    widget._amplitude.commit()
+    assert state.committed.style.effect_params["pop"]["scale"] == 2.0
+    widget._amplitude.commit()                   # epsilon no-op
     widget._settle_spin.setValue(0.5)
-    widget._commit_settle()
+    widget._settle.commit()
     assert state.doc.style.effect_params["pop"]["settle"] == 0.5
     assert state.undo_text() == "set effect parameter"
     state.undo()
@@ -67,13 +67,78 @@ def test_note_value_and_peak_offset_commit(panel) -> None:
     widget._note_value_box.setChecked(True)
     assert state.doc.style.effect_params["pop"]["note_value"] is True
     widget._peak_spin.setValue(-100)             # ms in the UI
-    widget._commit_peak()
+    widget._peak.commit()
     assert state.doc.style.effect_params["pop"]["peak_offset"] == \
         pytest.approx(-0.1)                      # seconds in the doc
-    widget._commit_peak()                        # epsilon no-op
+    widget._peak.commit()                        # epsilon no-op
     state.undo()
     state.undo()
     assert not state.can_undo                    # two gestures, two steps
+
+
+def test_the_four_number_fields_preview_while_you_type(panel) -> None:
+    """The stage shows the knob on every keystroke: the previewed
+    document carries it while the committed one does not, and the whole
+    typing session still lands as ONE undo entry."""
+    widget, state = panel
+
+    def pop(doc, key):
+        return doc.style.effect_params.get("pop", {}).get(key)
+
+    cases = ((widget._amplitude_spin, widget._amplitude, 2.5,
+              lambda doc: pop(doc, "scale"), 2.5),
+             (widget._settle_spin, widget._settle, 0.75,
+              lambda doc: pop(doc, "settle"), 0.75),
+             (widget._peak_spin, widget._peak, -100,      # ms in, s out
+              lambda doc: pop(doc, "peak_offset"), pytest.approx(-0.1)),
+             (widget._floor_spin, widget._floor, 0.4,
+              lambda doc: doc.style.floor_opacity, 0.4))
+    for spin, field, typed, read, expected in cases:
+        before = read(state.committed)
+        spin.setValue(typed)                     # typing, box still focused
+        assert read(state.doc) == expected       # the stage was told
+        assert read(state.committed) == before   # nothing committed yet
+        assert not state.can_undo
+
+        field.commit()                           # Enter / click away
+        assert read(state.committed) == expected
+        assert state.can_undo
+        state.undo()                             # exactly one entry each
+        assert not state.can_undo
+        widget.sync_from_document(state.doc)
+
+
+def test_typing_a_knob_back_to_its_start_commits_nothing(panel) -> None:
+    widget, state = panel
+    start = state.doc.style.floor_opacity         # 0.3, the default
+    widget._floor_spin.setValue(0.4)
+    assert state.doc is not state.committed      # a preview is live
+    widget._floor_spin.setValue(start)           # back where it started
+    assert state.doc is state.committed          # preview dropped
+    widget._floor.commit()
+    assert not state.can_undo and not state.is_dirty
+
+
+def test_a_resync_does_not_fight_a_live_knob(panel) -> None:
+    """A preview emits document_changed, which comes straight back here
+    as a resync — it must not rewrite the number under the cursor, and it
+    must not gray the field out from under it either."""
+    widget, state = panel
+    widget._effect_combo.setCurrentText("pop")
+    widget._commit_effect()
+
+    widget._amplitude_spin.setValue(3.0)         # typing
+    widget.sync_from_document(state.doc)         # what the window does
+    assert widget._amplitude_spin.value() == 3.0
+    assert widget._amplitude_spin.isEnabled()
+    assert state.undo_text() == "set default effect"   # nothing new committed
+
+    widget._amplitude.commit()
+    assert state.committed.style.effect_params["pop"]["scale"] == 3.0
+    state.undo()                                 # the edit is over
+    widget.sync_from_document(state.doc)
+    assert widget._amplitude_spin.value() == 1.25
+    assert not widget._amplitude.previewing()
 
 
 def test_peak_offset_tooltip_states_early_visibility(panel) -> None:
@@ -120,10 +185,10 @@ def test_unknown_stored_effect_name_is_displayed(panel) -> None:
 def test_floor_and_sweep_moved_in_verbatim(panel) -> None:
     widget, state = panel
     widget._floor_spin.setValue(0.25)
-    widget._commit_floor()
+    widget._floor.commit()
     assert state.doc.style.floor_opacity == 0.25
     assert state.undo_text() == "set floor opacity"
-    widget._commit_floor()                       # epsilon no-op
+    widget._floor.commit()                       # epsilon no-op
     widget._sweep_box.setChecked(True)
     assert state.doc.style.reveal_mode is RevealMode.CONTINUOUS
     assert state.undo_text() == "set reveal mode"
@@ -183,10 +248,10 @@ def test_reset_restores_pre_m4_defaults_in_one_step(panel) -> None:
     widget._effect_combo.setCurrentText("pop")
     widget._commit_effect()
     widget._amplitude_spin.setValue(2.0)
-    widget._commit_amplitude()
+    widget._amplitude.commit()
     widget._note_value_box.setChecked(True)
     widget._peak_spin.setValue(-100)
-    widget._commit_peak()
+    widget._peak.commit()
     assert widget._reset_button.isEnabled()
     depth_before = 4
     widget._commit_reset()
@@ -216,12 +281,12 @@ def test_five_knob_undo_walk(panel) -> None:
     widget._effect_combo.setCurrentText("pop")
     widget._commit_effect()
     widget._amplitude_spin.setValue(2.0)
-    widget._commit_amplitude()
+    widget._amplitude.commit()
     widget._settle_spin.setValue(0.5)
-    widget._commit_settle()
+    widget._settle.commit()
     widget._note_value_box.setChecked(True)
     widget._peak_spin.setValue(-100)
-    widget._commit_peak()
+    widget._peak.commit()
     for _ in range(5):
         assert state.can_undo
         state.undo()
