@@ -8,9 +8,10 @@ ApplyScoreSetup command — one undo step and exactly one re-engrave. This
 matters because an orchestral score re-engraves slowly (complex2 ~20 s),
 so re-engraving per action would stall repeatedly. Cancel discards.
 
-Offered automatically when a freshly opened score overflows its page
-(the load already flags 'system-overflow'), and on demand via
-Parts → Score Setup….
+Opened on demand from Score → Score Setup…. It used to open by itself
+after a load that overflowed a page; that was retired on 2026-07-30 —
+scale-to-fit already rescues such a load, so the popup was arriving
+uninvited on most real scores.
 """
 from __future__ import annotations
 

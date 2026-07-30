@@ -100,7 +100,7 @@ def test_sync_from_document_never_reexecutes(inspector) -> None:
     dock._systems_box.setChecked(True)
     panel._sweep_box.setChecked(True)
     panel._floor_spin.setValue(0.1)
-    panel._commit_floor()
+    panel._floor.commit()
     depth = 0
     while state.can_undo:                        # measure stack depth
         state.undo()

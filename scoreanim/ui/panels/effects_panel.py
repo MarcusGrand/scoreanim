@@ -3,11 +3,13 @@
 Document-wide effect controls: the Effect dropdown (enumerates the
 preset registry, sets `default_effect`), pop's four knobs (Amplitude,
 Settle, note-value, Peak offset — ms in the UI, seconds in the doc),
-plus Floor opacity and Sweep, moved in from the inspector with their
-commit wiring verbatim. Every control commits exactly ONE command per
-user gesture (spinboxes on editingFinished with the epsilon no-op
-guard); `sync_from_document` resyncs with the blockSignals idiom and
-never re-executes — the floor-opacity pattern throughout.
+plus Floor opacity and Sweep, moved in from the inspector. Every
+control commits exactly ONE command per user gesture. The four number
+fields preview as you type (`ui/live_field.py`): the stage shows the
+amplitude, the settle, the shift and the ghost opacity on every
+keystroke, and the typing session still lands as one undo entry. The
+checkbox and the dropdown have no half-typed state, so they commit
+outright. `sync_from_document` resyncs and never re-executes.
 
 Two Marcus rulings (2026-07-25): options another option renders
 obsolete gray out (`_update_enabled` — the pop knobs while nothing
@@ -21,10 +23,11 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
                                QFormLayout, QPushButton, QSpinBox, QWidget)
 
 from scoreanim.core.animation import DEFAULT_EFFECT, PRESETS, RevealMode
-from scoreanim.core.project import (ProjectDoc, ResetEffectSettings,
+from scoreanim.core.project import (Command, ProjectDoc, ResetEffectSettings,
                                     SetDefaultEffect, SetEffectParam,
                                     SetFloorOpacity, SetRevealMode)
 from scoreanim.ui.app_state import AppState
+from scoreanim.ui.live_field import LiveField
 
 # pop's authored defaults, mirrored for display when the doc is sparse
 # (the values presets.build_presets falls back to)
@@ -54,22 +57,18 @@ class EffectsPanel(QWidget):
         self._amplitude_spin.setDecimals(2)
         self._amplitude_spin.setRange(0.1, 10.0)
         self._amplitude_spin.setSingleStep(0.05)
-        self._amplitude_spin.setKeyboardTracking(False)
         self._amplitude_spin.setToolTip(
             "Pop scale factor at the onset (1.0 = no bump)")
-        self._amplitude_spin.editingFinished.connect(self._commit_amplitude)
 
         self._settle_spin = QDoubleSpinBox()
         self._settle_spin.setDecimals(2)
         self._settle_spin.setRange(0.01, 5.0)
         self._settle_spin.setSingleStep(0.05)
         self._settle_spin.setSuffix(" s")
-        self._settle_spin.setKeyboardTracking(False)
         self._settle_spin.setToolTip(
             "Seconds the pop takes to relax back to 1.0 — inactive "
             "while 'Animate entire note value' is on (each note then "
             "settles over its own length)")
-        self._settle_spin.editingFinished.connect(self._commit_settle)
 
         self._note_value_box = QCheckBox("Animate entire note value")
         self._note_value_box.setToolTip(
@@ -83,23 +82,17 @@ class EffectsPanel(QWidget):
         self._peak_spin.setRange(-500, 500)
         self._peak_spin.setSingleStep(10)
         self._peak_spin.setSuffix(" ms")
-        self._peak_spin.setKeyboardTracking(False)
         self._peak_spin.setToolTip(
             "Shifts the whole pop, including when the note appears — at "
             "a negative offset every note becomes visible that early")
-        self._peak_spin.editingFinished.connect(self._commit_peak)
 
-        # Floor opacity + Sweep: moved in from the inspector (M1.4
-        # wiring verbatim — keyboard tracking off, editingFinished,
-        # epsilon guard).
+        # Floor opacity + Sweep: moved in from the inspector (M1.4).
         self._floor_spin = QDoubleSpinBox()
         self._floor_spin.setDecimals(2)
         self._floor_spin.setSingleStep(0.05)
         self._floor_spin.setRange(0.0, 1.0)
-        self._floor_spin.setKeyboardTracking(False)
         self._floor_spin.setToolTip("Opacity of unrevealed animated ink; "
                                     "0 hides it until onset")
-        self._floor_spin.editingFinished.connect(self._commit_floor)
 
         self._sweep_box = QCheckBox("Sweep")
         self._sweep_box.setToolTip("Continuous reveal sweep; unchecked "
@@ -118,6 +111,18 @@ class EffectsPanel(QWidget):
             "step; Floor opacity and Sweep are untouched")
         self._reset_button.clicked.connect(self._commit_reset)
 
+        self._amplitude = LiveField(self._amplitude_spin, app_state,
+                                    self._amplitude_edit, self._update_enabled)
+        self._settle = LiveField(self._settle_spin, app_state,
+                                 self._settle_edit, self._update_enabled)
+        self._peak = LiveField(self._peak_spin, app_state, self._peak_edit,
+                               self._update_enabled)
+        self._floor = LiveField(self._floor_spin, app_state, self._floor_edit,
+                                self._update_enabled)
+        # the tuple is what holds the fields alive, and the test scans it
+        self.live_fields = (self._amplitude, self._settle, self._peak,
+                            self._floor)
+
         form = QFormLayout(self)
         form.setContentsMargins(8, 2, 8, 6)
         form.addRow("Effect", self._effect_combo)
@@ -132,8 +137,12 @@ class EffectsPanel(QWidget):
 
     # -- document sync ---------------------------------------------------------
 
-    def _pop_param(self, key: str):
-        params = self._state.doc.style.effect_params.get("pop", {})
+    def _pop_param(self, doc: ProjectDoc, key: str):
+        """Always says WHICH document it read. The two callers need
+        different ones: an edit guard reads the committed document (`doc`
+        hands a live field back its own preview, and it would then never
+        commit), while what is grayed out follows what is showing."""
+        params = doc.style.effect_params.get("pop", {})
         return params.get(key, _POP_DEFAULTS[key])
 
     def _update_enabled(self) -> None:
@@ -151,11 +160,14 @@ class EffectsPanel(QWidget):
                            for r in style.parts.values())
                     or any(r.effect == "pop"
                            for r in style.elements.values()))
-        note_value = bool(self._pop_param("note_value"))
-        self._amplitude_spin.setEnabled(pop_used)
-        self._settle_spin.setEnabled(pop_used and not note_value)
+        note_value = bool(self._pop_param(self._state.doc, "note_value"))
+        # set_enabled, not setEnabled: a live field is never grayed out
+        # from under the cursor (disabling drops focus, and focus-out
+        # commits).
+        self._amplitude.set_enabled(pop_used)
+        self._settle.set_enabled(pop_used and not note_value)
         self._note_value_box.setEnabled(pop_used)
-        self._peak_spin.setEnabled(pop_used)
+        self._peak.set_enabled(pop_used)
         at_defaults = (style.default_effect is None
                        and "pop" not in style.effect_params)
         self._reset_button.setEnabled(not at_defaults)
@@ -172,28 +184,54 @@ class EffectsPanel(QWidget):
         self._effect_combo.setCurrentText(name)
         self._effect_combo.blockSignals(False)
 
-        params = doc.style.effect_params.get("pop", {})
-        for spin, key, factor in ((self._amplitude_spin, "scale", 1.0),
-                                  (self._settle_spin, "settle", 1.0),
-                                  (self._peak_spin, "peak_offset", 1000.0)):
-            spin.blockSignals(True)
-            value = float(params.get(key, _POP_DEFAULTS[key])) * factor
-            spin.setValue(round(value) if isinstance(spin, QSpinBox)
-                          else value)
-            spin.blockSignals(False)
+        # a field with a live edit keeps its number — see LiveField.resync
+        for field, key, factor in ((self._amplitude, "scale", 1.0),
+                                   (self._settle, "settle", 1.0),
+                                   (self._peak, "peak_offset", 1000.0)):
+            field.resync(float(self._pop_param(doc, key)) * factor)
         self._note_value_box.blockSignals(True)
         self._note_value_box.setChecked(
-            bool(params.get("note_value", False)))
+            bool(self._pop_param(doc, "note_value")))
         self._note_value_box.blockSignals(False)
 
-        self._floor_spin.blockSignals(True)
-        self._floor_spin.setValue(doc.style.floor_opacity)
-        self._floor_spin.blockSignals(False)
+        self._floor.resync(doc.style.floor_opacity)
         self._sweep_box.blockSignals(True)
         self._sweep_box.setChecked(doc.style.reveal_mode
                                    is RevealMode.CONTINUOUS)
         self._sweep_box.blockSignals(False)
         self._update_enabled()
+
+    # -- what each number field means by a value -------------------------------
+    #
+    # One function per field, called by both its preview and its commit,
+    # so the two can never ask for different edits. All four read the
+    # COMMITTED document (see _pop_param). None means "changes nothing".
+
+    def _amplitude_edit(self, value: float) -> Command | None:
+        if abs(value - float(self._pop_param(self._state.committed,
+                                             "scale"))) < 1e-9:
+            return None
+        return SetEffectParam("pop", "scale", value)
+
+    def _settle_edit(self, value: float) -> Command | None:
+        if abs(value - float(self._pop_param(self._state.committed,
+                                             "settle"))) < 1e-9:
+            return None
+        return SetEffectParam("pop", "settle", value)
+
+    def _peak_edit(self, value: float) -> Command | None:
+        """ms in the UI, seconds in the document — the one place a typed
+        peak offset becomes document intent."""
+        seconds = value / 1000.0
+        if abs(seconds - float(self._pop_param(self._state.committed,
+                                               "peak_offset"))) < 1e-9:
+            return None
+        return SetEffectParam("pop", "peak_offset", seconds)
+
+    def _floor_edit(self, value: float) -> Command | None:
+        if abs(value - self._state.committed.style.floor_opacity) < 1e-9:
+            return None
+        return SetFloorOpacity(value)
 
     # -- commit handlers (one command per user gesture) ------------------------
 
@@ -204,22 +242,9 @@ class EffectsPanel(QWidget):
         self._state.execute(SetDefaultEffect(name))
         self._update_enabled()
 
-    def _commit_amplitude(self) -> None:
-        value = self._amplitude_spin.value()
-        if abs(value - float(self._pop_param("scale"))) < 1e-9:
-            return
-        self._state.execute(SetEffectParam("pop", "scale", value))
-        self._update_enabled()
-
-    def _commit_settle(self) -> None:
-        value = self._settle_spin.value()
-        if abs(value - float(self._pop_param("settle"))) < 1e-9:
-            return
-        self._state.execute(SetEffectParam("pop", "settle", value))
-        self._update_enabled()
-
     def _commit_note_value(self, checked: bool) -> None:
-        if checked == bool(self._pop_param("note_value")):
+        if checked == bool(self._pop_param(self._state.committed,
+                                           "note_value")):
             return
         self._state.execute(SetEffectParam("pop", "note_value", checked))
         self._update_enabled()
@@ -230,16 +255,3 @@ class EffectsPanel(QWidget):
             return                       # already at defaults: no-op
         self._state.execute(ResetEffectSettings())
         self.sync_from_document(self._state.doc)
-
-    def _commit_peak(self) -> None:
-        seconds = self._peak_spin.value() / 1000.0
-        if abs(seconds - float(self._pop_param("peak_offset"))) < 1e-9:
-            return
-        self._state.execute(SetEffectParam("pop", "peak_offset", seconds))
-        self._update_enabled()
-
-    def _commit_floor(self) -> None:
-        value = self._floor_spin.value()
-        if abs(value - self._state.doc.style.floor_opacity) < 1e-9:
-            return
-        self._state.execute(SetFloorOpacity(value))

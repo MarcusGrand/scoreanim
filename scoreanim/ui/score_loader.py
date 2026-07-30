@@ -53,7 +53,7 @@ class LoadedScore:
     system_of_measure: dict      # measure ordinal → system index (M5)
     page_of_measure: dict        # measure ordinal → page (M6, derived §1.2)
     warnings: tuple              # LoadWarnings (flag-and-continue)
-    overflow: bool               # a system overflowed → offer Score Setup
+    overflow: bool               # a system overflowed its page
     status_line: str             # the timing/join status message
 
 
@@ -210,11 +210,10 @@ class ScoreLoader:
                                             engraved.system_of_measure),
             warnings=engraved.warnings,
             # a system taller than its page means the score needs
-            # staff-count reduction — the Score Setup trigger (Phase
-            # 12.4). Since Phase 12.5 such a load is rescued by
-            # scale-to-fit and "system-overflow" is defensive-only, so
-            # the trigger matches both codes (M1.9 finding: matching
-            # only system-overflow had left it dead)
+            # staff-count reduction. Since Phase 12.5 such a load is
+            # rescued by scale-to-fit and "system-overflow" is
+            # defensive-only, so both codes count. Reported, not acted
+            # on: nothing opens Score Setup by itself (2026-07-30).
             overflow=any(w.code in ("scaled-to-fit", "system-overflow")
                          for w in engraved.warnings),
             status_line=(

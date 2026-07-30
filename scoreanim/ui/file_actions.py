@@ -128,11 +128,10 @@ class FileActions:
         w.app_state.reset_document(doc)      # → _on_document_changed
         w.router.show_current()
         w.view.fit()
-        # a score that overflows its page needs staff-count reduction —
-        # offer the Score Setup dialog on open (Phase 12.4)
-        if w.last_overflow:
-            w.parts_menu.open_score_setup()
-
+        # No dialog on open: a score that needs staff-count reduction is
+        # rescued by scale-to-fit and says so in the status line, and
+        # Score Setup is a step the user takes when they want it
+        # (Score → Score Setup…).
         sidecar = path.with_suffix(".tempo")
         if sidecar.exists():
             self.import_tempo(sidecar)
@@ -193,7 +192,13 @@ class FileActions:
     def save_project(self) -> bool:
         if self.project_path is None:
             return self.save_project_as()
-        write_project_file(self._window.app_state.doc, self.project_path)
+        # the COMMITTED document, not `doc`: Cmd-S is a shortcut, so it
+        # does not move focus, and a field being typed in still has its
+        # preview up. An unfinished edit is not the document — writing it
+        # would put a value in the file that the undo stack never saw,
+        # and mark_saved would then call that clean.
+        write_project_file(self._window.app_state.committed,
+                           self.project_path)
         self._window.app_state.mark_saved()
         self._window.statusBar().showMessage(
             f"saved {self.project_path.name}")

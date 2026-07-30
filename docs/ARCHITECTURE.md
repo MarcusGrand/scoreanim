@@ -1230,7 +1230,11 @@ dynamic Score menu, the load pipeline, document→scene diff-sync, and
 file/project handlers are components (`ui/menus.py`, `ui/parts_menu.py`,
 `ui/score_loader.py`, `ui/document_sync.py`, `ui/file_actions.py`) that
 receive AppState (plus the playback controller where needed) and never
-reach into each other. M3.0 (BACKLOG 9b) finished the job before adding
+reach into each other. `ui/live_field.py` is the same kind of small
+shared piece on the input side: it wires a spinbox to AppState's
+preview/commit pair, so every number field previews as you type and a
+typing session lands as one undo entry (PATTERNS, "A number field
+previews as you type"). M3.0 (BACKLOG 9b) finished the job before adding
 to it: **`ui/view_router.py`** owns which presentation unit the stage
 shows (page/system position, step, follow, the mode diff), bound per
 load like `DocumentSync`, and driving the chrome through
