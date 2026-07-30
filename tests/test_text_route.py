@@ -59,9 +59,36 @@ def test_part_labels_route_to_the_part_name_override(text_class,
 
 
 def test_a_label_with_no_part_is_not_editable() -> None:
-    """Nothing to name: SetPartText is keyed by part."""
+    """Nothing to name: SetPartText is keyed by part. The adapter leaves a
+    label part-less only when it refuses to guess which staff it belongs
+    to (M7), so this is the disabled-action failure mode."""
     assert route_for(_identity(ElementKind.TEXT, part=None),
                      ElementId("eid"), "label") is None
+
+
+# -- condensed staves: the label names the GROUP (M7) --------------------
+
+@pytest.mark.parametrize("text_class,field", [("label", "name"),
+                                              ("labelAbbr", "abbreviation")])
+def test_a_condensed_labels_route_to_the_group(text_class, field) -> None:
+    """A merged staff's label IS the condense group's combined name, and
+    the group is where that name lives — so it edits the group, keeping
+    the score and the Score Setup dialog showing one string."""
+    target = route_for(_identity(ElementKind.TEXT), ElementId("eid"),
+                       text_class, condensed={P1: 2})
+    assert target.route is TextRoute.CONDENSE_LABEL
+    assert target.group == 2
+    assert target.part == P1
+    assert target.field == field
+
+
+def test_an_uncondensed_part_still_routes_to_its_own_override() -> None:
+    """Only the group's KEPT part reaches the group route — a part that is
+    not condensed renames itself, even in a score with condense groups."""
+    target = route_for(_identity(ElementKind.TEXT), ElementId("eid"),
+                       "label", condensed={PartId("P4"): 0})
+    assert target.route is TextRoute.PART_LABEL
+    assert target.group is None
 
 
 # -- the generalized overlay ---------------------------------------------

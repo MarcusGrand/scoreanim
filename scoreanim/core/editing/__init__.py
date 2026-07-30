@@ -16,10 +16,10 @@ from scoreanim.core.editing.nudge import (COARSE_NUDGE, NUDGEABLE_KINDS,
 from scoreanim.core.editing.segments import (family_of, is_segment,
                                              source_of)
 from scoreanim.core.editing.text_route import (TextRoute, TextTarget,
-                                               route_for)
+                                               flat_part_order, route_for)
 
 __all__ = ["COARSE_NUDGE", "DELETABLE_KINDS", "DeleteAction",
            "NUDGEABLE_KINDS", "NUDGE_STEP", "TextRoute",
            "TextTarget", "deleted_families", "deleted_ids", "family_of",
            "is_deletable", "is_nudgeable", "is_segment",
-           "nudged_delta", "route_for", "source_of"]
+           "flat_part_order", "nudged_delta", "route_for", "source_of"]

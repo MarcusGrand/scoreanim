@@ -22,7 +22,8 @@ from PySide6.QtGui import QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from scoreanim.core.editing import TextRoute  # noqa: E402
-from scoreanim.core.project import OVERLAY_PREFIX  # noqa: E402
+from scoreanim.core.project import (OVERLAY_PREFIX,  # noqa: E402
+                                    AddCondenseGroup, CondenseGroup)
 from scoreanim.core.score.identity import ElementKind  # noqa: E402
 from scoreanim.ui.main_window import MainWindow  # noqa: E402
 
@@ -66,27 +67,96 @@ def _type(window, content: str) -> None:
     window.text_edit._commit()
 
 
-# -- part labels: BLOCKED, and pinned as such ----------------------------
+def _content(element) -> str:
+    return "".join(run.content for text in element.glyph.texts
+                   for run in text.runs)
 
-def test_a_part_label_carries_no_part_so_it_cannot_be_renamed(window) -> None:
-    """MEASURED 2026-07-27, and the reason M3.1 ships three routes, not
-    four. The roadmap routes a part label to the part-name override —
-    but SetPartText is keyed by PartId and the engraved label element
-    has none: Verovio emits labels as direct children of
-    `<g class="system">` with no staff or part ancestor, so the adapter
-    mints them `score:p<PAGE>:text:<n>` with `part=None` (the goldens
-    pin that null). The policy for the route exists and is unit-tested
-    (tests/test_text_route.py); what is missing is the attribution, and
-    supplying it is an adapter change that moves goldens.
 
-    So today a double-click on a label opens nothing. This test fails
-    the moment labels gain a part — which is exactly when it should be
-    replaced by the rename test the exit criterion asks for."""
-    labels = [el for el in window.animation_inputs.layout.elements
-              if el.text_class in ("label", "labelAbbr")]
+def _left_edge_of_staves(window) -> float:
+    """Where the music starts on page 1. The label column re-derives from
+    the longest FULL name, so this moves when one grows (the "shifts to
+    fit" pin). Page 1 only: later pages carry the short abbreviations."""
+    return min(el.bbox.x for el in window.animation_inputs.layout.elements
+               if el.identity.kind is ElementKind.STAFF_LINES
+               and el.page == 1)
+
+
+# -- part labels: the M3 exit criterion, paid in M7 ----------------------
+
+def _labels(window, text_class: str = "label"):
+    return [el for el in window.animation_inputs.layout.elements
+            if el.text_class == text_class]
+
+
+def test_every_part_label_carries_its_part(window) -> None:
+    """The M7 attribution, from the app's side: a label reaches the part
+    whose name it draws, so the rename route can be completed at all.
+    Until M7 every label had part=None and this fixture opened nothing."""
+    labels = _labels(window) + _labels(window, "labelAbbr")
     assert labels                                   # the fixture has them
-    assert all(el.identity.part is None for el in labels)
-    assert not _open_on(window, labels[0].identity.element_id)
+    assert all(el.identity.part is not None for el in labels)
+    for el in _labels(window):
+        assert el.identity.part_name == _content(el)
+
+
+def test_double_click_a_staff_label_renames_the_part(window) -> None:
+    """THE M3 exit criterion: rename a staff label by double-clicking it,
+    the score shifts to fit, and undo restores it."""
+    label = _labels(window)[0]
+    part = label.identity.part
+    before = _left_edge_of_staves(window)
+    assert _open_on(window, label.identity.element_id)
+    _type(window, "Renamed Woodwinds Section")
+
+    assert window.app_state.doc.text_overrides[part].name == \
+        "Renamed Woodwinds Section"
+    assert window.app_state.undo_text() == "set part name"
+    # a re-engrave with a changed input: the label column re-derives, so a
+    # longer name pushes the staves right (rule 7, Phase 9.3)
+    assert _left_edge_of_staves(window) > before
+    assert "Renamed Woodwinds Section" in [_content(el)
+                                           for el in _labels(window)]
+
+    window.app_state.undo()
+    assert part not in window.app_state.doc.text_overrides
+    assert _left_edge_of_staves(window) == pytest.approx(before)
+
+
+def test_double_click_an_abbreviation_writes_only_the_abbreviation(window) \
+        -> None:
+    """Both label flavours are one document entry with two fields, so
+    editing the running label must not clear the full name."""
+    abbrev = _labels(window, "labelAbbr")[0]
+    part = abbrev.identity.part
+    assert _open_on(window, abbrev.identity.element_id)
+    _type(window, "Zz.")
+
+    override = window.app_state.doc.text_overrides[part]
+    assert override.abbreviation == "Zz."
+    assert override.name is None            # untouched: the score's own
+    full = next(el for el in _labels(window) if el.identity.part == part)
+    assert _content(full) not in ("Zz.", "")
+
+
+def test_a_condensed_label_edits_the_group_not_the_part(window) -> None:
+    """Ruling (2026-07-30): a merged staff's label IS the condense group's
+    combined name, so editing it rewrites the group — one name in one
+    place, which keeps the score and Score Setup agreeing."""
+    order = tuple(p.part_id for p in window.text_edit._parts)
+    window.app_state.execute(AddCondenseGroup(
+        CondenseGroup(parts=order[:2], name="Merged 1.2",
+                      abbreviation="Mgd. 1.2"), order))
+    merged = next(el for el in _labels(window)
+                  if _content(el) == "Merged 1.2")
+
+    assert _open_on(window, merged.identity.element_id)
+    _type(window, "Reeds 1.2")
+
+    assert window.app_state.doc.condense_groups[0].name == "Reeds 1.2"
+    assert window.app_state.doc.condense_groups[0].abbreviation == "Mgd. 1.2"
+    assert window.app_state.doc.text_overrides == {}     # NOT the part
+    assert window.app_state.undo_text() == "edit condense group"
+    assert "Reeds 1.2" in [_content(el) for el in _labels(window)]
 
 
 # -- engraved text -> the generalized overlay ----------------------------
