@@ -1,9 +1,9 @@
 # ScoreAnim — Worklog
 
-**NOW:** M7 Labels is built on `beta/m7-labels` and waiting on Marcus's
-exit run — staff labels rename by double-click, which closes the last
-open M3 exit criterion. Two branches are still unmerged and independent:
-`beta/f-trackpad-gestures` and `fix/bracket-hidden-staves`.
+**NOW:** M7 Labels CLOSED — staff labels rename by double-click, which
+closes the last open M3 exit criterion. main is clean and unpushed. Two
+branches are still unmerged and independent: `beta/f-trackpad-gestures`
+and `fix/bracket-hidden-staves`.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -11,14 +11,15 @@ lines — history lives in git, ROADMAP, and the briefs.
 
 ---
 
-- 2026-07-30 — **M7 Labels**: the adapter now joins a part label to its
+- 2026-07-30 — **M7 Labels CLOSED**: the adapter now joins a part label to its
   staff (document order over labelled staves, self-checked against the
   label text), so double-clicking a staff label renames the part — M3's
   last unmet exit criterion, BACKLOG 14 closed. A condensed label edits
   its condense group instead. Found and measured a case the spike had
   missed: a multi-staff part hangs its label on the `<staffGrp>` and
   Verovio draws those FIRST (`spikes/label_group.py`). Goldens moved in
-  three fields on label rows only. Opened BACKLOG 20. UNMERGED.
+  three fields on label rows only. Opened BACKLOG 20. Merged `7ffc3bb`,
+  tagged `v0.2-beta.6`.
 - 2026-07-29 — Staff-label direct edit requested → **flag-and-stop**,
   milestone work (moves goldens). Spiked it instead: the M3 MEI-id
   hypothesis is dead (0/129), order-over-labelled-staves is exact
