@@ -78,6 +78,21 @@ rule 7(a)). `:seg{k}` marks spanner continuation segments; the family
 (source + segments) is one musical object — fan overrides out via
 `core/editing/segments.py`, one undo entry.
 
+**The self-checking join** — when the only way to connect two of
+Verovio's outputs is ORDER, pair them in order and then confirm each
+pairing against something both sides independently carry (M7: a drawn
+part label against the label text its `staffDef` holds —
+`core/engraving/verovio/label_parts.py`). Refuse the pairings the
+confirmation does not vouch for and warn; downstream then sees a missing
+value, which disables an action, instead of a confident wrong one, which
+would rename the wrong instrument. Two rules keep it honest: a count
+mismatch refuses the whole group, because order means nothing between
+sequences of different lengths; and where two orderings are both
+plausible, accept only the one the confirmation fully supports. Measure
+the ordering before trusting it — M7's first version assumed staff order
+and placed 0 of video_test's 7 labels, because a multi-staff part's label
+is drawn first.
+
 **Strict vs app path** — `load_detailed(strict=True)` (pytest and
 doctor default) raises on unknown SVG classes; the app path degrades to
 a warned static element. bigband1 raises strict (`gliss`) — spikes and
