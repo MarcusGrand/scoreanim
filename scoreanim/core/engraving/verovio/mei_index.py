@@ -70,6 +70,10 @@ class _MeiIndex:
     # active meter denominator per measure (document-order tracking of
     # meterSig), for tstamp → quarter-note conversion
     meter_unit_by_measure: dict[int, int] = field(default_factory=dict)
+    # "label"|"labelAbbr" → that class's part labels in MEI document order.
+    # The MEI half of the label→part join (M7); see _staff_labels.
+    staff_labels: dict[str, tuple[StaffLabel, ...]] = \
+        field(default_factory=dict)
 
 
 def _int_or(value: str | None, fallback: int) -> int:
@@ -82,6 +86,7 @@ def _int_or(value: str | None, fallback: int) -> int:
 def _parse_mei(mei_xml: str) -> _MeiIndex:
     root = ET.fromstring(mei_xml)
     index = _MeiIndex()
+    index.staff_labels.update(_staff_labels(root))
 
     def ref(value: str | None) -> str | None:
         return value.lstrip("#") if value else None
@@ -223,30 +228,61 @@ def _container_ns(mei_xml: str, tag: str) -> dict[str, int]:
 LABEL_CLASSES = ("label", "labelAbbr")
 
 
-def staffdef_labels(mei_xml: str) -> dict[tuple[int, str], str]:
-    """Which staff carries which label text: (staff number, class) → text.
+@dataclass(frozen=True)
+class StaffLabel:
+    """One part label in the MEI, and the staves it can be drawn beside."""
+    text: str
+    staves: tuple[int, ...]      # one staff for an ordinary part; all of a
+                                 # multi-staff part's staves for a group label
+    on_group: bool               # hangs on a <staffGrp>, not a <staffDef>
+
+
+def staff_labels(mei_xml: str) -> dict[str, tuple[StaffLabel, ...]]:
+    """`_staff_labels` from MEI text, for callers holding no root."""
+    return _staff_labels(ET.fromstring(mei_xml))
+
+
+def _staff_labels(root: ET.Element) -> dict[str, tuple[StaffLabel, ...]]:
+    """Every part label per class, in MEI document order (= staff order).
 
     The MEI side of the label→part join (M7, measured in
-    spikes/label_part.py). Every <label>/<labelAbbr> hangs on a <staffDef>
-    that carries @n, the GLOBAL staff number, which
-    PreparedScore.part_for_staff turns into a part. A drawn label's own
-    SVG id is a throwaway that does not exist in the MEI at all (0/129
-    measured), so this table plus document order is the only join there is.
+    spikes/label_part.py and spikes/label_group.py). A label's own SVG id
+    is a throwaway that does not exist in the MEI at all (0/129 measured),
+    so this table plus document order is the only join there is.
 
-    A part with no abbreviation gets a "label" entry and no "labelAbbr"
-    one — which is exactly the filter the join needs, because such a part
-    draws nothing after system 1.
+    Two hosts, because a part's label hangs wherever its staves do:
+
+    - an ordinary part on its own `<staffDef>`, which carries `@n`, the
+      global staff number that PreparedScore.part_for_staff turns into a
+      part;
+    - a MULTI-STAFF part (a piano) on the `<staffGrp>` holding its
+      staffDefs, so the label covers all of them. Verovio draws these
+      FIRST, ahead of every staffDef label, which is why the join needs to
+      know which host a label came from.
+
+    A part with no abbreviation appears under "label" and not under
+    "labelAbbr" — which is exactly the filter the join needs, because such
+    a part draws nothing after system 1.
     """
-    root = ET.fromstring(mei_xml)
-    result: dict[tuple[int, str], str] = {}
-    for staff_def in root.iter(f"{_MEI_NS}staffDef"):
-        staff_n = staff_def.get("n")
-        if not staff_n:
+    result: dict[str, list[StaffLabel]] = {cls: [] for cls in LABEL_CLASSES}
+    for host in root.iter():
+        tag = host.tag.removeprefix(_MEI_NS)
+        if tag == "staffDef":
+            staves = ((_int_or(host.get("n"), 0),) if host.get("n") else ())
+        elif tag == "staffGrp":
+            # only the staves DIRECTLY in this group: a nested group is a
+            # part of its own and carries its own label
+            staves = tuple(_int_or(sd.get("n"), 0)
+                           for sd in host.findall(f"{_MEI_NS}staffDef")
+                           if sd.get("n"))
+        else:
             continue
+        if not staves:
+            continue                     # no @n anywhere: names no staff
         for cls in LABEL_CLASSES:
-            label = staff_def.find(f"{_MEI_NS}{cls}")
-            if label is None:
-                continue
-            result[(_int_or(staff_n, 0), cls)] = "".join(
-                label.itertext()).strip()
-    return result
+            label = host.find(f"{_MEI_NS}{cls}")
+            if label is not None:
+                result[cls].append(StaffLabel(
+                    text="".join(label.itertext()).strip(),
+                    staves=staves, on_group=(tag == "staffGrp")))
+    return {cls: tuple(labels) for cls, labels in result.items()}

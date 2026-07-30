@@ -229,7 +229,11 @@ class LoadWarning:
     load — app path only, Phase 11.4; strict loads still raise),
     "break-override-inert" (a stored system-break override could not be
     applied at the prep seam — an ordinal past the end of a score since
-    shortened, or a suppression whose encoded break has gone; M5, D10).
+    shortened, or a suppression whose encoded break has gone; M5, D10),
+    "label-unattributed" (a drawn part label could not be matched to the
+    staff it belongs to, so it stays part-less and cannot be renamed in
+    place — M7; the join refuses rather than naming the wrong
+    instrument).
     """
     code: str
     message: str
