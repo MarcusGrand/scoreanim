@@ -1,19 +1,15 @@
 # ScoreAnim — Worklog
 
-**NOW:** `beta/live-fields` is unmerged and unproven in the app: every
-number field previews as you type. It sits on top of `beta/shell-layout`
-(also unmerged), which moved the openers to the toolbar and the grid
-controls under the lanes.
+**NOW:** `main` carries `beta/live-fields` (`ffd0ac8`, no tag), confirmed
+in the app: every number field previews as you type. It brought
+`beta/shell-layout` with it — the openers on the toolbar, the grid
+controls under the lanes, tap tempo gone. Schema is still v10, so a
+project saved from `main` will not open on `v0.2-beta.6`. Two branches
+remain unmerged and independent: `beta/f-trackpad-gestures` and
+`fix/bracket-hidden-staves`.
 
-`beta/grid-align` is merged (`bb7b195`, no tag): tempo is
-authored by dragging the timeline lane's Ticks grid onto the recording,
-with double-click locks as the anchors, and the Tempo field sets the
-tempo from the selected line onward with the ticks moving as you type.
-Merged on Marcus's say-so before a run in the app, so `main` is
-unproven there. It carries the schema bump to v10, so a project saved
-from `main` now will not open on `v0.2-beta.6`. Open question: whether
-Tempo mode still earns its place. Two branches remain unmerged and
-independent: `beta/f-trackpad-gestures` and `fix/bracket-hidden-staves`.
+Open question from grid-align, still open: whether Tempo mode still
+earns its place now that the Tempo field aims at the selected line.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
