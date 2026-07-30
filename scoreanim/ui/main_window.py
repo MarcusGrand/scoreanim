@@ -27,11 +27,9 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.project import (HIDE_EMPTY_STAVES_DEFAULT, ApplyTaps,
-                                    ProjectDoc, StageConfig)
+from scoreanim.core.project import (HIDE_EMPTY_STAVES_DEFAULT, ProjectDoc,
+                                    StageConfig)
 from scoreanim.core.timing import TempoMap
-from scoreanim.core.timing.taps import (TapSession, derive_tempo_events,
-                                        start_residual)
 from scoreanim.render.export import AnimationInputs
 from scoreanim.render.scene import ScoreScenes
 from scoreanim.ui.app_state import AppState
@@ -50,7 +48,6 @@ from scoreanim.ui.score_loader import LoadedScore, ScoreLoader
 from scoreanim.ui.selection import SelectionController
 from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.text_edit import InlineTextEditor
-from scoreanim.ui.taps import TapRecorder
 from scoreanim.ui.transport import LowerZone
 from scoreanim.ui.view_router import ViewRouter
 from scoreanim.ui.window_state import (default_settings,
@@ -68,24 +65,17 @@ class MainWindow(QMainWindow):
 
         self._scenes: ScoreScenes | None = None
         self.animation_inputs: AnimationInputs | None = None
-        self.last_overflow = False           # last load overflowed a page
 
         self.app_state = AppState(self)
         self.playback = PlaybackController(self)
         self.peaks = PeakExtractor(self)
-        self.tap_recorder = TapRecorder(self.app_state,
-                                        self.playback.transport, self)
-        self.tap_recorder.status.connect(
-            lambda msg: self.statusBar().showMessage(msg))
-        self.tap_recorder.session_finished.connect(self._on_tap_session)
 
         # stage central and alone; the timeline area is the lower-zone
         # bottom dock (M1.3) — the dock cannot swallow the central widget,
         # which carries over the old splitter's collapsible=False guarantee
         self.view = StageView()
         self.setCentralWidget(self.view)
-        self.lower_zone = LowerZone(self.app_state, self.playback,
-                                    self.tap_recorder, self)
+        self.lower_zone = LowerZone(self.app_state, self.playback, self)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
                            self.lower_zone)
         # right-hand inspector (M1.4): Follow/Systems, floor + Sweep,
@@ -200,23 +190,6 @@ class MainWindow(QMainWindow):
         # (M1.3); the window keeps the playhead push to the shared axis
         self.app_state.set_playhead(audio_seconds)
 
-    def _on_tap_session(self, session: TapSession) -> None:
-        doc = self.app_state.doc
-        derivation = derive_tempo_events(session)
-        residual = start_residual(
-            session, TempoMap(list(doc.timing.tempo_events)),
-            doc.timing.offset_seconds)
-        if self.app_state.execute(ApplyTaps(
-                session, derivation.events,
-                (derivation.first_beat, derivation.last_beat), "derive")):
-            notes = (" · " + "; ".join(derivation.warnings)
-                     if derivation.warnings else "")
-            self.statusBar().showMessage(
-                f"taps: {len(session.taps)} taps → "
-                f"{len(derivation.events)} tempo event(s) in "
-                f"[{derivation.first_beat:g}, {derivation.last_beat:g}) · "
-                f"start residual {residual * 1000:+.0f} ms{notes}")
-
     # -- document → world -------------------------------------------------------
 
     def timing_config(self, doc: ProjectDoc) -> tuple[float, TempoMap, tuple]:
@@ -257,7 +230,7 @@ class MainWindow(QMainWindow):
         self.doc_sync.sync_hidden(doc)
         self.doc_sync.sync_offsets(doc)
         self.playback.set_style(doc.style)
-        self.lower_zone.strip.sync_from_document(doc)
+        self.lower_zone.bar.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
         self.layout_zone.sync_from_document(doc)
         self.parts_menu.sync_from_document(doc)
@@ -371,7 +344,6 @@ class MainWindow(QMainWindow):
         self.playback.set_animation(loaded.applier, loaded.measures)
         self.app_state.set_measures(loaded.measures)
         self.parts_menu.rebuild(loaded.parts)
-        self.last_overflow = loaded.overflow
         self.statusBar().showMessage(loaded.status_line)
 
     # -- close ---------------------------------------------------------------------

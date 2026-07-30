@@ -128,11 +128,10 @@ class FileActions:
         w.app_state.reset_document(doc)      # → _on_document_changed
         w.router.show_current()
         w.view.fit()
-        # a score that overflows its page needs staff-count reduction —
-        # offer the Score Setup dialog on open (Phase 12.4)
-        if w.last_overflow:
-            w.parts_menu.open_score_setup()
-
+        # No dialog on open: a score that needs staff-count reduction is
+        # rescued by scale-to-fit and says so in the status line, and
+        # Score Setup is a step the user takes when they want it
+        # (Score → Score Setup…).
         sidecar = path.with_suffix(".tempo")
         if sidecar.exists():
             self.import_tempo(sidecar)

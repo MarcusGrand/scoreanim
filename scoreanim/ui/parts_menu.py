@@ -70,8 +70,8 @@ class PartsMenu:
     # -- the part-shaped dialogs -----------------------------------------------
 
     def open_score_setup(self) -> None:
-        """Also opened by FileActions when a load overflows a page
-        (Phase 12.4)."""
+        """The one way in — a load never opens this by itself
+        (2026-07-30)."""
         if not self._parts:
             return
         ScoreSetupDialog(self._app_state, self._parts,

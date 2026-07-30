@@ -4,18 +4,15 @@ Observes AppState only (ARCHITECTURE §7) — repaints on axis/peaks/
 playhead changes, emits ``request_seek`` on click; it knows nothing of
 the tempo lane or the controller. The peak image is cached as a QPixmap
 rebuilt only when the axis window, the peak data, or the widget size
-change; the per-frame overlay (playhead, tap markers) is a few lines.
+change; the per-frame overlay (the playhead) is a few lines.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QMenu, QSizePolicy, QWidget
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from scoreanim.core.audio import column_extents
-from scoreanim.core.project import ApplyTaps, RemoveTapSession
-from scoreanim.core.timing.taps import (TapSession, derive_tempo_events,
-                                        lock_to_taps)
 from scoreanim.ui.app_state import AppState, apply_wheel
 
 _BG = QColor("#1d1f24")
@@ -23,7 +20,6 @@ _PEAK = QColor("#4f7fb5")
 _RMS = QColor("#7fa8d4")
 _MIDLINE = QColor("#33363d")
 _PLAYHEAD = QColor("#e8b34a")
-_TAP = QColor("#5fd47f")
 _EMPTY_TEXT = QColor("#6a6d75")     # no-audio hint (FIX 2)
 
 
@@ -40,7 +36,6 @@ class WaveformView(QWidget):
         app_state.axis.changed.connect(self._invalidate)
         app_state.peaks_changed.connect(self._invalidate)
         app_state.playhead_changed.connect(lambda _t: self.update())
-        app_state.document_changed.connect(self.update)   # tap markers
 
     def sizeHint(self):  # noqa: N802 (Qt override)
         hint = super().sizeHint()
@@ -104,12 +99,6 @@ class WaveformView(QWidget):
     def _draw_overlay(self, painter: QPainter) -> None:
         axis = self._state.axis
         w, h = self.width(), self.height()
-        for session in self._state.doc.timing.tap_sessions:
-            painter.setPen(QPen(_TAP, 1))
-            for tap in session.taps:
-                x = axis.x_of(tap.seconds, w)
-                if 0 <= x <= w:
-                    painter.drawLine(QPointF(x, h * 0.78), QPointF(x, h))
         x = axis.x_of(self._state.playhead, w)
         if 0 <= x <= w:
             painter.setPen(QPen(_PLAYHEAD, 1))
@@ -146,37 +135,3 @@ class WaveformView(QWidget):
         axis = self._state.axis
         t = min(max(axis.t_of(x, self.width()), 0.0), axis.duration)
         self._state.request_seek(t)
-
-    # -- tap-session context menu (lock to taps, PHASES 4.3) ---------------------
-
-    def contextMenuEvent(self, event) -> None:  # noqa: N802
-        t = self._state.axis.t_of(event.pos().x(), self.width())
-        hit = self._session_at(t)
-        if hit is None:
-            return
-        index, session = hit
-        menu = QMenu(self)
-        lock = menu.addAction(
-            f"Lock tempo to taps ({len(session.taps)} anchors)")
-        derive = menu.addAction("Re-derive smoothed tempo")
-        remove = menu.addAction("Remove tap markers")
-        chosen = menu.exec(event.globalPos())
-        if chosen is lock:
-            self._apply(session, lock_to_taps(session), "lock")
-        elif chosen is derive:
-            self._apply(session, derive_tempo_events(session), "derive")
-        elif chosen is remove:
-            self._state.execute(RemoveTapSession(index))
-
-    def _session_at(self, t: float) -> tuple[int, TapSession] | None:
-        for index, session in enumerate(
-                self._state.doc.timing.tap_sessions):
-            if session.taps[0].seconds - 0.5 <= t \
-                    <= session.taps[-1].seconds + 0.5:
-                return index, session
-        return None
-
-    def _apply(self, session: TapSession, derivation, mode: str) -> None:
-        self._state.execute(ApplyTaps(
-            session, derivation.events,
-            (derivation.first_beat, derivation.last_beat), mode))

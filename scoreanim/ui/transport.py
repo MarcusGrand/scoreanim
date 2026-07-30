@@ -1,83 +1,50 @@
-"""Lower zone: transport strip above the waveform + tempo lanes (M1.3).
+"""Lower zone: the transport strip, the two lanes, and the timeline bar.
 
 The timeline area formalized as a bottom QDockWidget (ruling
 2026-07-24) — the stage keeps the central widget to itself, and one
 `saveState` pair will persist this dock with the inspector (M1.8). The
-two lanes share the time axis on purpose (tapping while watching the
-waveform) and stay stacked, never tabbed; an internal splitter keeps
-their heights user-adjustable, replacing the old three-way central
-splitter (stage-vs-zone sizing moves to the dock boundary).
+two lanes share the time axis on purpose and stay stacked, never
+tabbed; an internal splitter keeps their heights user-adjustable,
+replacing the old three-way central splitter (stage-vs-zone sizing
+moves to the dock boundary).
 
-Ruling (Marcus, 2026-07-24): everything time-related — Tempo, Offset,
-Swing — lives HERE, on the strip with the transport it configures, not
-in the inspector. The M1.4 inspector keeps the non-time controls
-(Follow/Systems, appearance).
+Top to bottom: play/seek/time on the strip, the waveform and tempo
+lanes, then the controls that drive the grid (`ui/timeline_bar.py`) at
+the very bottom, next to the ticks they move.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (QComboBox, QDockWidget, QDoubleSpinBox,
-                               QHBoxLayout, QLabel, QSlider, QSplitter,
-                               QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QSlider,
+                               QSplitter, QToolButton, QVBoxLayout, QWidget)
 
-from scoreanim.core.project import ProjectDoc, SetGlobalSwing, SetOffset
-from scoreanim.core.timing import GRID_UNITS
 from scoreanim.ui.app_state import AppState
-from scoreanim.ui.grid_options import LaneDisplay
 from scoreanim.ui.playback import PlaybackController
-from scoreanim.ui.readouts import (format_time, global_swing_ratio,
-                                   tempo_command, tempo_scope)
-from scoreanim.ui.taps import TapRecorder
+from scoreanim.ui.readouts import format_time
 from scoreanim.ui.tempo_lane import TempoLaneView
+from scoreanim.ui.timeline_bar import TimelineBar
 from scoreanim.ui.waveform import WaveformView
 
 
 class TransportStrip(QWidget):
-    """Play, seek slider, time readout, the time fields, tap controls.
+    """Play, the seek slider, and the time readout.
 
-    Owns the play/arm/tap QActions — the window registers them
-    window-level so Space / Shift+T / T fire regardless of focus, and
-    the Playback menu shares the same play action so the two checked/
-    text states cannot diverge. Observes the playback controller for
-    time and play-state; pausing ends an armed tap session (the alpha
-    `_on_playing` behavior, moved here with the widgets).
-
-    Tempo/Offset/Swing are labeled fields (the prefix-in-spinbox look
-    is retired) with the alpha commit wiring: commit on
-    editingFinished, epsilon no-op guard, and a blockSignals resync via
-    `sync_from_document` — the window calls it on every document
-    change, so a resync never re-executes a command.
-
-    Offset and Swing keep keyboard tracking off and only speak on
-    commit. Tempo previews as you type instead (the preview/commit pair
-    the lane drags use), because the grid has to move with the number
-    for you to see whether it fits the recording.
+    Owns the play QAction — the window registers it window-level so
+    Space fires regardless of focus, and the Playback menu shares the
+    same action, so button, menu item and shortcut state cannot
+    diverge. Observes the playback controller for time and play state.
     """
 
     def __init__(self, app_state: AppState, playback: PlaybackController,
-                 tap_recorder: TapRecorder,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._state = app_state
         self._playback = playback
-        self._tap_recorder = tap_recorder
 
         self.play_action = QAction("▶ Play", self)
         self.play_action.setShortcut(Qt.Key.Key_Space)
         self.play_action.triggered.connect(playback.toggle_play)
-
-        self.arm_taps_action = QAction("● Arm Taps", self)
-        self.arm_taps_action.setCheckable(True)
-        self.arm_taps_action.setShortcut("Shift+T")
-        self.arm_taps_action.toggled.connect(tap_recorder.set_armed)
-
-        # visible for the first time (brief flag 5) — the shortcut is
-        # unchanged; a visibility change, not a new capability
-        self.tap_action = QAction("Tap", self)
-        self.tap_action.setShortcut("T")
-        self.tap_action.setAutoRepeat(False)
-        self.tap_action.triggered.connect(tap_recorder.tap)
 
         self._slider = QSlider(Qt.Orientation.Horizontal)
         self._slider.setRange(0, 0)
@@ -88,224 +55,14 @@ class TransportStrip(QWidget):
         self._slider.valueChanged.connect(self._on_slider_value)
         self._time_label = QLabel(" 0:00.0 / 0:00.0 ")
 
-        # initial tempo (FIX 2): edits the beat-0 tempo event through the
-        # existing tempo-map machinery (MoveTempoEvent) — not a parallel
-        # path. With no audio it sets the no-audio playback pace; the
-        # offset is simply 0 then.
-        #
-        # Alone among the fields it previews while you type (keyboard
-        # tracking ON): the ticks have to move with the number, or you
-        # cannot see whether the tempo fits the recording yet. Qt only
-        # emits valueChanged for text that already validates in range, so
-        # a half-typed number never previews.
-        self._bpm_live = False           # this field owns a live preview
-        self._bpm_spin = QDoubleSpinBox()
-        self._bpm_spin.setDecimals(1)
-        self._bpm_spin.setSingleStep(1.0)
-        self._bpm_spin.setRange(20.0, 400.0)
-        self._bpm_spin.setKeyboardTracking(True)
-        self._bpm_spin.setToolTip(
-            "Tempo in bpm. With a grid line selected in the lane it sets "
-            "the tempo\nfrom that line to the end and releases the locks "
-            "after it; with nothing\nselected it sets the initial tempo.")
-        self._bpm_spin.valueChanged.connect(self._preview_bpm)
-        self._bpm_spin.editingFinished.connect(self._commit_bpm)
-
-        self._offset_spin = QDoubleSpinBox()
-        self._offset_spin.setSuffix(" s")      # a unit, not a label
-        self._offset_spin.setDecimals(2)
-        self._offset_spin.setSingleStep(0.05)
-        self._offset_spin.setRange(-60.0, 3600.0)
-        self._offset_spin.setKeyboardTracking(False)
-        self._offset_spin.editingFinished.connect(self._commit_offset)
-
-        # global swing ratio (ruling 2026-07-11): 0.50 straight … 0.67
-        # triplet, one value for the whole piece; regions later (BACKLOG 7)
-        self._swing_spin = QDoubleSpinBox()
-        self._swing_spin.setDecimals(2)
-        self._swing_spin.setSingleStep(0.01)
-        self._swing_spin.setRange(0.50, 0.75)
-        self._swing_spin.setKeyboardTracking(False)
-        self._swing_spin.editingFinished.connect(self._commit_swing)
-
-        # what the lane shows, and how a tick drag behaves (view state, so
-        # no command and nothing in sync_from_document)
-        self._lane_mode = QComboBox()
-        for display in LaneDisplay:
-            self._lane_mode.addItem(display.value, display)
-        self._lane_mode.setToolTip("Tempo: the tempo line, as points.\n"
-                                   "Ticks: drag the grid onto the waveform.")
-        self._lane_mode.currentIndexChanged.connect(self._commit_lane_mode)
-
-        self._grid_unit = QComboBox()
-        for unit in GRID_UNITS:
-            self._grid_unit.addItem(unit.label, unit)
-        self._grid_unit.setToolTip("Which lines the grid shows")
-        self._grid_unit.currentIndexChanged.connect(self._commit_grid_unit)
-
-        self._shape_button = QToolButton()
-        self._shape_button.setCheckable(True)
-        self._shape_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._shape_button.setToolTip(
-            "Flatten: a dragged span comes out evenly spaced, at one "
-            "tempo.\n"
-            "Keep shape: it stretches instead, so tempo detail already "
-            "inside survives.\n"
-            "Alt while dragging flips whichever is set.")
-        self._shape_button.toggled.connect(self._commit_shape)
-
         row = QHBoxLayout(self)
         row.setContentsMargins(4, 2, 4, 2)
         row.addWidget(_action_button(self.play_action))
         row.addWidget(self._slider, 1)
         row.addWidget(self._time_label)
-        self._bpm_label = QLabel("Tempo")
-        row.addWidget(self._bpm_label)
-        row.addWidget(self._bpm_spin)
-        for label, spin in (("Offset", self._offset_spin),
-                            ("Swing", self._swing_spin)):
-            row.addWidget(QLabel(label))
-            row.addWidget(spin)
-        row.addWidget(QLabel("Lane"))
-        row.addWidget(self._lane_mode)
-        row.addWidget(self._grid_unit)
-        row.addWidget(self._shape_button)
-        row.addWidget(_action_button(self.arm_taps_action))
-        row.addWidget(_action_button(self.tap_action))
-        self._sync_from_grid()
 
         playback.time_changed.connect(self._on_time)
         playback.playing_changed.connect(self._on_playing)
-        app_state.grid.changed.connect(self._sync_from_grid)
-
-    # -- document sync ---------------------------------------------------------
-
-    def sync_from_document(self, doc: ProjectDoc) -> None:
-        """Resync the time fields from document intent (execute, undo,
-        redo, and project load all arrive here via the window)."""
-        self._offset_spin.blockSignals(True)
-        self._offset_spin.setValue(doc.timing.offset_seconds)
-        self._offset_spin.blockSignals(False)
-        self._sync_from_grid()           # the Tempo field lives there now
-        self._swing_spin.blockSignals(True)
-        self._swing_spin.setValue(global_swing_ratio(doc))
-        self._swing_spin.blockSignals(False)
-
-    # -- the lane's own controls -----------------------------------------------
-
-    def _sync_from_grid(self) -> None:
-        """Label and enable the lane controls for the mode showing, and
-        retitle the Tempo field for whatever line is selected. Grid step
-        and Flatten only mean anything in ticks mode."""
-        grid = self._state.grid
-        ticks = grid.display is LaneDisplay.TICKS
-        if self._lane_mode.currentData() is not grid.display:
-            self._lane_mode.blockSignals(True)
-            self._lane_mode.setCurrentIndex(
-                self._lane_mode.findData(grid.display))
-            self._lane_mode.blockSignals(False)
-        label, bpm = tempo_scope(self._state.doc, self._selected_beat(),
-                                 self._state.measures)
-        self._bpm_label.setText(label)
-        # A preview of our own comes straight back here (it emits
-        # document_changed), and setValue would rewrite the text under the
-        # cursor mid-edit — blockSignals stops a re-commit, not that. The
-        # label still follows.
-        if not self._bpm_previewing():
-            self._bpm_spin.blockSignals(True)
-            self._bpm_spin.setValue(bpm)
-            self._bpm_spin.blockSignals(False)
-        self._grid_unit.setEnabled(ticks)
-        self._shape_button.setEnabled(ticks)
-        self._shape_button.setText("Flatten" if grid.flatten
-                                   else "Keep shape")
-
-    def _commit_lane_mode(self) -> None:
-        self._state.grid.set_display(self._lane_mode.currentData())
-        self._sync_from_grid()
-
-    def _commit_grid_unit(self) -> None:
-        self._state.grid.set_unit(self._grid_unit.currentData())
-
-    def _commit_shape(self, keep_shape: bool) -> None:
-        # the button is CHECKED for "keep shape", so the flag inverts
-        self._state.grid.set_flatten(not keep_shape)
-        self._sync_from_grid()
-
-    # -- commit handlers -------------------------------------------------------
-
-    def _selected_beat(self):
-        """The lane's selected line, only while the lane is showing it."""
-        grid = self._state.grid
-        return grid.selected_beat if grid.display is LaneDisplay.TICKS \
-            else None
-
-    def _bpm_edit(self, value: float):
-        """The command for a typed bpm, or None when it changes nothing.
-
-        Always read against the COMMITTED document: `state.doc` hands back
-        our own preview once one is live, so the no-op guard would compare
-        the value with itself and never let anything commit.
-        """
-        doc = self._state.committed
-        beat = self._selected_beat()
-        _label, showing = tempo_scope(doc, beat, self._state.measures)
-        if abs(value - showing) < 1e-9:
-            return None
-        return tempo_command(doc, beat, value)
-
-    def _bpm_previewing(self) -> bool:
-        """This field has an unfinished edit showing. Self-healing on
-        purpose: an undo or a project load drops the preview out from
-        under us, and the field goes back to following the document
-        instead of sitting on a number nothing is showing."""
-        return self._bpm_live and self._state.doc is not self._state.committed
-
-    def _preview_bpm(self, value: float) -> None:
-        """Typing (or stepping) shows the tempo everywhere at once — the
-        ticks, the waveform and playback all read the previewed document.
-        Nothing is committed and the undo stack is untouched until the
-        edit finishes."""
-        command = self._bpm_edit(value)
-        if command is None:              # typed back to where it started
-            self._drop_bpm_preview()
-            return
-        self._bpm_live = True
-        self._state.preview(command)
-
-    def _drop_bpm_preview(self) -> None:
-        live, self._bpm_live = self._bpm_previewing(), False
-        if live:
-            self._state.cancel_preview()
-
-    def _commit_bpm(self) -> None:
-        """Enter or focus-out ends the edit: one undo entry for the whole
-        typing session, whatever the preview did along the way. With a
-        line selected it sets the tempo from there to the end
-        (SetTempoFrom); with nothing selected it edits the initial tempo
-        through the existing machinery — MoveTempoEvent on the first
-        event, so a tempo curve's later events survive."""
-        command = self._bpm_edit(self._bpm_spin.value())
-        if command is None:
-            self._drop_bpm_preview()
-            return
-        self._bpm_live = False           # clear first: commit lands back
-        self._state.commit(command)      # here as a resync
-
-    def _commit_offset(self) -> None:
-        value = self._offset_spin.value()
-        if abs(value - self._state.doc.timing.offset_seconds) > 1e-9:
-            self._state.execute(SetOffset(value))
-
-    def _commit_swing(self) -> None:
-        value = self._swing_spin.value()
-        if abs(value - global_swing_ratio(self._state.doc)) < 1e-9:
-            return
-        measures = self._state.measures
-        if not measures:
-            return
-        end_beat = measures[-1].start + measures[-1].quarter_length
-        self._state.execute(SetGlobalSwing(value, end_beat))
 
     # -- playback feedback -----------------------------------------------------
 
@@ -325,12 +82,10 @@ class TransportStrip(QWidget):
 
     def _on_playing(self, playing: bool) -> None:
         self.play_action.setText("⏸ Pause" if playing else "▶ Play")
-        if not playing and self._tap_recorder.armed:
-            self.arm_taps_action.setChecked(False)   # pause ends the session
 
 
 class LowerZone(QDockWidget):
-    """Bottom dock: the transport strip over the two timeline lanes.
+    """Bottom dock: transport strip, the two lanes, the timeline bar.
 
     A fixed-feeling zone (ruling 2026-07-24): no close/float/move
     titlebar chrome — its show/hide surface is the dock's
@@ -340,7 +95,6 @@ class LowerZone(QDockWidget):
     """
 
     def __init__(self, app_state: AppState, playback: PlaybackController,
-                 tap_recorder: TapRecorder,
                  parent: QWidget | None = None) -> None:
         super().__init__("Timeline", parent)
         self.setObjectName("LowerZone")      # saveState identity (M1.8)
@@ -349,12 +103,13 @@ class LowerZone(QDockWidget):
         self.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
         self.toggleViewAction().setText("Lower Zone")
 
-        self.strip = TransportStrip(app_state, playback, tap_recorder, self)
+        self.strip = TransportStrip(app_state, playback, self)
         self.waveform = WaveformView(app_state)
         self.tempo_lane = TempoLaneView(app_state)
         lanes = QSplitter(Qt.Orientation.Vertical, self)
         lanes.addWidget(self.waveform)
         lanes.addWidget(self.tempo_lane)
+        self.bar = TimelineBar(app_state, self)
 
         body = QWidget(self)
         column = QVBoxLayout(body)
@@ -362,6 +117,7 @@ class LowerZone(QDockWidget):
         column.setSpacing(0)
         column.addWidget(self.strip)
         column.addWidget(lanes, 1)
+        column.addWidget(self.bar)
         self.setWidget(body)
 
 
