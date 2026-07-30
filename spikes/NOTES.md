@@ -1,5 +1,40 @@
 # Spike & build notes
 
+## M7 — a part label's part (`spikes/label_part.py` 2026-07-29,
+## `spikes/label_group.py` 2026-07-30)
+
+Verovio 6.2.1, production adapter options, through the real pipeline
+(`_make_toolkit` + the hide round-trip), not a parallel path.
+
+- **A drawn label's SVG id does not exist in the MEI. 0/129.** Verovio
+  mints a throwaway id for the drawn object and `getElementAttr` answers
+  "Element not found". Notes join fine (the control), so this is specific
+  to labels — the M3 "reach the part through the MEI index" hypothesis is
+  dead, not merely unproven.
+- **The MEI side is clean.** Every `<label>`/`<labelAbbr>` hangs on a
+  host that names staves, and `PreparedScore.part_for_staff` turns a
+  staff number into a part for free. Only the join was missing.
+- **Order works, but only over the LABELLED staves.** Pairing a system's
+  drawn labels against its visible staves filtered to those whose MEI
+  label matches the class being drawn is exact (129/129 over 6
+  configurations, hidden staves and condensing included). Naive order
+  without the filter is 101/129 and MIS-ATTRIBUTES rather than failing,
+  because a part with an empty abbreviation draws nothing after system 1.
+- **A multi-staff part hangs its label on the `<staffGrp>`**, not on a
+  `<staffDef>` — and **Verovio draws every group label FIRST**, ahead of
+  the staff labels, measured 41/41 systems over the only two fixtures
+  that have one (video_test's Piano, complex2's Synth), on both classes,
+  under hiding. This is why the first build placed 0 of video_test's 7
+  labels: the group label was invisible to a staffDef-only index AND out
+  of order. The expected order is groups, then staves.
+- **A condensed label names the KEPT part** (`parts[0]`) — the same part
+  the document's condense group is keyed on, so condensing raises no
+  extra decision on the adapter side.
+- The join is self-checking: each pairing can be confirmed against the
+  label text the MEI carries, so the adapter attributes only on
+  agreement. As built, all 16 fixture configurations place every label
+  (1354) with zero warnings.
+
 ## Phase 12 — Orchestral robustness planning (2026-07-21)
 
 Verified the PHASE12_BRIEF diagnosis against the real files during
