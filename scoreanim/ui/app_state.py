@@ -94,13 +94,26 @@ class TimeAxis(QObject):
         return self._t1 - self._t0
 
     def set_duration(self, seconds: float) -> None:
-        """New media extent. A new duration resets the window to the full
-        range — durations arrive once per audio load."""
+        """New media extent, fitted to the window only if the user has
+        not chosen one.
+
+        A duration is not always a media load: with no audio bound it is
+        the SCORE's length, which every tempo edit changes — including
+        each preview frame of a lane drag. Re-fitting on those would yank
+        a zoomed-in user out to the full score on every mouse-move, so a
+        window the user chose is kept and only clamped into the new
+        extent."""
         seconds = max(seconds, _MIN_DURATION)
         if seconds == self._duration:
             return
+        was_full = (self._t0, self._t1) == (0.0, self._duration)
         self._duration = seconds
-        self._t0, self._t1 = 0.0, seconds
+        if was_full:
+            self._t0, self._t1 = 0.0, seconds
+        else:
+            span = min(self._t1 - self._t0, seconds)
+            t0 = min(max(self._t0, 0.0), seconds - span)
+            self._t0, self._t1 = t0, t0 + span
         self.changed.emit()
 
     def set_visible(self, t0: float, t1: float) -> None:

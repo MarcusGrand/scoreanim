@@ -61,6 +61,8 @@ class _Drag:
     left: Beats | None                       # anchor before; None = first line
     right: Beats | None                      # anchor after, when pinning
     tempo_map: TempoMap                      # pre-drag: stable geometry
+    unit: GridUnit                           # frozen: the grid must not
+                                             # change resolution mid-drag
     pinned: tuple[float, float] | None       # reachable audio seconds
     rippled: tuple[float, float] | None
     label: str
@@ -87,7 +89,12 @@ class TickAlignMode:
         return self._lane.width() / axis.span * 60.0 / bpm
 
     def _unit(self) -> GridUnit:
-        """The step actually drawn — thinned when ticks would crowd."""
+        """The step actually drawn — thinned when ticks would crowd, and
+        frozen for the length of a drag: retiming a span changes px per
+        beat, and a grid that changes resolution under the cursor reads
+        as the view jumping."""
+        if self._drag is not None:
+            return self._drag.unit
         return coarsened(self._state.grid.unit, self._px_per_beat())
 
     def _ticks(self) -> TickGrid:
@@ -138,9 +145,11 @@ class TickAlignMode:
         self._draw_bar_tempos(painter, w, h)
         handle = self._drag.beat if self._drag is not None else self._hover
         if handle is not None:
-            x = self._x_of_tick(handle, self._drag.tempo_map
-                                if self._drag is not None else None)
+            # the LIVE map, so the highlight sits on the previewed
+            # position and tracks the pointer — the pre-drag map would
+            # leave it behind at the beat's old pixel
             painter.setPen(QPen(_HANDLE, 2))
+            x = self._x_of_tick(handle)
             painter.drawLine(QPointF(x, TOP_PAD), QPointF(x, h))
 
     def _draw_bar_tempos(self, painter: QPainter, w: int, h: int) -> None:
@@ -227,8 +236,8 @@ class TickAlignMode:
                     f"{label} has no room to move between its neighbours")
                 return True
         self._drag = _Drag(beat=tick.beat, left=left, right=right,
-                           tempo_map=self._lane.tempo_map, pinned=pinned,
-                           rippled=rippled, label=label)
+                           tempo_map=self._lane.tempo_map, unit=self._unit(),
+                           pinned=pinned, rippled=rippled, label=label)
         return True
 
     def move(self, event) -> None:

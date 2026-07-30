@@ -48,6 +48,20 @@ def test_axis_duration_resets_window(qapp) -> None:
     assert len(hits) == 1
 
 
+def test_axis_duration_keeps_a_window_the_user_chose(qapp) -> None:
+    """With no audio bound the duration is the SCORE's length, which
+    every tempo edit changes — including each preview frame of a lane
+    drag. Re-fitting there would yank a zoomed-in user out to the whole
+    score on every mouse-move."""
+    axis = TimeAxis()
+    axis.set_duration(40.0)
+    axis.set_visible(10.0, 14.0)               # the user zooms in
+    axis.set_duration(41.5)                    # a tempo edit lengthens it
+    assert (axis.t0, axis.t1) == (10.0, 14.0)  # window untouched
+    axis.set_duration(12.0)                    # and now a shorter score
+    assert (axis.t0, axis.t1) == (8.0, 12.0)   # clamped, span kept
+
+
 def test_axis_visible_clamps(qapp) -> None:
     axis = TimeAxis()
     axis.set_duration(30.0)
