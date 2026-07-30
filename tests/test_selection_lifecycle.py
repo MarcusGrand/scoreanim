@@ -167,7 +167,7 @@ def test_in_band_is_always_true_in_paged_mode(window) -> None:
     assert window.view.in_band(QPointF(-5000.0, -5000.0))
 
 
-# -- gesture separation: click vs drag-to-pan ---------------------------
+# -- gesture separation: a click, versus a drag that is not one ---------
 
 def _mouse(kind, view, pos: QPoint) -> QMouseEvent:
     return QMouseEvent(kind, QPointF(pos), view.mapToGlobal(pos),
@@ -195,10 +195,10 @@ def test_a_short_press_release_is_a_click(window) -> None:
     assert len(seen) == 1
 
 
-def test_a_drag_beyond_the_threshold_is_a_pan_not_a_click(window) -> None:
-    """The whole gesture ruling: pan stays byte-for-byte what it was and
-    no modifier key is needed, because a sub-threshold drag never panned
-    visibly anyway."""
+def test_a_drag_beyond_the_threshold_is_not_a_click(window) -> None:
+    """The threshold outlived the pan it was built for (2026-07-30: drag
+    no longer moves the view). It stays as a guard — a hand that slides
+    while pressing must not change the selection."""
     view = window.view
     seen: list = []
     view.clicked.connect(lambda pos, scene: seen.append(pos))
@@ -211,7 +211,9 @@ def test_a_drag_beyond_the_threshold_is_a_pan_not_a_click(window) -> None:
     assert seen == []
 
 
-def test_a_pan_does_not_disturb_an_existing_selection(window) -> None:
+def test_a_stray_drag_does_not_disturb_an_existing_selection(window) -> None:
+    """A drag that starts on empty page (not on the selected element's own
+    ink, so `nudge_probe` says no) does nothing whatsoever."""
     _select_a_notehead(window)
     held = window.app_state.selected
     view = window.view

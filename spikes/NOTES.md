@@ -1021,3 +1021,30 @@ the M2 brief's design.
   samples the inter-staff gaps, so its "reachable" reads ~10% — an
   artifact of the metric, not of selection (D clicks barlines on ink:
   100%).
+
+## Stage navigation (2026-07-30) — spikes/stage_gestures.py
+
+Measured before rewriting the stage's gestures (pinch zooms, two-finger
+scroll moves the view, no drag-to-pan). PySide6 on macOS 24.6, style
+reports itself as `'macos'`.
+
+- **`SH_ScrollBar_Transient` is False.** Qt's scrollbars here are the
+  kind that reserve space, not macOS-style overlays. Turning them on
+  costs real viewport: a 600x500 view keeps a 580x480 viewport with
+  `ScrollBarAsNeeded` against an oversized scene, versus 598x498 with
+  `ScrollBarAlwaysOff`. So switching them on and off as the user
+  scrolls would shove the score sideways by 20 px at the start of every
+  gesture — which is why the stage keeps them permanently off and
+  `ui/stage_scrollbars.py` paints its own fading hint instead.
+- **Scrolling still works with the bars switched off.** With
+  `ScrollBarAlwaysOff` the range stays live (`verticalScrollBar()
+  .maximum() == 1502` on a 2000x2000 scene in a 600x500 view), so
+  `setValue` pans exactly as before. Hiding the widget does not disable
+  the axis.
+- `startDragDistance` is 10 px (the click-vs-drag threshold).
+
+The gesture half of the spike needs a real trackpad and cannot be
+automated: run `python spikes/stage_gestures.py` and pinch over the
+window to see the `QNativeGestureEvent` stream (type, `value()` per
+step, which of view/viewport receives it, and whether a pinch also
+produces wheel events).

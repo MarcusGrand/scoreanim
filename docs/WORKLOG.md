@@ -1,9 +1,12 @@
 # ScoreAnim — Worklog
 
-**NOW:** main is clean; delete-elements merged (`38ed04a`, no tag).
-Staff-label editing was asked for and STOPPED as milestone work — the
-join is now measured (BACKLOG 14, `spikes/label_part.py`), so a
-milestone can start from evidence rather than a hypothesis.
+**NOW:** `beta/f-trackpad-gestures` holds the new stage navigation
+(pinch zooms, two-finger scroll moves the view, no drag-panning),
+committed and UNMERGED pending Marcus's run. Before that: main is clean;
+delete-elements merged (`38ed04a`, no tag). Staff-label editing was asked
+for and STOPPED as milestone work — the join is now measured (BACKLOG 14,
+`spikes/label_part.py`), so a milestone can start from evidence rather
+than a hypothesis.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -11,6 +14,12 @@ lines — history lives in git, ROADMAP, and the briefs.
 
 ---
 
+- 2026-07-30 — `beta/f-trackpad-gestures`: stage navigation is now the
+  ordinary desktop set — pinch zooms, two-finger scroll moves the view,
+  Cmd/Ctrl+wheel zooms, no drag-panning (so, a plain arrow cursor).
+  Repeals the M2 "pan is unchanged" ruling in ARCHITECTURE §7. Qt's
+  scrollbars are off because they reserve space (measured); a fading
+  hint is painted instead. Opened BACKLOG 19. UNMERGED.
 - 2026-07-29 — Staff-label direct edit requested → **flag-and-stop**,
   milestone work (moves goldens). Spiked it instead: the M3 MEI-id
   hypothesis is dead (0/129), order-over-labelled-staves is exact

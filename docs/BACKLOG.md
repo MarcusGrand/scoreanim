@@ -551,6 +551,23 @@ scale-to-fit). Parked:
     POST-condense part order — one shared helper, since the two
     commands already share `ApplyScoreSetup`.
 
+## Stage navigation (2026-07-30)
+
+19. **The inline text editor does not follow the view.**
+    `ui/text_edit.py` places the editing field once, mapping the item's
+    scene rect through `mapFromScene` at open time
+    (`_place_editor`-style code around line 208). Nothing re-anchors it
+    afterwards, so zooming or scrolling while a field is open leaves the
+    field behind while its text moves.
+
+    This is not new — drag-panning had the same effect since M3.1 — but
+    two-finger scrolling makes it far easier to trigger by accident, so
+    it is worth paying. The fix is small: give `StageView` a signal for
+    "my transform or scroll offset changed" (emit it from `zoom_by`,
+    `scroll_by`, and `scrollContentsBy`), and have `text_edit`
+    re-place an open editor from it. Deliberately left out of the
+    navigation change to keep that diff about navigation.
+
 ## Deferred (from PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

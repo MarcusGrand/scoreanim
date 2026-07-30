@@ -62,12 +62,12 @@ class NudgeController(QObject):
 
     def probe(self, scene_pos: QPointF,
               scene: QGraphicsScene | None = None) -> bool:
-        """Should a press here start a nudge instead of a pan?
+        """Should a press here start a nudge?
 
         Only when the press lands on the SELECTED element's own ink.
-        Anywhere else — including on a different nudgeable element —
-        keeps panning, so the stage never feels like it grabs things the
-        user did not ask it to grab."""
+        Anywhere else — including on a different nudgeable element — the
+        drag does nothing, so the stage never feels like it grabs things
+        the user did not ask it to grab."""
         eid = self.target()
         if eid is None or self._scenes is None:
             return False

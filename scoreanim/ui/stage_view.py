@@ -2,8 +2,16 @@
 
 Letterboxing is fitInView(sceneRect, KeepAspectRatio) against a dark
 view background — the white page rect in each scene is the "screen".
-Fit mode re-letterboxes on every resize; wheel zoom (anchored under the
-cursor) leaves fit mode until the Fit action restores it. Drag to pan.
+Fit mode re-letterboxes on every resize; zooming (anchored under the
+cursor) leaves fit mode until the Fit action restores it.
+
+Navigation is the ordinary desktop set (ruling 2026-07-30, replacing the
+M2 gesture set): pinch zooms, two-finger scroll moves the view, and
+Cmd/Ctrl + wheel zooms so a plain mouse can zoom too. There is no
+click-and-drag panning, so the cursor over the page is the plain arrow.
+Qt's own scrollbars stay off — they would reserve space and shove the
+score sideways whenever they appeared — and `TransientScrollbars` paints
+a hint that fades instead.
 
 System mode (Phase 7.4, framing revised Phase 10R): show_system_band
 keeps the PAGE's own frame — a page-sized, page-aspect window centered
@@ -21,11 +29,12 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 
 from scoreanim.core.editing import COARSE_NUDGE, NUDGE_STEP
+from scoreanim.ui.stage_scrollbars import TransientScrollbars
 
 _LETTERBOX = QColor("#3a3a3a")
 # Arrow key → unit direction (M3.2). Page y grows downward, as in SVG.
@@ -33,21 +42,37 @@ _ARROW_KEYS = {Qt.Key.Key_Left: (-1.0, 0.0), Qt.Key.Key_Right: (1.0, 0.0),
                Qt.Key.Key_Up: (0.0, -1.0), Qt.Key.Key_Down: (0.0, 1.0)}
 _ZOOM_MIN = 0.05
 _ZOOM_MAX = 40.0
-# Same curve as the timeline views (ui/app_state.apply_wheel — keep in
-# step): pixel-precise trackpad deltas, one wheel notch (≈40 px) = ×1.1.
+# Same zoom CURVE as the timeline views (ui/app_state.apply_wheel — keep
+# the numbers in step), but a different trigger on purpose: there a bare
+# vertical scroll zooms the time axis, here it scrolls the page and zoom
+# needs a pinch or Cmd/Ctrl. One wheel notch (≈40 px) = ×1.1.
 _ZOOM_PER_PIXEL = math.log(1.1) / 40.0
 _PIXELS_PER_NOTCH = 40.0
 
 
-class StageView(QGraphicsView):
-    """Selection gesture (M2.3): click selects, drag pans.
+def clamped_factor(factor: float, current: float) -> float:
+    """Trim a zoom step so it cannot leave the [_ZOOM_MIN, _ZOOM_MAX]
+    range, and never moves AGAINST the gesture.
 
-    ScrollHandDrag consumes mouse events for panning, so the scene never
-    sees a press and scene-side itemAt() is dead on arrival. Instead the
-    view watches the press/release pair itself and calls it a CLICK when
-    the pointer moved less than QApplication.startDragDistance(). Pan
-    behavior is unchanged — a sub-threshold drag never panned visibly
-    anyway — so no modifier key is needed."""
+    A fit scale can legitimately sit below _ZOOM_MIN (a big score in a
+    small window), so zooming out from there has to hold still rather
+    than snap upward into range. Pure, so the limits can be tested
+    without a view."""
+    if factor < 1.0:
+        return max(factor, min(1.0, _ZOOM_MIN / current))
+    return min(factor, max(1.0, _ZOOM_MAX / current))
+
+
+class StageView(QGraphicsView):
+    """Selection gesture (M2.3, re-argued 2026-07-30): a click selects.
+
+    The view watches the press/release pair itself and calls it a CLICK
+    when the pointer moved less than QApplication.startDragDistance().
+    That threshold used to be there because a longer drag was a pan;
+    dragging no longer moves the view, so it is now simply a guard — a
+    sloppy hand should not change the selection. A drag that starts on
+    the selected element's own ink nudges it instead (see nudge_probe);
+    every other drag does nothing at all."""
 
     # (scene position, the QGraphicsScene it was in). The scene travels
     # WITH the position because every page scene has the same sceneRect
@@ -63,12 +88,11 @@ class StageView(QGraphicsView):
     double_clicked = Signal(QPointF, object)
     deselect_requested = Signal()        # Esc, or a click outside the band
 
-    # M3.2 drag-to-nudge. A drag on the stage is normally a PAN, so the
+    # M3.2 drag-to-nudge. Most drags on the stage do nothing, so the
     # view asks `nudge_probe` at press time whether this particular
-    # press should move an element instead — it has to be decided before
-    # the press reaches ScrollHandDrag, which would otherwise consume
-    # it. The probe is set by the window; the view itself knows nothing
-    # about selection, scenes, or which kinds are nudgeable.
+    # press should move an element. The probe is set by the window; the
+    # view itself knows nothing about selection, scenes, or which kinds
+    # are nudgeable.
     drag_started = Signal(QPointF, object)   # (scene pos, scene)
     drag_moved = Signal(QPointF)             # cumulative scene delta
     drag_finished = Signal(QPointF)          # cumulative scene delta
@@ -80,9 +104,19 @@ class StageView(QGraphicsView):
                             | QPainter.RenderHint.TextAntialiasing
                             | QPainter.RenderHint.SmoothPixmapTransform)
         self.setBackgroundBrush(_LETTERBOX)
-        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        # No drag mode at all: dragging never moves the view, so Qt
+        # leaves the plain arrow cursor over the page.
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setTransformationAnchor(
             QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        # Qt's scrollbars reserve space, so appearing mid-gesture would
+        # shift the score; scrolling works with them off (the range
+        # stays live) and TransientScrollbars paints the hint instead.
+        self.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scrollbars = TransientScrollbars(self)
         self._fit_mode = True
         self._band: QRectF | None = None     # masked region (the system)
         self._frame: QRectF | None = None    # fitted region (page-sized)
@@ -182,14 +216,12 @@ class StageView(QGraphicsView):
         if event.button() == Qt.MouseButton.LeftButton:
             self._press_pos = event.position().toPoint()
             scene_pos = self.mapToScene(self._press_pos)
-            # a press on a nudgeable element takes the drag away from
-            # the pan for the duration of the gesture; everything else
-            # pans exactly as before (M2's D1 gesture is untouched)
+            # a press on a nudgeable element turns this drag into a move
+            # for the rest of the gesture; every other drag does nothing
             if (self.scene() is not None and self.in_band(scene_pos)
                     and self.nudge_probe is not None
                     and self.nudge_probe(scene_pos, self.scene())):
                 self._drag_origin = scene_pos
-                self.setDragMode(QGraphicsView.DragMode.NoDrag)
                 self.drag_started.emit(scene_pos, self.scene())
                 event.accept()
                 return
@@ -208,7 +240,6 @@ class StageView(QGraphicsView):
         if self._drag_origin is not None:
             origin, self._drag_origin = self._drag_origin, None
             self._press_pos = None
-            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
             delta = self.mapToScene(event.position().toPoint()) - origin
             self.drag_finished.emit(delta)
             event.accept()
@@ -219,7 +250,7 @@ class StageView(QGraphicsView):
             return
         moved = (event.position().toPoint() - press).manhattanLength()
         if moved > QApplication.startDragDistance():
-            return                            # that was a pan, not a click
+            return                        # a drag, not a click: do nothing
         if self.scene() is None:
             return
         scene_pos = self.mapToScene(press)
@@ -269,22 +300,81 @@ class StageView(QGraphicsView):
         if self._fit_mode:
             self._fit()
 
-    def wheelEvent(self, event) -> None:  # noqa: N802
-        pixel = event.pixelDelta()
-        dy = (float(pixel.y()) if not pixel.isNull()
-              else event.angleDelta().y() / 120.0 * _PIXELS_PER_NOTCH)
-        if not dy:
+    # -- zoom and scroll ---------------------------------------------------
+
+    def zoom_by(self, factor: float) -> None:
+        """Zoom about the cursor and leave fit mode.
+
+        Every zoom path goes through here: the pinch gesture, Cmd/Ctrl +
+        wheel, and the tests. Zooming is a change to the VIEW transform,
+        never to the items — `RevealPathItem` caches a scene-space
+        inverse transform and would go stale if items scaled."""
+        factor = clamped_factor(factor, self.transform().m11())
+        if factor == 1.0:
             return
-        factor = math.exp(dy * _ZOOM_PER_PIXEL)
-        current = self.transform().m11()
-        # clamp to the limits: smooth stop, and never move AGAINST the
-        # gesture (a fit scale can legitimately sit below _ZOOM_MIN —
-        # zooming out from there just holds, it must not snap upward)
-        if factor < 1.0:
-            factor = max(factor, min(1.0, _ZOOM_MIN / current))
+        self._fit_mode = False
+        self.scale(factor, factor)
+        self._scrollbars.poke()
+
+    def scroll_by(self, dx: float, dy: float) -> None:
+        """Move the view by a delta in device pixels."""
+        hbar, vbar = self.horizontalScrollBar(), self.verticalScrollBar()
+        before = (hbar.value(), vbar.value())
+        hbar.setValue(hbar.value() - round(dx))
+        vbar.setValue(vbar.value() - round(dy))
+        if (hbar.value(), vbar.value()) != before:
+            self._scrollbars.poke()
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        """Cmd/Ctrl + wheel zooms; a bare wheel or two-finger scroll
+        moves the view on both axes.
+
+        Trackpads report pixel-precise deltas already corrected for the
+        system's natural-scroll setting; a classic wheel reports angle
+        notches instead.
+
+        Scrolling does nothing while fitted, which is the point of being
+        fitted: the frame is exactly in the window. Paged mode has no
+        slack to scroll into anyway, but SYSTEM mode does — its scene
+        rect is deliberately taller than the framed band (show_system_
+        band) — and a stray two-finger scroll must not slide the framed
+        system away into the letterbox."""
+        pixel = event.pixelDelta()
+        if not pixel.isNull():
+            dx, dy = float(pixel.x()), float(pixel.y())
         else:
-            factor = min(factor, max(1.0, _ZOOM_MAX / current))
-        if factor != 1.0:
-            self._fit_mode = False
-            self.scale(factor, factor)
+            angle = event.angleDelta()
+            dx = angle.x() / 120.0 * _PIXELS_PER_NOTCH
+            dy = angle.y() / 120.0 * _PIXELS_PER_NOTCH
+        mods = event.modifiers()
+        zooming = bool(mods & (Qt.KeyboardModifier.ControlModifier
+                               | Qt.KeyboardModifier.MetaModifier))
+        if zooming:
+            if dy:
+                self.zoom_by(math.exp(dy * _ZOOM_PER_PIXEL))
+        elif (dx or dy) and not self._fit_mode:
+            self.scroll_by(dx, dy)
         event.accept()
+
+    def viewportEvent(self, event) -> bool:  # noqa: N802
+        """Pinch to zoom. macOS delivers it as a native gesture on the
+        viewport, with `value()` as the incremental scale change for that
+        step — positive when the fingers spread, so spreading zooms in.
+        `spikes/stage_gestures.py` logs the raw stream if the feel ever
+        needs re-checking on other hardware."""
+        if event.type() == QEvent.Type.NativeGesture:
+            if event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture:
+                self.zoom_by(1.0 + event.value())
+                return True
+        return super().viewportEvent(event)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        """The scene, then the fading scroll indicators on top.
+
+        A separate painter on the viewport, in device pixels — unlike
+        drawForeground, which paints in scene coordinates and belongs to
+        the system-band mask."""
+        super().paintEvent(event)
+        painter = QPainter(self.viewport())
+        self._scrollbars.paint(painter)
+        painter.end()
