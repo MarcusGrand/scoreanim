@@ -598,6 +598,64 @@ scale-to-fit). Parked:
     Related: item 18, the same family of "validated against the wrong
     part order" bug.
 
+## Grid alignment (2026-07-30)
+
+21. **A repeated pass gets subdivision ticks but no barlines.** The lane's
+    grid takes its bars from `MeasureInfo`, which holds one entry per
+    document-order measure, so the bar at a repeat end carries a
+    `quarter_length` covering the whole second pass (measured on
+    complex3: ordinal 37 spans 12.0 for a 4/4 bar, because
+    `provider._engrave_prepared` keeps first-pass starts only —
+    `setdefault` plus the `measure_by_id` guard drops the `-rend<k>`
+    expansion clones). The pass offset is a whole number of quarters, so
+    the beat ticks across it are still real beats and dragging them is
+    correct; only the interior barlines and their numbers are missing.
+    Pre-existing — today's measure grid has always drawn it this way.
+
+    The fix, if it is wanted: strip the `-rend<k>` suffix in the provider,
+    map the base id back through `mei.measure_by_id`, and carry the extra
+    pass starts on `MeasureTimeline` as derived data (rule 5, no schema
+    bump). It touches the beat-authority seam, so it deserves its own
+    decision rather than riding along.
+
+22. **The lane's mode, grid step and Flatten/Keep-shape are not
+    persisted.** They are view state by design (rule 5), so they reset to
+    Tempo / Bars / Flatten every launch. If that gets annoying they
+    belong in `window_state` with the dock geometry, not in the project
+    file.
+
+23. **No snapping a dragged line to the audio.** The obvious next want is
+    for a barline to snap to a transient under it. We have peaks, not
+    onsets, so this is a real piece of work (onset detection, plus a
+    modifier to defeat it), not a tweak.
+
+24. **`commands/timing.py` now does three jobs** (tempo events, taps,
+    swing) in ~300 lines. The next timing command should split it first.
+
+25. **A lock outside the score is inert and invisible.** Locks are beats,
+    so re-loading a score with fewer measures leaves any lock past the
+    new end with nothing to draw and nothing to anchor. It is inert
+    rather than wrong — the same treatment a stale break override gets —
+    but there is no readout saying so. If it bites, the layout zone's
+    "Deleted" readout is the precedent to copy.
+
+26. **Locks constrain tick drags only.** The Offset field, a tempo-point
+    drag in Tempo mode and a `.tempo` re-import all move locked beats;
+    only the last of those clears the locks. Solving the map against the
+    locks instead would make them a real constraint, which is a much
+    bigger change than it sounds and probably the wrong one — the user
+    reached for a more direct tool.
+
+27. **Does Tempo mode still earn its place?** (Marcus, 2026-07-30, on
+    first use of the Ticks lane: "I'm not sure if we even need the tempo
+    view anymore.") Everything it does now has a replacement — dragging
+    a line beats dragging a tempo point, and the Tempo field aimed at a
+    selected line replaces editing a point's bpm. What would go with it:
+    `ui/lane_tempo.py`, the Lane combo, `AddTempoEvent`/`MoveTempoEvent`/
+    `RemoveTempoEvent`'s only UI surface (the commands themselves stay —
+    the strip and tap derivation use them). Left in for now so he can
+    live with the new one first.
+
 ## Deferred (from docs/history/PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

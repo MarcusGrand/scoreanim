@@ -143,10 +143,11 @@ def test_v1_part_colors_fold_into_style_rules() -> None:
     }
     assert legacy.style.reveal_mode is RevealMode.STEPPED
     assert legacy.style.elements == {}
-    # new files declare version 9 (M6); a build from the future is refused
-    assert to_dict(ProjectDoc())["version"] == 9
+    # new files declare version 10 (locks); a build from the future is
+    # refused
+    assert to_dict(ProjectDoc())["version"] == 10
     with pytest.raises(ValueError, match="version"):
-        from_dict({"version": 10})
+        from_dict({"version": 11})
 
 
 def test_v4_hide_empty_staves() -> None:
@@ -331,7 +332,6 @@ def test_v9_file_is_refused_by_a_v8_reader() -> None:
 
     payload = to_dict(ProjectDoc(
         page_break_overrides={3: PageBreak.FORCE}))
-    assert payload["version"] == 9
     original = ser._READABLE_VERSIONS
     ser._READABLE_VERSIONS = tuple(v for v in original if v <= 8)
     try:
@@ -401,3 +401,30 @@ def test_never_persists_derived_data() -> None:
                             "hide_empty_staves", "hide_first_system",
                             "condense_groups", "system_break_overrides",
                             "page_break_overrides"}
+
+
+def test_v10_locked_beats_round_trip_and_older_files_have_none() -> None:
+    """Locks are user intent, so they persist. A missing key means
+    nothing is locked, which is exactly right for every v<=9 file — no
+    read gate needed."""
+    doc = ProjectDoc(timing=TimingConfig(locked_beats=(0.0, 4.0, 12.5)))
+    assert from_dict(to_dict(doc)).timing.locked_beats == (0.0, 4.0, 12.5)
+    old = from_dict({"version": 9, "timing": {"offset_seconds": 1.0}})
+    assert old.timing.locked_beats == ()
+
+
+def test_v10_file_is_refused_by_a_v9_reader() -> None:
+    """The gate's own test, per D6: a tagged v9 build (v0.2-beta.6) must
+    REFUSE a v10 file rather than silently drop the locks and destroy
+    them on the next save (the v2 rationale)."""
+    import scoreanim.core.project.serialize as ser
+
+    payload = to_dict(ProjectDoc(timing=TimingConfig(locked_beats=(4.0,))))
+    assert payload["version"] == 10
+    original = ser._READABLE_VERSIONS
+    ser._READABLE_VERSIONS = tuple(v for v in original if v <= 9)
+    try:
+        with pytest.raises(ValueError, match="version"):
+            ser.from_dict(payload)
+    finally:
+        ser._READABLE_VERSIONS = original

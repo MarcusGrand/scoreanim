@@ -48,6 +48,20 @@ def test_axis_duration_resets_window(qapp) -> None:
     assert len(hits) == 1
 
 
+def test_axis_duration_keeps_a_window_the_user_chose(qapp) -> None:
+    """With no audio bound the duration is the SCORE's length, which
+    every tempo edit changes — including each preview frame of a lane
+    drag. Re-fitting there would yank a zoomed-in user out to the whole
+    score on every mouse-move."""
+    axis = TimeAxis()
+    axis.set_duration(40.0)
+    axis.set_visible(10.0, 14.0)               # the user zooms in
+    axis.set_duration(41.5)                    # a tempo edit lengthens it
+    assert (axis.t0, axis.t1) == (10.0, 14.0)  # window untouched
+    axis.set_duration(12.0)                    # and now a shorter score
+    assert (axis.t0, axis.t1) == (8.0, 12.0)   # clamped, span kept
+
+
 def test_axis_visible_clamps(qapp) -> None:
     axis = TimeAxis()
     axis.set_duration(30.0)
@@ -221,3 +235,38 @@ def test_selection_is_not_document_state(state) -> None:
     assert not state.is_dirty
     assert not hasattr(state.doc, "selection")
     assert not hasattr(state.doc, "selected")
+
+
+def test_axis_held_by_a_gesture_never_refits(qapp) -> None:
+    """The reported bug's exact case: no audio bound, fully zoomed out,
+    dragging a barline. The score's own length changes on every preview
+    frame, and re-fitting there reads as the view jumping out."""
+    axis = TimeAxis()
+    axis.set_duration(40.0)
+    assert (axis.t0, axis.t1) == (0.0, 40.0)   # showing everything
+    axis.hold(True)
+    for length in (44.0, 41.0, 43.0):          # a drag's preview frames
+        axis.set_duration(length)
+        assert (axis.t0, axis.t1) == (0.0, 40.0)   # window never moves
+    axis.hold(False)
+    axis.set_duration(48.0)                    # released, but the window
+    assert (axis.t0, axis.t1) == (0.0, 40.0)   # is no longer full: kept,
+                                               # because re-fitting on
+                                               # release is a jump too
+    axis.set_visible(0.0, 48.0)                # user zooms back out fully
+    axis.set_duration(52.0)
+    assert (axis.t0, axis.t1) == (0.0, 52.0)   # and fitting resumes
+
+
+def test_preview_holds_the_axis_and_commit_releases_it(qapp) -> None:
+    from scoreanim.core.project import SetOffset
+
+    state = AppState()
+    state.axis.set_duration(30.0)
+    state.preview(SetOffset(1.0))
+    assert state.axis._held
+    state.commit(SetOffset(1.0))
+    assert not state.axis._held
+    state.preview(SetOffset(2.0))
+    state.cancel_preview()
+    assert not state.axis._held

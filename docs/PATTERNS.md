@@ -128,6 +128,54 @@ slurs, hairpins, dynamics), never the music itself and never scaffold.
 The set lives in `core/editing/deletion.py`; adding a kind to it means
 arguing the sentence still holds.
 
+**The lane-mode seam** — the timeline lane hosts modes: the host owns
+what they share (axis mapping, measure grid, playhead, seek, wheel) and
+each mode owns its drawing and its gestures, getting first refusal on
+every event and returning False to let the host's click-to-seek have it.
+A mode cancels its own preview in `deactivate()` when the user switches
+away. Colours and paddings live in `ui/lane_style.py` so a mode never
+imports the host back.
+
+**Locks are the anchors, derived once** — what holds still during a grid
+drag is the user's locks (`TimingConfig.locked_beats`), never something
+inferred from barlines or stray tempo events. The view and the command
+both ask `core/timing/retime.lock_anchors`, so the clamp and the result
+cannot disagree — which is the only way a lock could end up inside a
+span that gets re-spaced. A lock stores only its beat; the second is
+derived (rule 5). It anchors tick drags and nothing else: the Offset
+field, a tempo-point drag and a `.tempo` import all move locked beats,
+and the last of those clears the locks outright.
+
+**A field can preview as you type** — a spinbox whose result the user
+has to LOOK at (the Tempo field: do the ticks fit the recording yet?)
+runs the same preview/commit pair as a drag. Keyboard tracking on,
+`valueChanged` → `preview`, `editingFinished` → `commit`: one undo entry
+for the typing session, and Qt withholds `valueChanged` for text that
+does not validate in range, so a half-typed number never previews. Two
+things this costs, both load-bearing: the no-op guard must read
+`AppState.committed`, because `doc` hands the field back its own preview
+and it would then never commit; and the resync must skip the `setValue`
+while the edit is live, because `preview` emits `document_changed` and
+comes straight back to rewrite the text under the cursor (`blockSignals`
+stops a re-commit, not that). Fields whose value speaks for itself
+(Offset, Swing) stay commit-only — this is not the default.
+
+**A duration change must not steal the window** — with no audio bound
+the time axis's duration is the SCORE's length, so every tempo edit
+changes it, including each preview frame of a drag. `TimeAxis` re-fits
+only when the window is showing everything AND no gesture holds it;
+`AppState.preview` takes the hold and `execute`/`cancel_preview` release
+it, so no view has to remember. Both halves are needed — keeping a
+zoomed window alone still yanks the common case (no audio, fully zoomed
+out) on every mouse-move.
+
+**Two beat domains at the tick seam** — a grid tick is a MUSICAL beat; a
+tempo event's `position` is a SWING-WARPED beat (`seconds_at` consumes
+warped beats). Locks are musical too. Anything crossing between them converts:
+ticks and locks warp on the way to a pixel, event positions unwarp
+(`swing_unwarp`) on the way to being compared with them. Get this wrong and everything looks right at
+ratio 0.5 and drifts the moment swing is on.
+
 **Two hit paths, on purpose** — selection resolves rule-13 OBJECTS;
 double-click-to-edit has its own resolver that also reaches stage
 texts. Stage texts are editable but never selectable (they carry no

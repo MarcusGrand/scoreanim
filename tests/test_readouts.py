@@ -5,8 +5,9 @@ from scoreanim.core.project import DEFAULT_BPM, ProjectDoc
 from scoreanim.core.project.document import TimingConfig
 from scoreanim.core.timing import TempoEvent
 from scoreanim.core.timing.swing import SwingRegion
+from scoreanim.core.project import MoveTempoEvent, SetTempoFrom
 from scoreanim.ui.readouts import (format_time, global_swing_ratio,
-                                   initial_tempo_event)
+                                   initial_tempo_event, tempo_command)
 
 
 def _doc(**timing_kwargs) -> ProjectDoc:
@@ -62,3 +63,27 @@ def test_swing_multi_region_shows_first_ratio():
     regions = (SwingRegion(span=(0.0, 8.0), ratio=0.667),
                SwingRegion(span=(8.0, 16.0), ratio=0.55))
     assert global_swing_ratio(_doc(swing_regions=regions)) == 0.667
+
+
+# -- tempo_command -------------------------------------------------------------
+#
+# What the Tempo field MEANS by a bpm, as opposed to what tempo_scope says
+# it is showing. The field previews with this and commits with it, so the
+# two calls cannot ask for different edits.
+
+def test_tempo_command_with_no_selection_moves_the_first_event():
+    events = (TempoEvent(0.0, 120.0), TempoEvent(8.0, 90.0))
+    command = tempo_command(_doc(tempo_events=events), None, 96.0)
+    # in place: only the bpm changes, so a later event survives
+    assert command == MoveTempoEvent(0.0, 0.0, 96.0)
+
+
+def test_tempo_command_with_a_selected_line_sets_from_there():
+    command = tempo_command(ProjectDoc(), 8.0, 90.0)
+    assert command == SetTempoFrom(8.0, 90.0)
+
+
+def test_tempo_command_empty_map_has_nothing_to_edit():
+    assert tempo_command(_doc(tempo_events=()), None, 96.0) is None
+    # a selected line still does — SetTempoFrom writes its own event
+    assert tempo_command(_doc(tempo_events=()), 8.0, 90.0) is not None

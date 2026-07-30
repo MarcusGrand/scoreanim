@@ -7,7 +7,13 @@ with their widgets; only the pure reads live here.
 
 from __future__ import annotations
 
-from scoreanim.core.project import ProjectDoc
+from typing import Sequence
+
+from scoreanim.core.project import (DEFAULT_BPM, Command, MoveTempoEvent,
+                                    ProjectDoc, SetTempoFrom)
+from scoreanim.core.score.model import MeasureInfo
+from scoreanim.core.timing.retime import bpm_at
+from scoreanim.core.timing.swing import swing_warp
 from scoreanim.core.timing.tempo_map import TempoEvent
 
 
@@ -31,3 +37,38 @@ def global_swing_ratio(doc: ProjectDoc) -> float:
     the spinbox collapses it to one global region."""
     regions = doc.timing.swing_regions
     return regions[0].ratio if regions else 0.5
+
+
+def tempo_scope(doc: ProjectDoc, beat: float | None,
+                measures: Sequence[MeasureInfo] = ()) -> tuple[str, float]:
+    """What the Tempo field is editing, and the bpm it should show.
+
+    With a grid line selected the field sets the tempo from THAT line on;
+    with nothing selected it edits the initial tempo, as it always has.
+    The label names the line so the two cannot be confused.
+    """
+    if beat is None:
+        event = initial_tempo_event(doc)
+        return "Tempo", event.bpm if event else DEFAULT_BPM
+    number = next((m.number for m in measures
+                   if abs(m.start - beat) < 1e-9), None)
+    where = f"m{number}" if number is not None else f"beat {beat:g}"
+    return f"Tempo from {where}", bpm_at(
+        doc.timing.tempo_events, swing_warp(beat, doc.timing.swing_regions))
+
+
+def tempo_command(doc: ProjectDoc, beat: float | None,
+                  bpm: float) -> Command | None:
+    """The command the Tempo field means by a bpm — the mirror of
+    `tempo_scope`, which says what it is showing.
+
+    Lives here, not with the widget, because the field both previews and
+    commits: one function so the two cannot ask for different things.
+    None when there is nothing to edit (an empty tempo map).
+    """
+    if beat is not None:
+        return SetTempoFrom(beat, bpm)
+    first = initial_tempo_event(doc)
+    if first is None:
+        return None
+    return MoveTempoEvent(first.position, first.position, bpm)

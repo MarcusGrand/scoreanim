@@ -73,6 +73,28 @@ def swing_warp(beats: Beats, regions: Sequence[SwingRegion]) -> Beats:
     return beats
 
 
+def swing_unwarp(beats: Beats, regions: Sequence[SwingRegion]) -> Beats:
+    """The inverse of `swing_warp` — a warped beat back to the musical
+    beat it came from. The warp is piecewise linear and strictly monotone,
+    so this is exact.
+
+    Needed because a tempo event's position is a WARPED beat while the
+    grid's ticks are musical beats. Anything comparing the two (which
+    anchor is nearest?) has to bring them into one domain first. A region
+    maps onto itself, so the same containment test as the warp holds.
+    """
+    for region in regions:
+        if region.span[0] <= beats < region.span[1]:
+            quarter = math.floor(beats)
+            p = beats - quarter
+            if p <= region.ratio:
+                p = p / (2.0 * region.ratio)
+            else:
+                p = 0.5 + (p - region.ratio) / (2.0 * (1.0 - region.ratio))
+            return quarter + p
+    return beats
+
+
 def resolve_seconds(beats: Sequence[Beats], tempo_map: TempoMap,
                     regions: Sequence[SwingRegion] = ()) -> list[float]:
     """Trigger beats → score seconds: swing warp, then the tempo map.

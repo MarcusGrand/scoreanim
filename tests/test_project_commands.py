@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-from scoreanim.core.project import (AddSwingRegion, AddTempoEvent, ApplyTaps,
+from scoreanim.core.project import (AddSwingRegion, AddTempoEvent, AlignBeat,
+                                    ApplyTaps, SetBeatLock,
+                                    SetTempoFrom,
                                     CommandError, ImportTempoSetup,
                                     MoveTempoEvent, ProjectDoc,
                                     RemoveSwingRegion, RemoveTapSession,
@@ -17,7 +19,8 @@ from scoreanim.core.project import (AddSwingRegion, AddTempoEvent, ApplyTaps,
                                     SetOffset, SetPartColor, SetSwingRegion,
                                     TimingConfig, UndoStack)
 from scoreanim.core.score.identity import PartId
-from scoreanim.core.timing import SwingRegion, Tap, TapSession, TempoEvent
+from scoreanim.core.timing import (SwingRegion, Tap, TapSession, TempoEvent,
+                                   TempoMap, swing_warp)
 
 
 @pytest.fixture
@@ -96,6 +99,159 @@ def test_import_tempo_setup_replaces_events_keeps_swing_and_taps(doc) -> None:
     assert out.timing.tap_sessions == doc.timing.tap_sessions
     with pytest.raises(CommandError):
         ImportTempoSetup(0.0, (), "x.tempo").apply(doc)
+
+
+# -- align a grid line ------------------------------------------------------
+#
+# The maths is pinned in tests/test_retime.py; these pin the command's own
+# two jobs — audio seconds minus the offset, and beats warped by the
+# document's swing — plus rule 8.
+
+def _at(doc, beat: float) -> float:
+    """Audio seconds of a beat, the way the lane draws it."""
+    return doc.timing.offset_seconds + TempoMap(
+        list(doc.timing.tempo_events)).seconds_at(beat)
+
+
+def test_align_beat_puts_the_beat_at_the_audio_second_and_locks_it(doc
+                                                                  ) -> None:
+    out = AlignBeat(8.0, _at(doc, 8.0) + 0.4).apply(doc)
+    assert _at(out, 8.0) == pytest.approx(_at(doc, 8.0) + 0.4)
+    assert out.timing.locked_beats == (8.0,)     # the drag pinned it
+    assert out.timing.offset_seconds == doc.timing.offset_seconds
+    assert doc.timing.tempo_events == (
+        TempoEvent(0.0, 120.0), TempoEvent(16.0, 90.0))      # before untouched
+    assert doc.timing.locked_beats == ()
+
+
+def test_align_beat_evens_out_the_span_back_to_the_previous_lock(doc) -> None:
+    doc = SetBeatLock(4.0, True).apply(doc)
+    out = AlignBeat(12.0, _at(doc, 12.0) + 0.5).apply(doc)
+    m = TempoMap(list(out.timing.tempo_events))
+    steps = [round(m.seconds_at(b + 1.0) - m.seconds_at(b), 9)
+             for b in range(4, 12)]
+    assert len(set(steps)) == 1                  # 4 -> 12 evenly spaced
+    assert _at(out, 4.0) == pytest.approx(_at(doc, 4.0))     # the lock holds
+    assert out.timing.locked_beats == (4.0, 12.0)
+
+
+def test_align_beat_leaves_the_tempo_after_it_alone(doc) -> None:
+    """No lock after the dragged beat: the tail keeps its tempo and
+    slides, so every later beat moves by the same amount."""
+    out = AlignBeat(8.0, _at(doc, 8.0) + 0.4).apply(doc)
+    for beat in (12.0, 20.0, 40.0):
+        assert _at(out, beat) == pytest.approx(_at(doc, beat) + 0.4)
+
+
+def test_a_lock_after_the_drag_pins_the_tail(doc) -> None:
+    doc = SetBeatLock(16.0, True).apply(doc)
+    out = AlignBeat(8.0, _at(doc, 8.0) + 0.4).apply(doc)
+    assert _at(out, 16.0) == pytest.approx(_at(doc, 16.0))
+    assert _at(out, 40.0) == pytest.approx(_at(doc, 40.0))
+
+
+def test_align_beat_keep_shape_preserves_tempo_detail(doc) -> None:
+    doc = AddTempoEvent(6.0, 60.0).apply(doc)    # detail inside the span
+    flat = AlignBeat(12.0, _at(doc, 12.0) + 0.3).apply(doc)
+    kept = AlignBeat(12.0, _at(doc, 12.0) + 0.3, flatten=False).apply(doc)
+    assert 6.0 not in [e.position for e in flat.timing.tempo_events]
+    assert 6.0 in [e.position for e in kept.timing.tempo_events]
+
+
+def test_align_beat_warps_the_beat_through_swing(doc) -> None:
+    """An off-beat inside a swing region does not sound where the tempo
+    map alone would put it, so the command warps before retiming."""
+    swung = AddSwingRegion(SwingRegion((0.0, 16.0), 0.62)).apply(doc)
+    swung = SetBeatLock(4.0, True).apply(swung)
+    swung = SetBeatLock(8.0, True).apply(swung)
+    target = _at(swung, swing_warp(6.5, swung.timing.swing_regions)) + 0.2
+    out = AlignBeat(6.5, target).apply(swung)
+    warped = swing_warp(6.5, out.timing.swing_regions)
+    assert _at(out, warped) == pytest.approx(target)
+    assert _at(out, 4.0) == pytest.approx(_at(swung, 4.0))   # locks hold
+    assert _at(out, 8.0) == pytest.approx(_at(swung, 8.0))
+
+
+def test_align_beat_rejects_the_unreachable(doc) -> None:
+    doc = SetBeatLock(4.0, True).apply(doc)
+    for seconds in (float("nan"), _at(doc, 4.0) - 1.0, 1e6):
+        with pytest.raises(CommandError):
+            AlignBeat(8.0, seconds).apply(doc)
+    with pytest.raises(CommandError):            # nothing to span at beat 0
+        AlignBeat(0.0, 1.0).apply(doc)
+
+
+def test_dragging_a_locked_line_moves_it_and_keeps_it_locked(doc) -> None:
+    """A lock anchors its NEIGHBOURS; it never makes the line itself
+    immovable, so there is no refusal path to explain."""
+    doc = SetBeatLock(8.0, True).apply(doc)
+    out = AlignBeat(8.0, _at(doc, 8.0) + 0.3).apply(doc)
+    assert _at(out, 8.0) == pytest.approx(_at(doc, 8.0) + 0.3)
+    assert out.timing.locked_beats == (8.0,)
+
+
+def test_import_tempo_setup_clears_the_locks(doc) -> None:
+    """A sidecar replaces every tempo event, so "this beat is where I put
+    it" is no longer true of any of them."""
+    doc = SetBeatLock(8.0, True).apply(doc)
+    out = ImportTempoSetup(0.5, (TempoEvent(0.0, 110.0),), "x.tempo").apply(doc)
+    assert out.timing.locked_beats == ()
+
+
+def test_align_beat_is_one_undo_entry_covering_the_lock(doc) -> None:
+    stack = UndoStack()
+    out = stack.execute(AlignBeat(8.0, _at(doc, 8.0) + 0.4), doc)
+    assert stack.undo_text() == "align beat"
+    assert out.timing.tempo_events != doc.timing.tempo_events   # non-vacuous
+    assert out.timing.locked_beats == (8.0,)
+    back = stack.undo()
+    assert back.timing.tempo_events == doc.timing.tempo_events
+    assert back.timing.locked_beats == ()        # the lock went back too
+
+
+def test_set_beat_lock_toggles(doc) -> None:
+    locked = SetBeatLock(8.0, True).apply(doc)
+    assert locked.timing.locked_beats == (8.0,)
+    assert SetBeatLock(4.0, True).apply(locked).timing.locked_beats == (4.0,
+                                                                        8.0)
+    assert SetBeatLock(8.0, False).apply(locked).timing.locked_beats == ()
+    assert SetBeatLock(99.0, False).apply(locked).timing.locked_beats == (8.0,)
+    assert doc.timing.locked_beats == ()         # before untouched
+    with pytest.raises(CommandError):
+        SetBeatLock(float("inf"), True).apply(doc)
+    assert SetBeatLock(8.0, True).describe() == "lock beat"
+    assert SetBeatLock(8.0, False).describe() == "unlock beat"
+
+
+def test_set_tempo_from_replaces_everything_after_the_line(doc) -> None:
+    doc = AddTempoEvent(8.0, 60.0).apply(doc)
+    out = SetTempoFrom(4.0, 100.0).apply(doc)
+    assert out.timing.tempo_events == (TempoEvent(0.0, 120.0),
+                                       TempoEvent(4.0, 100.0))
+    assert _at(out, 4.0) == pytest.approx(_at(doc, 4.0))     # before holds
+    assert _at(out, 8.0) == pytest.approx(_at(out, 4.0) + 4 * 60 / 100.0)
+
+
+def test_set_tempo_from_releases_the_locks_after_the_line(doc) -> None:
+    """Their beats have just been re-timed, so "this beat is where I put
+    it" is no longer true of any of them. A lock ON the line stays: its
+    own second did not move."""
+    for beat in (2.0, 4.0, 12.0):
+        doc = SetBeatLock(beat, True).apply(doc)
+    out = SetTempoFrom(4.0, 100.0).apply(doc)
+    assert out.timing.locked_beats == (2.0, 4.0)
+
+
+def test_set_tempo_from_the_start_sets_the_whole_piece(doc) -> None:
+    out = SetTempoFrom(0.0, 100.0).apply(doc)
+    assert out.timing.tempo_events == (TempoEvent(0.0, 100.0),)
+
+
+def test_set_tempo_from_rejects_bad_input(doc) -> None:
+    for bpm in (0.0, -5.0, float("inf")):
+        with pytest.raises(CommandError):
+            SetTempoFrom(4.0, bpm).apply(doc)
+    assert SetTempoFrom(4.0, 100.0).describe() == "set tempo"
 
 
 # -- taps --------------------------------------------------------------------

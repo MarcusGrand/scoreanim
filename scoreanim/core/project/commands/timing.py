@@ -7,7 +7,10 @@ from dataclasses import dataclass, replace
 from scoreanim.core.project.commands.base import Command, CommandError
 from scoreanim.core.project.document import ProjectDoc
 from scoreanim.core.score.identity import Beats
-from scoreanim.core.timing.swing import SwingRegion, validate_regions
+from scoreanim.core.timing.retime import (flatten_span, lock_anchors,
+                                          scale_span)
+from scoreanim.core.timing.swing import (SwingRegion, swing_warp,
+                                         validate_regions)
 from scoreanim.core.timing.taps import TapSession
 from scoreanim.core.timing.tempo_map import TempoEvent, TempoMap
 
@@ -93,6 +96,107 @@ class RemoveTempoEvent(Command):
 
 
 @dataclass(frozen=True)
+class AlignBeat(Command):
+    """Drag a grid line onto the waveform: put `beat` at `seconds` of the
+    recording, and lock it there.
+
+    The anchors are the user's locks, so this reads them off the document
+    rather than taking them as fields — the view cannot hand over a stale
+    pair, and preview, commit, undo and redo all replay identically. With
+    nothing locked before, the score start stands in; with nothing locked
+    after, the tail keeps its tempo and slides.
+
+    `flatten` spaces each span evenly (the default: "these bars, evenly,
+    between the two things I have pinned"); otherwise the span is scaled
+    and its tempo shape survives.
+
+    Locking the dragged beat is part of THIS command, not a second one:
+    one gesture, one undo entry (rule 8). `seconds` is AUDIO seconds,
+    straight off the time axis, so the offset comes off here.
+    """
+    beat: Beats                  # musical beat of the dragged line
+    seconds: float               # audio seconds under the cursor
+    flatten: bool = True
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        regions = doc.timing.swing_regions
+        left, right = lock_anchors(doc.timing.locked_beats, self.beat)
+        rule = flatten_span if self.flatten else scale_span
+        try:
+            events = rule(
+                doc.timing.tempo_events,
+                beat=swing_warp(self.beat, regions),
+                seconds=self.seconds - doc.timing.offset_seconds,
+                left=swing_warp(left, regions),
+                right=None if right is None else swing_warp(right, regions))
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        return _with_timing(
+            doc, tempo_events=_validated_events(events),
+            locked_beats=tuple(sorted(set(doc.timing.locked_beats)
+                                      | {self.beat})))
+
+    def describe(self) -> str:
+        return "align beat"
+
+
+@dataclass(frozen=True)
+class SetTempoFrom(Command):
+    """Set the tempo from a line onward: one bpm from `beat` to the end,
+    replacing every tempo event after it.
+
+    This is the numeric way to say what a drag says by hand, and it is
+    what the Tempo field does once a line is selected. Beats BEFORE the
+    line do not move, so anything already aligned up to there survives.
+
+    Locks after the line go, and that is the honest thing: their beats
+    have just been re-timed, so "this beat is where I put it" is no
+    longer true of any of them. A lock exactly on the line stays — its
+    own second did not change.
+    """
+    beat: Beats                  # musical beat of the selected line
+    bpm: float
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not (math.isfinite(self.beat) and math.isfinite(self.bpm)):
+            raise CommandError(f"tempo {self.bpm} at beat {self.beat} "
+                               f"is not finite")
+        position = swing_warp(self.beat, doc.timing.swing_regions)
+        kept = tuple(e for e in doc.timing.tempo_events
+                     if e.position < position - 1e-9)
+        events = kept + (TempoEvent(position, self.bpm),)
+        return _with_timing(
+            doc, tempo_events=_validated_events(events),
+            locked_beats=tuple(b for b in doc.timing.locked_beats
+                               if b <= self.beat + 1e-9))
+
+    def describe(self) -> str:
+        return "set tempo"
+
+
+@dataclass(frozen=True)
+class SetBeatLock(Command):
+    """Pin a beat in the timeline lane, or let it go. A locked beat is
+    what every grid drag anchors on, so this is how the user says which
+    alignments are finished."""
+    beat: Beats
+    locked: bool
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not math.isfinite(self.beat):
+            raise CommandError(f"beat {self.beat} is not finite")
+        beats = set(doc.timing.locked_beats)
+        if self.locked:
+            beats.add(self.beat)
+        else:
+            beats.discard(self.beat)
+        return _with_timing(doc, locked_beats=tuple(sorted(beats)))
+
+    def describe(self) -> str:
+        return "lock beat" if self.locked else "unlock beat"
+
+
+@dataclass(frozen=True)
 class SetOffset(Command):
     seconds: float
 
@@ -118,8 +222,11 @@ class ImportTempoSetup(Command):
             raise CommandError(f"{self.source_name}: no tempo events")
         if not math.isfinite(self.offset_seconds):
             raise CommandError("offset is not finite")
+        # locks go too: they said "this beat is where I put it", and a
+        # sidecar has just replaced every tempo event underneath them
         return _with_timing(doc, offset_seconds=self.offset_seconds,
-                            tempo_events=_validated_events(self.events))
+                            tempo_events=_validated_events(self.events),
+                            locked_beats=())
 
     def describe(self) -> str:
         return f"import tempo ({self.source_name})"

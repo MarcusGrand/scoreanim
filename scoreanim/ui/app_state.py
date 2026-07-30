@@ -29,6 +29,7 @@ from scoreanim.core.project import (Command, CommandError, FileRef,
 from scoreanim.core.score.identity import ElementIdentity
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.selection import Selection
+from scoreanim.ui.grid_options import GridOptions
 
 if TYPE_CHECKING:                # core/audio arrives with task 4.2
     from scoreanim.core.audio.peaks import PeakCache
@@ -75,6 +76,7 @@ class TimeAxis(QObject):
         self._duration = _MIN_DURATION
         self._t0 = 0.0
         self._t1 = _MIN_DURATION
+        self._held = False
 
     @property
     def duration(self) -> float:
@@ -92,14 +94,34 @@ class TimeAxis(QObject):
     def span(self) -> float:
         return self._t1 - self._t0
 
+    def hold(self, held: bool) -> None:
+        """A gesture owns the window: a duration change must not re-fit
+        under the cursor. Driven by AppState's preview/commit pair, so a
+        view never has to remember to release it."""
+        self._held = held
+
     def set_duration(self, seconds: float) -> None:
-        """New media extent. A new duration resets the window to the full
-        range — durations arrive once per audio load."""
+        """New extent — an audio load, or the score's own length changing
+        as the user edits tempo.
+
+        A duration is not always a media load: with no audio bound it is
+        the SCORE's length, which every tempo edit changes, including
+        each preview frame of a lane drag. So the window is re-fitted
+        only when it is showing everything AND no gesture owns it;
+        otherwise it is kept and just clamped into the new extent. Both
+        halves are needed — the first alone still yanks the common case
+        (no audio, fully zoomed out) on every mouse-move."""
         seconds = max(seconds, _MIN_DURATION)
         if seconds == self._duration:
             return
+        was_full = (self._t0, self._t1) == (0.0, self._duration)
         self._duration = seconds
-        self._t0, self._t1 = 0.0, seconds
+        if was_full and not self._held:
+            self._t0, self._t1 = 0.0, seconds
+        else:
+            span = min(self._t1 - self._t0, seconds)
+            t0 = min(max(self._t0, 0.0), seconds - span)
+            self._t0, self._t1 = t0, t0 + span
         self.changed.emit()
 
     def set_visible(self, t0: float, t1: float) -> None:
@@ -135,6 +157,7 @@ class AppState(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self.axis = TimeAxis(self)
+        self.grid = GridOptions(self)     # what the lane shows (view state)
         self._committed = ProjectDoc()
         self._preview: ProjectDoc | None = None
         self._stack = UndoStack()
@@ -150,8 +173,16 @@ class AppState(QObject):
     def doc(self) -> ProjectDoc:
         return self._preview if self._preview is not None else self._committed
 
+    @property
+    def committed(self) -> ProjectDoc:
+        """The document with no preview on top — what a live edit has to
+        compare against to know whether it changed anything. `doc` would
+        hand it back its own preview."""
+        return self._committed
+
     def reset_document(self, doc: ProjectDoc) -> None:
         """Open score / open project: new document, fresh undo stack."""
+        self.axis.hold(False)
         self._committed = doc
         self._preview = None
         self._stack = UndoStack()
@@ -168,6 +199,7 @@ class AppState(QObject):
     def execute(self, command: Command) -> bool:
         """One-shot edit. Returns False (with a status message) when the
         command rejects its input."""
+        self.axis.hold(False)            # the gesture, if any, is over
         try:
             self._committed = self._stack.execute(command, self._committed)
         except CommandError as exc:
@@ -180,7 +212,12 @@ class AppState(QObject):
     def preview(self, command: Command) -> None:
         """Drag in progress: show the result, touch nothing. Applied to
         the committed doc every time; invalid intermediate states are
-        silently ignored (the view clamps)."""
+        silently ignored (the view clamps).
+
+        Holds the time axis for the length of the gesture: with no audio
+        bound, retiming changes the score's own length, and a window that
+        re-fits itself under the cursor reads as the view jumping."""
+        self.axis.hold(True)
         try:
             self._preview = command.apply(self._committed)
         except CommandError:
@@ -193,6 +230,7 @@ class AppState(QObject):
         self.execute(command)
 
     def cancel_preview(self) -> None:
+        self.axis.hold(False)
         if self._preview is not None:
             self._preview = None
             self.document_changed.emit()

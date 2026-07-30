@@ -74,8 +74,14 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 # exactly the pre-option look for every v<=8 file. The bump keeps
 # v0.2-beta.4 (a TAGGED v8 reader) refusing loudly instead of silently
 # dropping the user's page breaks on a resave.
-PROJECT_VERSION = 9
-_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9)
+# 10 (grid alignment, 2026-07-30): timing.locked_beats — the beats the
+# user has pinned in the timeline lane, which anchor every grid drag.
+# No read gate: a missing key defaults to (), which is "nothing locked",
+# which is exactly the pre-option behaviour for every v<=9 file. The bump
+# keeps v0.2-beta.6 (a TAGGED v9 reader) refusing loudly instead of
+# silently dropping the user's locks on a resave — the v2 rationale.
+PROJECT_VERSION = 10
+_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 SUFFIX = ".scoreanim"
 
 
@@ -113,6 +119,7 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
                           for t in s.taps]}
                 for s in doc.timing.tap_sessions
             ],
+            "locked_beats": list(doc.timing.locked_beats),
         },
         "style": {
             "reveal_mode": doc.style.reveal_mode.name.lower(),
@@ -212,6 +219,7 @@ def from_dict(data: dict[str, Any],
                         Tap(t["beat"], t["seconds"]) for t in s["taps"]))
                     for s in timing.get("tap_sessions", [])
                 ),
+                locked_beats=tuple(sorted(timing.get("locked_beats", ()))),
             ),
             style=_style_rules_in(data.get("style") or {}),
             stage=StageConfig(

@@ -49,6 +49,12 @@ class TimingConfig:
     tempo_events: tuple[TempoEvent, ...] = (TempoEvent(0.0, DEFAULT_BPM),)
     swing_regions: tuple[SwingRegion, ...] = ()
     tap_sessions: tuple[TapSession, ...] = ()   # raw taps, kept (rule 5)
+    # Beats the user has pinned in the timeline lane: sorted, unique, and
+    # MUSICAL beats (the tick domain, not the swing-warped one). Only the
+    # beat is stored — the second it sits at is derived from the tempo
+    # map (rule 5). A lock anchors a grid drag; it does not constrain the
+    # Offset field, a tempo-point drag or a .tempo re-import.
+    locked_beats: tuple[Beats, ...] = ()
 
 
 # Styling is the rule-based StyleRules model (core/animation/style.py):

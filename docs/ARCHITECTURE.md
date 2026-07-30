@@ -969,10 +969,55 @@ selection + shared time-axis zoom/scroll):
   View-level on purpose: export scenes structurally cannot see the
   mask. Follow emits page AND system; the window routes by mode;
   prev/next step the current presentation unit. Paged stays default.
-- **TempoLaneView**: tempo events as draggable points; shares the time
-  axis with the waveform. Swing is a single global ratio set numerically
-  on the transport bar in v1 (ruling 2026-07-11); the SwingRegion data
-  model is unchanged and per-region authoring returns later (BACKLOG 7).
+- **TempoLaneView**: the lane under the waveform, sharing its time axis.
+  A host widget with two modes, chosen by `AppState.grid.display`
+  (Ticks is the default since 2026-07-30)
+  (`ui/grid_options.py` — view state, never document intent). The host
+  owns what they share: background, measure grid, playhead, the beat ⇄ x
+  mapping, the cached `TempoMap`, click-to-seek and wheel zoom; each mode
+  owns its drawing and its gestures, and gets first refusal on every
+  event. `ui/lane_tempo.py` is tempo events as draggable points (the red
+  step line); `ui/lane_ticks.py` makes the grid lines themselves the drag
+  handles — see "Grid alignment" below. Swing is a single global ratio
+  set numerically on the transport bar in v1 (ruling 2026-07-11); the
+  SwingRegion data model is unchanged and per-region authoring returns
+  later (BACKLOG 7).
+
+  **Grid alignment (2026-07-30).** Dragging a grid line onto the
+  waveform is solved back into `(position, bpm)` tempo events —
+  `core/timing/retime.py`, one command `AlignBeat`. `tempo_events` stays
+  the only tempo representation, so the same edit reads as a step in
+  tempo mode.
+
+  What holds still is the user's LOCKS (`TimingConfig.locked_beats`,
+  schema v10), set by double-clicking a line. `lock_anchors` takes the
+  nearest lock either side — the score start standing in below, None
+  above meaning the music after keeps its tempo and slides. `AlignBeat`
+  reads them off the document rather than taking them as fields, so the
+  view cannot hand over a pair that disagrees with the locks, and it
+  locks the beat it just placed in the same command (one gesture, one
+  undo entry). A lock anchors its neighbours; dragging a locked line
+  moves it and re-locks it there.
+
+  Two rules, both holding the anchors: `flatten_span` (the default)
+  gives the span one constant bpm — evenly spaced, whatever was inside
+  is gone; `scale_span` multiplies the bpms instead, keeping tempo
+  detail worth having, like a tapped rubato passage. `span_bounds` gives
+  the view the reachable window for either, so a drag cannot build a
+  command that fails on release. The first line has no anchor before it,
+  so it edits the offset. Locks store beats only — the second is derived
+  (rule 5) — and constrain tick drags alone.
+
+  Setting a tempo numerically works off the same selection: clicking a
+  line sets `AppState.grid.selected_beat` (lane state — a position on the
+  time axis, not a rule-13 score object, and never in
+  `AppState.selection`), the Tempo field on the strip retitles itself
+  "Tempo from m5", and committing it runs `SetTempoFrom`, which replaces
+  every event after that line and releases the locks after it. With no
+  line selected the field edits the initial tempo, as it always did.
+  That is the whole job the tempo line's drag used to do, so Tempo mode
+  is now a second view rather than the way to work.
+
 - **WaveformView**: rendered peaks, playhead, click-to-seek; tap capture
   during playback.
 
