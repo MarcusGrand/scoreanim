@@ -19,6 +19,11 @@ two wins, which is also the right look.
 
 Every operation here is commutative, so the order of the effects never
 matters — "drop+fade" and "fade+drop" animate the same.
+
+The neutral column has a second reader: `modulate_state`, which pulls a
+composed state toward or away from rest by a per-trigger gain (the
+volume response, core/animation/intensity.py). Rest IS the neutral, so
+the two live together.
 """
 from __future__ import annotations
 
@@ -44,6 +49,46 @@ COMPOSE_OPS: Mapping[PropertyId, tuple[Callable[[float, float], float],
     OFFSET_X: (_add, 0.0),
     OFFSET_Y: (_add, 0.0),
 }
+
+
+# Which properties a per-trigger gain may push further from rest, or
+# hold closer to it. A list, not an if-chain (rule 6).
+#
+# OPACITY is deliberately not here, and never will be: a quiet note
+# still has to become fully visible, or the score would be unreadable
+# wherever the playing is soft. Loudness changes how a note MOVES, not
+# whether it is there.
+MODULATED_PROPERTIES: frozenset[PropertyId] = frozenset({
+    SCALE, OFFSET_X, OFFSET_Y,
+})
+
+
+def modulate_state(state: Mapping[PropertyId, float],
+                   gain: float) -> dict[PropertyId, float]:
+    """Scale how far a composed state departs from rest:
+    ``value' = neutral + (value - neutral) * gain``.
+
+    Applied ONCE, to the finished state, so an element animating with
+    two effects at once is modulated as one thing.
+
+    Gain 1.0 hands the state straight back. That is not an optimization:
+    ``n + (v - n) * 1.0`` can round to a different float than ``v``, and
+    with the response off every value has to be exactly what it was
+    before this feature existed.
+
+    A property not in the table above — opacity, or one from a newer
+    build — passes through untouched."""
+    if gain == 1.0:
+        return dict(state)
+    out: dict[PropertyId, float] = {}
+    for prop, value in state.items():
+        rule = COMPOSE_OPS.get(prop)
+        if prop in MODULATED_PROPERTIES and rule is not None:
+            neutral = rule[1]
+            out[prop] = neutral + (value - neutral) * gain
+        else:
+            out[prop] = value
+    return out
 
 
 def compose_states(states: Sequence[Mapping[PropertyId, float]]

@@ -1,8 +1,14 @@
-from scoreanim.core.animation.compose import COMPOSE_OPS, compose_states
+from scoreanim.core.animation.compose import (COMPOSE_OPS,
+                                              MODULATED_PROPERTIES,
+                                              compose_states, modulate_state)
 from scoreanim.core.animation.durations import resolve_durations
 from scoreanim.core.animation.effect import (OFFSET_X, OFFSET_Y, OPACITY,
                                              SCALE, Easing, Effect, Envelope,
                                              Keyframe, PropertyId, appear)
+from scoreanim.core.animation.intensity import (VolumeResponse, gain_for,
+                                                peak_reference, read_volume,
+                                                trigger_gains,
+                                                trigger_intensities)
 from scoreanim.core.animation.presets import (COMBINE_SEP, DEFAULT_EFFECT,
                                               FLOOR_OPACITY, PRESETS,
                                               build_presets, effect_for,
@@ -27,13 +33,17 @@ __all__ = [
     "ANCHOR_KINDS", "ANIMATED_KINDS", "COMBINE_SEP", "COMPOSE_OPS",
     "DEFAULT_EFFECT", "Easing", "Effect",
     "ElementStyle", "Envelope", "FLOOR_OPACITY", "Keyframe",
+    "MODULATED_PROPERTIES",
     "NOTE_OWNED_KINDS", "OFFSET_X", "OFFSET_Y", "OPACITY",
     "PRESETS", "PropertyId", "REVEALED_KINDS", "RevealCurve", "RevealMode",
     "SCALABLE_KINDS", "SCALE", "STATIC_KINDS", "StyleRules",
     "SystemRevealTrack", "TINTED_KINDS", "Trigger", "TriggerSchedule",
+    "VolumeResponse",
     "appear", "build_presets", "build_reveal_tracks",
     "build_trigger_schedule", "combined_state", "compose_states",
-    "effect_for", "effects_for", "element_state", "is_animated",
-    "is_revealed", "quantize_beats", "resolve_durations", "reveal_x",
+    "effect_for", "effects_for", "element_state", "gain_for", "is_animated",
+    "is_revealed", "modulate_state", "peak_reference", "quantize_beats",
+    "read_volume", "resolve_durations", "reveal_x",
     "scale_pivots", "split_effect_name", "takes_part_color",
+    "trigger_gains", "trigger_intensities",
 ]
