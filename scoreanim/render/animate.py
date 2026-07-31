@@ -14,10 +14,12 @@ Per-element effects come from StyleRules (element override > part rule >
 default) resolved against the preset registry; ``set_style`` re-resolves
 without rebuilding the applier. Properties apply through a fixed map:
 opacity on the ElementItem parent (composites over children), scale
-around the element's stored anchor — restricted to kinds with a
-meaningful one (a beam scaling around its own center reads as jitter,
-not pop). Unknown properties are skipped, so a preset from a newer
-build degrades instead of crashing.
+around the item's scale pivot — a whole note (head, stem, flag, beam,
+accidental, dots) turns around its noteheads' centre, so it grows and
+shrinks as one object. Which ink scales and where it pivots is core
+policy (core/animation/scale_groups.py); ink with no pivot never
+scales. Unknown properties are skipped, so a preset from a newer build
+degrades instead of crashing.
 
 Spanners (REVEALED_KINDS) are not trigger-driven at all: their clip
 edges follow the per-system reveal curves (core/animation/reveal.py).
@@ -43,21 +45,11 @@ from scoreanim.core.animation import (OPACITY, PRESETS, REVEALED_KINDS,
                                       SystemRevealTrack, TriggerSchedule,
                                       build_presets, effect_for,
                                       element_state, reveal_x)
-from scoreanim.core.score.identity import ElementId, ElementKind
+from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
 from scoreanim.render.items import ElementItem
 
 _BEFORE_EVERYTHING = float("-inf")
-
-# Kinds a SCALE track may transform (render-side rule; the evaluator is
-# untouched by it). Anchored ink only: heads, slashes, accidentals,
-# articulations, dots (OTHER-with-onset). Stems/beams/flags/ledgers
-# scaling independently of their heads reads as jitter.
-_SCALABLE_KINDS = frozenset({
-    ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.ACCIDENTAL,
-    ElementKind.ARTICULATION, ElementKind.OTHER,
-})
-
 
 def _apply_opacity(item: ElementItem, value: float) -> None:
     # the item composes this with whatever else is applied to it; the
@@ -66,9 +58,10 @@ def _apply_opacity(item: ElementItem, value: float) -> None:
 
 
 def _apply_scale(item: ElementItem, value: float) -> None:
-    if item.identity is None or item.identity.kind not in _SCALABLE_KINDS:
-        return
-    if item.anchor is None:
+    # No pivot, no scale. Which ink scales and what it turns around is
+    # decided once, in core (scale_groups.py), and carried on the item
+    # by ScoreScenes — the applier only applies.
+    if item.scale_pivot is None:
         return
     item.setScale(value)
 

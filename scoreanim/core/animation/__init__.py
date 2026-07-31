@@ -10,6 +10,9 @@ from scoreanim.core.animation.reveal import (ANCHOR_KINDS, REVEALED_KINDS,
                                              SystemRevealTrack,
                                              build_reveal_tracks, is_revealed,
                                              reveal_x)
+from scoreanim.core.animation.scale_groups import (NOTE_OWNED_KINDS,
+                                                   SCALABLE_KINDS,
+                                                   scale_pivots)
 from scoreanim.core.animation.schedule import (ANIMATED_KINDS, STATIC_KINDS,
                                                Trigger, TriggerSchedule,
                                                build_trigger_schedule,
@@ -20,12 +23,14 @@ from scoreanim.core.animation.style import (TINTED_KINDS, ElementStyle,
 
 __all__ = [
     "ANCHOR_KINDS", "ANIMATED_KINDS", "DEFAULT_EFFECT", "Easing", "Effect",
-    "ElementStyle", "Envelope", "FLOOR_OPACITY", "Keyframe", "OPACITY",
+    "ElementStyle", "Envelope", "FLOOR_OPACITY", "Keyframe",
+    "NOTE_OWNED_KINDS", "OPACITY",
     "PRESETS", "PropertyId", "REVEALED_KINDS", "RevealCurve", "RevealMode",
-    "SCALE", "STATIC_KINDS", "StyleRules", "SystemRevealTrack",
-    "TINTED_KINDS", "Trigger", "TriggerSchedule",
+    "SCALABLE_KINDS", "SCALE", "STATIC_KINDS", "StyleRules",
+    "SystemRevealTrack", "TINTED_KINDS", "Trigger", "TriggerSchedule",
     "appear", "build_presets", "build_reveal_tracks",
     "build_trigger_schedule",
     "effect_for", "element_state", "is_animated", "is_revealed",
-    "quantize_beats", "resolve_durations", "reveal_x", "takes_part_color",
+    "quantize_beats", "resolve_durations", "reveal_x", "scale_pivots",
+    "takes_part_color",
 ]

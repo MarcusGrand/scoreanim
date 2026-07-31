@@ -94,9 +94,10 @@ class ElementItem(GroupItem):
     """All QGraphicsItems of one RenderedElement (or one stage text).
 
     ``bbox``/``anchor`` (page == scene coordinates) and ``system`` come
-    from the RenderedElement: the anchor is the transform origin for
-    scale effects (pop), the system keys the reveal edge that drives
-    spanner clip-grow.
+    from the RenderedElement: the anchor is the element's own centre,
+    the system keys the reveal edge that drives spanner clip-grow. What
+    a scale effect turns around is the separate ``scale_pivot``, which
+    a whole note shares — see `set_scale_pivot`.
 
     **This item is the one compositing point for how an element looks.**
     Its appearance is a function of independent INPUTS, each written by
@@ -140,11 +141,12 @@ class ElementItem(GroupItem):
         self.bbox = bbox
         self.anchor = anchor
         self.system = system
-        if anchor is not None:
-            # scale/pop transforms pivot on the element's stored anchor
-            # (page == scene == item-local coords; the parent itself
-            # carries no transform)
-            self.setTransformOriginPoint(anchor)
+        # Where a scale effect pivots, set by ScoreScenes from the pure
+        # policy (core/animation/scale_groups.py): a whole note scales
+        # about its noteheads' centre, so its stem, beam, accidental and
+        # dots move with it instead of coming apart. None means this ink
+        # never scales.
+        self.scale_pivot: QPointF | None = None
         # -- composition inputs (see the class docstring) --
         self._color = QColor(DEFAULT_COLOR)      # authored, from the doc
         self._animated_opacity = 1.0             # from the evaluator
@@ -157,6 +159,13 @@ class ElementItem(GroupItem):
         # last reveal edge pushed, so a move can re-derive the clip that
         # the move itself invalidated (see set_offset)
         self._reveal_edge: float | None = None
+
+    def set_scale_pivot(self, pivot: QPointF | None) -> None:
+        """The point a scale effect turns around (page == scene ==
+        item-local coords; the parent itself carries no transform)."""
+        self.scale_pivot = pivot
+        if pivot is not None:
+            self.setTransformOriginPoint(pivot)
 
     def add_path_child(self, item: QGraphicsPathItem,
                        fill_tracks: bool, stroke_tracks: bool,

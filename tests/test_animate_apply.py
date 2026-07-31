@@ -241,8 +241,9 @@ def _p1_head_and_stem(scenes, schedule):
 
 
 def test_timed_effect_scales_mid_window(scenes, schedule, pop_rules) -> None:
-    """Mid-decay the notehead sits at the lerped scale; stems never
-    scale (render-side kind rule); past the window everything is 1.0."""
+    """Mid-decay the whole note sits at the lerped scale — the stem
+    included, turning around the SAME point as its head, so the note
+    pops as one object; past the window everything is 1.0."""
     applier = AnimationApplier(scenes.items, schedule, TEMPO, pop_rules)
     head, stem = _p1_head_and_stem(scenes, schedule)
     trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
@@ -250,9 +251,13 @@ def test_timed_effect_scales_mid_window(scenes, schedule, pop_rules) -> None:
     applier.apply_at(trig_s + 0.125)               # mid-decay
     assert scenes.items[head].scale() == pytest.approx(1.125)
     assert scenes.items[head].opacity() == pytest.approx(1.0)
-    assert scenes.items[stem].scale() == pytest.approx(1.0)
+    assert scenes.items[stem].scale() == pytest.approx(1.125)
+    assert scenes.items[stem].scale_pivot == scenes.items[head].scale_pivot
+    # the stem pivots on its head, not on its own middle
+    assert scenes.items[stem].scale_pivot != scenes.items[stem].anchor
     applier.apply_at(trig_s + 0.5)                 # window expired
     assert scenes.items[head].scale() == pytest.approx(1.0)
+    assert scenes.items[stem].scale() == pytest.approx(1.0)
     applier.apply_at(trig_s - 0.5)                 # scrub back: pre-onset
     assert scenes.items[head].scale() == pytest.approx(1.0)
     assert scenes.items[head].opacity() == pytest.approx(FLOOR)
@@ -514,7 +519,9 @@ def test_drop_shrinks_and_solidifies_with_no_applier_change(
     applier.refresh(trig_s)                        # the moment it enters
     assert scenes.items[head].scale() == pytest.approx(3.0)
     assert scenes.items[head].opacity() == pytest.approx(0.3)
-    assert scenes.items[stem].scale() == pytest.approx(1.0)   # stems never
+    # the stem drops with it, around the same point
+    assert scenes.items[stem].scale() == pytest.approx(3.0)
+    assert scenes.items[stem].scale_pivot == scenes.items[head].scale_pivot
     applier.apply_at(trig_s + 0.35 / 2.75)         # first landing
     assert scenes.items[head].scale() == pytest.approx(1.0)
     applier.apply_at(trig_s + 0.35 * 1.5 / 2.75)   # bounced back up
@@ -525,6 +532,77 @@ def test_drop_shrinks_and_solidifies_with_no_applier_change(
     applier.apply_at(trig_s - 0.5)                 # scrub back before it
     assert scenes.items[head].scale() == pytest.approx(1.0)
     assert scenes.items[head].opacity() == pytest.approx(FLOOR)
+
+
+def _beamed_group(scenes):
+    """A beamed group on the fixture: its beam, the head of the note the
+    beam starts on, and a head that comes later under the same beam."""
+    from scoreanim.core.score.identity import ElementKind
+    heads = [i for i in scenes.items.values()
+             if i.identity is not None
+             and i.identity.kind is ElementKind.NOTEHEAD
+             and i.identity.onset is not None]
+    for item in scenes.items.values():
+        ident = item.identity
+        if (ident is None or ident.kind is not ElementKind.BEAM
+                or ident.extent is None or ident.onset is None):
+            continue
+        mine = [h for h in heads
+                if (h.identity.part, h.identity.staff, h.identity.voice)
+                == (ident.part, ident.staff, ident.voice)
+                and ident.extent[0] <= h.identity.onset <= ident.extent[1]]
+        first = [h for h in mine if h.identity.onset == ident.onset]
+        # an eighth or more later, so the beam is genuinely further along
+        # its drop by the time that note takes its turn
+        later = [h for h in mine if h.identity.onset >= ident.onset + 0.5]
+        if first and later:
+            return (item, first[0],
+                    min(later, key=lambda h: h.identity.onset))
+    raise AssertionError("no beamed group in the fixture")
+
+
+def test_a_beam_drops_with_the_first_note_of_its_group(scenes,
+                                                      schedule) -> None:
+    """Marcus's rule for beams: the whole beam falls in with the note it
+    starts on, and the notes after it drop onto it with their own stems.
+    It comes free from the group key — a beam's onset is its first
+    note's."""
+    beam, first, later = _beamed_group(scenes)
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, _DROP_RULES)
+    first_s = TEMPO.seconds_at(schedule.beats_by_element[first.element_key])
+    later_s = TEMPO.seconds_at(schedule.beats_by_element[later.element_key])
+    assert later_s > first_s
+
+    applier.refresh(first_s)
+    assert beam.scale() == pytest.approx(3.0)      # it rides note 1
+    assert beam.scale_pivot == first.scale_pivot   # around note 1's head
+    assert later.scale() == pytest.approx(1.0)     # not its turn yet
+    assert later.opacity() == pytest.approx(FLOOR)
+
+    applier.refresh(later_s)
+    assert later.scale() == pytest.approx(3.0)     # now it drops
+    assert beam.scale() < 1.6                      # nearly home already
+    assert beam.scale() < later.scale()
+
+
+def test_note_value_stretch_keeps_a_note_together(scenes,
+                                                  schedule_nv) -> None:
+    """durations.py hands a stem its notehead group's length, so a
+    stretched settle moves head and stem at the same rate."""
+    from scoreanim.core.score.identity import ElementKind
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, _NV_RULES)
+    head = _head_with_duration(scenes, schedule_nv, 3.0)
+    ident = scenes.items[head].identity
+    stem = next(item for item in scenes.items.values()
+                if item.identity is not None
+                and item.identity.kind is ElementKind.STEM
+                and (item.identity.part, item.identity.staff,
+                     item.identity.voice, item.identity.onset)
+                == (ident.part, ident.staff, ident.voice, ident.onset))
+    trig_s = TEMPO.seconds_at(schedule_nv.beats_by_element[head])
+    applier.refresh(trig_s + 1.0)                  # 2/3 through the stretch
+    assert scenes.items[head].scale() > 1.0        # genuinely mid-stretch
+    assert stem.scale() == pytest.approx(scenes.items[head].scale())
 
 
 def test_drop_leaves_every_played_note_at_its_size(scenes, schedule) -> None:
