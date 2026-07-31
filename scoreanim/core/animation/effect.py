@@ -14,7 +14,7 @@ from __future__ import annotations
 import enum
 from bisect import bisect_right
 from dataclasses import dataclass
-from typing import Mapping, NewType
+from typing import Callable, Mapping, NewType
 
 PropertyId = NewType("PropertyId", str)
 
@@ -25,6 +25,18 @@ SCALE = PropertyId("scale")     # factor around the element's stored anchor
 class Easing(enum.Enum):
     STEP = enum.auto()      # hold the previous value; jump AT this keyframe
     LINEAR = enum.auto()    # lerp from the previous keyframe into this one
+    EASE_OUT = enum.auto()  # like LINEAR, but quick away and slow to arrive
+    EASE_IN = enum.auto()   # like LINEAR, but slow away and quick to arrive
+
+
+# How far along the move each curve is at fraction f of the gap between
+# the two keyframes. Data, not branches: a new curve is a new entry.
+# STEP is absent on purpose — it holds instead of moving.
+_CURVES: Mapping[Easing, Callable[[float], float]] = {
+    Easing.LINEAR: lambda f: f,
+    Easing.EASE_OUT: lambda f: 1.0 - (1.0 - f) ** 3,
+    Easing.EASE_IN: lambda f: f ** 3,
+}
 
 
 @dataclass(frozen=True)
@@ -52,9 +64,10 @@ class Envelope:
             return self.initial
         i = bisect_right([k.t_rel for k in kfs], t_rel) - 1
         nxt = kfs[i + 1] if i + 1 < len(kfs) else None
-        if nxt is not None and nxt.easing is Easing.LINEAR:
+        curve = _CURVES.get(nxt.easing) if nxt is not None else None
+        if curve is not None:
             f = (t_rel - kfs[i].t_rel) / (nxt.t_rel - kfs[i].t_rel)
-            return kfs[i].value + f * (nxt.value - kfs[i].value)
+            return kfs[i].value + curve(f) * (nxt.value - kfs[i].value)
         return kfs[i].value
 
 
