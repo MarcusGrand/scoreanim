@@ -29,11 +29,16 @@ DEFAULT_EFFECT = "appear"
 _POP_SCALE = 1.25
 _POP_SETTLE_S = 0.25
 
+# fade: opacity ramps from the document floor up to full over a
+# duration, easing out — quick away from the floor, slow to arrive. The
+# duration is the DEFAULT for the document's effect_params["fade"].
+_FADE_S = 0.4
+
 # Consumption clamps (M4, brief F7 ranges). The command layer validates
 # only type/finiteness, so a future preset reuses it unchanged; ranges
 # are enforced here, where the params are consumed.
 _SCALE_RANGE = (0.1, 10.0)
-_SETTLE_MIN = 0.01
+_SETTLE_MIN = 0.01              # shared floor for any authored duration
 _SHIFT_RANGE = (-0.5, 0.5)
 
 
@@ -47,16 +52,20 @@ def build_presets(floor: float,
     """The registry as a function of the document's floor opacity and
     (M4) its sparse effect_params — still pure data (rule 6): the same
     named bundles of (property, Envelope) tracks, with `floor` as each
-    opacity envelope's pre-trigger `initial` and pop's amplitude /
-    settle / peak-offset / note-value read (merged over defaults,
-    clamped) from ``params["pop"]``. Unknown presets and unknown keys
-    are ignored here — they round-trip through the document untouched
-    (the effect-name precedent)."""
+    opacity envelope's pre-trigger `initial`, pop's amplitude / settle /
+    peak-offset / note-value read from ``params["pop"]`` and fade's
+    duration / note-value from ``params["fade"]`` (both merged over
+    defaults, clamped). Unknown presets and unknown keys are ignored
+    here — they round-trip through the document untouched (the
+    effect-name precedent)."""
     pop = dict(params.get("pop", {})) if params else {}
     scale = _clamp(float(pop.get("scale", _POP_SCALE)), *_SCALE_RANGE)
     settle = max(_SETTLE_MIN, float(pop.get("settle", _POP_SETTLE_S)))
     shift = _clamp(float(pop.get("peak_offset", 0.0)), *_SHIFT_RANGE)
     note_value = bool(pop.get("note_value", False))
+    fade = dict(params.get("fade", {})) if params else {}
+    fade_s = max(_SETTLE_MIN, float(fade.get("duration", _FADE_S)))
+    fade_note_value = bool(fade.get("note_value", False))
     return {
         "appear": appear(floor),
         "pop": Effect("pop", {
@@ -68,6 +77,15 @@ def build_presets(floor: float,
                                        Keyframe(settle, 1.0,
                                                 Easing.LINEAR))),
         }, trigger_shift=shift, settle_to_note_value=note_value),
+        # Two keyframes: the ramp needs something to lerp from, and a
+        # first keyframe is always STEP. It sits AT the floor, so the
+        # note holds its ghost value through the onset and then rises.
+        "fade": Effect("fade", {
+            OPACITY: Envelope(initial=floor,
+                              keyframes=(Keyframe(0.0, floor, Easing.STEP),
+                                         Keyframe(fade_s, 1.0,
+                                                  Easing.EASE_OUT))),
+        }, settle_to_note_value=fade_note_value),
     }
 
 

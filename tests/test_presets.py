@@ -85,7 +85,7 @@ def test_note_value_lands_in_settle_to_note_value() -> None:
 def test_unknown_params_and_presets_are_ignored() -> None:
     reg = build_presets(0.3, {"pop": {"sparkle": 99}, "shimmer": {"x": 1}})
     assert reg == build_presets(0.3)
-    assert set(reg) == {"appear", "pop"}
+    assert set(reg) == {"appear", "fade", "pop"}
 
 
 def test_consumption_clamps() -> None:
@@ -94,6 +94,65 @@ def test_consumption_clamps() -> None:
     assert pop.trigger_shift == 0.5                     # ±0.5 s range
     assert pop.duration == pytest.approx(0.01)          # settle floor
     assert element_state(0.0, pop, 0.5)[SCALE] == 10.0  # scale ceiling
+
+
+# --- fade: the same proof again, with no evaluator change ------------------
+
+def test_fade_is_registered() -> None:
+    assert "fade" in PRESETS
+    assert PRESETS["fade"].duration == pytest.approx(0.4)
+
+
+def test_fade_exact_values_through_the_unchanged_evaluator() -> None:
+    fade = PRESETS["fade"]
+    # the floor holds up to and AT the onset, then the ramp starts
+    assert element_state(10.0, fade, 9.9)[OPACITY] == FLOOR_OPACITY
+    assert element_state(10.0, fade, 10.0)[OPACITY] == FLOOR_OPACITY
+    assert element_state(10.0, fade, 10.4)[OPACITY] == 1.0
+    assert element_state(10.0, fade, 99.0)[OPACITY] == 1.0
+    # ease-out: halfway through the time is most of the way to full,
+    # well past the straight line's 0.65
+    half = element_state(10.0, fade, 10.2)[OPACITY]
+    assert half == pytest.approx(FLOOR_OPACITY + 0.875 * (1.0 - FLOOR_OPACITY))
+    assert half > 0.65
+    # fade owns opacity only — no scale track to apply
+    assert set(fade.tracks) == {OPACITY}
+
+
+def test_fade_tracks_the_document_floor() -> None:
+    dark = build_presets(0.0)["fade"]
+    assert element_state(10.0, dark, 10.0)[OPACITY] == 0.0
+    assert element_state(10.0, dark, 10.2)[OPACITY] == pytest.approx(0.875)
+    assert element_state(10.0, dark, 10.4)[OPACITY] == 1.0
+
+
+def test_fade_duration_lands_in_the_envelope() -> None:
+    fade = build_presets(0.3, {"fade": {"duration": 1.0}})["fade"]
+    assert fade.duration == pytest.approx(1.0)
+    assert element_state(0.0, fade, 0.5)[OPACITY] == \
+        pytest.approx(0.3 + 0.875 * 0.7)
+    assert element_state(0.0, fade, 1.0)[OPACITY] == 1.0
+
+
+def test_fade_duration_is_clamped() -> None:
+    assert build_presets(0.3, {"fade": {"duration": 0.0}})["fade"].duration \
+        == pytest.approx(0.01)
+
+
+def test_fade_note_value_lands_in_settle_to_note_value() -> None:
+    assert PRESETS["fade"].settle_to_note_value is False
+    fade = build_presets(0.3, {"fade": {"note_value": True}})["fade"]
+    assert fade.settle_to_note_value is True
+    # the stretch is the applier's generic timescale, not a fade branch:
+    # at timescale 2 the ramp takes twice as long
+    assert element_state(0.0, fade, 0.4, timescale=2.0)[OPACITY] == \
+        pytest.approx(element_state(0.0, fade, 0.2)[OPACITY])
+    assert element_state(0.0, fade, 0.8, timescale=2.0)[OPACITY] == 1.0
+
+
+def test_fade_params_do_not_disturb_pop() -> None:
+    reg = build_presets(0.3, {"fade": {"duration": 2.0}})
+    assert reg["pop"] == PRESETS["pop"]
 
 
 def test_timescale_divides_the_evaluated_t_rel() -> None:

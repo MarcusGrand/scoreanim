@@ -450,11 +450,13 @@ def test_reset_effect_settings_one_step_keeps_foreign_presets(doc) -> None:
     d = stack.execute(SetDefaultEffect("pop"), doc)
     d = stack.execute(SetEffectParam("pop", "scale", 2.0), d)
     d = stack.execute(SetEffectParam("pop", "note_value", True), d)
+    d = stack.execute(SetEffectParam("fade", "duration", 1.5), d)
     d = stack.execute(SetEffectParam("shimmer", "wobble", 1.5), d)
     before_reset = d
     d = stack.execute(ResetEffectSettings(), d)
-    # pre-M4 defaults reassert: no default, no pop params — but a
-    # foreign preset's params survive (raw-round-trip guarantee)
+    # pre-M4 defaults reassert: no default, no params for any preset
+    # with knobs — but a foreign preset's params survive
+    # (raw-round-trip guarantee)
     assert d.style.default_effect is None
     assert d.style.effect_params == {"shimmer": {"wobble": 1.5}}
     # ONE undo step restores every knob at once
@@ -462,6 +464,7 @@ def test_reset_effect_settings_one_step_keeps_foreign_presets(doc) -> None:
     assert before_reset.style.default_effect == "pop"
     assert before_reset.style.effect_params["pop"] == {"scale": 2.0,
                                                        "note_value": True}
+    assert before_reset.style.effect_params["fade"] == {"duration": 1.5}
 
 
 def test_effect_param_undo_restores_the_prior_value(doc) -> None:

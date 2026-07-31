@@ -381,6 +381,54 @@ def test_scrub_through_stretched_settle_is_stateless(qapp, engraved,
     assert walked == _visual_state(fresh_scenes)
 
 
+_FADE_RULES = StyleRules(default_effect="fade")
+
+
+def test_fade_ramps_opacity_with_no_applier_change(scenes, schedule) -> None:
+    """A timed OPACITY track rides the same transition window pop's
+    timed SCALE track does — the applier never learned the word fade.
+    At the onset the ink is still at the floor; a fifth of a second in
+    the ease-out has it most of the way up; at 0.4 s it is full. A
+    backward scrub puts it back (the window stays stateless)."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, _FADE_RULES)
+    trig = schedule.triggers[0]
+    trig_s = TEMPO.seconds_at(trig.beats)
+    eids = [eid for eid in trig.element_ids if eid in scenes.items]
+    assert eids
+    mid = FLOOR + 0.875 * (1.0 - FLOOR)
+
+    def opacities():
+        return [scenes.items[eid].opacity() for eid in eids]
+
+    applier.refresh(trig_s)
+    assert opacities() == pytest.approx([FLOOR] * len(eids))
+    applier.apply_at(trig_s + 0.2)
+    assert opacities() == pytest.approx([mid] * len(eids))
+    applier.apply_at(trig_s + 0.4)
+    assert opacities() == pytest.approx([1.0] * len(eids))
+    applier.apply_at(trig_s + 0.2)
+    assert opacities() == pytest.approx([mid] * len(eids))
+
+
+def test_fade_stretches_over_the_note_value(scenes, schedule_nv) -> None:
+    """The same generic timescale pop's settle uses: at 120 bpm a dotted
+    half fades over 1.5 s — only part-way up at +0.75 s — where an
+    eighth (0.25 s) is long full."""
+    rules = StyleRules(default_effect="fade",
+                       effect_params={"fade": {"note_value": True}})
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    eighth = _head_with_duration(scenes, schedule_nv, 0.5)
+    for eid in (long_head, eighth):
+        trig_s = TEMPO.seconds_at(schedule_nv.beats_by_element[eid])
+        applier.refresh(trig_s + 0.75)
+        opacity = scenes.items[eid].opacity()
+        if eid is long_head:             # 1.5 s ramp: halfway in time
+            assert opacity == pytest.approx(FLOOR + 0.875 * (1.0 - FLOOR))
+        else:
+            assert opacity == pytest.approx(1.0)
+
+
 def test_negative_shift_lights_early_page_cursor_unmoved(
         scenes, schedule) -> None:
     """F3: at peak offset −100 ms the whole effect — including the

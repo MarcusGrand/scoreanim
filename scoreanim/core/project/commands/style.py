@@ -160,16 +160,17 @@ class SetEffectParam(Command):
 class ResetEffectSettings(Command):
     """Restore the pre-M4 effect defaults in ONE undo step (Marcus,
     2026-07-25): default_effect cleared (back to "appear" via the
-    fail-soft) and the preset's params dropped entirely — the built-in
-    defaults reassert at consumption. Other presets' params (possibly
-    from a newer build) survive untouched, the raw-round-trip
-    guarantee."""
-    preset: str = "pop"
+    fail-soft) and the named presets' params dropped entirely — the
+    built-in defaults reassert at consumption. Every preset the panel
+    has knobs for is cleared together, so one Reset really does reset
+    what the panel shows. Other presets' params (possibly from a newer
+    build) survive untouched, the raw-round-trip guarantee."""
+    presets: tuple[str, ...] = ("pop", "fade")
 
     def apply(self, doc: ProjectDoc) -> ProjectDoc:
         params = {name: dict(entry)
                   for name, entry in doc.style.effect_params.items()
-                  if name != self.preset}
+                  if name not in self.presets}
         return replace(doc, style=replace(doc.style, default_effect=None,
                                           effect_params=params))
 

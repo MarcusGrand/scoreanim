@@ -76,7 +76,23 @@ def test_note_value_and_peak_offset_commit(panel) -> None:
     assert not state.can_undo                    # two gestures, two steps
 
 
-def test_the_four_number_fields_preview_while_you_type(panel) -> None:
+def test_fade_knobs_commit_fade_params(panel) -> None:
+    widget, state = panel
+    widget._fade_spin.setValue(1.5)
+    widget._fade.commit()
+    assert state.committed.style.effect_params["fade"]["duration"] == 1.5
+    assert state.undo_text() == "set effect parameter"
+    widget._fade.commit()                        # epsilon no-op
+    widget._fade_note_value_box.setChecked(True)
+    assert state.doc.style.effect_params["fade"]["note_value"] is True
+    # fade's knobs are fade's own — pop is untouched
+    assert "pop" not in state.doc.style.effect_params
+    state.undo()
+    state.undo()
+    assert not state.can_undo                    # two gestures, two steps
+
+
+def test_the_five_number_fields_preview_while_you_type(panel) -> None:
     """The stage shows the knob on every keystroke: the previewed
     document carries it while the committed one does not, and the whole
     typing session still lands as ONE undo entry."""
@@ -85,12 +101,17 @@ def test_the_four_number_fields_preview_while_you_type(panel) -> None:
     def pop(doc, key):
         return doc.style.effect_params.get("pop", {}).get(key)
 
+    def fade(doc, key):
+        return doc.style.effect_params.get("fade", {}).get(key)
+
     cases = ((widget._amplitude_spin, widget._amplitude, 2.5,
               lambda doc: pop(doc, "scale"), 2.5),
              (widget._settle_spin, widget._settle, 0.75,
               lambda doc: pop(doc, "settle"), 0.75),
              (widget._peak_spin, widget._peak, -100,      # ms in, s out
               lambda doc: pop(doc, "peak_offset"), pytest.approx(-0.1)),
+             (widget._fade_spin, widget._fade, 1.25,
+              lambda doc: fade(doc, "duration"), 1.25),
              (widget._floor_spin, widget._floor, 0.4,
               lambda doc: doc.style.floor_opacity, 0.4))
     for spin, field, typed, read, expected in cases:
@@ -238,6 +259,98 @@ def test_settle_grays_while_note_value_is_on(panel) -> None:
     state.execute(SetEffectParam("pop", "note_value", True))
     widget.sync_from_document(state.doc)
     assert not widget._settle_spin.isEnabled()
+
+
+def test_fade_knobs_gray_until_fade_is_in_use(panel) -> None:
+    """The same ruling one preset over: while nothing resolves to fade,
+    its two knobs are inert — and pop being in use does not wake them."""
+    widget, state = panel
+    assert not widget._fade_spin.isEnabled()
+    assert not widget._fade_note_value_box.isEnabled()
+    widget._effect_combo.setCurrentText("pop")
+    widget._commit_effect()
+    assert not widget._fade_spin.isEnabled()
+    widget._effect_combo.setCurrentText("fade")
+    widget._commit_effect()
+    assert widget._fade_spin.isEnabled()
+    assert widget._fade_note_value_box.isEnabled()
+    assert not widget._amplitude_spin.isEnabled()      # pop's turn to gray
+    # a PART rule alone also makes the knobs live (params apply to it)
+    from scoreanim.core.project import SetPartEffect
+    from scoreanim.core.score.identity import PartId
+    state.undo()
+    state.undo()
+    widget.sync_from_document(state.doc)
+    assert not widget._fade_spin.isEnabled()
+    state.execute(SetPartEffect(PartId("P1"), "fade"))
+    widget.sync_from_document(state.doc)
+    assert widget._fade_spin.isEnabled()
+
+
+def test_fade_time_grays_while_fade_note_value_is_on(panel) -> None:
+    widget, state = panel
+    widget._effect_combo.setCurrentText("fade")
+    widget._commit_effect()
+    assert widget._fade_spin.isEnabled()
+    widget._fade_note_value_box.setChecked(True)     # commits + regrays
+    assert not widget._fade_spin.isEnabled()
+    assert widget._fade_note_value_box.isEnabled()   # only the time is obsolete
+    widget._fade_note_value_box.setChecked(False)
+    assert widget._fade_spin.isEnabled()
+    # pop's note-value is not fade's: it grays Settle, never Fade time
+    state.execute(SetEffectParam("pop", "note_value", True))
+    widget.sync_from_document(state.doc)
+    assert widget._fade_spin.isEnabled()
+    # the resync path drives the same state
+    state.execute(SetEffectParam("fade", "note_value", True))
+    widget.sync_from_document(state.doc)
+    assert not widget._fade_spin.isEnabled()
+
+
+def test_sync_reflects_fade_params(panel) -> None:
+    widget, state = panel
+    for cmd in (SetEffectParam("fade", "duration", 2.0),
+                SetEffectParam("fade", "note_value", True)):
+        state.execute(cmd)
+    widget.sync_from_document(state.doc)
+    assert widget._fade_spin.value() == 2.0
+    assert widget._fade_note_value_box.isChecked()
+    depth = 0
+    while state.can_undo:
+        state.undo()
+        depth += 1
+    assert depth == 2                            # resync added nothing
+    widget.sync_from_document(state.doc)         # back to the default
+    assert widget._fade_spin.value() == 0.4
+    assert not widget._fade_note_value_box.isChecked()
+
+
+def test_reset_clears_pop_and_fade_together(panel) -> None:
+    """One Reset really resets what the panel shows: both presets'
+    params go, in ONE undo step."""
+    widget, state = panel
+    widget._effect_combo.setCurrentText("fade")
+    widget._commit_effect()
+    widget._fade_spin.setValue(1.5)
+    widget._fade.commit()
+    state.execute(SetEffectParam("pop", "scale", 2.0))
+    assert widget._reset_button.isEnabled()
+    before = state.doc
+    widget._commit_reset()
+    assert state.doc.style.default_effect is None
+    assert state.doc.style.effect_params == {}
+    assert widget._fade_spin.value() == 0.4
+    assert not widget._reset_button.isEnabled()
+    state.undo()                                 # ONE step restores both
+    assert state.doc == before
+
+
+def test_fade_params_alone_light_the_reset_button(panel) -> None:
+    widget, state = panel
+    assert not widget._reset_button.isEnabled()
+    state.execute(SetEffectParam("fade", "duration", 1.0))
+    widget.sync_from_document(state.doc)
+    assert widget._reset_button.isEnabled()
 
 
 def test_reset_restores_pre_m4_defaults_in_one_step(panel) -> None:
