@@ -90,6 +90,24 @@ _BLOCKS: tuple[tuple[str, str, tuple], ...] = (
               "A small settle as the note lands, instead of coming "
               "straight to rest"),
     )),
+    ("slide", "Slide", (
+        # Degrees, and a whole number of them is plenty. 0 is straight
+        # down onto the note's place; the angle turns clockwise from
+        # there, so 90 comes in from the right.
+        Number("Direction", "direction", 0.0, 0, 359, 15,
+               "Where the note comes FROM, in degrees: 0 from above, "
+               "90 from the right, 180 from below, 270 from the left",
+               suffix="°", integer=True),
+        Number("Distance", "distance", 120.0, 0.0, 2000.0, 25.0,
+               "How far out the note starts, in page units — 120 is just "
+               "clear of its own staff, 200 reaches the staff next door"),
+        Number("Duration", "duration", 0.35, 0.01, 5.0, 0.05,
+               "Seconds the note takes to travel in to its place",
+               suffix=" s"),
+        Check("Bounce", "bounce", False,
+              "A small settle as the note arrives, instead of coming "
+              "straight to rest"),
+    )),
 )
 
 

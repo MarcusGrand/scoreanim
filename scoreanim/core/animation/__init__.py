@@ -1,7 +1,7 @@
 from scoreanim.core.animation.durations import resolve_durations
-from scoreanim.core.animation.effect import (OPACITY, SCALE, Easing, Effect,
-                                             Envelope, Keyframe, PropertyId,
-                                             appear)
+from scoreanim.core.animation.effect import (OFFSET_X, OFFSET_Y, OPACITY,
+                                             SCALE, Easing, Effect, Envelope,
+                                             Keyframe, PropertyId, appear)
 from scoreanim.core.animation.presets import (DEFAULT_EFFECT, FLOOR_OPACITY,
                                               PRESETS, build_presets,
                                               effect_for)
@@ -24,7 +24,7 @@ from scoreanim.core.animation.style import (TINTED_KINDS, ElementStyle,
 __all__ = [
     "ANCHOR_KINDS", "ANIMATED_KINDS", "DEFAULT_EFFECT", "Easing", "Effect",
     "ElementStyle", "Envelope", "FLOOR_OPACITY", "Keyframe",
-    "NOTE_OWNED_KINDS", "OPACITY",
+    "NOTE_OWNED_KINDS", "OFFSET_X", "OFFSET_Y", "OPACITY",
     "PRESETS", "PropertyId", "REVEALED_KINDS", "RevealCurve", "RevealMode",
     "SCALABLE_KINDS", "SCALE", "STATIC_KINDS", "StyleRules",
     "SystemRevealTrack", "TINTED_KINDS", "Trigger", "TriggerSchedule",

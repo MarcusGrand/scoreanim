@@ -20,6 +20,12 @@ PropertyId = NewType("PropertyId", str)
 
 OPACITY = PropertyId("opacity")
 SCALE = PropertyId("scale")     # factor around the element's stored anchor
+# How far the element sits from where it was engraved, in scene units:
+# 0 is in place, negative y is up the page, positive x is to the right.
+# The applier composes these with the document's own nudge, so a moved
+# note still animates to the place the user moved it to.
+OFFSET_X = PropertyId("offset_x")
+OFFSET_Y = PropertyId("offset_y")
 
 
 class Easing(enum.Enum):

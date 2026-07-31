@@ -628,6 +628,116 @@ def test_note_value_stretch_keeps_a_note_together(scenes,
     assert stem.scale() == pytest.approx(scenes.items[head].scale())
 
 
+# -- slide: two NEW properties, composed with the document's own nudge ------
+
+_SLIDE_RULES = StyleRules(default_effect="slide")
+
+
+def _positions(sc):
+    return {eid: (item.pos().x(), item.pos().y())
+            for eid, item in sc.items.items()}
+
+
+def test_slide_travels_in_and_lands_exactly_in_place(scenes,
+                                                     schedule) -> None:
+    """The default slide: the note appears at its trigger 120 units above
+    its place and eases down onto it. Nothing sits away from its place
+    before the trigger or after the window."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, _SLIDE_RULES)
+    head, stem = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+    item = scenes.items[head]
+
+    applier.refresh(trig_s - 0.5)                  # a ghost, in its place
+    assert item.pos().y() == 0.0
+    assert item.opacity() == pytest.approx(FLOOR)
+    applier.refresh(trig_s)                        # it enters, up the page
+    assert item.pos().y() == pytest.approx(-120.0)
+    assert item.pos().x() == 0.0
+    assert item.opacity() == pytest.approx(1.0)
+    assert scenes.items[stem].pos().y() == pytest.approx(-120.0)
+    applier.apply_at(trig_s + 0.175)               # most of the way home
+    assert item.pos().y() == pytest.approx(-15.0)
+    applier.apply_at(trig_s + 1.0)                 # window over
+    assert (item.pos().x(), item.pos().y()) == (0.0, 0.0)
+    applier.apply_at(trig_s - 0.5)                 # scrub back before it
+    assert (item.pos().x(), item.pos().y()) == (0.0, 0.0)
+
+
+def test_slide_direction_reaches_both_axes(scenes, schedule) -> None:
+    rules = StyleRules(default_effect="slide",
+                       effect_params={"slide": {"direction": 270,
+                                                "distance": 300.0}})
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+    applier.refresh(trig_s)
+    item = scenes.items[head]
+    assert item.pos().x() == pytest.approx(-300.0)     # in from the left
+    assert item.pos().y() == pytest.approx(0.0)
+
+
+def test_a_slide_never_fights_the_document_nudge(scenes, schedule) -> None:
+    """The trap: the nudge owns the position too. A nudged note must
+    slide to its NUDGED place, and end there exactly."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, _SLIDE_RULES)
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    item = scenes.items[head]
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+
+    scenes.set_element_offset(head, 12.0, -4.0)
+    applier.refresh(trig_s)                        # mid-slide, nudged
+    assert (item.pos().x(), item.pos().y()) == pytest.approx((12.0, -124.0))
+    applier.apply_at(trig_s + 1.0)                 # landed, still nudged
+    assert (item.pos().x(), item.pos().y()) == pytest.approx((12.0, -4.0))
+    # and the nudge still moves it while the animation holds an offset
+    applier.refresh(trig_s)
+    scenes.set_element_offset(head, 0.0, 0.0)
+    assert (item.pos().x(), item.pos().y()) == pytest.approx((0.0, -120.0))
+
+
+def test_set_style_resets_a_stale_slide(scenes, schedule) -> None:
+    """An element whose effect lost its offset tracks snaps back into
+    place, the way a lost scale track does."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, _SLIDE_RULES)
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+    applier.apply_at(trig_s)
+    assert scenes.items[head].pos().y() == pytest.approx(-120.0)
+    applier.set_style(StyleRules())                # back to plain appear
+    assert scenes.items[head].animated_offset == (0.0, 0.0)
+    assert (scenes.items[head].pos().x(),
+            scenes.items[head].pos().y()) == (0.0, 0.0)
+
+
+def test_scrubbing_a_slide_is_stateless(qapp, engraved, schedule,
+                                        scenes) -> None:
+    """The check Marcus asked for, headless: however wildly the playhead
+    is scrubbed, every note is where a fresh applier would put it — and
+    past the end every one of them is exactly in place."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, _SLIDE_RULES)
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    mid = TEMPO.seconds_at(schedule.beats_by_element[head]) + 0.1
+    rng = random.Random(13)
+    t = 0.0
+    for _ in range(60):
+        t = max(-2.0, t + rng.uniform(-9.0, 11.0))
+        applier.apply_at(t)
+    applier.apply_at(mid)                          # land mid-slide
+    assert scenes.items[head].pos().y() != 0.0     # genuinely travelling
+    walked = _positions(scenes)
+
+    fresh_scenes = ScoreScenes(engraved.layout, default_stage_config(
+        engraved.prepared, page_content_top(engraved.layout)))
+    AnimationApplier(fresh_scenes.items, schedule, TEMPO,
+                     _SLIDE_RULES).refresh(mid)
+    assert walked == _positions(fresh_scenes)
+
+    applier.apply_at(1e6)
+    for eid, item in scenes.items.items():
+        assert (item.pos().x(), item.pos().y()) == (0.0, 0.0), eid
+
+
 def test_drop_leaves_every_played_note_at_its_size(scenes, schedule) -> None:
     """The check Marcus asked for, headless: however wildly the playhead
     is scrubbed, nothing is left oversized. Past the end every element

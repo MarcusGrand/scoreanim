@@ -9,8 +9,11 @@ degrades instead of crashing).
 """
 from __future__ import annotations
 
-from scoreanim.core.animation.effect import (OPACITY, SCALE, Easing, Effect,
-                                             Envelope, Keyframe, appear)
+import math
+
+from scoreanim.core.animation.effect import (OFFSET_X, OFFSET_Y, OPACITY,
+                                             SCALE, Easing, Effect, Envelope,
+                                             Keyframe, appear)
 
 from typing import Mapping
 
@@ -46,16 +49,46 @@ _DROP_BOUNCE = True     # a small settle as it lands
 # document with a high floor does not make its notes dip at the onset.
 _DROP_ARRIVAL = 0.3
 
+# slide: the note travels in to its place across the page, from a
+# direction the user picks. These four are the DEFAULTS for the
+# document's effect_params["slide"].
+_SLIDE_DIRECTION = 0.0  # degrees; where the note comes FROM, 0 = above
+_SLIDE_S = 0.35
+_SLIDE_BOUNCE = False   # a small settle as it arrives
+# How far out it starts, in scene units. Measured on testdata/testscore:
+# a staff is 72 units tall (18 to a staff space), staff sits 200 below
+# staff, so the clear gap between two staves is about 128, on a page
+# 2096 × 2967. 120 starts the note just outside its own staff and inside
+# that gap: the travel plainly reads as coming in from off the staff,
+# and on a many-staff score the incoming ink still does not land on the
+# part above. Rendered and looked at, 2026-07-31 — at 200 the note
+# arrives sitting in the middle of the staff above.
+_SLIDE_DISTANCE = 120.0
+
 # Consumption clamps (M4, brief F7 ranges). The command layer validates
 # only type/finiteness, so a future preset reuses it unchanged; ranges
 # are enforced here, where the params are consumed.
 _SCALE_RANGE = (0.1, 10.0)
 _SETTLE_MIN = 0.01              # shared floor for any authored duration
 _SHIFT_RANGE = (-0.5, 0.5)
+# Scene units. The far end is about a page wide: past that the note
+# starts from somewhere nobody is looking.
+_DISTANCE_RANGE = (0.0, 2000.0)
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return min(hi, max(lo, value))
+
+
+def slide_start(direction_degrees: float, distance: float
+                ) -> tuple[float, float]:
+    """Where a sliding note starts, as an (x, y) offset from its
+    engraved place. The direction says where it comes FROM: 0 = from
+    above, 90 = from the right, 180 = from below, 270 = from the left,
+    turning clockwise. Scene y grows downward, so "from above" is a
+    negative y."""
+    radians = math.radians(direction_degrees)
+    return (distance * math.sin(radians), -distance * math.cos(radians))
 
 
 def build_presets(floor: float,
@@ -66,9 +99,10 @@ def build_presets(floor: float,
     named bundles of (property, Envelope) tracks, with `floor` as each
     opacity envelope's pre-trigger `initial`, pop's amplitude / settle /
     peak-offset / note-value read from ``params["pop"]``, fade's
-    duration / note-value from ``params["fade"]`` and drop's start size
-    / duration / bounce from ``params["drop"]`` (all merged over
-    defaults, clamped). Unknown presets and unknown keys are ignored
+    duration / note-value from ``params["fade"]``, drop's start size /
+    duration / bounce from ``params["drop"]`` and slide's direction /
+    distance / duration / bounce from ``params["slide"]`` (all merged
+    over defaults, clamped). Unknown presets and unknown keys are ignored
     here — they round-trip through the document untouched (the
     effect-name precedent)."""
     pop = dict(params.get("pop", {})) if params else {}
@@ -88,6 +122,18 @@ def build_presets(floor: float,
     drop_curve = (Easing.EASE_OUT_BOUNCE
                   if bool(drop.get("bounce", _DROP_BOUNCE))
                   else Easing.EASE_OUT)
+    slide = dict(params.get("slide", {})) if params else {}
+    slide_s = max(_SETTLE_MIN, float(slide.get("duration", _SLIDE_S)))
+    slide_curve = (Easing.EASE_OUT_BOUNCE
+                   if bool(slide.get("bounce", _SLIDE_BOUNCE))
+                   else Easing.EASE_OUT)
+    # The angle becomes two track values HERE, once per document change.
+    # That is still data — the evaluator only ever sees two ordinary
+    # envelopes and never hears the word "direction".
+    start_x, start_y = slide_start(
+        float(slide.get("direction", _SLIDE_DIRECTION)),
+        _clamp(float(slide.get("distance", _SLIDE_DISTANCE)),
+               *_DISTANCE_RANGE))
     return {
         "appear": appear(floor),
         "pop": Effect("pop", {
@@ -123,6 +169,23 @@ def build_presets(floor: float,
             SCALE: Envelope(initial=1.0,
                             keyframes=(Keyframe(0.0, drop_size, Easing.STEP),
                                        Keyframe(drop_s, 1.0, drop_curve))),
+        }),
+        # The note appears at the trigger the way appear's does, and
+        # travels in to its place from `distance` away in the direction
+        # asked for. Both offsets start at 0 — the ghost waits in the
+        # place the note will end up, and only the note that has arrived
+        # is ever away from it.
+        "slide": Effect("slide", {
+            OPACITY: Envelope(initial=floor,
+                              keyframes=(Keyframe(0.0, 1.0, Easing.STEP),)),
+            OFFSET_X: Envelope(initial=0.0,
+                               keyframes=(Keyframe(0.0, start_x, Easing.STEP),
+                                          Keyframe(slide_s, 0.0,
+                                                   slide_curve))),
+            OFFSET_Y: Envelope(initial=0.0,
+                               keyframes=(Keyframe(0.0, start_y, Easing.STEP),
+                                          Keyframe(slide_s, 0.0,
+                                                   slide_curve))),
         }),
     }
 

@@ -20,6 +20,24 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-07-31 — **A slide effect** (same branch): notes travel in to their
+  place from a direction you pick — Direction in degrees (0 from above,
+  clockwise), Distance, Duration and Bounce. Unlike drop it needed two
+  NEW animatable properties, `OFFSET_X`/`OFFSET_Y` in scene units, so it
+  is three layers, not one: the properties, the applier, the preset. The
+  trap was the position: the document's nudge already owned it, so
+  `ElementItem` now stores the nudge and the animated offset apart and
+  derives `setPos(doc + animated)` — a nudged note slides to its nudged
+  place and neither writer clobbers the other (ARCHITECTURE §M3.2). The
+  angle becomes two track values inside `build_presets`, once per
+  document change, so the evaluator never hears the word "direction".
+  Default distance 120 page units — just clear of the note's own staff
+  and inside the gap to the next one (rendered and looked at; at 200 the
+  note arrives sitting on the staff above). Known compromise, and it
+  shows: a beam slides on its first note's trigger, so a later note in
+  the group comes in with its stem while its beam is already resting —
+  the stem hangs unattached for a moment. Worse here than under drop,
+  because a scale keeps the ink roughly where it belongs.
 - 2026-07-31 — **A scale moves the whole note** (same branch): a drop or
   a pop used to grow the head and leave the stem behind. Head, stem,
   flag, beam, accidental, dots and articulations now turn around one

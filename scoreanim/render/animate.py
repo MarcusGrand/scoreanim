@@ -18,8 +18,10 @@ around the item's scale pivot — a whole note (head, stem, flag, beam,
 accidental, dots) turns around its noteheads' centre, so it grows and
 shrinks as one object. Which ink scales and where it pivots is core
 policy (core/animation/scale_groups.py); ink with no pivot never
-scales. Unknown properties are skipped, so a preset from a newer build
-degrades instead of crashing.
+scales. The two offsets (the slide effect) go to the item as well, not
+to setPos: the document's own nudge moves the item too, and the item
+adds the two. Unknown properties are skipped, so a preset from a newer
+build degrades instead of crashing.
 
 Spanners (REVEALED_KINDS) are not trigger-driven at all: their clip
 edges follow the per-system reveal curves (core/animation/reveal.py).
@@ -40,8 +42,9 @@ from collections import defaultdict
 from itertools import accumulate
 from typing import Callable, Mapping, Sequence
 
-from scoreanim.core.animation import (OPACITY, PRESETS, REVEALED_KINDS,
-                                      SCALE, Effect, RevealCurve, StyleRules,
+from scoreanim.core.animation import (OFFSET_X, OFFSET_Y, OPACITY, PRESETS,
+                                      REVEALED_KINDS, SCALE, Effect,
+                                      RevealCurve, StyleRules,
                                       SystemRevealTrack, TriggerSchedule,
                                       build_presets, effect_for,
                                       element_state, reveal_x)
@@ -66,9 +69,22 @@ def _apply_scale(item: ElementItem, value: float) -> None:
     item.setScale(value)
 
 
+def _apply_offset_x(item: ElementItem, value: float) -> None:
+    # The item, not setPos: the document's own nudge owns the position
+    # too, and the item adds the two. Writing setPos here would move a
+    # nudged note back off its nudged place.
+    item.set_animated_offset_x(value)
+
+
+def _apply_offset_y(item: ElementItem, value: float) -> None:
+    item.set_animated_offset_y(value)
+
+
 _PROPERTY_APPLIERS: Mapping[str, Callable[[ElementItem, float], None]] = {
     OPACITY: _apply_opacity,
     SCALE: _apply_scale,
+    OFFSET_X: _apply_offset_x,
+    OFFSET_Y: _apply_offset_y,
 }
 
 
@@ -171,11 +187,14 @@ class AnimationApplier:
         self._style = style
         self._resolve_effects()
         # an element whose effect lost its SCALE track would otherwise
-        # keep a stale mid-pop transform
+        # keep a stale mid-pop transform, and one that lost its offset
+        # tracks would be left standing wherever its slide had reached
         for items in self._items_per_trigger:
             for item in items:
                 if item.scale() != 1.0:
                     item.setScale(1.0)
+                if item.animated_offset != (0.0, 0.0):
+                    item.set_animated_offset(0.0, 0.0)
         self.refresh(self._t)
 
     def _resolve_effects(self) -> None:

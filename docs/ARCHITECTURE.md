@@ -1219,6 +1219,20 @@ paused, and nudging is something people do while paused. With the
 invalidation the local clip tracks exactly −dx and is y-independent.
 `HAIRPIN` therefore stays nudgeable despite being in `REVEALED_KINDS`.
 
+*Two writers, one position* (2026-07-31, the slide effect). The nudge is
+no longer the only thing that moves an item: `OFFSET_X`/`OFFSET_Y` are
+animatable properties, in scene units from the engraved place. So the
+position joins colour and opacity as a **composed** input —
+`ElementItem` stores the document's nudge and the animation's offset
+separately and derives `setPos(doc + animated)` itself. Neither writer
+may call `setPos`: a nudged note has to slide to its NUDGED place, and
+an applier that wrote the position directly would undo the nudge on
+every frame. The derived path carries the reveal-cache invalidation
+above, so an animated move stays correct too — spanners get no triggers,
+so nothing exercises that today, but the item does not depend on it.
+`AnimationApplier.set_style` resets a stale animated offset to (0, 0)
+the same way it resets a stale scale.
+
 *The `:seg` fan-out.* A per-element override on a system-broken spanner
 writes the whole family (`core/editing/segments.py`: strip one trailing
 `:seg<digits>` for the source, members are the source plus every

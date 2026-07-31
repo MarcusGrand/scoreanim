@@ -6,9 +6,10 @@ from __future__ import annotations
 
 import pytest
 
-from scoreanim.core.animation import (OPACITY, PRESETS, SCALE, build_presets,
-                                      effect_for, element_state,
-                                      FLOOR_OPACITY)
+from scoreanim.core.animation import (OFFSET_X, OFFSET_Y, OPACITY, PRESETS,
+                                      SCALE, build_presets, effect_for,
+                                      element_state, FLOOR_OPACITY)
+from scoreanim.core.animation.presets import slide_start
 
 
 def test_pop_is_registered() -> None:
@@ -85,7 +86,7 @@ def test_note_value_lands_in_settle_to_note_value() -> None:
 def test_unknown_params_and_presets_are_ignored() -> None:
     reg = build_presets(0.3, {"pop": {"sparkle": 99}, "shimmer": {"x": 1}})
     assert reg == build_presets(0.3)
-    assert set(reg) == {"appear", "drop", "fade", "pop"}
+    assert set(reg) == {"appear", "drop", "fade", "pop", "slide"}
 
 
 def test_consumption_clamps() -> None:
@@ -242,6 +243,113 @@ def test_drop_has_no_note_value_or_shift() -> None:
     """Its two knobs are the size and the time; nothing else moves."""
     assert PRESETS["drop"].settle_to_note_value is False
     assert PRESETS["drop"].trigger_shift == 0.0
+
+
+# --- slide: two NEW properties, and still no evaluator change --------------
+
+_EASE_OUT = (lambda f: 1.0 - (1.0 - f) ** 3)
+
+
+def test_slide_is_registered() -> None:
+    assert "slide" in PRESETS
+    assert PRESETS["slide"].duration == pytest.approx(0.35)
+    assert set(PRESETS["slide"].tracks) == {OPACITY, OFFSET_X, OFFSET_Y}
+
+
+def test_direction_decomposes_into_the_two_tracks() -> None:
+    """Where the note comes FROM, clockwise from straight above. Scene y
+    grows downward, so above is negative."""
+    assert slide_start(0.0, 100.0) == pytest.approx((0.0, -100.0))
+    assert slide_start(90.0, 100.0) == pytest.approx((100.0, 0.0))
+    assert slide_start(180.0, 100.0) == pytest.approx((0.0, 100.0))
+    assert slide_start(270.0, 100.0) == pytest.approx((-100.0, 0.0))
+    diagonal = 100.0 / (2 ** 0.5)
+    assert slide_start(45.0, 100.0) == pytest.approx((diagonal, -diagonal))
+    assert slide_start(225.0, 100.0) == pytest.approx((-diagonal, diagonal))
+    # the trip is `distance` long whichever way it points
+    for degrees in (0.0, 17.0, 90.0, 123.5, 200.0, 359.0):
+        x, y = slide_start(degrees, 200.0)
+        assert (x * x + y * y) ** 0.5 == pytest.approx(200.0)
+
+
+def test_slide_exact_values_through_the_unchanged_evaluator() -> None:
+    """The default: in from 120 units above, over 0.35 s, easing out."""
+    slide = PRESETS["slide"]
+    # before the trigger: a ghost, waiting in the place the note ends up
+    assert element_state(10.0, slide, 9.9) == {OPACITY: FLOOR_OPACITY,
+                                               OFFSET_X: 0.0, OFFSET_Y: 0.0}
+    # at the trigger it appears, out at its starting distance
+    at_onset = element_state(10.0, slide, 10.0)
+    assert at_onset == {OPACITY: 1.0, OFFSET_X: 0.0, OFFSET_Y: -120.0}
+    # halfway through the time, most of the way home (ease-out)
+    mid = element_state(10.0, slide, 10.175)
+    assert mid[OFFSET_Y] == pytest.approx(-120.0 * (1.0 - _EASE_OUT(0.5)))
+    assert mid[OFFSET_Y] == pytest.approx(-15.0)
+    # and it lands exactly in place, and stays there
+    landed = element_state(10.0, slide, 10.35)
+    assert landed == {OPACITY: 1.0, OFFSET_X: 0.0, OFFSET_Y: 0.0}
+    assert element_state(10.0, slide, 99.0) == {OPACITY: 1.0,
+                                                OFFSET_X: 0.0, OFFSET_Y: 0.0}
+
+
+def test_slide_direction_and_distance_land_in_the_envelopes() -> None:
+    slide = build_presets(0.3, {"slide": {"direction": 270.0,
+                                          "distance": 400.0}})["slide"]
+    at_onset = element_state(0.0, slide, 0.0)
+    assert at_onset[OFFSET_X] == pytest.approx(-400.0)   # from the left
+    assert at_onset[OFFSET_Y] == pytest.approx(0.0)
+    assert element_state(0.0, slide, 0.35) == pytest.approx(
+        {OPACITY: 1.0, OFFSET_X: 0.0, OFFSET_Y: 0.0})
+
+
+def test_slide_duration_lands_in_the_envelopes() -> None:
+    slide = build_presets(0.3, {"slide": {"duration": 1.0}})["slide"]
+    assert slide.duration == pytest.approx(1.0)
+    # still travelling where the default would long since have landed
+    assert element_state(0.0, slide, 0.5)[OFFSET_Y] == \
+        pytest.approx(-120.0 * (1.0 - _EASE_OUT(0.5)))
+    assert element_state(0.0, slide, 1.0)[OFFSET_Y] == 0.0
+
+
+def test_slide_bounces_on_arrival_when_asked() -> None:
+    """The same piecewise bounce drop uses: it reaches the note's place
+    early, springs back part of the way, and settles — exactly in
+    place."""
+    plain = PRESETS["slide"]
+    bouncy = build_presets(FLOOR_OPACITY, {"slide": {"bounce": True}})["slide"]
+    first_landing = element_state(10.0, bouncy, 10.0 + 0.35 / 2.75)
+    assert first_landing[OFFSET_Y] == pytest.approx(0.0)
+    back_up = element_state(10.0, bouncy, 10.0 + 0.35 * 1.5 / 2.75)
+    assert back_up[OFFSET_Y] == pytest.approx(-120.0 * 0.25)
+    assert plain != bouncy
+    # and it comes to rest in place, exactly, once the window is over
+    assert element_state(10.0, bouncy, 10.36)[OFFSET_Y] == 0.0
+
+
+def test_slide_params_are_clamped() -> None:
+    slide = build_presets(0.3, {"slide": {"distance": 1e9,
+                                          "duration": 0.0}})["slide"]
+    assert slide.duration == pytest.approx(0.01)          # duration floor
+    assert element_state(0.0, slide, 0.0)[OFFSET_Y] == -2000.0   # distance cap
+    close = build_presets(0.3, {"slide": {"distance": -50.0}})["slide"]
+    assert element_state(0.0, close, 0.0)[OFFSET_Y] == 0.0       # never < 0
+
+
+def test_slide_tracks_the_document_floor() -> None:
+    dark = build_presets(0.0)["slide"]
+    assert element_state(10.0, dark, 9.9)[OPACITY] == 0.0
+    assert element_state(10.0, dark, 10.0)[OPACITY] == 1.0
+
+
+def test_slide_has_no_note_value_or_shift() -> None:
+    assert PRESETS["slide"].settle_to_note_value is False
+    assert PRESETS["slide"].trigger_shift == 0.0
+
+
+def test_slide_params_do_not_disturb_the_other_presets() -> None:
+    reg = build_presets(0.3, {"slide": {"distance": 800.0}})
+    for name in ("appear", "pop", "fade", "drop"):
+        assert reg[name] == PRESETS[name]
 
 
 def test_timescale_divides_the_evaluated_t_rel() -> None:
