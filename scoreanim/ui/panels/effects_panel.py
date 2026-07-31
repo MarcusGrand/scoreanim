@@ -14,7 +14,7 @@ have no half-typed state, so they commit outright. `sync_from_document`
 resyncs and never re-executes.
 
 A preset's knobs are DATA here — one entry in `_BLOCKS`, built and run
-by `PresetKnobs` (`ui/panels/effect_knobs.py`). This panel owns what
+by `KnobGroup` (`ui/panels/effect_knobs.py`). This panel owns what
 belongs to no single preset: which effect is the default, which blocks
 are on screen, Reset, and the two document-wide controls. Every effect
 says "Duration" for how long it runs, and "Entire note value" sits on
@@ -42,7 +42,8 @@ from scoreanim.core.project import (Command, ProjectDoc, ResetEffectSettings,
                                     SetRevealMode)
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
-from scoreanim.ui.panels.effect_knobs import Check, Number, PresetKnobs
+from scoreanim.ui.panels.effect_knobs import (Check, EffectParamStore,
+                                              KnobGroup, Number)
 
 # The "no second effect" entry in the Combine with dropdown. Not a
 # preset name, and never stored: the document holds the first effect's
@@ -184,8 +185,8 @@ class EffectsPanel(QWidget):
         # Each preset's block builds its own rows here, so it can be
         # shown and hidden as a unit.
         self.blocks = {
-            preset: PresetKnobs(preset, title, knobs, app_state, self._form,
-                                self._update_display)
+            preset: KnobGroup(EffectParamStore(preset), title, knobs,
+                              app_state, self._form, self._update_display)
             for preset, title, knobs in _BLOCKS}
         self._form.addRow(self._reset_button)
         self._form.addRow("Floor opacity", self._floor_spin)

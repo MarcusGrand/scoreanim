@@ -1,4 +1,4 @@
-"""One preset's knobs: its heading, its rows, and the commands they
+"""One group of knobs: its heading, its rows, and the commands they
 commit.
 
 Effects are data (rule 6), and so are their knobs. A preset with
@@ -14,17 +14,24 @@ for so far:
   the way "Entire note value" sits beside the duration it replaces.
 - `grayed_by` on a Number names the key that renders it obsolete: a
   duration grays out while its "Entire note value" is on (Marcus,
-  2026-07-25).
+  2026-07-25). `enabled_by` is its mirror — the knob is live only while
+  another key is on, which is how Quiet and Loud wait for Amount.
 
-Every knob carries its own default — the value `presets.build_presets`
-falls back to when the document is sparse. That default is what the
-panel shows, what a no-op guard compares against, and what tells Reset
-whether there is anything to clear.
+Every knob carries its own default — the value the consumer falls back
+to when the document is sparse. That default is what the panel shows,
+what a no-op guard compares against, and what tells Reset whether there
+is anything to clear.
+
+WHERE a group's values live is the group's `store`. A preset's knobs
+read `style.effect_params[preset]` and commit `SetEffectParam`; the
+volume response reads `style.volume` and commits `SetVolumeParam`. Same
+widgets, same live-field rules, same one-command-per-gesture — only the
+document field differs, so it is a small object, not a second class.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Mapping, Protocol
 
 from PySide6.QtWidgets import (QCheckBox, QDoubleSpinBox, QFormLayout,
                                QHBoxLayout, QLabel, QSpinBox, QWidget)
@@ -49,6 +56,7 @@ class Number:
     factor: float = 1.0             # UI units per document unit
     integer: bool = False
     grayed_by: str | None = None    # the key that makes this knob obsolete
+    enabled_by: str | None = None   # the key that has to be on for this one
 
 
 @dataclass(frozen=True)
@@ -65,16 +73,46 @@ class Check:
 Knob = Number | Check
 
 
-class PresetKnobs:
-    """The knobs of ONE preset: the widgets, the live fields, and the
+class KnobStore(Protocol):
+    """Where one group's values live in the document, and what one edit
+    of them costs — the only thing that differs between groups."""
+
+    def stored(self, doc: ProjectDoc) -> Mapping[str, object]:
+        """This group's raw entry; empty when the document is silent."""
+
+    def has_values(self, doc: ProjectDoc) -> bool:
+        """Anything stored at all — what lights Reset up."""
+
+    def command(self, key: str, value: float | int | bool | None) -> Command:
+        """The ONE command a gesture on this group commits."""
+
+
+@dataclass(frozen=True)
+class EffectParamStore:
+    """One preset's knobs: the sparse `style.effect_params` map."""
+    preset: str
+
+    def stored(self, doc: ProjectDoc) -> Mapping[str, object]:
+        return doc.style.effect_params.get(self.preset, {})
+
+    def has_values(self, doc: ProjectDoc) -> bool:
+        return self.preset in doc.style.effect_params
+
+    def command(self, key: str,
+                value: float | int | bool | None) -> Command:
+        return SetEffectParam(self.preset, key, value)
+
+
+class KnobGroup:
+    """The knobs of ONE group: the widgets, the live fields, and the
     single command each gesture commits. It adds its own rows to the
     panel's form and remembers where they landed, which is what shows
     and hides the block as a unit."""
 
-    def __init__(self, preset: str, title: str, knobs: Iterable[Knob],
+    def __init__(self, store: KnobStore, title: str, knobs: Iterable[Knob],
                  state: AppState, form: QFormLayout,
                  on_change: Callable[[], None]) -> None:
-        self.preset = preset
+        self.store = store
         self.title = title
         self._knobs = tuple(knobs)
         self._state = state
@@ -119,9 +157,9 @@ class PresetKnobs:
         self.boxes[knob.key] = box
 
     def _add_rows(self, form: QFormLayout) -> tuple[int, ...]:
-        """A heading plus the knob rows. The heading names the effect the
-        block belongs to, which is what keeps two "Duration" rows apart
-        when a part rule puts two effects in use at once."""
+        """A heading plus the knob rows. The heading names what the block
+        belongs to, which is what keeps two "Duration" rows apart when a
+        part rule puts two effects in use at once."""
         self.header = QLabel(self.title)
         font = self.header.font()
         font.setBold(True)
@@ -147,17 +185,16 @@ class PresetKnobs:
     # -- document ---------------------------------------------------------------
 
     def param(self, doc: ProjectDoc, key: str):
-        """This preset's stored value for a knob, or the knob's own
+        """This group's stored value for a knob, or the knob's own
         default. The caller says WHICH document it read: an edit guard
         reads the committed one (`doc` hands a live field back its own
         preview, and it would then never commit), while what is grayed
         out follows what is showing."""
-        params = doc.style.effect_params.get(self.preset, {})
-        return params.get(key, self.defaults[key])
+        return self.store.stored(doc).get(key, self.defaults[key])
 
     def has_params(self, doc: ProjectDoc) -> bool:
-        """Anything stored for this preset — what lights Reset up."""
-        return self.preset in doc.style.effect_params
+        """Anything stored for this group — what lights Reset up."""
+        return self.store.has_values(doc)
 
     def previewing(self) -> bool:
         """A knob here is mid-edit, so the block must not be hidden."""
@@ -174,13 +211,19 @@ class PresetKnobs:
             form.setRowVisible(row, visible)
 
     def update_display(self, doc: ProjectDoc) -> None:
-        """Gray out the knobs another knob has made obsolete.
-        `set_enabled`, not `setEnabled`: a live field is never grayed out
-        from under the cursor."""
+        """Gray out the knobs another knob has made obsolete, and the
+        ones waiting on a knob that is off. `set_enabled`, not
+        `setEnabled`: a live field is never grayed out from under the
+        cursor."""
         for knob in self._knobs:
-            if isinstance(knob, Number) and knob.grayed_by is not None:
+            if not isinstance(knob, Number):
+                continue
+            if knob.grayed_by is not None:
                 self.fields[knob.key].set_enabled(
                     not bool(self.param(doc, knob.grayed_by)))
+            elif knob.enabled_by is not None:
+                self.fields[knob.key].set_enabled(
+                    bool(self.param(doc, knob.enabled_by)))
 
     def resync(self, doc: ProjectDoc) -> None:
         """Show what the document says; a field with a live edit keeps
@@ -204,12 +247,12 @@ class PresetKnobs:
         if abs(stored - float(self.param(self._state.committed,
                                          knob.key))) < 1e-9:
             return None
-        return SetEffectParam(self.preset, knob.key, stored)
+        return self.store.command(knob.key, stored)
 
     def _commit_check(self, knob: Check, checked: bool) -> None:
         if checked == bool(self.param(self._state.committed, knob.key)):
             return
-        self._state.execute(SetEffectParam(self.preset, knob.key, checked))
+        self._state.execute(self.store.command(knob.key, checked))
         self._on_change()
 
 
