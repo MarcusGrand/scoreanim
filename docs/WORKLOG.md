@@ -7,9 +7,11 @@ controls under the lanes, tap tempo gone. Schema is still v10, so a
 project saved from `main` will not open on `v0.2-beta.6`.
 `beta/f-trackpad-gestures` is merged in too, so the stage navigation is
 back: pinch to zoom, two-finger scroll to move.
-`fix/bracket-hidden-staves`, `beta/f-fade-effect` and
-`beta/f-drop-effect` (which sits on top of the fade branch) are the
-branches still unmerged.
+`beta/f-drop-effect` is merged as well (`3c60723`, no tag), and it
+brought `beta/f-fade-effect` with it: the fade, drop and slide effects,
+and effects that run together ("drop+fade"). Merged on Marcus's word
+without the usual app run first — worth a look in the running app.
+`fix/bracket-hidden-staves` is the only branch still unmerged.
 
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
