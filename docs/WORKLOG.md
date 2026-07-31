@@ -7,7 +7,8 @@ controls under the lanes, tap tempo gone. Schema is still v10, so a
 project saved from `main` will not open on `v0.2-beta.6`.
 `beta/f-trackpad-gestures` is merged in too, so the stage navigation is
 back: pinch to zoom, two-finger scroll to move.
-`fix/bracket-hidden-staves` is the one branch still unmerged.
+`fix/bracket-hidden-staves` and `beta/f-fade-effect` are the branches
+still unmerged.
 
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
@@ -18,6 +19,15 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-07-31 — **A fade effect** (`beta/f-fade-effect`, UNMERGED): ink
+  rises from the ghost floor to full over a duration, easing out.
+  `Easing` gained EASE_OUT and EASE_IN, and `value_at` now looks the
+  curve up in a table instead of testing for LINEAR, so the next curve
+  is one entry. The effect itself is one registry entry plus its two
+  knobs (Fade time, "Animate entire note value") — no evaluator, applier
+  or schema change, which the applier tests on the real fixture check.
+  The panel's per-preset defaults became one table, and Reset now clears
+  pop and fade together in one undo step.
 - 2026-07-31 — **Every number field previews as you type** — the new
   default (`ui/live_field.py`), not the Tempo field's special case:
   Offset, Swing, Amplitude, Settle, Peak offset and Floor opacity all
