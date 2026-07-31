@@ -12,7 +12,8 @@ trigger times), never accumulated, so scrubbing stays stateless.
 
 Per-element effects come from StyleRules (element override > part rule >
 default) resolved against the preset registry; ``set_style`` re-resolves
-without rebuilding the applier. Properties apply through a fixed map:
+without rebuilding the applier. Properties apply through a fixed map
+(render/properties.py):
 opacity on the ElementItem parent (composites over children), scale
 around the item's scale pivot — a whole note (head, stem, flag, beam,
 accidental, dots) turns around its noteheads' centre, so it grows and
@@ -40,10 +41,9 @@ import sys
 from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from itertools import accumulate
-from typing import Callable, Mapping, Sequence
+from typing import Mapping, Sequence
 
-from scoreanim.core.animation import (OFFSET_X, OFFSET_Y, OPACITY, PRESETS,
-                                      REVEALED_KINDS, SCALE, Effect,
+from scoreanim.core.animation import (PRESETS, REVEALED_KINDS, Effect,
                                       RevealCurve, StyleRules,
                                       SystemRevealTrack, TriggerSchedule,
                                       build_presets, effect_for,
@@ -51,41 +51,9 @@ from scoreanim.core.animation import (OFFSET_X, OFFSET_Y, OPACITY, PRESETS,
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
 from scoreanim.render.items import ElementItem
+from scoreanim.render.properties import PROPERTY_APPLIERS
 
 _BEFORE_EVERYTHING = float("-inf")
-
-def _apply_opacity(item: ElementItem, value: float) -> None:
-    # the item composes this with whatever else is applied to it; the
-    # evaluator owns the input, never the painted result
-    item.set_animated_opacity(value)
-
-
-def _apply_scale(item: ElementItem, value: float) -> None:
-    # No pivot, no scale. Which ink scales and what it turns around is
-    # decided once, in core (scale_groups.py), and carried on the item
-    # by ScoreScenes — the applier only applies.
-    if item.scale_pivot is None:
-        return
-    item.setScale(value)
-
-
-def _apply_offset_x(item: ElementItem, value: float) -> None:
-    # The item, not setPos: the document's own nudge owns the position
-    # too, and the item adds the two. Writing setPos here would move a
-    # nudged note back off its nudged place.
-    item.set_animated_offset_x(value)
-
-
-def _apply_offset_y(item: ElementItem, value: float) -> None:
-    item.set_animated_offset_y(value)
-
-
-_PROPERTY_APPLIERS: Mapping[str, Callable[[ElementItem, float], None]] = {
-    OPACITY: _apply_opacity,
-    SCALE: _apply_scale,
-    OFFSET_X: _apply_offset_x,
-    OFFSET_Y: _apply_offset_y,
-}
 
 
 class AnimationApplier:
@@ -319,7 +287,7 @@ class AnimationApplier:
                                            self._timescales_per_trigger[i]):
             state = element_state(trigger_s, effect, t, timescale)
             for prop, value in state.items():
-                applier = _PROPERTY_APPLIERS.get(prop)
+                applier = PROPERTY_APPLIERS.get(prop)
                 if applier is not None:
                     applier(item, value)
             changed += 1
