@@ -1,6 +1,10 @@
 # ScoreAnim — Worklog
 
-**NOW:** `main` carries `beta/live-fields` (`ffd0ac8`, no tag), confirmed
+**NOW:** `beta/f-volume-response` is unmerged and waiting on Marcus's
+eyes in the running app. It moved the schema to **v11**, so a project
+saved from that branch will not open on `main`.
+
+`main` carries `beta/live-fields` (`ffd0ac8`, no tag), confirmed
 in the app: every number field previews as you type. It brought
 `beta/shell-layout` with it — the openers on the toolbar, the grid
 controls under the lanes, tap tempo gone. Schema is still v10, so a
@@ -22,6 +26,31 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-01 — **Animation strength follows the recording**
+  (`beta/f-volume-response`, UNMERGED): a loud beat pops harder, a quiet
+  one more subtly. One derived scalar per trigger — the loudest rms bin
+  in a window that leans forward onto the attack (−25/+75 ms), over the
+  95th percentile of the bins that carry any sound. A percentile, not
+  the maximum, or one stray transient flattens every real note; only
+  sounding bins, or a silent tail makes quiet music read as loud
+  (`core/animation/intensity.py`). The gain scales the FINISHED state
+  about the compose table's neutral — SCALE and the two offsets only.
+  Opacity is never modulated and never will be: a quiet note still has
+  to become fully visible. Gain 1.0 returns the state by an early
+  return, not by arithmetic, so amount 0 is bit-identical to before.
+  Three settings (Amount, Quiet, Loud) in a sparse `style.volume`,
+  **schema v11** — no read gate, a missing key is the response off.
+  Live and export share one seam (`AnimationApplier.set_audio`), pinned
+  by a test that walks both. The live path reads the peaks on
+  `finished`, not `progress`: a half-decoded file's reference is wrong
+  and moves every tick. Panel first: `PresetKnobs` became `KnobGroup`
+  with a pluggable store, so the Volume response block rides the same
+  live fields instead of a second copy. Measured on testscore.wav:
+  intensity spreads 0.04–1.00 over 89 triggers, and the busiest frame's
+  largest pop goes 1.23 → 1.34 (`spikes/volume_response.py`). Checked
+  end to end in the real window offscreen; unproven under a human's eye
+  so far. **`render/animate.py` is at 415 lines** — over the ceiling,
+  and due a split before anything else lands in it.
 - 2026-08-01 — **Effects combine** (same branch): a note can drop AND
   fade, picked with a second "Combine with" dropdown. The stored intent
   stays ONE name — the parts joined by "+" — so no schema bump, and an
