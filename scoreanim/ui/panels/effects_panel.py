@@ -77,6 +77,19 @@ _BLOCKS: tuple[tuple[str, str, tuple], ...] = (
               "rises slowly, an eighth is up at once",
               beside="duration"),
     )),
+    ("drop", "Drop", (
+        Number("Start size", "start_size", 3.0, 0.1, 10.0, 0.25,
+               "How many times its engraved size the note is when it "
+               "enters — the bigger it starts, the further away it "
+               "looks"),
+        Number("Duration", "duration", 0.35, 0.01, 5.0, 0.05,
+               "Seconds the note takes to land: to shrink onto its "
+               "place and go fully solid",
+               suffix=" s"),
+        Check("Bounce", "bounce", True,
+              "A small settle as the note lands, instead of coming "
+              "straight to rest"),
+    )),
 )
 
 
@@ -119,9 +132,9 @@ class EffectsPanel(QWidget):
         # put.
         self._reset_button = QPushButton("Reset")
         self._reset_button.setToolTip(
-            "Restore the effect settings to their defaults (appear, "
-            "amplitude 1.25, pop duration 0.25 s, peak offset 0, fade "
-            "duration 0.4 s) — one undo step; Floor opacity and Sweep "
+            "Restore the effect settings to their defaults — the effect "
+            "back to appear, and every effect's own options back where "
+            "they started — in one undo step; Floor opacity and Sweep "
             "are untouched")
         self._reset_button.clicked.connect(self._commit_reset)
 
@@ -145,7 +158,10 @@ class EffectsPanel(QWidget):
         self.live_fields = tuple(field for block in self.blocks.values()
                                  for field in block.fields.values()) \
             + (self._floor,)
-        self._update_display()
+        # Start on the document, so every control shows its default from
+        # the first frame — a knob that defaults to ON (Bounce) has to
+        # open checked, not wait for the first resync.
+        self.sync_from_document(app_state.doc)
 
     # -- document sync ---------------------------------------------------------
 

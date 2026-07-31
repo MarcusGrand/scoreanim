@@ -107,7 +107,7 @@ def test_fade_knobs_commit_fade_params(panel) -> None:
     assert not state.can_undo                    # two gestures, two steps
 
 
-def test_the_five_number_fields_preview_while_you_type(panel) -> None:
+def test_every_number_field_previews_while_you_type(panel) -> None:
     """The stage shows the knob on every keystroke: the previewed
     document carries it while the committed one does not, and the whole
     typing session still lands as ONE undo entry."""
@@ -118,6 +118,9 @@ def test_the_five_number_fields_preview_while_you_type(panel) -> None:
 
     def fade(doc, key):
         return doc.style.effect_params.get("fade", {}).get(key)
+
+    def drop(doc, key):
+        return doc.style.effect_params.get("drop", {}).get(key)
 
     cases = ((spin(widget, "pop", "scale"),
               field(widget, "pop", "scale"), 2.5,
@@ -131,6 +134,12 @@ def test_the_five_number_fields_preview_while_you_type(panel) -> None:
              (spin(widget, "fade", "duration"),
               field(widget, "fade", "duration"), 1.25,
               lambda doc: fade(doc, "duration"), 1.25),
+             (spin(widget, "drop", "start_size"),
+              field(widget, "drop", "start_size"), 5.0,
+              lambda doc: drop(doc, "start_size"), 5.0),
+             (spin(widget, "drop", "duration"),
+              field(widget, "drop", "duration"), 1.0,
+              lambda doc: drop(doc, "duration"), 1.0),
              (widget._floor_spin, widget._floor, 0.4,
               lambda doc: doc.style.floor_opacity, 0.4))
     for knob, live, typed, read, expected in cases:
@@ -420,8 +429,84 @@ def test_sync_reflects_fade_params(panel) -> None:
     assert not box(widget, "fade", "note_value").isChecked()
 
 
-def test_reset_clears_pop_and_fade_together(panel) -> None:
-    """One Reset really resets what the panel shows: both presets'
+def test_drop_knobs_commit_drop_params(panel) -> None:
+    widget, state = panel
+    spin(widget, "drop", "start_size").setValue(5.0)
+    field(widget, "drop", "start_size").commit()
+    assert state.committed.style.effect_params["drop"]["start_size"] == 5.0
+    field(widget, "drop", "start_size").commit()         # epsilon no-op
+    spin(widget, "drop", "duration").setValue(1.0)
+    field(widget, "drop", "duration").commit()
+    assert state.doc.style.effect_params["drop"]["duration"] == 1.0
+    assert state.undo_text() == "set effect parameter"
+    # bounce starts ON, so unchecking is what writes a param
+    assert box(widget, "drop", "bounce").isChecked()
+    box(widget, "drop", "bounce").setChecked(False)
+    assert state.doc.style.effect_params["drop"]["bounce"] is False
+    # drop's knobs are drop's own
+    assert set(state.doc.style.effect_params) == {"drop"}
+    for _ in range(3):
+        assert state.can_undo
+        state.undo()
+    assert not state.can_undo                    # three gestures, three steps
+
+
+def test_drop_options_hide_until_drop_is_in_use(panel) -> None:
+    """The same ruling a third time: the panel shows the options of the
+    effect in use, not every effect there is."""
+    widget, state = panel
+    knobs = (spin(widget, "drop", "start_size"),
+             spin(widget, "drop", "duration"),
+             box(widget, "drop", "bounce"))
+    assert not _shown(widget, *knobs)
+    widget._effect_combo.setCurrentText("drop")
+    widget._commit_effect()
+    assert _shown(widget, *knobs)
+    assert not _shown(widget, spin(widget, "pop", "scale"))
+    # nothing inside the block grays out: drop has no obsoleting option
+    assert all(knob.isEnabled() for knob in knobs)
+    # a PART rule alone also brings the block back
+    from scoreanim.core.project import SetPartEffect
+    from scoreanim.core.score.identity import PartId
+    state.undo()
+    widget.sync_from_document(state.doc)
+    assert not _shown(widget, *knobs)
+    state.execute(SetPartEffect(PartId("P1"), "drop"))
+    widget.sync_from_document(state.doc)
+    assert _shown(widget, *knobs)
+
+
+def test_sync_reflects_drop_params(panel) -> None:
+    widget, state = panel
+    for cmd in (SetEffectParam("drop", "start_size", 8.0),
+                SetEffectParam("drop", "duration", 2.0),
+                SetEffectParam("drop", "bounce", False)):
+        state.execute(cmd)
+    widget.sync_from_document(state.doc)
+    assert spin(widget, "drop", "start_size").value() == 8.0
+    assert spin(widget, "drop", "duration").value() == 2.0
+    assert not box(widget, "drop", "bounce").isChecked()
+    depth = 0
+    while state.can_undo:
+        state.undo()
+        depth += 1
+    assert depth == 3                            # resync added nothing
+    widget.sync_from_document(state.doc)         # back to the defaults
+    assert spin(widget, "drop", "start_size").value() == 3.0
+    assert spin(widget, "drop", "duration").value() == 0.35
+    assert box(widget, "drop", "bounce").isChecked()
+
+
+def test_drop_params_alone_light_the_reset_button(panel) -> None:
+    widget, state = panel
+    assert not widget._reset_button.isEnabled()
+    state.execute(SetEffectParam("drop", "bounce", False))
+    widget.sync_from_document(state.doc)
+    assert widget._reset_button.isEnabled()
+
+
+def test_reset_clears_every_preset_together(panel) -> None:
+    """One Reset really resets what the panel shows: every preset's
     params go, in ONE undo step."""
     widget, state = panel
     widget._effect_combo.setCurrentText("fade")
@@ -429,14 +514,16 @@ def test_reset_clears_pop_and_fade_together(panel) -> None:
     spin(widget, "fade", "duration").setValue(1.5)
     field(widget, "fade", "duration").commit()
     state.execute(SetEffectParam("pop", "scale", 2.0))
+    state.execute(SetEffectParam("drop", "start_size", 5.0))
     assert widget._reset_button.isEnabled()
     before = state.doc
     widget._commit_reset()
     assert state.doc.style.default_effect is None
     assert state.doc.style.effect_params == {}
     assert spin(widget, "fade", "duration").value() == 0.4
+    assert spin(widget, "drop", "start_size").value() == 3.0
     assert not widget._reset_button.isEnabled()
-    state.undo()                                 # ONE step restores both
+    state.undo()                                 # ONE step restores them all
     assert state.doc == before
 
 

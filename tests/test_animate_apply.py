@@ -494,3 +494,50 @@ def test_tinted_note_still_dims_and_appears(scenes, schedule) -> None:
     applier.refresh(trig_s)
     assert item.opacity() == pytest.approx(1.0)
     assert item.color.name() == "#cc2222"
+
+
+# -- drop: two timed tracks at once, still no applier change ----------------
+
+_DROP_RULES = StyleRules(default_effect="drop")
+
+
+def test_drop_shrinks_and_solidifies_with_no_applier_change(
+        scenes, schedule) -> None:
+    """A timed SCALE track and a timed OPACITY track ride the one
+    transition window together — the applier never learned the word
+    drop. The note enters oversized and part-way solid, touches its
+    engraved size, bounces back up, and comes to rest full."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, _DROP_RULES)
+    head, stem = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+
+    applier.refresh(trig_s)                        # the moment it enters
+    assert scenes.items[head].scale() == pytest.approx(3.0)
+    assert scenes.items[head].opacity() == pytest.approx(0.3)
+    assert scenes.items[stem].scale() == pytest.approx(1.0)   # stems never
+    applier.apply_at(trig_s + 0.35 / 2.75)         # first landing
+    assert scenes.items[head].scale() == pytest.approx(1.0)
+    applier.apply_at(trig_s + 0.35 * 1.5 / 2.75)   # bounced back up
+    assert scenes.items[head].scale() == pytest.approx(1.5)
+    applier.apply_at(trig_s + 1.0)                 # window over
+    assert scenes.items[head].scale() == pytest.approx(1.0)
+    assert scenes.items[head].opacity() == pytest.approx(1.0)
+    applier.apply_at(trig_s - 0.5)                 # scrub back before it
+    assert scenes.items[head].scale() == pytest.approx(1.0)
+    assert scenes.items[head].opacity() == pytest.approx(FLOOR)
+
+
+def test_drop_leaves_every_played_note_at_its_size(scenes, schedule) -> None:
+    """The check Marcus asked for, headless: however wildly the playhead
+    is scrubbed, nothing is left oversized. Past the end every element
+    sits at exactly its engraved size, fully solid."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, _DROP_RULES)
+    rng = random.Random(11)
+    t = 0.0
+    for _ in range(40):
+        t = max(-2.0, t + rng.uniform(-9.0, 11.0))
+        applier.apply_at(t)
+    applier.apply_at(1e6)
+    for eid, item in scenes.items.items():
+        assert item.scale() == pytest.approx(1.0), eid
+        assert item.opacity() == pytest.approx(1.0), eid
