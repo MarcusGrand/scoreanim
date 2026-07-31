@@ -20,6 +20,22 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-01 — **Effects combine** (same branch): a note can drop AND
+  fade, picked with a second "Combine with" dropdown. The stored intent
+  stays ONE name — the parts joined by "+" — so no schema bump, and an
+  old build opening "drop+shimmer" still drops. Envelopes are never
+  merged (two eased curves cannot be merged exactly at their
+  keyframes): each part keeps its own tracks, shift and timescale, runs
+  through the same kernel, and the RESULTS combine property by property
+  in a new pure table (`core/animation/compose.py`). Opacity takes the
+  MIN, not a product — every opacity envelope starts at the document
+  floor, so multiplying would put a combined ghost below the floor
+  Marcus set; scale multiplies, offsets add, all commutative. The
+  applier now holds a tuple of effects per element and a timescale for
+  each. The property appliers moved to `render/properties.py` first, as
+  its own commit (animate.py was at 370). Rendered drop+fade and
+  slide+fade to PNG and looked at them; unproven in the running app so
+  far.
 - 2026-07-31 — **A slide effect** (same branch): notes travel in to their
   place from a direction you pick — Direction in degrees (0 from above,
   clockwise), Distance, Duration and Bounce. Unlike drop it needed two

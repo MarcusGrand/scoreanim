@@ -202,3 +202,35 @@ def effect_for(name: str | None,
     if name is not None and name in presets:
         return presets[name]
     return presets[DEFAULT_EFFECT]
+
+
+# A combined effect is a NAME: its parts joined by this. The document
+# stores one string either way, so a combination round-trips like any
+# other name and needs no schema change.
+COMBINE_SEP = "+"
+
+
+def split_effect_name(name: str | None) -> tuple[str, ...]:
+    """The parts of a stored effect name, in order and without repeats.
+    A plain name is a one-part name."""
+    if not name:
+        return ()
+    seen: list[str] = []
+    for part in name.split(COMBINE_SEP):
+        part = part.strip()
+        if part and part not in seen:
+            seen.append(part)
+    return tuple(seen)
+
+
+def effects_for(name: str | None,
+                presets: Mapping[str, Effect] = PRESETS
+                ) -> tuple[Effect, ...]:
+    """Resolve a stored effect name into the effects that run together.
+    A part this build does not know is SKIPPED and the rest kept, so an
+    old build opening "drop+shimmer" still drops; if nothing at all
+    resolves, the default preset stands in, as it does for any unknown
+    name."""
+    found = tuple(presets[part] for part in split_effect_name(name)
+                  if part in presets)
+    return found if found else (presets[DEFAULT_EFFECT],)

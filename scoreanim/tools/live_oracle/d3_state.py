@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from scoreanim.core.animation import (OPACITY, PRESETS, REVEALED_KINDS,
                                       RevealMode, StyleRules, build_presets,
-                                      effect_for, element_state, reveal_x)
+                                      combined_state, effects_for, reveal_x)
 from scoreanim.core.timing import resolve_seconds
 from scoreanim.tools.live_oracle.bundle import Finding, OracleBundle
 from scoreanim.tools.live_oracle.scene import (_expected_clip,
@@ -33,7 +33,8 @@ def _effects_by_eid(bundle: OracleBundle, style: StyleRules) -> dict:
     presets = {**PRESETS, **build_presets(style.floor_opacity)}
     ident_by_id = {el.identity.element_id: el.identity
                    for el in bundle.engraved.layout.elements}
-    return {eid: effect_for(style.resolve(ident_by_id[eid]).effect, presets)
+    # a tuple per element: a name may hold effects that run together
+    return {eid: effects_for(style.resolve(ident_by_id[eid]).effect, presets)
             for eid in bundle.schedule.beats_by_element
             if eid in ident_by_id}
 
@@ -69,11 +70,12 @@ def check_d3(bundle: OracleBundle, mode: RevealMode, grid: str,
     for t in _time_grid(bundle, grid, log):
         applier.refresh(t)
         # opacity vs the pure kernel
-        for eid, eff in effects.items():
+        for eid, effs in effects.items():
             item = scenes.items.get(eid)
             if item is None:
                 continue                 # D1's schedule-id-not-in-scene
-            expected = element_state(trig_s[eid], eff, t).get(OPACITY)
+            expected = combined_state(
+                trig_s[eid], [(eff, 1.0) for eff in effs], t).get(OPACITY)
             if expected is None:
                 continue
             if abs(item.opacity() - expected) > 1e-6 \

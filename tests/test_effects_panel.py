@@ -683,3 +683,102 @@ def test_five_knob_undo_walk(panel) -> None:
     assert not state.can_undo
     assert state.doc.style.default_effect is None
     assert state.doc.style.effect_params == {}
+
+
+# -- a second effect to run with the first ("drop+fade") --------------------
+
+def _combine_items(widget) -> list[str]:
+    return [widget._combine_combo.itemText(i)
+            for i in range(widget._combine_combo.count())]
+
+
+def test_combine_offers_every_other_preset(panel) -> None:
+    """(none) plus every preset except the one already chosen — and the
+    list follows the first choice."""
+    widget, _state = panel
+    assert _combine_items(widget)[0] == "(none)"
+    assert DEFAULT_EFFECT not in _combine_items(widget)
+    widget._effect_combo.setCurrentText("drop")
+    widget._commit_effect()
+    assert "drop" not in _combine_items(widget)
+    assert {"appear", "fade", "pop", "slide"} <= set(_combine_items(widget))
+
+
+def test_two_effects_are_stored_as_one_name(panel) -> None:
+    widget, state = panel
+    widget._effect_combo.setCurrentText("pop")
+    widget._commit_effect()
+    widget._combine_combo.setCurrentText("fade")
+    widget._commit_effect()
+    assert state.doc.style.default_effect == "pop+fade"
+    assert state.undo_text() == "set default effect"    # ONE command
+    widget._commit_effect()                             # same → no-op
+    state.undo()
+    assert state.doc.style.default_effect == "pop"      # one step back
+    # and taking the second one off stores the first alone
+    widget.sync_from_document(state.doc)
+    widget._combine_combo.setCurrentText("fade")
+    widget._commit_effect()
+    widget._combine_combo.setCurrentText("(none)")
+    widget._commit_effect()
+    assert state.doc.style.default_effect == "pop"
+
+
+def test_a_stored_combination_comes_back_split(panel) -> None:
+    from scoreanim.core.project import SetDefaultEffect
+    widget, state = panel
+    state.execute(SetDefaultEffect("drop+fade"))
+    widget.sync_from_document(state.doc)
+    assert widget._effect_combo.currentText() == "drop"
+    assert widget._combine_combo.currentText() == "fade"
+
+
+def test_a_longer_hand_edited_name_shows_whole(panel) -> None:
+    """More parts than two dropdowns can show: the stored intent is
+    displayed as it stands, never silently shortened."""
+    from scoreanim.core.project import SetDefaultEffect
+    widget, state = panel
+    state.execute(SetDefaultEffect("drop+fade+slide"))
+    widget.sync_from_document(state.doc)
+    assert widget._effect_combo.currentText() == "drop+fade+slide"
+    assert widget._combine_combo.currentText() == "(none)"
+
+
+def test_changing_the_first_effect_drops_a_clashing_second(panel) -> None:
+    widget, state = panel
+    widget._effect_combo.setCurrentText("drop")
+    widget._commit_effect()
+    widget._combine_combo.setCurrentText("fade")
+    widget._commit_effect()
+    widget._effect_combo.setCurrentText("fade")   # now the same as the second
+    widget._commit_effect()
+    assert widget._combine_combo.currentText() == "(none)"
+    assert state.doc.style.default_effect == "fade"
+
+
+def test_both_parts_of_a_combination_show_their_options(panel) -> None:
+    """A preset is in use when it is one PART of the name, so both
+    blocks are on screen."""
+    widget, state = panel
+    widget._effect_combo.setCurrentText("drop")
+    widget._commit_effect()
+    widget._combine_combo.setCurrentText("fade")
+    widget._commit_effect()
+    assert _shown(widget, spin(widget, "drop", "start_size"),
+                  spin(widget, "fade", "duration"))
+    assert not _shown(widget, spin(widget, "pop", "scale"))
+    state.undo()                                 # back to drop alone
+    widget.sync_from_document(state.doc)
+    assert _shown(widget, spin(widget, "drop", "start_size"))
+    assert not _shown(widget, spin(widget, "fade", "duration"))
+
+
+def test_a_part_rule_combination_shows_its_options(panel) -> None:
+    """The same membership test reaches part and element rules."""
+    from scoreanim.core.project import SetPartEffect
+    from scoreanim.core.score.identity import PartId
+    widget, state = panel
+    state.execute(SetPartEffect(PartId("P1"), "slide+fade"))
+    widget.sync_from_document(state.doc)
+    assert _shown(widget, spin(widget, "slide", "distance"),
+                  spin(widget, "fade", "duration"))

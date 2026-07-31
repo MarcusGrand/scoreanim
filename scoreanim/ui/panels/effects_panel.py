@@ -1,8 +1,11 @@
 """Effects panel (M4.8): the *Appearance & Effects* section's body.
 
 Document-wide effect controls: the Effect dropdown (enumerates the
-preset registry, sets `default_effect`), each knobbed preset's own block
-of options, plus Reset, Floor opacity and Sweep. Every control commits
+preset registry, sets `default_effect`), a second dropdown for an effect
+to run WITH it, each knobbed preset's own block of options, plus Reset,
+Floor opacity and Sweep. Two effects at once are stored as ONE name,
+"drop+fade" — the document is unchanged, and a build that does not know
+one of the parts still runs the other. Every control commits
 exactly ONE command per user gesture. The number fields preview as you
 type (`ui/live_field.py`): the stage shows the amplitude, the durations,
 the shift and the ghost opacity on every keystroke, and the typing
@@ -32,13 +35,19 @@ from __future__ import annotations
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
                                QFormLayout, QPushButton, QWidget)
 
-from scoreanim.core.animation import DEFAULT_EFFECT, PRESETS, RevealMode
+from scoreanim.core.animation import (COMBINE_SEP, DEFAULT_EFFECT, PRESETS,
+                                      RevealMode, split_effect_name)
 from scoreanim.core.project import (Command, ProjectDoc, ResetEffectSettings,
                                     SetDefaultEffect, SetFloorOpacity,
                                     SetRevealMode)
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
 from scoreanim.ui.panels.effect_knobs import Check, Number, PresetKnobs
+
+# The "no second effect" entry in the Combine with dropdown. Not a
+# preset name, and never stored: the document holds the first effect's
+# name alone.
+_NO_COMBINE = "(none)"
 
 # Every preset with knobs, in the order its block appears. A knob's
 # default is document units (seconds for Peak offset); its range and
@@ -129,6 +138,15 @@ class EffectsPanel(QWidget):
         # cannot loop back into a command
         self._effect_combo.activated.connect(self._commit_effect)
 
+        # A second effect to run WITH the first ("drop+fade"): the two
+        # are stored as one name, so nothing about the document changes.
+        self._combine_combo = QComboBox()
+        self._combine_combo.setToolTip(
+            "A second effect to run at the same time as the first — the "
+            "two are combined property by property")
+        self._fill_combine(DEFAULT_EFFECT)
+        self._combine_combo.activated.connect(self._commit_effect)
+
         # Floor opacity + Sweep: moved in from the inspector (M1.4).
         self._floor_spin = QDoubleSpinBox()
         self._floor_spin.setDecimals(2)
@@ -162,6 +180,7 @@ class EffectsPanel(QWidget):
         self._form = QFormLayout(self)
         self._form.setContentsMargins(8, 2, 8, 6)
         self._form.addRow("Effect", self._effect_combo)
+        self._form.addRow("Combine with", self._combine_combo)
         # Each preset's block builds its own rows here, so it can be
         # shown and hidden as a unit.
         self.blocks = {
@@ -185,11 +204,17 @@ class EffectsPanel(QWidget):
 
     def _in_use(self, doc: ProjectDoc, preset: str) -> bool:
         """Does anything resolve to this preset — the document default,
-        a part rule or an element rule? Its params apply to all three."""
+        a part rule or an element rule? Its params apply to all three.
+        A name may hold several effects at once ("drop+fade"), so this
+        asks whether the preset is one PART of the name, through the one
+        splitting helper core resolution uses."""
+        def holds(name: str | None) -> bool:
+            return preset in split_effect_name(name)
+
         style = doc.style
-        return (style.default_effect == preset
-                or any(r.effect == preset for r in style.parts.values())
-                or any(r.effect == preset for r in style.elements.values()))
+        return (holds(style.default_effect)
+                or any(holds(r.effect) for r in style.parts.values())
+                or any(holds(r.effect) for r in style.elements.values()))
 
     def _update_display(self) -> None:
         """What the panel shows, in two layers.
@@ -212,6 +237,23 @@ class EffectsPanel(QWidget):
             block.update_display(doc)
         self._reset_button.setEnabled(not self._at_defaults(doc))
 
+    def _fill_combine(self, primary: str,
+                      keep: str | None = None) -> None:
+        """The second dropdown: nothing, or any preset other than the
+        one already chosen. Refilled whenever the first choice moves,
+        keeping the second one if it is still on offer."""
+        if keep is None:
+            keep = self._combine_combo.currentText()
+        names = [name for name in sorted(PRESETS) if name != primary]
+        self._combine_combo.blockSignals(True)
+        self._combine_combo.clear()
+        self._combine_combo.addItem(_NO_COMBINE)
+        for name in names:
+            self._combine_combo.addItem(name)
+        self._combine_combo.setCurrentText(keep if keep in names
+                                           else _NO_COMBINE)
+        self._combine_combo.blockSignals(False)
+
     def _at_defaults(self, doc: ProjectDoc) -> bool:
         """Nothing for Reset to do: no document default, and no stored
         params for any preset with knobs here."""
@@ -222,14 +264,22 @@ class EffectsPanel(QWidget):
     def sync_from_document(self, doc: ProjectDoc) -> None:
         """Resync every control (execute, undo, redo, and load all
         arrive here via the inspector); never re-executes."""
-        name = doc.style.default_effect or DEFAULT_EFFECT
+        stored = doc.style.default_effect or DEFAULT_EFFECT
+        parts = split_effect_name(stored)
+        # Two dropdowns hold two effects. A hand-edited name with more
+        # than that shows whole in the first box: the stored intent, not
+        # a silently shortened version of it.
+        primary = stored if len(parts) > 2 else (parts[0] if parts
+                                                 else DEFAULT_EFFECT)
+        secondary = parts[1] if len(parts) == 2 else None
         self._effect_combo.blockSignals(True)
-        if self._effect_combo.findText(name) < 0:
+        if self._effect_combo.findText(primary) < 0:
             # a name from a newer build: show the stored intent rather
             # than silently displaying the wrong preset
-            self._effect_combo.addItem(name)
-        self._effect_combo.setCurrentText(name)
+            self._effect_combo.addItem(primary)
+        self._effect_combo.setCurrentText(primary)
         self._effect_combo.blockSignals(False)
+        self._fill_combine(primary, secondary)
 
         for block in self.blocks.values():
             block.resync(doc)
@@ -253,7 +303,15 @@ class EffectsPanel(QWidget):
         return SetFloorOpacity(value)
 
     def _commit_effect(self) -> None:
-        name = self._effect_combo.currentText()
+        """Both dropdowns land here: the two choices are ONE name, and
+        one command."""
+        primary = self._effect_combo.currentText()
+        secondary = self._combine_combo.currentText()
+        # the second list depends on the first choice
+        self._fill_combine(primary, secondary)
+        secondary = self._combine_combo.currentText()
+        name = primary if secondary == _NO_COMBINE \
+            else primary + COMBINE_SEP + secondary
         if name == (self._state.doc.style.default_effect or DEFAULT_EFFECT):
             return
         self._state.execute(SetDefaultEffect(name))

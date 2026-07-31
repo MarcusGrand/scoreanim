@@ -12,7 +12,10 @@ trigger times), never accumulated, so scrubbing stays stateless.
 
 Per-element effects come from StyleRules (element override > part rule >
 default) resolved against the preset registry; ``set_style`` re-resolves
-without rebuilding the applier. Properties apply through a fixed map
+without rebuilding the applier. A name may hold several effects that run
+together ("drop+fade"), so each element carries a TUPLE of effects and a
+timescale for each of them; the states combine property by property in
+core (core/animation/compose.py). Properties apply through a fixed map
 (render/properties.py):
 opacity on the ElementItem parent (composites over children), scale
 around the item's scale pivot — a whole note (head, stem, flag, beam,
@@ -46,8 +49,8 @@ from typing import Mapping, Sequence
 from scoreanim.core.animation import (PRESETS, REVEALED_KINDS, Effect,
                                       RevealCurve, StyleRules,
                                       SystemRevealTrack, TriggerSchedule,
-                                      build_presets, effect_for,
-                                      element_state, reveal_x)
+                                      build_presets, combined_state,
+                                      effects_for, reveal_x)
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
 from scoreanim.render.items import ElementItem
@@ -154,9 +157,12 @@ class AnimationApplier:
             return
         self._style = style
         self._resolve_effects()
-        # an element whose effect lost its SCALE track would otherwise
-        # keep a stale mid-pop transform, and one that lost its offset
-        # tracks would be left standing wherever its slide had reached
+        # an element whose effects no longer carry a SCALE track would
+        # otherwise keep a stale mid-pop transform, and one that lost
+        # its offset tracks would be left standing wherever its slide
+        # had reached. Unconditional, so it covers a combination losing
+        # a component as well: the refresh below writes back only the
+        # properties the new effects actually animate.
         for items in self._items_per_trigger:
             for item in items:
                 if item.scale() != 1.0:
@@ -175,63 +181,75 @@ class AnimationApplier:
         # untouched).
         presets = {**PRESETS, **build_presets(rules.floor_opacity,
                                               rules.effect_params)}
-        self._effects_per_trigger: tuple[tuple[Effect, ...], ...] = tuple(
-            tuple(effect_for(rules.resolve(item.identity).effect, presets)
+        # One element may animate with SEVERAL effects at once
+        # ("drop+fade"), so each item holds a tuple. A plain name gives
+        # a tuple of one and behaves exactly as it always did.
+        self._effects_per_trigger: tuple[tuple[tuple[Effect, ...], ...],
+                                         ...] = tuple(
+            tuple(effects_for(rules.resolve(item.identity).effect, presets)
                   for item in items)
             for items in self._items_per_trigger)
         self._recompute_windows()
 
     def _recompute_windows(self) -> None:
-        """Per-item timescales and per-trigger effective windows (M4.6),
-        recomputed from BOTH configuration seams: set_timing (tempo/
-        swing moved the seconds axis) and _resolve_effects (params or
-        effect assignments moved). A note-value effect's timescale is
+        """Per-component timescales and per-trigger effective windows
+        (M4.6), recomputed from BOTH configuration seams: set_timing
+        (tempo/swing moved the seconds axis) and _resolve_effects (params
+        or effect assignments moved). A note-value effect's timescale is
         its element's engraved duration in seconds over the effect's
         authored duration (F7 — guarded dur > 0 both sides, absent
         entry → 1.0); the engraved end resolves through the ONE
-        swing-aware seam in a single batched resolve_seconds call. A
-        trigger's window is max(shift + duration × timescale) over its
-        items; `lead` is the F3 forward bound (max positive lead of any
-        negatively shifted effect). Before timing exists (construction)
-        stretches park at 1.0 — set_timing recomputes immediately."""
+        swing-aware seam in a single batched resolve_seconds call. Every
+        one of these is per COMPONENT: an element animating with two
+        effects at once may stretch one of them to its note value and
+        run the other at its authored speed. A trigger's window is
+        max(shift + duration × timescale) over every component of every
+        item; `lead` is the F3 forward bound (max positive lead of any
+        negatively shifted component). Before timing exists
+        (construction) stretches park at 1.0 — set_timing recomputes
+        immediately."""
         triggers = self._schedule.triggers
         durs = self._schedule.duration_by_element
-        stretch: dict[tuple[int, int], float] = {}
+        stretch: dict[tuple[int, int, int], float] = {}
         if self._tempo_map is not None and durs:
-            refs: list[tuple[int, int]] = []
+            refs: list[tuple[int, int, int]] = []
             end_beats: list[float] = []
             for i, trig in enumerate(triggers):
-                for j, (item, effect) in enumerate(
+                for j, (item, effects) in enumerate(
                         zip(self._items_per_trigger[i],
                             self._effects_per_trigger[i])):
-                    if (not effect.settle_to_note_value
-                            or effect.duration <= 0.0
-                            or item.identity is None):
-                        continue
-                    dur_beats = durs.get(item.identity.element_id, 0.0)
-                    if dur_beats > 0.0:
-                        refs.append((i, j))
-                        end_beats.append(trig.beats + dur_beats)
+                    for k, effect in enumerate(effects):
+                        if (not effect.settle_to_note_value
+                                or effect.duration <= 0.0
+                                or item.identity is None):
+                            continue
+                        dur_beats = durs.get(item.identity.element_id, 0.0)
+                        if dur_beats > 0.0:
+                            refs.append((i, j, k))
+                            end_beats.append(trig.beats + dur_beats)
             if refs:
                 ends_s = resolve_seconds(end_beats, self._tempo_map,
                                          self._swing)
-                for (i, j), end_s in zip(refs, ends_s):
+                for (i, j, k), end_s in zip(refs, ends_s):
                     dur_s = end_s - self._trigger_seconds[i]
                     if dur_s > 0.0:
-                        stretch[(i, j)] = dur_s
-        timescales: list[tuple[float, ...]] = []
+                        stretch[(i, j, k)] = dur_s
+        timescales: list[tuple[tuple[float, ...], ...]] = []
         windows: list[float] = []
         lead = 0.0
         for i in range(len(triggers)):
-            row: list[float] = []
+            row: list[tuple[float, ...]] = []
             window = 0.0
-            for j, effect in enumerate(self._effects_per_trigger[i]):
-                dur_s = stretch.get((i, j))
-                ts = dur_s / effect.duration if dur_s is not None else 1.0
-                row.append(ts)
-                window = max(window,
-                             effect.trigger_shift + effect.duration * ts)
-                lead = max(lead, -effect.trigger_shift)
+            for j, effects in enumerate(self._effects_per_trigger[i]):
+                scales: list[float] = []
+                for k, effect in enumerate(effects):
+                    dur_s = stretch.get((i, j, k))
+                    ts = dur_s / effect.duration if dur_s is not None else 1.0
+                    scales.append(ts)
+                    window = max(window,
+                                 effect.trigger_shift + effect.duration * ts)
+                    lead = max(lead, -effect.trigger_shift)
+                row.append(tuple(scales))
             timescales.append(tuple(row))
             windows.append(window)
         self._timescales_per_trigger = tuple(timescales)
@@ -282,10 +300,12 @@ class AnimationApplier:
     def _apply_trigger(self, i: int, t: float) -> int:
         trigger_s = self._trigger_seconds[i]
         changed = 0
-        for item, effect, timescale in zip(self._items_per_trigger[i],
-                                           self._effects_per_trigger[i],
-                                           self._timescales_per_trigger[i]):
-            state = element_state(trigger_s, effect, t, timescale)
+        for item, effects, timescales in zip(
+                self._items_per_trigger[i],
+                self._effects_per_trigger[i],
+                self._timescales_per_trigger[i]):
+            state = combined_state(trigger_s, tuple(zip(effects, timescales)),
+                                   t)
             for prop, value in state.items():
                 applier = PROPERTY_APPLIERS.get(prop)
                 if applier is not None:

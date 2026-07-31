@@ -6,9 +6,10 @@ from __future__ import annotations
 
 import pytest
 
-from scoreanim.core.animation import (OFFSET_X, OFFSET_Y, OPACITY, PRESETS,
-                                      SCALE, build_presets, effect_for,
-                                      element_state, FLOOR_OPACITY)
+from scoreanim.core.animation import (DEFAULT_EFFECT, OFFSET_X, OFFSET_Y,
+                                      OPACITY, PRESETS, SCALE, build_presets,
+                                      effect_for, effects_for, element_state,
+                                      split_effect_name, FLOOR_OPACITY)
 from scoreanim.core.animation.presets import slide_start
 
 
@@ -363,3 +364,41 @@ def test_timescale_divides_the_evaluated_t_rel() -> None:
     shifted = build_presets(0.3, {"pop": {"peak_offset": 0.1}})["pop"]
     assert element_state(0.0, shifted, 0.1, timescale=2.0)[SCALE] == \
         element_state(0.0, shifted, 0.1, timescale=1.0)[SCALE] == 1.25
+
+
+# -- combined names ("drop+fade") -----------------------------------------
+
+def test_a_name_splits_into_its_parts() -> None:
+    assert split_effect_name("drop+fade") == ("drop", "fade")
+    assert split_effect_name("pop") == ("pop",)
+    assert split_effect_name(None) == ()
+    assert split_effect_name("") == ()
+    # a hand-edited project: stray spaces and empty pieces drop out,
+    # and a part named twice still runs once
+    assert split_effect_name("drop + fade") == ("drop", "fade")
+    assert split_effect_name("drop++fade+drop") == ("drop", "fade")
+
+
+def test_effects_for_resolves_every_part() -> None:
+    assert effects_for("drop+fade") == (PRESETS["drop"], PRESETS["fade"])
+    half = build_presets(0.5)
+    assert effects_for("drop+fade", half) == (half["drop"], half["fade"])
+
+
+def test_an_unknown_part_is_skipped_and_the_rest_kept() -> None:
+    """An old build opening "drop+shimmer" still drops."""
+    assert effects_for("drop+shimmer") == (PRESETS["drop"],)
+    assert effects_for("shimmer+drop") == (PRESETS["drop"],)
+
+
+def test_a_wholly_unknown_name_falls_back_to_the_default() -> None:
+    default = PRESETS[DEFAULT_EFFECT]
+    assert effects_for("shimmer+glow") == (default,)
+    assert effects_for("no-such-effect") == (default,)
+    assert effects_for(None) == (default,)
+    assert effects_for("") == (default,)
+
+
+def test_a_plain_name_resolves_exactly_as_it_always_did() -> None:
+    for name in (None, "pop", "fade", "drop", "slide", "no-such-effect"):
+        assert effects_for(name) == (effect_for(name),)

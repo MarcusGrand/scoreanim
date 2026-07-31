@@ -536,6 +536,23 @@ class Effect:
 # goes through one swing-aware resolve_seconds call. No hidden state,
 # no timers, no accumulation; the same kernel serves AudioClock
 # playback, scrubbing, and FrameClock export.
+
+# Effects that run together (2026-08-01): one element may animate with
+# SEVERAL effects at once. The stored intent stays ONE name, the parts
+# joined by "+" ("drop+fade"), so the document and its schema are
+# untouched and a part this build does not know is skipped while the
+# rest still runs (presets.split_effect_name / effects_for). Envelopes
+# are NEVER merged — two eased curves cannot be merged exactly at their
+# keyframes — so each part keeps its own tracks, its own trigger_shift
+# and its own timescale, goes through the kernel above on its own, and
+# the RESULTS combine property by property:
+#     combined_state(trigger_seconds, ((effect, timescale), ...), t)
+# The combining table is data too (core/animation/compose.py): opacity
+# takes the MIN (not a product — every opacity envelope starts at the
+# document floor, and a product would put a combined ghost below it),
+# scale multiplies, the two offsets add. A part that carries no track
+# for a property contributes that property's neutral. Every operation
+# is commutative, so the order of the parts never matters.
 ```
 
 ### Reveal / playhead-x unification (revised 2026-07-12, rulings A–C)

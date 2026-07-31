@@ -752,3 +752,160 @@ def test_drop_leaves_every_played_note_at_its_size(scenes, schedule) -> None:
     for eid, item in scenes.items.items():
         assert item.scale() == pytest.approx(1.0), eid
         assert item.opacity() == pytest.approx(1.0), eid
+
+
+# -- effects that run together ("drop+fade") ---------------------------------
+
+def test_a_single_effect_states_exactly_as_it_did_before(scenes,
+                                                         schedule) -> None:
+    """The bit-identical pin: with one effect the applier's state must
+    equal the plain kernel's, evaluated straight off the preset."""
+    from scoreanim.core.animation import (OPACITY, PRESETS, SCALE,
+                                          element_state)
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, _DROP_RULES)
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+    for dt in (-0.5, 0.0, 0.1, 0.2, 0.35, 1.0):
+        applier.refresh(trig_s + dt)
+        want = element_state(trig_s, PRESETS["drop"], trig_s + dt)
+        assert scenes.items[head].opacity() == pytest.approx(want[OPACITY])
+        assert scenes.items[head].scale() == pytest.approx(want[SCALE])
+
+
+def test_drop_and_fade_run_together(scenes, schedule) -> None:
+    """A combined name: the note lands like a stamp AND rises out of the
+    ghost. The scale is drop's; the opacity is the dimmer of the two,
+    which through the whole entry is fade's."""
+    from scoreanim.core.animation import (OPACITY, PRESETS, SCALE,
+                                          element_state)
+    rules = StyleRules(default_effect="drop+fade")
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+    item = scenes.items[head]
+
+    applier.refresh(trig_s - 0.5)                  # a ghost, AT the floor
+    assert item.opacity() == pytest.approx(FLOOR)  # not FLOOR squared
+    assert item.scale() == pytest.approx(1.0)
+    applier.refresh(trig_s)                        # enters big, still dim
+    assert item.scale() == pytest.approx(3.0)
+    assert item.opacity() == pytest.approx(FLOOR)
+    applier.apply_at(trig_s + 0.2)                 # mid-entry
+    assert item.scale() == pytest.approx(
+        element_state(trig_s, PRESETS["drop"], trig_s + 0.2)[SCALE])
+    assert item.opacity() == pytest.approx(
+        element_state(trig_s, PRESETS["fade"], trig_s + 0.2)[OPACITY])
+    applier.apply_at(trig_s + 1.0)                 # both windows over
+    assert item.scale() == pytest.approx(1.0)
+    assert item.opacity() == pytest.approx(1.0)
+    applier.apply_at(trig_s - 0.5)                 # scrub back: a ghost
+    assert item.opacity() == pytest.approx(FLOOR)
+    assert item.scale() == pytest.approx(1.0)
+
+
+def test_slide_and_fade_run_together(scenes, schedule) -> None:
+    """Two effects touching different properties: the offsets are
+    slide's, the opacity fade's."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO,
+                               StyleRules(default_effect="slide+fade"))
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+    item = scenes.items[head]
+
+    applier.refresh(trig_s)
+    assert item.pos().y() == pytest.approx(-120.0)
+    assert item.opacity() == pytest.approx(FLOOR)   # slide alone would be 1
+    applier.apply_at(trig_s + 1.0)
+    assert (item.pos().x(), item.pos().y()) == (0.0, 0.0)
+    assert item.opacity() == pytest.approx(1.0)
+
+
+def test_the_window_covers_the_longest_component(scenes, schedule) -> None:
+    """Components with different durations AND different shifts: the
+    trigger's window reaches the far end of the slowest one, and the
+    lead reaches the earliest one. Pop is shifted −0.3 s and settles in
+    0.1 s; fade runs 2 s from the trigger."""
+    rules = StyleRules(default_effect="pop+fade",
+                       effect_params={"pop": {"peak_offset": -0.3,
+                                              "settle": 0.1},
+                                      "fade": {"duration": 2.0}})
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+    item = scenes.items[head]
+
+    applier.refresh(trig_s - 1.0)                  # before everything
+    assert item.opacity() == pytest.approx(FLOOR)
+    # the lead: pop has already fired 0.2 s before the trigger, and its
+    # opacity step rides the shift, so the note is lit — but fade is
+    # dimmer at its own t=0, so the floor still wins
+    applier.apply_at(trig_s - 0.2)
+    assert item.scale() == pytest.approx(1.0)      # pop settled in 0.1 s
+    assert item.opacity() == pytest.approx(FLOOR)
+    # the window: 1.5 s in, fade is still climbing and must be re-evaluated
+    applier.apply_at(trig_s + 1.5)
+    assert FLOOR < item.opacity() < 1.0
+    applier.apply_at(trig_s + 2.0)
+    assert item.opacity() == pytest.approx(1.0)
+
+
+def test_a_combination_can_stretch_only_one_component(scenes,
+                                                      schedule_nv) -> None:
+    """Each component keeps its OWN timescale: pop settles over the
+    note's engraved length while fade runs at its authored 0.4 s."""
+    rules = StyleRules(default_effect="pop+fade",
+                       effect_params={"pop": {"note_value": True}})
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    trig_s = TEMPO.seconds_at(schedule_nv.beats_by_element[long_head])
+    item = scenes.items[long_head]
+
+    applier.refresh(trig_s + 1.0)                  # 2/3 into a 1.5 s settle
+    assert item.scale() == pytest.approx(1.25 - 0.25 * (2 / 3))
+    assert item.opacity() == pytest.approx(1.0)    # fade finished at 0.4 s
+
+
+def test_set_style_resets_a_stale_combination(scenes, schedule) -> None:
+    """Leaving a combination that carried scale AND offsets for a plain
+    fade puts both back: nothing is left oversized or off its place."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO,
+                               StyleRules(default_effect="drop+slide"))
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+    applier.apply_at(trig_s)
+    assert scenes.items[head].scale() == pytest.approx(3.0)
+    assert scenes.items[head].pos().y() == pytest.approx(-120.0)
+
+    applier.set_style(_FADE_RULES)
+    assert scenes.items[head].scale() == pytest.approx(1.0)
+    assert scenes.items[head].animated_offset == (0.0, 0.0)
+
+
+def test_scrubbing_a_combination_is_stateless(qapp, engraved, schedule,
+                                              scenes) -> None:
+    """The statelessness pin, on a combination: however wildly the
+    playhead is scrubbed, every note is where a fresh applier would put
+    it, and past the end nothing is left oversized or out of place."""
+    rules = StyleRules(default_effect="drop+slide")
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    mid = TEMPO.seconds_at(schedule.beats_by_element[head]) + 0.1
+    rng = random.Random(17)
+    t = 0.0
+    for _ in range(60):
+        t = max(-2.0, t + rng.uniform(-9.0, 11.0))
+        applier.apply_at(t)
+    applier.apply_at(mid)
+    assert scenes.items[head].scale() > 1.0        # genuinely mid-entry
+    walked = _visual_state(scenes), _positions(scenes)
+
+    fresh_scenes = ScoreScenes(engraved.layout, default_stage_config(
+        engraved.prepared, page_content_top(engraved.layout)))
+    AnimationApplier(fresh_scenes.items, schedule, TEMPO,
+                     rules).refresh(mid)
+    assert walked == (_visual_state(fresh_scenes), _positions(fresh_scenes))
+
+    applier.apply_at(1e6)
+    for eid, item in scenes.items.items():
+        assert item.scale() == pytest.approx(1.0), eid
+        assert (item.pos().x(), item.pos().y()) == (0.0, 0.0), eid
