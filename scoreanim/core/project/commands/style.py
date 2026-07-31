@@ -165,7 +165,7 @@ class ResetEffectSettings(Command):
     has knobs for is cleared together, so one Reset really does reset
     what the panel shows. Other presets' params (possibly from a newer
     build) survive untouched, the raw-round-trip guarantee."""
-    presets: tuple[str, ...] = ("pop", "fade")
+    presets: tuple[str, ...] = ("pop", "fade", "drop")
 
     def apply(self, doc: ProjectDoc) -> ProjectDoc:
         params = {name: dict(entry)

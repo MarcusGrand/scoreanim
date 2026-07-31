@@ -27,6 +27,30 @@ class Easing(enum.Enum):
     LINEAR = enum.auto()    # lerp from the previous keyframe into this one
     EASE_OUT = enum.auto()  # like LINEAR, but quick away and slow to arrive
     EASE_IN = enum.auto()   # like LINEAR, but slow away and quick to arrive
+    EASE_OUT_BOUNCE = enum.auto()   # arrives early, then bounces to a stop
+
+
+# The bounce curve, the standard piecewise one: four parabolas of the
+# same steepness, each starting where the last one landed. It reaches
+# the target at the end of the first, springs back part of the way, and
+# settles over two smaller bounces. It never travels PAST the target,
+# and it ends exactly on it — which is what makes a bouncing note land
+# at exactly its engraved size.
+_BOUNCE_N = 7.5625
+_BOUNCE_D = 2.75
+
+
+def _bounce(f: float) -> float:
+    if f < 1.0 / _BOUNCE_D:
+        return _BOUNCE_N * f * f
+    if f < 2.0 / _BOUNCE_D:
+        f -= 1.5 / _BOUNCE_D
+        return _BOUNCE_N * f * f + 0.75
+    if f < 2.5 / _BOUNCE_D:
+        f -= 2.25 / _BOUNCE_D
+        return _BOUNCE_N * f * f + 0.9375
+    f -= 2.625 / _BOUNCE_D
+    return _BOUNCE_N * f * f + 0.984375
 
 
 # How far along the move each curve is at fraction f of the gap between
@@ -36,6 +60,7 @@ _CURVES: Mapping[Easing, Callable[[float], float]] = {
     Easing.LINEAR: lambda f: f,
     Easing.EASE_OUT: lambda f: 1.0 - (1.0 - f) ** 3,
     Easing.EASE_IN: lambda f: f ** 3,
+    Easing.EASE_OUT_BOUNCE: _bounce,
 }
 
 

@@ -34,6 +34,18 @@ _POP_SETTLE_S = 0.25
 # duration is the DEFAULT for the document's effect_params["fade"].
 _FADE_S = 0.4
 
+# drop: the note falls onto the page from the viewer's side. It arrives
+# oversized and washed out, then shrinks and solidifies onto its place,
+# like a stamp landing. Both tracks run over the same time. These three
+# are the DEFAULTS for the document's effect_params["drop"].
+_DROP_SIZE = 3.0        # how big the note starts, in engraved sizes
+_DROP_S = 0.35
+_DROP_BOUNCE = True     # a small settle as it lands
+# How solid the note is the moment it enters, before it closes the last
+# of the distance. Never dimmer than the ghost it grew out of, so a
+# document with a high floor does not make its notes dip at the onset.
+_DROP_ARRIVAL = 0.3
+
 # Consumption clamps (M4, brief F7 ranges). The command layer validates
 # only type/finiteness, so a future preset reuses it unchanged; ranges
 # are enforced here, where the params are consumed.
@@ -53,8 +65,9 @@ def build_presets(floor: float,
     (M4) its sparse effect_params — still pure data (rule 6): the same
     named bundles of (property, Envelope) tracks, with `floor` as each
     opacity envelope's pre-trigger `initial`, pop's amplitude / settle /
-    peak-offset / note-value read from ``params["pop"]`` and fade's
-    duration / note-value from ``params["fade"]`` (both merged over
+    peak-offset / note-value read from ``params["pop"]``, fade's
+    duration / note-value from ``params["fade"]`` and drop's start size
+    / duration / bounce from ``params["drop"]`` (all merged over
     defaults, clamped). Unknown presets and unknown keys are ignored
     here — they round-trip through the document untouched (the
     effect-name precedent)."""
@@ -66,6 +79,15 @@ def build_presets(floor: float,
     fade = dict(params.get("fade", {})) if params else {}
     fade_s = max(_SETTLE_MIN, float(fade.get("duration", _FADE_S)))
     fade_note_value = bool(fade.get("note_value", False))
+    drop = dict(params.get("drop", {})) if params else {}
+    drop_size = _clamp(float(drop.get("start_size", _DROP_SIZE)),
+                       *_SCALE_RANGE)
+    drop_s = max(_SETTLE_MIN, float(drop.get("duration", _DROP_S)))
+    # The bounce is a choice of CURVE, made here in the data — the
+    # evaluator still knows nothing about any effect's name.
+    drop_curve = (Easing.EASE_OUT_BOUNCE
+                  if bool(drop.get("bounce", _DROP_BOUNCE))
+                  else Easing.EASE_OUT)
     return {
         "appear": appear(floor),
         "pop": Effect("pop", {
@@ -86,6 +108,22 @@ def build_presets(floor: float,
                                          Keyframe(fade_s, 1.0,
                                                   Easing.EASE_OUT))),
         }, settle_to_note_value=fade_note_value),
+        # Both tracks step at the trigger and then run to their resting
+        # value over the same time: the note enters big and washed out
+        # and closes the distance to the page. Scale starts from 1.0 —
+        # the ghost sits at its engraved size, and only the note that
+        # has arrived is ever oversized.
+        "drop": Effect("drop", {
+            OPACITY: Envelope(initial=floor,
+                              keyframes=(Keyframe(0.0,
+                                                  max(floor, _DROP_ARRIVAL),
+                                                  Easing.STEP),
+                                         Keyframe(drop_s, 1.0,
+                                                  Easing.EASE_OUT))),
+            SCALE: Envelope(initial=1.0,
+                            keyframes=(Keyframe(0.0, drop_size, Easing.STEP),
+                                       Keyframe(drop_s, 1.0, drop_curve))),
+        }),
     }
 
 

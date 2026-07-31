@@ -85,7 +85,7 @@ def test_note_value_lands_in_settle_to_note_value() -> None:
 def test_unknown_params_and_presets_are_ignored() -> None:
     reg = build_presets(0.3, {"pop": {"sparkle": 99}, "shimmer": {"x": 1}})
     assert reg == build_presets(0.3)
-    assert set(reg) == {"appear", "fade", "pop"}
+    assert set(reg) == {"appear", "drop", "fade", "pop"}
 
 
 def test_consumption_clamps() -> None:
@@ -153,6 +153,95 @@ def test_fade_note_value_lands_in_settle_to_note_value() -> None:
 def test_fade_params_do_not_disturb_pop() -> None:
     reg = build_presets(0.3, {"fade": {"duration": 2.0}})
     assert reg["pop"] == PRESETS["pop"]
+
+
+# --- drop: a third effect, again with no evaluator change ------------------
+
+def test_drop_is_registered() -> None:
+    assert "drop" in PRESETS
+    assert PRESETS["drop"].duration == pytest.approx(0.35)
+    # opacity and scale, both existing properties
+    assert set(PRESETS["drop"].tracks) == {OPACITY, SCALE}
+
+
+def test_drop_exact_values_through_the_unchanged_evaluator() -> None:
+    drop = PRESETS["drop"]
+    # before the trigger: the ghost, at its engraved size
+    before = element_state(10.0, drop, 9.9)
+    assert before == {OPACITY: FLOOR_OPACITY, SCALE: 1.0}
+    # at the trigger the note enters: oversized and part-way solid
+    at_onset = element_state(10.0, drop, 10.0)
+    assert at_onset == {OPACITY: 0.3, SCALE: 3.0}
+    # halfway through, opacity is most of the way up (ease-out)
+    assert element_state(10.0, drop, 10.175)[OPACITY] == \
+        pytest.approx(0.3 + 0.875 * 0.7)
+    # it lands on its size and stays there — exactly, once the window is
+    # over, which is what keeps a played note from sitting oversized
+    landed = element_state(10.0, drop, 10.35)
+    assert landed[OPACITY] == pytest.approx(1.0)
+    assert landed[SCALE] == pytest.approx(1.0)
+    assert element_state(10.0, drop, 10.36) == {OPACITY: 1.0, SCALE: 1.0}
+    assert element_state(10.0, drop, 99.0) == {OPACITY: 1.0, SCALE: 1.0}
+
+
+def test_drop_bounces_on_the_way_down() -> None:
+    """The bounce touches the engraved size early, springs back up and
+    settles — the little squash of a stamp landing."""
+    drop = PRESETS["drop"]
+    first_landing = element_state(10.0, drop, 10.0 + 0.35 / 2.75)[SCALE]
+    assert first_landing == pytest.approx(1.0)
+    bounce = element_state(10.0, drop, 10.0 + 0.35 * 1.5 / 2.75)[SCALE]
+    assert bounce == pytest.approx(1.5)          # back up, three quarters
+    assert bounce > first_landing
+
+
+def test_drop_without_bounce_eases_straight_down() -> None:
+    plain = build_presets(0.3, {"drop": {"bounce": False}})["drop"]
+    at = 10.0 + 0.35 / 2.75
+    assert element_state(10.0, plain, at)[SCALE] == \
+        pytest.approx(3.0 - 2.0 * (1.0 - (1.0 - 1.0 / 2.75) ** 3))
+    assert element_state(10.0, plain, at)[SCALE] != \
+        pytest.approx(element_state(10.0, PRESETS["drop"], at)[SCALE])
+    # either way it lands on its size, exactly
+    assert element_state(10.0, plain, 10.35)[SCALE] == 1.0
+
+
+def test_drop_params_land_in_the_envelopes() -> None:
+    drop = build_presets(0.3, {"drop": {"start_size": 5.0,
+                                        "duration": 1.0}})["drop"]
+    assert drop.duration == pytest.approx(1.0)
+    assert element_state(0.0, drop, 0.0)[SCALE] == 5.0
+    assert element_state(0.0, drop, 1.0) == {OPACITY: 1.0, SCALE: 1.0}
+
+
+def test_drop_params_are_clamped() -> None:
+    drop = build_presets(0.3, {"drop": {"start_size": 99.0,
+                                        "duration": 0.0}})["drop"]
+    assert element_state(0.0, drop, 0.0)[SCALE] == 10.0   # scale ceiling
+    assert drop.duration == pytest.approx(0.01)           # duration floor
+
+
+def test_drop_never_dips_below_the_document_floor() -> None:
+    """The note enters at 0.3 solid — but never dimmer than the ghost it
+    grew out of, so a bright floor does not make it dip at the onset."""
+    dark = build_presets(0.0)["drop"]
+    assert element_state(10.0, dark, 9.9)[OPACITY] == 0.0
+    assert element_state(10.0, dark, 10.0)[OPACITY] == 0.3
+    bright = build_presets(0.6)["drop"]
+    assert element_state(10.0, bright, 10.0)[OPACITY] == 0.6
+    assert element_state(10.0, bright, 10.35)[OPACITY] == 1.0
+
+
+def test_drop_params_do_not_disturb_pop_or_fade() -> None:
+    reg = build_presets(0.3, {"drop": {"start_size": 8.0}})
+    assert reg["pop"] == PRESETS["pop"]
+    assert reg["fade"] == PRESETS["fade"]
+
+
+def test_drop_has_no_note_value_or_shift() -> None:
+    """Its two knobs are the size and the time; nothing else moves."""
+    assert PRESETS["drop"].settle_to_note_value is False
+    assert PRESETS["drop"].trigger_shift == 0.0
 
 
 def test_timescale_divides_the_evaluated_t_rel() -> None:

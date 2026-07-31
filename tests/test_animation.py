@@ -40,7 +40,7 @@ def _ramp(easing: Easing) -> Envelope:
 def test_eased_endpoints_are_exact() -> None:
     """A curve only changes the way there, never where it starts or
     ends — the same guarantee LINEAR gives."""
-    for easing in (Easing.EASE_OUT, Easing.EASE_IN):
+    for easing in (Easing.EASE_OUT, Easing.EASE_IN, Easing.EASE_OUT_BOUNCE):
         env = _ramp(easing)
         assert env.value_at(-1.0) == 0.0     # before the first keyframe
         assert env.value_at(0.0) == 0.0
@@ -60,6 +60,28 @@ def test_eased_curves_are_monotone() -> None:
         env = _ramp(easing)
         values = [env.value_at(i / 10.0) for i in range(21)]
         assert all(b >= a for a, b in zip(values, values[1:]))
+
+
+def test_bounce_lands_early_and_settles() -> None:
+    """The bounce reaches its target well before the time is up, springs
+    back, and comes to rest on it — three landings, each bounce smaller
+    than the one before. It never travels past the target."""
+    env = _ramp(Easing.EASE_OUT_BOUNCE)
+    d = 2.75                                 # the curve's own four parts
+    assert env.value_at(2.0 / d) == pytest.approx(1.0)      # first landing
+    assert env.value_at(3.0 / d) == pytest.approx(0.75)     # biggest bounce
+    assert env.value_at(4.0 / d) == pytest.approx(1.0)      # down again
+    assert env.value_at(4.5 / d) == pytest.approx(0.9375)   # smaller
+    assert env.value_at(5.25 / d) == pytest.approx(0.984375)  # smaller still
+    values = [env.value_at(i / 20.0) for i in range(41)]
+    assert max(values) == pytest.approx(1.0)
+
+
+def test_bounce_is_the_one_curve_that_is_not_monotone() -> None:
+    """It goes back up on the way down — which is the whole point, and
+    the reason it is not in the monotone test above."""
+    env = _ramp(Easing.EASE_OUT_BOUNCE)
+    assert env.value_at(0.75) > env.value_at(1.1)
 
 
 def test_eased_curve_runs_from_the_previous_keyframe() -> None:
