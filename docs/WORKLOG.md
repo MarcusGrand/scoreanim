@@ -7,8 +7,9 @@ controls under the lanes, tap tempo gone. Schema is still v10, so a
 project saved from `main` will not open on `v0.2-beta.6`.
 `beta/f-trackpad-gestures` is merged in too, so the stage navigation is
 back: pinch to zoom, two-finger scroll to move.
-`fix/bracket-hidden-staves` and `beta/f-fade-effect` are the branches
-still unmerged.
+`fix/bracket-hidden-staves`, `beta/f-fade-effect` and
+`beta/f-drop-effect` (which sits on top of the fade branch) are the
+branches still unmerged.
 
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
@@ -19,6 +20,19 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-07-31 — **A drop effect** (`beta/f-drop-effect`, UNMERGED): notes
+  land on the page like a stamp — each one enters at three times its
+  size and part-way solid, then shrinks and goes fully solid over
+  0.35 s, with a small bounce as it lands. No new property and no
+  applier change: it is the existing scale and opacity, so the effect is
+  preset data plus one curve, `EASE_OUT_BOUNCE` (the standard piecewise
+  bounce, which ends exactly on its target — that is what leaves every
+  played note at its engraved size). Knobs: start size, duration,
+  bounce. The panel was split first, as its own commit: a preset's knobs
+  are now a table entry built by `ui/panels/effect_knobs.py`, and
+  `effects_panel.py` went 379 → 232 lines. Stems and beams still appear
+  without the stamp — the same compromise pop makes, since scale only
+  reaches anchored ink.
 - 2026-07-31 — **A fade effect** (`beta/f-fade-effect`, UNMERGED): ink
   rises from the ghost floor to full over a duration, easing out.
   `Easing` gained EASE_OUT and EASE_IN, and `value_at` now looks the
