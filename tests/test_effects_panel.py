@@ -15,7 +15,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from scoreanim.core.animation import DEFAULT_EFFECT, RevealMode  # noqa: E402
-from scoreanim.core.project import SetEffectParam  # noqa: E402
+from scoreanim.core.project import (SetDefaultEffect,  # noqa: E402
+                                    SetEffectParam, SetVolumeParam)
 from scoreanim.ui.app_state import AppState  # noqa: E402
 from scoreanim.ui.panels import EffectsPanel  # noqa: E402
 
@@ -152,6 +153,12 @@ def test_every_number_field_previews_while_you_type(panel) -> None:
              (spin(widget, "slide", "duration"),
               field(widget, "slide", "duration"), 0.8,
               lambda doc: slide(doc, "duration"), 0.8),
+             (widget.volume.spins["amount"],
+              widget.volume.fields["amount"], 0.7,
+              lambda doc: doc.style.volume.get("amount"), 0.7),
+             (widget.volume.spins["loud"],
+              widget.volume.fields["loud"], 2.5,
+              lambda doc: doc.style.volume.get("loud"), 2.5),
              (widget._floor_spin, widget._floor, 0.4,
               lambda doc: doc.style.floor_opacity, 0.4))
     for knob, live, typed, read, expected in cases:
@@ -782,3 +789,64 @@ def test_a_part_rule_combination_shows_its_options(panel) -> None:
     widget.sync_from_document(state.doc)
     assert _shown(widget, spin(widget, "slide", "distance"),
                   spin(widget, "fade", "duration"))
+
+
+# -- Volume response ------------------------------------------------------
+
+def _vol(widget, key):
+    return widget.volume.spins[key]
+
+
+def test_quiet_and_loud_wait_for_amount(panel) -> None:
+    """They describe a range nothing is being read onto while Amount is
+    0, so they gray out — the "an option another option renders
+    obsolete" rule, from the other side."""
+    widget, state = panel
+    assert not _vol(widget, "quiet").isEnabled()
+    assert not _vol(widget, "loud").isEnabled()
+    assert _vol(widget, "amount").isEnabled()    # the switch is never gray
+
+    state.execute(SetVolumeParam("amount", 0.5))
+    widget.sync_from_document(state.doc)
+    assert _vol(widget, "quiet").isEnabled()
+    assert _vol(widget, "loud").isEnabled()
+
+    state.execute(SetVolumeParam("amount", 0.0))
+    widget.sync_from_document(state.doc)
+    assert not _vol(widget, "quiet").isEnabled()
+
+
+def test_the_block_shows_the_document(panel) -> None:
+    widget, state = panel
+    assert _vol(widget, "amount").value() == pytest.approx(0.0)
+    assert _vol(widget, "quiet").value() == pytest.approx(0.5)
+    assert _vol(widget, "loud").value() == pytest.approx(1.5)
+    state.execute(SetVolumeParam("loud", 2.25))
+    widget.sync_from_document(state.doc)
+    assert _vol(widget, "loud").value() == pytest.approx(2.25)
+
+
+def test_the_block_is_always_on_screen(panel) -> None:
+    """It is not an effect, so the "show the options of the effect you
+    are using" rule has nothing to say about it — it is there whatever
+    the default effect is."""
+    widget, state = panel
+    # non-vacuity: a preset's block IS hidden here, so "visible" means
+    # something
+    assert not widget.blocks["pop"].header.isVisibleTo(widget)
+    assert widget.volume.header.isVisibleTo(widget)
+    state.execute(SetDefaultEffect("slide"))
+    widget.sync_from_document(state.doc)
+    assert not widget.blocks["pop"].header.isVisibleTo(widget)
+    assert widget.volume.header.isVisibleTo(widget)
+
+
+def test_a_volume_setting_alone_lights_the_reset_button(panel) -> None:
+    widget, state = panel
+    assert not widget._reset_button.isEnabled()
+    state.execute(SetVolumeParam("amount", 0.6))
+    widget.sync_from_document(state.doc)
+    assert widget._reset_button.isEnabled()
+    widget._commit_reset()
+    assert state.doc.style.volume == {}
+    assert not widget._reset_button.isEnabled()
