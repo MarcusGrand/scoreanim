@@ -909,3 +909,172 @@ def test_scrubbing_a_combination_is_stateless(qapp, engraved, schedule,
     for eid, item in scenes.items.items():
         assert item.scale() == pytest.approx(1.0), eid
         assert (item.pos().x(), item.pos().y()) == (0.0, 0.0), eid
+
+
+# -- the volume response ---------------------------------------------------
+
+def _loud_at(seconds, duration=30.0, rate=44100):
+    """A cache that is loud at each of `seconds` and silent elsewhere."""
+    import numpy as np
+
+    from scoreanim.core.audio import PeakCacheBuilder
+
+    samples = np.zeros(int(duration * rate), dtype=np.float32)
+    for start in seconds:
+        lo = int(start * rate)
+        samples[lo:lo + int(0.1 * rate)] = 1.0
+    builder = PeakCacheBuilder(rate)
+    builder.add_samples(samples)
+    return builder.snapshot()
+
+
+def _two_p1_heads(scenes, schedule):
+    """Two noteheads in P1 on different beats — the pair whose loudness
+    the tests below make differ."""
+    from scoreanim.core.score.identity import ElementKind
+
+    heads = sorted(
+        (eid for eid in schedule.beats_by_element
+         if scenes.items[eid].identity.kind is ElementKind.NOTEHEAD
+         and scenes.items[eid].identity.part == "P1"),
+        key=lambda eid: schedule.beats_by_element[eid])
+    first = heads[0]
+    later = next(eid for eid in heads
+                 if schedule.beats_by_element[eid]
+                 > schedule.beats_by_element[first] + 0.5)
+    return first, later
+
+
+def _full_state(scenes):
+    return {eid: (item.opacity(), item.scale(), item.animated_offset)
+            for eid, item in scenes.items.items()}
+
+
+def test_no_audio_leaves_every_state_exactly_as_it_was(scenes, schedule,
+                                                       pop_rules) -> None:
+    """With no recording the applier must be bit-for-bit what it was
+    before the volume response existed — even with the response turned
+    all the way up."""
+    from dataclasses import replace
+
+    rules = replace(pop_rules, volume={"amount": 1.0})
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    t = TEMPO.seconds_at(schedule.beats_by_element[head]) + 0.125
+    applier.apply_at(t)
+    before = _full_state(scenes)
+    applier.set_audio(None, 0.0)
+    applier.refresh(t)
+    assert _full_state(scenes) == before
+
+
+def test_amount_zero_leaves_every_state_exactly_as_it_was(scenes, schedule,
+                                                          pop_rules) -> None:
+    """The same guarantee from the other side: a recording is loaded,
+    but the response is off. Not approximately equal — equal."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, pop_rules)
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    t = TEMPO.seconds_at(schedule.beats_by_element[head]) + 0.125
+    applier.apply_at(t)
+    before = _full_state(scenes)
+    applier.set_audio(_loud_at([t - 0.125]), 0.0)
+    applier.refresh(t)
+    assert _full_state(scenes) == before
+
+
+def test_a_loud_beat_pops_harder_than_a_quiet_one(scenes, schedule,
+                                                  pop_rules) -> None:
+    """The feature itself. testpop jumps to 1.25 and settles over
+    0.25 s, so mid-decay it sits at 1.125 — a departure of 0.125 from
+    rest. At gain 1.5 that departure becomes 0.1875, at gain 0.5 it
+    becomes 0.0625."""
+    from dataclasses import replace
+
+    loud_head, quiet_head = _two_p1_heads(scenes, schedule)
+    loud_s = TEMPO.seconds_at(schedule.beats_by_element[loud_head])
+    quiet_s = TEMPO.seconds_at(schedule.beats_by_element[quiet_head])
+    rules = replace(pop_rules,
+                    volume={"amount": 1.0, "quiet": 0.5, "loud": 1.5})
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    applier.set_audio(_loud_at([loud_s]), 0.0)
+
+    applier.refresh(loud_s + 0.125)
+    loud_scale = scenes.items[loud_head].scale()
+    applier.refresh(quiet_s + 0.125)
+    quiet_scale = scenes.items[quiet_head].scale()
+
+    # non-vacuity: the two beats must genuinely differ in loudness, or
+    # this test would pass on a dead sample forever
+    assert loud_scale != pytest.approx(quiet_scale)
+    assert loud_scale == pytest.approx(1.0 + 0.125 * 1.5)
+    assert quiet_scale == pytest.approx(1.0 + 0.125 * 0.5)
+
+
+def test_a_quiet_note_still_becomes_fully_visible(scenes, schedule,
+                                                  pop_rules) -> None:
+    """Opacity is never modulated: the score has to stay readable
+    wherever the playing is soft."""
+    from dataclasses import replace
+
+    loud_head, quiet_head = _two_p1_heads(scenes, schedule)
+    loud_s = TEMPO.seconds_at(schedule.beats_by_element[loud_head])
+    quiet_s = TEMPO.seconds_at(schedule.beats_by_element[quiet_head])
+    rules = replace(pop_rules,
+                    volume={"amount": 1.0, "quiet": 0.1, "loud": 2.0})
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    applier.set_audio(_loud_at([loud_s]), 0.0)
+
+    applier.refresh(quiet_s + 0.05)
+    assert scenes.items[quiet_head].opacity() == pytest.approx(1.0)
+    applier.refresh(loud_s + 0.05)
+    assert scenes.items[loud_head].opacity() == pytest.approx(1.0)
+
+
+def test_the_offset_moves_which_part_of_the_recording_is_read(
+        scenes, schedule, pop_rules) -> None:
+    """Triggers carry score seconds; the cache is indexed from the start
+    of the sound file. Move the offset and a beat lands on a different
+    moment of the waveform."""
+    from dataclasses import replace
+
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+    rules = replace(pop_rules,
+                    volume={"amount": 1.0, "quiet": 0.5, "loud": 1.5})
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    # the burst sits 2 s into the recording; at offset 0 the beat misses
+    # it, at offset 2 it lands on it
+    applier.set_audio(_loud_at([trig_s + 2.0]), 0.0)
+    applier.refresh(trig_s + 0.125)
+    assert scenes.items[head].scale() == pytest.approx(1.0 + 0.125 * 0.5)
+    applier.set_audio(_loud_at([trig_s + 2.0]), 2.0)
+    applier.refresh(trig_s + 0.125)
+    assert scenes.items[head].scale() == pytest.approx(1.0 + 0.125 * 1.5)
+
+
+def test_settings_and_tempo_both_move_the_gains(scenes, schedule,
+                                                pop_rules) -> None:
+    """The three seams that can move a gain: the audio, the settings and
+    the seconds axis. set_style and set_timing must both re-read."""
+    from dataclasses import replace
+
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, pop_rules)
+    applier.set_audio(_loud_at([trig_s]), 0.0)
+    applier.refresh(trig_s + 0.125)
+    assert scenes.items[head].scale() == pytest.approx(1.125)   # off
+
+    louder = replace(pop_rules,
+                     volume={"amount": 1.0, "quiet": 0.5, "loud": 1.5})
+    applier.set_style(louder)
+    applier.refresh(trig_s + 0.125)
+    assert scenes.items[head].scale() == pytest.approx(1.0 + 0.125 * 1.5)
+
+    # half tempo: the beat now falls at twice the second, off the burst
+    slow = TempoMap([TempoEvent(0.0, 60.0)])
+    applier.set_timing(slow)
+    slow_s = slow.seconds_at(schedule.beats_by_element[head])
+    assert slow_s != pytest.approx(trig_s)          # non-vacuity
+    applier.refresh(slow_s + 0.125)
+    assert scenes.items[head].scale() == pytest.approx(1.0 + 0.125 * 0.5)

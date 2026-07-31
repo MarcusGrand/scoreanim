@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog,
                                QRadioButton, QSpinBox, QVBoxLayout)
 
 from scoreanim.core.animation import StyleRules
+from scoreanim.core.audio import PeakCache
 from scoreanim.core.project.stage_config import PresentationMode
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.timing import SwingRegion, TempoMap
@@ -49,6 +50,7 @@ class ExportDialog(QDialog):
                  mode: PresentationMode = PresentationMode.PAGED,
                  overrides: dict | None = None,
                  settings: dict | None = None,
+                 peaks: PeakCache | None = None,
                  parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Export Video")
@@ -63,6 +65,10 @@ class ExportDialog(QDialog):
         self._overrides = dict(overrides or {})
         self._tempo_map = tempo_map
         self._swing = swing
+        # the decoded audio, live at open like `style` and `overrides`:
+        # the volume response has to read the same recording the stage
+        # is reading, or the export would animate differently
+        self._peaks = peaks
         self._measures = tuple(measures)
         self._offset = offset_seconds
         self._duration = duration_seconds
@@ -282,7 +288,8 @@ class ExportDialog(QDialog):
         self.repaint()
         self._renderer = FrameRenderer(self._inputs, self._style,
                                        self._tempo_map, self._swing, spec,
-                                       overrides=self._overrides)
+                                       overrides=self._overrides,
+                                       peaks=self._peaks)
         w, h = self._renderer.size
         try:
             if spec.format is ExportFormat.PRORES_4444:

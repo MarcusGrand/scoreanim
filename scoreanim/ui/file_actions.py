@@ -75,6 +75,7 @@ class FileActions:
     def _on_peaks_failed(self, message: str) -> None:
         """No waveform is a degraded view, never a blocker for playback."""
         self._window.app_state.set_peaks(None)
+        self._window.playback.set_peaks(None)    # nor a volume response
         self._window.statusBar().showMessage(
             f"waveform unavailable: {message}")
 
@@ -238,6 +239,7 @@ class FileActions:
                               mode=doc.stage.mode,   # live doc, not the
                               overrides=dict(doc.layout_overrides),  # ditto
                               settings=self._export_settings,
+                              peaks=w.app_state.peaks,   # ditto
                               parent=w)
         dialog.exec()
         self._export_settings = {**(self._export_settings or {}),

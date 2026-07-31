@@ -26,8 +26,11 @@ class _FakeApplier:
     def __init__(self):
         self.applied = []
         self.refreshed = []
+        self.audio = []
     def set_timing(self, tempo_map, swing):
         pass
+    def set_audio(self, peaks, offset_seconds):
+        self.audio.append((peaks, offset_seconds))
     def set_style(self, style):
         pass
     def refresh(self, t):
@@ -115,3 +118,39 @@ def test_duration_changed_emitted_for_the_no_audio_timeline(qapp):
     c.set_animation(_FakeApplier(), _measures())
     c.set_timing_config(0.0, TempoMap([TempoEvent(0.0, 120.0)]))
     assert seen and seen[-1] == pytest.approx(8.0)
+
+
+# -- the recording reaches the animation ----------------------------------
+
+def test_the_controller_hands_the_applier_the_recording(qapp) -> None:
+    """The volume response needs two things together: the decoded audio
+    and the audio time of beat 0. The controller owns the offset, so it
+    is the one that pairs them."""
+    controller = PlaybackController()
+    applier = _FakeApplier()
+    controller.set_animation(applier, _measures())
+    controller.set_timing_config(0.77, TempoMap([TempoEvent(0.0, 120.0)]))
+    cache = object()                      # any handle; the applier decides
+    controller.set_peaks(cache)
+    assert applier.audio[-1] == (cache, 0.77)
+
+    # moving the offset re-pairs them: the same beat now lands on a
+    # different moment of the recording
+    controller.set_timing_config(2.0, TempoMap([TempoEvent(0.0, 120.0)]))
+    assert applier.audio[-1] == (cache, 2.0)
+
+    # and dropping the audio drops the response
+    controller.set_peaks(None)
+    assert applier.audio[-1] == (None, 2.0)
+
+
+def test_a_freshly_loaded_score_gets_the_recording_it_already_has(
+        qapp) -> None:
+    """Audio and score load independently. A score opened after the
+    audio must not animate flat until the next audio event."""
+    controller = PlaybackController()
+    cache = object()
+    controller.set_peaks(cache)           # audio first, no applier yet
+    applier = _FakeApplier()
+    controller.set_animation(applier, _measures())
+    assert applier.audio[-1][0] is cache
