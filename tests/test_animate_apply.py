@@ -585,6 +585,29 @@ def test_a_beam_drops_with_the_first_note_of_its_group(scenes,
     assert beam.scale() < later.scale()
 
 
+def test_a_ledger_line_fades_in_but_never_grows(scenes, schedule) -> None:
+    """Marcus, 2026-07-31: a ledger line is ruled at staff size and stays
+    that size while its note drops onto it — but it still fades in with
+    the note, like any animated ink."""
+    from scoreanim.core.score.identity import ElementKind
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, _DROP_RULES)
+    dash = next(item for eid, item in scenes.items.items()
+                if item.identity is not None
+                and item.identity.kind is ElementKind.LEDGER_LINES
+                and eid in schedule.beats_by_element)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[dash.element_key])
+
+    applier.refresh(trig_s - 0.5)
+    assert dash.opacity() == pytest.approx(FLOOR)    # a ghost, at its size
+    assert dash.scale() == 1.0
+    applier.refresh(trig_s)                          # its note is 3× here
+    assert dash.opacity() == pytest.approx(0.3)      # fading in with it
+    assert dash.scale() == 1.0
+    applier.refresh(trig_s + 1.0)
+    assert dash.opacity() == pytest.approx(1.0)
+    assert dash.scale() == 1.0
+
+
 def test_note_value_stretch_keeps_a_note_together(scenes,
                                                   schedule_nv) -> None:
     """durations.py hands a stem its notehead group's length, so a

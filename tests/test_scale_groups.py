@@ -37,6 +37,8 @@ def _synthetic() -> dict[ElementId, Point]:
             _el("accid", ElementKind.ACCIDENTAL, 0.0, Rect(-4, 0, 2, 2)),
             _el("dot", ElementKind.OTHER, 0.0, Rect(4, 0, 1, 1)),
             _el("beam", ElementKind.BEAM, 0.0, Rect(2, 20, 30, 1)),
+            # ruled at staff size and it stays there (it still fades)
+            _el("ledger", ElementKind.LEDGER_LINES, 0.0, Rect(-1, 12, 4, 1)),
             # the next note of the beamed group: its own pivot
             _el("head-2", ElementKind.NOTEHEAD, 0.5, Rect(20, 0, 2, 2)),
             _el("stem-2", ElementKind.STEM, 0.5, Rect(22, 0, 1, 10)),
@@ -82,6 +84,20 @@ def test_unscalable_ink_gets_no_pivot() -> None:
     pivots = _synthetic()
     for eid in ("rest", "dynam", "barline"):
         assert ElementId(eid) not in pivots, eid
+
+
+def test_ledger_lines_never_scale(engraved) -> None:
+    """Marcus, 2026-07-31: a ledger line is ruled at staff size and stays
+    that size while the note over it drops. Opacity still reaches it —
+    that is the applier's other property, not this map's business."""
+    assert ElementKind.LEDGER_LINES not in SCALABLE_KINDS
+    assert ElementId("ledger") not in _synthetic()
+    pivots = scale_pivots(engraved.layout)
+    dashes = [el for el in engraved.layout.elements
+              if el.identity.kind is ElementKind.LEDGER_LINES]
+    assert dashes                                    # the fixture has them
+    for el in dashes:
+        assert el.identity.element_id not in pivots
 
 
 def test_the_two_kind_tables_agree() -> None:

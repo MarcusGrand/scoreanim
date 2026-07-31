@@ -1,13 +1,18 @@
 """Where a scale effect pivots — one point per note (rule 6 seam).
 
 A note is drawn as several elements: a notehead, its stem, a flag or a
-beam, ledger dashes, an accidental, dots, articulations. A scale that
-pivoted each of those on its own centre would pull the note apart —
-the head grows in place while the stem grows around its own middle and
-loses touch with it. So the whole note scales about ONE point: the
-centre of its noteheads. A note then grows and shrinks as one object,
-which is what makes a drop look like it is coming toward the viewer and
-a pop look like one note moving.
+beam, an accidental, dots, articulations. A scale that pivoted each of
+those on its own centre would pull the note apart — the head grows in
+place while the stem grows around its own middle and loses touch with
+it. So the whole note scales about ONE point: the centre of its
+noteheads. A note then grows and shrinks as one object, which is what
+makes a drop look like it is coming toward the viewer and a pop look
+like one note moving.
+
+Ledger lines are the exception (Marcus, 2026-07-31): they are ruled at
+staff size and they stay that size, whatever the note over them is
+doing. They still fade in with the note — opacity reaches every
+animated element; only scale is fussy about which ink it may touch.
 
 POLICY LIVES HERE, never in the render layer or the evaluator — the
 same split `durations.py` makes, through the same key:
@@ -22,9 +27,9 @@ Ink with no notehead in its group is treated two ways:
 
 - Ink that stands on its own (a slash, a lone accidental) keeps its own
   centre — it IS the object being scaled.
-- Note-owned ink (stem, flag, beam, ledger dashes, tremolo strokes)
-  gets no pivot at all and does not scale. Scaling a beam about its own
-  middle reads as jitter, not as a note arriving.
+- Note-owned ink (stem, flag, beam, tremolo strokes) gets no pivot at
+  all and does not scale. Scaling a beam about its own middle reads as
+  jitter, not as a note arriving.
 """
 from __future__ import annotations
 
@@ -39,15 +44,14 @@ from scoreanim.core.score.identity import (ElementId, ElementIdentity,
 SCALABLE_KINDS = frozenset({
     ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.ACCIDENTAL,
     ElementKind.ARTICULATION, ElementKind.OTHER, ElementKind.STEM,
-    ElementKind.FLAG, ElementKind.BEAM, ElementKind.LEDGER_LINES,
-    ElementKind.TREMOLO,
+    ElementKind.FLAG, ElementKind.BEAM, ElementKind.TREMOLO,
 })
 
 # Ink that exists only to serve a note, so it scales only when there is
 # a notehead to scale about (a cross-staff beamSpan may find none).
 NOTE_OWNED_KINDS = frozenset({
     ElementKind.STEM, ElementKind.FLAG, ElementKind.BEAM,
-    ElementKind.LEDGER_LINES, ElementKind.TREMOLO,
+    ElementKind.TREMOLO,
 })
 
 # The ink a group scales about: the note's own head. A slash is its own

@@ -22,9 +22,10 @@ lines — history lives in git and `docs/history/`.
 
 - 2026-07-31 — **A scale moves the whole note** (same branch): a drop or
   a pop used to grow the head and leave the stem behind. Head, stem,
-  flag, beam, ledger dashes, accidental, dots and articulations now turn
-  around one point — the centre of the note's own heads — so the note
-  arrives as one object. The grouping is the key `durations.py` already
+  flag, beam, accidental, dots and articulations now turn around one
+  point — the centre of the note's own heads — so the note arrives as
+  one object. Ledger lines are the exception: ruled at staff size, they
+  keep it, and only fade. The grouping is the key `durations.py` already
   uses (part, staff, voice, quantized onset), so nothing new is stored
   and the adapter is untouched; a beam's onset is its first note's,
   which is what makes the beam fall in with the note it starts on while
