@@ -4,9 +4,10 @@
 in the app: every number field previews as you type. It brought
 `beta/shell-layout` with it — the openers on the toolbar, the grid
 controls under the lanes, tap tempo gone. Schema is still v10, so a
-project saved from `main` will not open on `v0.2-beta.6`. Two branches
-remain unmerged and independent: `beta/f-trackpad-gestures` and
-`fix/bracket-hidden-staves`.
+project saved from `main` will not open on `v0.2-beta.6`.
+`beta/f-trackpad-gestures` is merged in too, so the stage navigation is
+back: pinch to zoom, two-finger scroll to move.
+`fix/bracket-hidden-staves` is the one branch still unmerged.
 
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
@@ -65,6 +66,12 @@ lines — history lives in git and `docs/history/`.
   the long form moved to the new `docs/RULES.md`). ROADMAP, PHASES and
   the briefs moved to `docs/history/` and are out of the read path. The
   session protocol is now WORKLOG only, everything else on demand.
+- 2026-07-30 — `beta/f-trackpad-gestures`: stage navigation is now the
+  ordinary desktop set — pinch zooms, two-finger scroll moves the view,
+  Cmd/Ctrl+wheel zooms, no drag-panning (so, a plain arrow cursor).
+  Repeals the M2 "pan is unchanged" ruling in ARCHITECTURE §7. Qt's
+  scrollbars are off because they reserve space (measured); a fading
+  hint is painted instead. Opened BACKLOG 19. Merged into `main`.
 - 2026-07-30 — **Part labels**: the adapter now joins a part label to its
   staff (document order over labelled staves, self-checked against the
   label text), so double-clicking a staff label renames the part —

@@ -566,6 +566,23 @@ scale-to-fit). Parked:
     POST-condense part order — one shared helper, since the two
     commands already share `ApplyScoreSetup`.
 
+## Stage navigation (2026-07-30)
+
+19. **The inline text editor does not follow the view.**
+    `ui/text_edit.py` places the editing field once, mapping the item's
+    scene rect through `mapFromScene` at open time
+    (`_place_editor`-style code around line 208). Nothing re-anchors it
+    afterwards, so zooming or scrolling while a field is open leaves the
+    field behind while its text moves.
+
+    This is not new — drag-panning had the same effect since M3.1 — but
+    two-finger scrolling makes it far easier to trigger by accident, so
+    it is worth paying. The fix is small: give `StageView` a signal for
+    "my transform or scroll offset changed" (emit it from `zoom_by`,
+    `scroll_by`, and `scrollContentsBy`), and have `text_edit`
+    re-place an open editor from it. Deliberately left out of the
+    navigation change to keep that diff about navigation.
+
 ## Labels (M7, 2026-07-30)
 
 20. **The Score Setup dialog cannot edit a condense group once the score
@@ -579,8 +596,6 @@ scale-to-fit). Parked:
     `AppState.execute` reports and swallows it, so renaming a condense
     group in the dialog silently does nothing. The same list is also why
     the dialog cannot offer P2 as a member of a NEW group.
-    (Number 19 is taken by `beta/f-trackpad-gestures`, unmerged.)
-
     M7 needed the fix for its own route and took the narrow one:
     `editing.flat_part_order` rebuilds the score's order from the
     condensed one plus the groups — the exact inverse of

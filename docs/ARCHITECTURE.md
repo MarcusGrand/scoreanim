@@ -969,6 +969,22 @@ selection + shared time-axis zoom/scroll):
   View-level on purpose: export scenes structurally cannot see the
   mask. Follow emits page AND system; the window routes by mode;
   prev/next step the current presentation unit. Paged stays default.
+
+  Navigation is the ordinary desktop set (ruling 2026-07-30, replacing
+  M2's): **pinch zooms** (a macOS native gesture on the viewport, caught
+  in `viewportEvent`), **two-finger scroll moves the view** on both
+  axes, **Cmd/Ctrl + wheel zooms** so a plain mouse can too, and
+  **nothing pans by dragging** — so the cursor over the page is the
+  plain arrow, with no `setCursor` call anywhere. All three zoom paths
+  go through `StageView.zoom_by`, which clamps with the pure
+  `clamped_factor` and leaves fit mode. Zoom is always a change to the
+  VIEW transform, never to items (see the reveal-cache trap below).
+  Qt's own scrollbars are switched off: the macOS style here reports
+  `SH_ScrollBar_Transient = False`, so showing them reserves space and
+  would shove the score sideways by 20 px mid-gesture
+  (`spikes/stage_gestures.py`). `ui/stage_scrollbars.py` paints a
+  fading hint instead — feedback only, not draggable.
+
 - **TempoLaneView**: the lane under the waveform, sharing its time axis.
   A host widget with two modes, chosen by `AppState.grid.display`
   (Ticks is the default since 2026-07-30)
@@ -1017,7 +1033,6 @@ selection + shared time-axis zoom/scroll):
   line selected the field edits the initial tempo, as it always did.
   That is the whole job the tempo line's drag used to do, so Tempo mode
   is now a second view rather than the way to work.
-
 - **WaveformView**: rendered peaks, playhead, click-to-seek; tap capture
   during playback.
 
@@ -1032,9 +1047,10 @@ serialized and never undoable (rule 8 needs something to undo). Five
 separated concerns: the pure hit-priority policy in
 `core/selection/policy.py` (Qt-free, headless-tested); the selection
 SHAPE in `core/selection/context.py`; the click gesture on `StageView`
-(press/release under `startDragDistance()`, since ScrollHandDrag
-consumes mouse events and scene-side `itemAt` never fires — pan is
-unchanged and no modifier key is needed); `ui/selection.py`
+(press/release under `startDragDistance()`, and no modifier key needed —
+the threshold was built to tell a click from a pan, and outlived the pan;
+it stays so a hand that slides while pressing cannot change the
+selection); `ui/selection.py`
 `SelectionController`, which collects candidates within a 6-page-unit
 tolerance, calls the policy, and owns the highlight; and the readout in
 `ui/panels/selection_panel.py`.
