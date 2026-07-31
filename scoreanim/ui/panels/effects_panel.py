@@ -1,32 +1,37 @@
 """Effects panel (M4.8): the *Appearance & Effects* section's body.
 
 Document-wide effect controls: the Effect dropdown (enumerates the
-preset registry, sets `default_effect`), pop's four knobs (Amplitude,
-Settle, note-value, Peak offset — ms in the UI, seconds in the doc),
-fade's two (Fade time, note-value), plus Floor opacity and Sweep, moved
-in from the inspector. Every control commits exactly ONE command per
-user gesture. The number fields preview as you type
-(`ui/live_field.py`): the stage shows the amplitude, the settle, the
-shift, the fade time and the ghost opacity on every keystroke, and the
-typing session still lands as one undo entry. The checkboxes and the
-dropdown have no half-typed state, so they commit outright.
-`sync_from_document` resyncs and never re-executes.
+preset registry, sets `default_effect`), pop's knobs (Amplitude,
+Duration, Peak offset — ms in the UI, seconds in the doc), fade's
+(Duration), plus Floor opacity and Sweep, moved in from the inspector.
+Every control commits exactly ONE command per user gesture. The number
+fields preview as you type (`ui/live_field.py`): the stage shows the
+amplitude, the durations, the shift and the ghost opacity on every
+keystroke, and the typing session still lands as one undo entry. The
+checkboxes and the dropdown have no half-typed state, so they commit
+outright. `sync_from_document` resyncs and never re-executes.
 
 Each preset's knobs read their own entry in `style.effect_params`
 through one `_param` reader over the `_DEFAULTS` table — a preset with
 knobs is a table entry plus its widgets, never a second code path.
+Every effect says "Duration" for how long it runs, and "Entire note
+value" sits on the duration's own row, as the alternative to typing one
+(Marcus, 2026-07-31).
 
-Two Marcus rulings (2026-07-25): options another option renders
-obsolete gray out (`_update_enabled` — a preset's knobs while nothing
-resolves to that preset; a duration while its note-value is on), and a
-Reset button restores the pre-M4 defaults as ONE undo step
-(ResetEffectSettings, which clears every knobbed preset together;
-Floor opacity and Sweep predate the options and stay put).
+Three Marcus rulings. A preset's options only show while something
+resolves to that preset (2026-07-31, `_update_display`): the panel
+shows the effect in use, not every effect there is. Within a group,
+options another option renders obsolete gray out (2026-07-25): a
+duration while its "Entire note value" is on. And Reset restores the
+pre-M4 defaults as ONE undo step (ResetEffectSettings, which clears
+every knobbed preset together; Floor opacity and Sweep predate the
+options and stay put).
 """
 from __future__ import annotations
 
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
-                               QFormLayout, QPushButton, QSpinBox, QWidget)
+                               QFormLayout, QHBoxLayout, QLabel, QPushButton,
+                               QSpinBox, QWidget)
 
 from scoreanim.core.animation import DEFAULT_EFFECT, PRESETS, RevealMode
 from scoreanim.core.project import (Command, ProjectDoc, ResetEffectSettings,
@@ -70,6 +75,8 @@ class EffectsPanel(QWidget):
         self._amplitude_spin.setToolTip(
             "Pop scale factor at the onset (1.0 = no bump)")
 
+        # The document calls this one "settle"; the UI says Duration,
+        # the word every effect uses for how long it runs.
         self._settle_spin = QDoubleSpinBox()
         self._settle_spin.setDecimals(2)
         self._settle_spin.setRange(0.01, 5.0)
@@ -77,13 +84,13 @@ class EffectsPanel(QWidget):
         self._settle_spin.setSuffix(" s")
         self._settle_spin.setToolTip(
             "Seconds the pop takes to relax back to 1.0 — inactive "
-            "while 'Animate entire note value' is on (each note then "
-            "settles over its own length)")
+            "while 'Entire note value' is on (each note then settles "
+            "over its own length)")
 
-        self._note_value_box = QCheckBox("Animate entire note value")
+        self._note_value_box = QCheckBox("Entire note value")
         self._note_value_box.setToolTip(
-            "Stretch each note's settle over its own duration — a whole "
-            "note relaxes slowly, an eighth pops and settles at once")
+            "Use each note's own length as the duration — a whole note "
+            "relaxes slowly, an eighth pops and settles at once")
         self._note_value_box.toggled.connect(self._commit_note_value)
 
         # ms in the UI, seconds in the document. The tooltip states the
@@ -96,8 +103,7 @@ class EffectsPanel(QWidget):
             "Shifts the whole pop, including when the note appears — at "
             "a negative offset every note becomes visible that early")
 
-        # fade's two knobs: the same shape as pop's Settle and its
-        # note-value box, one preset over.
+        # fade's two knobs: the same duration pair, one preset over.
         self._fade_spin = QDoubleSpinBox()
         self._fade_spin.setDecimals(2)
         self._fade_spin.setRange(0.01, 5.0)
@@ -105,13 +111,13 @@ class EffectsPanel(QWidget):
         self._fade_spin.setSuffix(" s")
         self._fade_spin.setToolTip(
             "Seconds the fade takes to rise from the floor to full — "
-            "inactive while fade's 'Animate entire note value' is on "
-            "(each note then fades over its own length)")
+            "inactive while 'Entire note value' is on (each note then "
+            "fades over its own length)")
 
-        self._fade_note_value_box = QCheckBox("Animate entire note value")
+        self._fade_note_value_box = QCheckBox("Entire note value")
         self._fade_note_value_box.setToolTip(
-            "Stretch each note's fade over its own duration — a whole "
-            "note rises slowly, an eighth is up at once")
+            "Use each note's own length as the duration — a whole note "
+            "rises slowly, an eighth is up at once")
         self._fade_note_value_box.toggled.connect(self._commit_fade_note_value)
 
         # Floor opacity + Sweep: moved in from the inspector (M1.4).
@@ -135,38 +141,80 @@ class EffectsPanel(QWidget):
         self._reset_button = QPushButton("Reset")
         self._reset_button.setToolTip(
             "Restore the effect settings to their defaults (appear, "
-            "amplitude 1.25, settle 0.25 s, peak offset 0, fade time "
-            "0.4 s) — one undo step; Floor opacity and Sweep are "
-            "untouched")
+            "amplitude 1.25, pop duration 0.25 s, peak offset 0, fade "
+            "duration 0.4 s) — one undo step; Floor opacity and Sweep "
+            "are untouched")
         self._reset_button.clicked.connect(self._commit_reset)
 
         self._amplitude = LiveField(self._amplitude_spin, app_state,
-                                    self._amplitude_edit, self._update_enabled)
+                                    self._amplitude_edit, self._update_display)
         self._settle = LiveField(self._settle_spin, app_state,
-                                 self._settle_edit, self._update_enabled)
+                                 self._settle_edit, self._update_display)
         self._peak = LiveField(self._peak_spin, app_state, self._peak_edit,
-                               self._update_enabled)
+                               self._update_display)
         self._fade = LiveField(self._fade_spin, app_state, self._fade_edit,
-                               self._update_enabled)
+                               self._update_display)
         self._floor = LiveField(self._floor_spin, app_state, self._floor_edit,
-                                self._update_enabled)
+                                self._update_display)
         # the tuple is what holds the fields alive, and the test scans it
         self.live_fields = (self._amplitude, self._settle, self._peak,
                             self._fade, self._floor)
+        # which live fields belong to which preset — the visibility guard
+        # asks them whether an edit is running
+        self._fields_by_preset = {"pop": (self._amplitude, self._settle,
+                                          self._peak),
+                                  "fade": (self._fade,)}
 
-        form = QFormLayout(self)
-        form.setContentsMargins(8, 2, 8, 6)
-        form.addRow("Effect", self._effect_combo)
-        form.addRow("Amplitude", self._amplitude_spin)
-        form.addRow("Settle", self._settle_spin)
-        form.addRow(self._note_value_box)
-        form.addRow("Peak offset", self._peak_spin)
-        form.addRow("Fade time", self._fade_spin)
-        form.addRow(self._fade_note_value_box)
-        form.addRow(self._reset_button)
-        form.addRow("Floor opacity", self._floor_spin)
-        form.addRow(self._sweep_box)
-        self._update_enabled()
+        self._form = QFormLayout(self)
+        self._form.setContentsMargins(8, 2, 8, 6)
+        self._form.addRow("Effect", self._effect_combo)
+        # Each preset's rows, remembered so they can be shown and hidden
+        # as a group. The header names the effect they belong to, which
+        # is what keeps two "Duration" rows apart when a part rule puts
+        # two effects in use at once.
+        self._rows_by_preset = {
+            "pop": self._add_group("Pop", (
+                ("Amplitude", self._amplitude_spin),
+                ("Duration", self._duration_row(self._settle_spin,
+                                                self._note_value_box)),
+                ("Peak offset", self._peak_spin))),
+            "fade": self._add_group("Fade", (
+                ("Duration", self._duration_row(self._fade_spin,
+                                                self._fade_note_value_box)),)),
+        }
+        self._form.addRow(self._reset_button)
+        self._form.addRow("Floor opacity", self._floor_spin)
+        self._form.addRow(self._sweep_box)
+        self._update_display()
+
+    # -- form building ---------------------------------------------------------
+
+    def _duration_row(self, spin: QDoubleSpinBox,
+                      note_value: QCheckBox) -> QWidget:
+        """The duration and its alternative on one line: type a number
+        of seconds, or hand the job to the note's own length."""
+        row = QWidget()
+        box = QHBoxLayout(row)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(spin)
+        box.addWidget(note_value)
+        box.addStretch(1)
+        return row
+
+    def _add_group(self, title: str,
+                   rows: tuple[tuple[str, QWidget], ...]) -> tuple[int, ...]:
+        """A preset's own block: a heading plus its rows. Returns the row
+        numbers, which is what shows and hides the block."""
+        header = QLabel(title)
+        font = header.font()
+        font.setBold(True)
+        header.setFont(font)
+        self._form.addRow(header)
+        indexes = [self._form.rowCount() - 1]
+        for label, widget in rows:
+            self._form.addRow(label, widget)
+            indexes.append(self._form.rowCount() - 1)
+        return tuple(indexes)
 
     # -- document sync ---------------------------------------------------------
 
@@ -186,31 +234,43 @@ class EffectsPanel(QWidget):
                 or any(r.effect == preset for r in style.parts.values())
                 or any(r.effect == preset for r in style.elements.values()))
 
-    def _update_enabled(self) -> None:
-        """Gray out options another option renders obsolete (Marcus,
-        2026-07-25). A preset's knobs are inert while NOTHING resolves
-        to it (no document default, no part/element rule); its duration
-        knob is additionally inert under its note-value, where every
-        stretchable element runs over its own engraved length (an
-        element without a duration keeps timescale 1.0, but none of
-        those are scalable kinds, so the pop knob has no visible
-        effect). The stored values are untouched — disabling is display
+    def _update_display(self) -> None:
+        """What the panel shows, in two layers.
+
+        A preset's whole block is hidden while NOTHING resolves to it —
+        no document default, no part or element rule (Marcus,
+        2026-07-31): you see the options of the effect you are using,
+        not every effect there is. Inside a block, an option another
+        option renders obsolete grays out (Marcus, 2026-07-25): the
+        duration under "Entire note value", where every stretchable
+        element runs over its own engraved length instead (an element
+        without a duration keeps timescale 1.0, but none of those are
+        scalable kinds, so the pop knob has no visible effect there).
+
+        The stored values are untouched either way — this is display
         state only."""
         doc = self._state.doc
-        pop_used = self._in_use(doc, "pop")
-        note_value = bool(self._param(doc, "pop", "note_value"))
-        fade_used = self._in_use(doc, "fade")
-        fade_note_value = bool(self._param(doc, "fade", "note_value"))
+        for preset in _DEFAULTS:
+            self._set_group_visible(preset, self._in_use(doc, preset))
         # set_enabled, not setEnabled: a live field is never grayed out
         # from under the cursor (disabling drops focus, and focus-out
         # commits).
-        self._amplitude.set_enabled(pop_used)
-        self._settle.set_enabled(pop_used and not note_value)
-        self._note_value_box.setEnabled(pop_used)
-        self._peak.set_enabled(pop_used)
-        self._fade.set_enabled(fade_used and not fade_note_value)
-        self._fade_note_value_box.setEnabled(fade_used)
+        self._settle.set_enabled(
+            not bool(self._param(doc, "pop", "note_value")))
+        self._fade.set_enabled(
+            not bool(self._param(doc, "fade", "note_value")))
         self._reset_button.setEnabled(not self._at_defaults(doc))
+
+    def _set_group_visible(self, preset: str, visible: bool) -> None:
+        """Show or hide one preset's block. Never hides a field being
+        typed in: hiding drops focus, and focus-out commits — the same
+        trap set_enabled avoids. The next update after the edit ends
+        puts it right."""
+        if not visible and any(field.previewing()
+                               for field in self._fields_by_preset[preset]):
+            return
+        for row in self._rows_by_preset[preset]:
+            self._form.setRowVisible(row, visible)
 
     def _at_defaults(self, doc: ProjectDoc) -> bool:
         """Nothing for Reset to do: no document default, and no stored
@@ -249,7 +309,7 @@ class EffectsPanel(QWidget):
         self._sweep_box.setChecked(doc.style.reveal_mode
                                    is RevealMode.CONTINUOUS)
         self._sweep_box.blockSignals(False)
-        self._update_enabled()
+        self._update_display()
 
     # -- what each number field means by a value -------------------------------
     #
@@ -296,21 +356,21 @@ class EffectsPanel(QWidget):
         if name == (self._state.doc.style.default_effect or DEFAULT_EFFECT):
             return
         self._state.execute(SetDefaultEffect(name))
-        self._update_enabled()
+        self._update_display()
 
     def _commit_note_value(self, checked: bool) -> None:
         if checked == bool(self._param(self._state.committed,
                                        "pop", "note_value")):
             return
         self._state.execute(SetEffectParam("pop", "note_value", checked))
-        self._update_enabled()
+        self._update_display()
 
     def _commit_fade_note_value(self, checked: bool) -> None:
         if checked == bool(self._param(self._state.committed,
                                        "fade", "note_value")):
             return
         self._state.execute(SetEffectParam("fade", "note_value", checked))
-        self._update_enabled()
+        self._update_display()
 
     def _commit_reset(self) -> None:
         if self._at_defaults(self._state.doc):

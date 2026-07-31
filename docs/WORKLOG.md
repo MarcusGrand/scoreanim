@@ -23,11 +23,15 @@ lines — history lives in git and `docs/history/`.
   rises from the ghost floor to full over a duration, easing out.
   `Easing` gained EASE_OUT and EASE_IN, and `value_at` now looks the
   curve up in a table instead of testing for LINEAR, so the next curve
-  is one entry. The effect itself is one registry entry plus its two
-  knobs (Fade time, "Animate entire note value") — no evaluator, applier
-  or schema change, which the applier tests on the real fixture check.
-  The panel's per-preset defaults became one table, and Reset now clears
-  pop and fade together in one undo step.
+  is one entry. The effect itself is one registry entry plus its knobs —
+  no evaluator, applier or schema change, which the applier tests on the
+  real fixture check. Two Marcus calls on the panel: every effect's
+  length is now **Duration** with "Entire note value" beside it on the
+  same row (the alternative to typing one), and an effect's options only
+  show while something resolves to that effect — each preset's block is
+  a named heading plus its rows, hidden as a unit. Reset clears pop and
+  fade together in one undo step. The panel is at 379 lines: split the
+  knob blocks out before adding a third effect.
 - 2026-07-31 — **Every number field previews as you type** — the new
   default (`ui/live_field.py`), not the Tempo field's special case:
   Offset, Swing, Amplitude, Settle, Peak offset and Floor opacity all

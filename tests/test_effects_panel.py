@@ -218,40 +218,94 @@ def test_floor_and_sweep_moved_in_verbatim(panel) -> None:
     assert not state.can_undo
 
 
-def test_pop_knobs_gray_until_pop_is_in_use(panel) -> None:
-    """Obsolete options gray out (Marcus, 2026-07-25): while nothing in
-    the document resolves to pop — no default, no part/element rule —
-    the four pop knobs are inert and disabled."""
+def _shown(widget, *children) -> bool:
+    """Would these controls be on screen if the panel were? The panel is
+    never shown in the tests, so plain isVisible() says False for
+    everything."""
+    return all(child.isVisibleTo(widget) for child in children)
+
+
+def _row_of(widget, child) -> int:
+    """The form row a control sits on — found through its container when
+    it shares the row with another control."""
+    for candidate in (child, child.parentWidget()):
+        row, _role = widget._form.getWidgetPosition(candidate)
+        if row >= 0:
+            return row
+    raise AssertionError(f"{child} is not in the form")
+
+
+def _label_of(widget, child) -> str:
+    from PySide6.QtWidgets import QFormLayout
+    item = widget._form.itemAt(_row_of(widget, child),
+                               QFormLayout.ItemRole.LabelRole)
+    return item.widget().text()
+
+
+def test_pop_options_hide_until_pop_is_in_use(panel) -> None:
+    """A preset's options only show while something resolves to it
+    (Marcus, 2026-07-31): no default, no part/element rule — no pop
+    block at all, heading and rows together."""
     widget, state = panel
-    assert not widget._amplitude_spin.isEnabled()
-    assert not widget._settle_spin.isEnabled()
-    assert not widget._note_value_box.isEnabled()
-    assert not widget._peak_spin.isEnabled()
+    assert not _shown(widget, widget._amplitude_spin, widget._settle_spin,
+                      widget._note_value_box, widget._peak_spin)
     widget._effect_combo.setCurrentText("pop")
     widget._commit_effect()
-    assert widget._amplitude_spin.isEnabled()
-    assert widget._settle_spin.isEnabled()
-    assert widget._note_value_box.isEnabled()
-    assert widget._peak_spin.isEnabled()
-    # a PART rule alone also makes the knobs live (params apply to it)
+    assert _shown(widget, widget._amplitude_spin, widget._settle_spin,
+                  widget._note_value_box, widget._peak_spin)
+    assert not _shown(widget, widget._fade_spin)   # fade's turn to hide
+    # the heading rides with its block
+    from PySide6.QtWidgets import QFormLayout
+    head_row = widget._rows_by_preset["pop"][0]
+    head = widget._form.itemAt(head_row,
+                               QFormLayout.ItemRole.SpanningRole).widget()
+    assert head.text() == "Pop" and _shown(widget, head)
+    # a PART rule alone also brings the block back (params apply to it)
     from scoreanim.core.project import SetPartEffect
     from scoreanim.core.score.identity import PartId
     state.undo()
     widget.sync_from_document(state.doc)
-    assert not widget._amplitude_spin.isEnabled()
+    assert not _shown(widget, widget._amplitude_spin, head)
     state.execute(SetPartEffect(PartId("P1"), "pop"))
     widget.sync_from_document(state.doc)
-    assert widget._amplitude_spin.isEnabled()
+    assert _shown(widget, widget._amplitude_spin, head)
 
 
-def test_settle_grays_while_note_value_is_on(panel) -> None:
+def test_two_effects_in_use_show_both_blocks(panel) -> None:
+    """Two named blocks, so two rows called Duration never read as one
+    effect's pair of knobs."""
+    from scoreanim.core.project import SetPartEffect
+    from scoreanim.core.score.identity import PartId
+    widget, state = panel
+    widget._effect_combo.setCurrentText("fade")
+    widget._commit_effect()
+    state.execute(SetPartEffect(PartId("P1"), "pop"))
+    widget.sync_from_document(state.doc)
+    assert _shown(widget, widget._fade_spin, widget._amplitude_spin)
+    assert _row_of(widget, widget._settle_spin) != \
+        _row_of(widget, widget._fade_spin)
+
+
+def test_duration_terminology_and_row_pairing(panel) -> None:
+    """Both effects call it Duration, and 'Entire note value' sits on
+    that very row — the alternative to typing a number, not a separate
+    option floating below it."""
+    widget, _ = panel
+    for spin, box in ((widget._settle_spin, widget._note_value_box),
+                      (widget._fade_spin, widget._fade_note_value_box)):
+        assert _label_of(widget, spin) == "Duration"
+        assert _row_of(widget, spin) == _row_of(widget, box)
+        assert box.text() == "Entire note value"
+
+
+def test_pop_duration_grays_while_note_value_is_on(panel) -> None:
     widget, state = panel
     widget._effect_combo.setCurrentText("pop")
     widget._commit_effect()
     assert widget._settle_spin.isEnabled()
     widget._note_value_box.setChecked(True)      # commits + regrays
     assert not widget._settle_spin.isEnabled()
-    assert widget._amplitude_spin.isEnabled()    # only Settle is obsolete
+    assert widget._amplitude_spin.isEnabled()    # only Duration is obsolete
     assert widget._peak_spin.isEnabled()
     widget._note_value_box.setChecked(False)
     assert widget._settle_spin.isEnabled()
@@ -261,30 +315,45 @@ def test_settle_grays_while_note_value_is_on(panel) -> None:
     assert not widget._settle_spin.isEnabled()
 
 
-def test_fade_knobs_gray_until_fade_is_in_use(panel) -> None:
-    """The same ruling one preset over: while nothing resolves to fade,
-    its two knobs are inert — and pop being in use does not wake them."""
+def test_fade_options_hide_until_fade_is_in_use(panel) -> None:
+    """The same ruling one preset over: pop being in use does not bring
+    fade's block on screen."""
     widget, state = panel
-    assert not widget._fade_spin.isEnabled()
-    assert not widget._fade_note_value_box.isEnabled()
+    assert not _shown(widget, widget._fade_spin, widget._fade_note_value_box)
     widget._effect_combo.setCurrentText("pop")
     widget._commit_effect()
-    assert not widget._fade_spin.isEnabled()
+    assert not _shown(widget, widget._fade_spin)
     widget._effect_combo.setCurrentText("fade")
     widget._commit_effect()
-    assert widget._fade_spin.isEnabled()
-    assert widget._fade_note_value_box.isEnabled()
-    assert not widget._amplitude_spin.isEnabled()      # pop's turn to gray
-    # a PART rule alone also makes the knobs live (params apply to it)
+    assert _shown(widget, widget._fade_spin, widget._fade_note_value_box)
+    assert not _shown(widget, widget._amplitude_spin)
+    # a PART rule alone also brings the block back
     from scoreanim.core.project import SetPartEffect
     from scoreanim.core.score.identity import PartId
     state.undo()
     state.undo()
     widget.sync_from_document(state.doc)
-    assert not widget._fade_spin.isEnabled()
+    assert not _shown(widget, widget._fade_spin)
     state.execute(SetPartEffect(PartId("P1"), "fade"))
     widget.sync_from_document(state.doc)
-    assert widget._fade_spin.isEnabled()
+    assert _shown(widget, widget._fade_spin)
+
+
+def test_a_live_field_is_never_hidden_from_under_the_cursor(panel) -> None:
+    """Hiding drops focus, and focus-out commits — the trap set_enabled
+    already avoids. Nothing a knob itself types can change which effect
+    is in use, so this is a guard rather than a daily path; it is asked
+    directly here. Once the edit ends, the hide lands."""
+    widget, state = panel
+    widget._effect_combo.setCurrentText("fade")
+    widget._commit_effect()
+    widget._fade_spin.setValue(1.5)              # typing
+    assert widget._fade.previewing()
+    widget._set_group_visible("fade", False)     # refused mid-edit
+    assert _shown(widget, widget._fade_spin)
+    widget._fade.commit()                        # Enter / click away
+    widget._set_group_visible("fade", False)
+    assert not _shown(widget, widget._fade_spin)
 
 
 def test_fade_time_grays_while_fade_note_value_is_on(panel) -> None:
@@ -297,7 +366,7 @@ def test_fade_time_grays_while_fade_note_value_is_on(panel) -> None:
     assert widget._fade_note_value_box.isEnabled()   # only the time is obsolete
     widget._fade_note_value_box.setChecked(False)
     assert widget._fade_spin.isEnabled()
-    # pop's note-value is not fade's: it grays Settle, never Fade time
+    # pop's note-value is not fade's: it grays pop's Duration only
     state.execute(SetEffectParam("pop", "note_value", True))
     widget.sync_from_document(state.doc)
     assert widget._fade_spin.isEnabled()
