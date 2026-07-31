@@ -31,6 +31,21 @@ def panel(qapp):
     return EffectsPanel(state), state
 
 
+# Each preset's knobs live in its own block, keyed by the param they
+# edit (ui/panels/effect_knobs.py) — these three just say it shorter.
+
+def spin(widget, preset, key):
+    return widget.blocks[preset].spins[key]
+
+
+def box(widget, preset, key):
+    return widget.blocks[preset].boxes[key]
+
+
+def field(widget, preset, key):
+    return widget.blocks[preset].fields[key]
+
+
 def test_effect_dropdown_commits_default_effect(panel) -> None:
     widget, state = panel
     assert widget._effect_combo.currentText() == DEFAULT_EFFECT
@@ -48,12 +63,12 @@ def test_effect_dropdown_commits_default_effect(panel) -> None:
 
 def test_amplitude_and_settle_commit_pop_params(panel) -> None:
     widget, state = panel
-    widget._amplitude_spin.setValue(2.0)
-    widget._amplitude.commit()
+    spin(widget, "pop", "scale").setValue(2.0)
+    field(widget, "pop", "scale").commit()
     assert state.committed.style.effect_params["pop"]["scale"] == 2.0
-    widget._amplitude.commit()                   # epsilon no-op
-    widget._settle_spin.setValue(0.5)
-    widget._settle.commit()
+    field(widget, "pop", "scale").commit()                   # epsilon no-op
+    spin(widget, "pop", "settle").setValue(0.5)
+    field(widget, "pop", "settle").commit()
     assert state.doc.style.effect_params["pop"]["settle"] == 0.5
     assert state.undo_text() == "set effect parameter"
     state.undo()
@@ -64,19 +79,35 @@ def test_amplitude_and_settle_commit_pop_params(panel) -> None:
 
 def test_note_value_and_peak_offset_commit(panel) -> None:
     widget, state = panel
-    widget._note_value_box.setChecked(True)
+    box(widget, "pop", "note_value").setChecked(True)
     assert state.doc.style.effect_params["pop"]["note_value"] is True
-    widget._peak_spin.setValue(-100)             # ms in the UI
-    widget._peak.commit()
+    spin(widget, "pop", "peak_offset").setValue(-100)    # ms in the UI
+    field(widget, "pop", "peak_offset").commit()
     assert state.doc.style.effect_params["pop"]["peak_offset"] == \
         pytest.approx(-0.1)                      # seconds in the doc
-    widget._peak.commit()                        # epsilon no-op
+    field(widget, "pop", "peak_offset").commit()         # epsilon no-op
     state.undo()
     state.undo()
     assert not state.can_undo                    # two gestures, two steps
 
 
-def test_the_four_number_fields_preview_while_you_type(panel) -> None:
+def test_fade_knobs_commit_fade_params(panel) -> None:
+    widget, state = panel
+    spin(widget, "fade", "duration").setValue(1.5)
+    field(widget, "fade", "duration").commit()
+    assert state.committed.style.effect_params["fade"]["duration"] == 1.5
+    assert state.undo_text() == "set effect parameter"
+    field(widget, "fade", "duration").commit()           # epsilon no-op
+    box(widget, "fade", "note_value").setChecked(True)
+    assert state.doc.style.effect_params["fade"]["note_value"] is True
+    # fade's knobs are fade's own — pop is untouched
+    assert "pop" not in state.doc.style.effect_params
+    state.undo()
+    state.undo()
+    assert not state.can_undo                    # two gestures, two steps
+
+
+def test_every_number_field_previews_while_you_type(panel) -> None:
     """The stage shows the knob on every keystroke: the previewed
     document carries it while the committed one does not, and the whole
     typing session still lands as ONE undo entry."""
@@ -85,22 +116,52 @@ def test_the_four_number_fields_preview_while_you_type(panel) -> None:
     def pop(doc, key):
         return doc.style.effect_params.get("pop", {}).get(key)
 
-    cases = ((widget._amplitude_spin, widget._amplitude, 2.5,
+    def fade(doc, key):
+        return doc.style.effect_params.get("fade", {}).get(key)
+
+    def drop(doc, key):
+        return doc.style.effect_params.get("drop", {}).get(key)
+
+    def slide(doc, key):
+        return doc.style.effect_params.get("slide", {}).get(key)
+
+    cases = ((spin(widget, "pop", "scale"),
+              field(widget, "pop", "scale"), 2.5,
               lambda doc: pop(doc, "scale"), 2.5),
-             (widget._settle_spin, widget._settle, 0.75,
+             (spin(widget, "pop", "settle"),
+              field(widget, "pop", "settle"), 0.75,
               lambda doc: pop(doc, "settle"), 0.75),
-             (widget._peak_spin, widget._peak, -100,      # ms in, s out
+             (spin(widget, "pop", "peak_offset"),          # ms in, s out
+              field(widget, "pop", "peak_offset"), -100,
               lambda doc: pop(doc, "peak_offset"), pytest.approx(-0.1)),
+             (spin(widget, "fade", "duration"),
+              field(widget, "fade", "duration"), 1.25,
+              lambda doc: fade(doc, "duration"), 1.25),
+             (spin(widget, "drop", "start_size"),
+              field(widget, "drop", "start_size"), 5.0,
+              lambda doc: drop(doc, "start_size"), 5.0),
+             (spin(widget, "drop", "duration"),
+              field(widget, "drop", "duration"), 1.0,
+              lambda doc: drop(doc, "duration"), 1.0),
+             (spin(widget, "slide", "direction"),
+              field(widget, "slide", "direction"), 180,
+              lambda doc: slide(doc, "direction"), 180),
+             (spin(widget, "slide", "distance"),
+              field(widget, "slide", "distance"), 450.0,
+              lambda doc: slide(doc, "distance"), 450.0),
+             (spin(widget, "slide", "duration"),
+              field(widget, "slide", "duration"), 0.8,
+              lambda doc: slide(doc, "duration"), 0.8),
              (widget._floor_spin, widget._floor, 0.4,
               lambda doc: doc.style.floor_opacity, 0.4))
-    for spin, field, typed, read, expected in cases:
+    for knob, live, typed, read, expected in cases:
         before = read(state.committed)
-        spin.setValue(typed)                     # typing, box still focused
+        knob.setValue(typed)                     # typing, box still focused
         assert read(state.doc) == expected       # the stage was told
         assert read(state.committed) == before   # nothing committed yet
         assert not state.can_undo
 
-        field.commit()                           # Enter / click away
+        live.commit()                            # Enter / click away
         assert read(state.committed) == expected
         assert state.can_undo
         state.undo()                             # exactly one entry each
@@ -127,23 +188,23 @@ def test_a_resync_does_not_fight_a_live_knob(panel) -> None:
     widget._effect_combo.setCurrentText("pop")
     widget._commit_effect()
 
-    widget._amplitude_spin.setValue(3.0)         # typing
+    spin(widget, "pop", "scale").setValue(3.0)         # typing
     widget.sync_from_document(state.doc)         # what the window does
-    assert widget._amplitude_spin.value() == 3.0
-    assert widget._amplitude_spin.isEnabled()
+    assert spin(widget, "pop", "scale").value() == 3.0
+    assert spin(widget, "pop", "scale").isEnabled()
     assert state.undo_text() == "set default effect"   # nothing new committed
 
-    widget._amplitude.commit()
+    field(widget, "pop", "scale").commit()
     assert state.committed.style.effect_params["pop"]["scale"] == 3.0
     state.undo()                                 # the edit is over
     widget.sync_from_document(state.doc)
-    assert widget._amplitude_spin.value() == 1.25
-    assert not widget._amplitude.previewing()
+    assert spin(widget, "pop", "scale").value() == 1.25
+    assert not field(widget, "pop", "scale").previewing()
 
 
 def test_peak_offset_tooltip_states_early_visibility(panel) -> None:
     widget, _ = panel
-    tip = widget._peak_spin.toolTip()
+    tip = spin(widget, "pop", "peak_offset").toolTip()
     assert "including when the note appears" in tip
 
 
@@ -155,20 +216,20 @@ def test_sync_reflects_document_and_never_reexecutes(panel) -> None:
                 SetEffectParam("pop", "peak_offset", 0.25)):
         state.execute(cmd)
     widget.sync_from_document(state.doc)
-    assert widget._amplitude_spin.value() == 3.0
-    assert widget._settle_spin.value() == 1.0
-    assert widget._note_value_box.isChecked()
-    assert widget._peak_spin.value() == 250      # seconds → ms
+    assert spin(widget, "pop", "scale").value() == 3.0
+    assert spin(widget, "pop", "settle").value() == 1.0
+    assert box(widget, "pop", "note_value").isChecked()
+    assert spin(widget, "pop", "peak_offset").value() == 250   # seconds → ms
     depth = 0
     while state.can_undo:
         state.undo()
         depth += 1
     assert depth == 4                            # resync added nothing
     widget.sync_from_document(state.doc)         # back to defaults
-    assert widget._amplitude_spin.value() == 1.25
-    assert widget._settle_spin.value() == 0.25
-    assert not widget._note_value_box.isChecked()
-    assert widget._peak_spin.value() == 0
+    assert spin(widget, "pop", "scale").value() == 1.25
+    assert spin(widget, "pop", "settle").value() == 0.25
+    assert not box(widget, "pop", "note_value").isChecked()
+    assert spin(widget, "pop", "peak_offset").value() == 0
     assert not state.can_undo
 
 
@@ -197,47 +258,376 @@ def test_floor_and_sweep_moved_in_verbatim(panel) -> None:
     assert not state.can_undo
 
 
-def test_pop_knobs_gray_until_pop_is_in_use(panel) -> None:
-    """Obsolete options gray out (Marcus, 2026-07-25): while nothing in
-    the document resolves to pop — no default, no part/element rule —
-    the four pop knobs are inert and disabled."""
+def _shown(widget, *children) -> bool:
+    """Would these controls be on screen if the panel were? The panel is
+    never shown in the tests, so plain isVisible() says False for
+    everything."""
+    return all(child.isVisibleTo(widget) for child in children)
+
+
+def _row_of(widget, child) -> int:
+    """The form row a control sits on — found through its container when
+    it shares the row with another control."""
+    for candidate in (child, child.parentWidget()):
+        row, _role = widget._form.getWidgetPosition(candidate)
+        if row >= 0:
+            return row
+    raise AssertionError(f"{child} is not in the form")
+
+
+def _label_of(widget, child) -> str:
+    from PySide6.QtWidgets import QFormLayout
+    item = widget._form.itemAt(_row_of(widget, child),
+                               QFormLayout.ItemRole.LabelRole)
+    return item.widget().text()
+
+
+def test_pop_options_hide_until_pop_is_in_use(panel) -> None:
+    """A preset's options only show while something resolves to it
+    (Marcus, 2026-07-31): no default, no part/element rule — no pop
+    block at all, heading and rows together."""
     widget, state = panel
-    assert not widget._amplitude_spin.isEnabled()
-    assert not widget._settle_spin.isEnabled()
-    assert not widget._note_value_box.isEnabled()
-    assert not widget._peak_spin.isEnabled()
+    knobs = (spin(widget, "pop", "scale"), spin(widget, "pop", "settle"),
+             box(widget, "pop", "note_value"),
+             spin(widget, "pop", "peak_offset"))
+    assert not _shown(widget, *knobs)
     widget._effect_combo.setCurrentText("pop")
     widget._commit_effect()
-    assert widget._amplitude_spin.isEnabled()
-    assert widget._settle_spin.isEnabled()
-    assert widget._note_value_box.isEnabled()
-    assert widget._peak_spin.isEnabled()
-    # a PART rule alone also makes the knobs live (params apply to it)
+    assert _shown(widget, *knobs)
+    assert not _shown(widget,
+                      spin(widget, "fade", "duration"))   # fade's turn
+    # the heading rides with its block
+    from PySide6.QtWidgets import QFormLayout
+    head_row = widget.blocks["pop"].rows[0]
+    head = widget._form.itemAt(head_row,
+                               QFormLayout.ItemRole.SpanningRole).widget()
+    assert head.text() == "Pop" and _shown(widget, head)
+    # a PART rule alone also brings the block back (params apply to it)
     from scoreanim.core.project import SetPartEffect
     from scoreanim.core.score.identity import PartId
     state.undo()
     widget.sync_from_document(state.doc)
-    assert not widget._amplitude_spin.isEnabled()
+    assert not _shown(widget, spin(widget, "pop", "scale"), head)
     state.execute(SetPartEffect(PartId("P1"), "pop"))
     widget.sync_from_document(state.doc)
-    assert widget._amplitude_spin.isEnabled()
+    assert _shown(widget, spin(widget, "pop", "scale"), head)
 
 
-def test_settle_grays_while_note_value_is_on(panel) -> None:
+def test_two_effects_in_use_show_both_blocks(panel) -> None:
+    """Two named blocks, so two rows called Duration never read as one
+    effect's pair of knobs."""
+    from scoreanim.core.project import SetPartEffect
+    from scoreanim.core.score.identity import PartId
+    widget, state = panel
+    widget._effect_combo.setCurrentText("fade")
+    widget._commit_effect()
+    state.execute(SetPartEffect(PartId("P1"), "pop"))
+    widget.sync_from_document(state.doc)
+    assert _shown(widget, spin(widget, "fade", "duration"),
+                  spin(widget, "pop", "scale"))
+    assert _row_of(widget, spin(widget, "pop", "settle")) != \
+        _row_of(widget, spin(widget, "fade", "duration"))
+
+
+def test_duration_terminology_and_row_pairing(panel) -> None:
+    """Both effects call it Duration, and 'Entire note value' sits on
+    that very row — the alternative to typing a number, not a separate
+    option floating below it."""
+    widget, _ = panel
+    for knob, check in ((spin(widget, "pop", "settle"),
+                         box(widget, "pop", "note_value")),
+                        (spin(widget, "fade", "duration"),
+                         box(widget, "fade", "note_value"))):
+        assert _label_of(widget, knob) == "Duration"
+        assert _row_of(widget, knob) == _row_of(widget, check)
+        assert check.text() == "Entire note value"
+
+
+def test_pop_duration_grays_while_note_value_is_on(panel) -> None:
     widget, state = panel
     widget._effect_combo.setCurrentText("pop")
     widget._commit_effect()
-    assert widget._settle_spin.isEnabled()
-    widget._note_value_box.setChecked(True)      # commits + regrays
-    assert not widget._settle_spin.isEnabled()
-    assert widget._amplitude_spin.isEnabled()    # only Settle is obsolete
-    assert widget._peak_spin.isEnabled()
-    widget._note_value_box.setChecked(False)
-    assert widget._settle_spin.isEnabled()
+    assert spin(widget, "pop", "settle").isEnabled()
+    box(widget, "pop", "note_value").setChecked(True)      # commits + regrays
+    assert not spin(widget, "pop", "settle").isEnabled()
+    assert spin(widget, "pop", "scale").isEnabled()   # only Duration goes
+    assert spin(widget, "pop", "peak_offset").isEnabled()
+    box(widget, "pop", "note_value").setChecked(False)
+    assert spin(widget, "pop", "settle").isEnabled()
     # the resync path drives the same state
     state.execute(SetEffectParam("pop", "note_value", True))
     widget.sync_from_document(state.doc)
-    assert not widget._settle_spin.isEnabled()
+    assert not spin(widget, "pop", "settle").isEnabled()
+
+
+def test_fade_options_hide_until_fade_is_in_use(panel) -> None:
+    """The same ruling one preset over: pop being in use does not bring
+    fade's block on screen."""
+    widget, state = panel
+    assert not _shown(widget, spin(widget, "fade", "duration"),
+                      box(widget, "fade", "note_value"))
+    widget._effect_combo.setCurrentText("pop")
+    widget._commit_effect()
+    assert not _shown(widget, spin(widget, "fade", "duration"))
+    widget._effect_combo.setCurrentText("fade")
+    widget._commit_effect()
+    assert _shown(widget, spin(widget, "fade", "duration"),
+                  box(widget, "fade", "note_value"))
+    assert not _shown(widget, spin(widget, "pop", "scale"))
+    # a PART rule alone also brings the block back
+    from scoreanim.core.project import SetPartEffect
+    from scoreanim.core.score.identity import PartId
+    state.undo()
+    state.undo()
+    widget.sync_from_document(state.doc)
+    assert not _shown(widget, spin(widget, "fade", "duration"))
+    state.execute(SetPartEffect(PartId("P1"), "fade"))
+    widget.sync_from_document(state.doc)
+    assert _shown(widget, spin(widget, "fade", "duration"))
+
+
+def test_a_live_field_is_never_hidden_from_under_the_cursor(panel) -> None:
+    """Hiding drops focus, and focus-out commits — the trap set_enabled
+    already avoids. Nothing a knob itself types can change which effect
+    is in use, so this is a guard rather than a daily path; it is asked
+    directly here. Once the edit ends, the hide lands."""
+    widget, state = panel
+    widget._effect_combo.setCurrentText("fade")
+    widget._commit_effect()
+    spin(widget, "fade", "duration").setValue(1.5)              # typing
+    assert field(widget, "fade", "duration").previewing()
+    widget.blocks["fade"].set_visible(widget._form, False)   # refused
+    assert _shown(widget, spin(widget, "fade", "duration"))
+    field(widget, "fade", "duration").commit()       # Enter / click away
+    widget.blocks["fade"].set_visible(widget._form, False)
+    assert not _shown(widget, spin(widget, "fade", "duration"))
+
+
+def test_fade_time_grays_while_fade_note_value_is_on(panel) -> None:
+    widget, state = panel
+    widget._effect_combo.setCurrentText("fade")
+    widget._commit_effect()
+    assert spin(widget, "fade", "duration").isEnabled()
+    box(widget, "fade", "note_value").setChecked(True)     # commits + regrays
+    assert not spin(widget, "fade", "duration").isEnabled()
+    assert box(widget, "fade", "note_value").isEnabled()   # only the time
+    box(widget, "fade", "note_value").setChecked(False)
+    assert spin(widget, "fade", "duration").isEnabled()
+    # pop's note-value is not fade's: it grays pop's Duration only
+    state.execute(SetEffectParam("pop", "note_value", True))
+    widget.sync_from_document(state.doc)
+    assert spin(widget, "fade", "duration").isEnabled()
+    # the resync path drives the same state
+    state.execute(SetEffectParam("fade", "note_value", True))
+    widget.sync_from_document(state.doc)
+    assert not spin(widget, "fade", "duration").isEnabled()
+
+
+def test_sync_reflects_fade_params(panel) -> None:
+    widget, state = panel
+    for cmd in (SetEffectParam("fade", "duration", 2.0),
+                SetEffectParam("fade", "note_value", True)):
+        state.execute(cmd)
+    widget.sync_from_document(state.doc)
+    assert spin(widget, "fade", "duration").value() == 2.0
+    assert box(widget, "fade", "note_value").isChecked()
+    depth = 0
+    while state.can_undo:
+        state.undo()
+        depth += 1
+    assert depth == 2                            # resync added nothing
+    widget.sync_from_document(state.doc)         # back to the default
+    assert spin(widget, "fade", "duration").value() == 0.4
+    assert not box(widget, "fade", "note_value").isChecked()
+
+
+def test_drop_knobs_commit_drop_params(panel) -> None:
+    widget, state = panel
+    spin(widget, "drop", "start_size").setValue(5.0)
+    field(widget, "drop", "start_size").commit()
+    assert state.committed.style.effect_params["drop"]["start_size"] == 5.0
+    field(widget, "drop", "start_size").commit()         # epsilon no-op
+    spin(widget, "drop", "duration").setValue(1.0)
+    field(widget, "drop", "duration").commit()
+    assert state.doc.style.effect_params["drop"]["duration"] == 1.0
+    assert state.undo_text() == "set effect parameter"
+    # bounce starts ON, so unchecking is what writes a param
+    assert box(widget, "drop", "bounce").isChecked()
+    box(widget, "drop", "bounce").setChecked(False)
+    assert state.doc.style.effect_params["drop"]["bounce"] is False
+    # drop's knobs are drop's own
+    assert set(state.doc.style.effect_params) == {"drop"}
+    for _ in range(3):
+        assert state.can_undo
+        state.undo()
+    assert not state.can_undo                    # three gestures, three steps
+
+
+def test_drop_options_hide_until_drop_is_in_use(panel) -> None:
+    """The same ruling a third time: the panel shows the options of the
+    effect in use, not every effect there is."""
+    widget, state = panel
+    knobs = (spin(widget, "drop", "start_size"),
+             spin(widget, "drop", "duration"),
+             box(widget, "drop", "bounce"))
+    assert not _shown(widget, *knobs)
+    widget._effect_combo.setCurrentText("drop")
+    widget._commit_effect()
+    assert _shown(widget, *knobs)
+    assert not _shown(widget, spin(widget, "pop", "scale"))
+    # nothing inside the block grays out: drop has no obsoleting option
+    assert all(knob.isEnabled() for knob in knobs)
+    # a PART rule alone also brings the block back
+    from scoreanim.core.project import SetPartEffect
+    from scoreanim.core.score.identity import PartId
+    state.undo()
+    widget.sync_from_document(state.doc)
+    assert not _shown(widget, *knobs)
+    state.execute(SetPartEffect(PartId("P1"), "drop"))
+    widget.sync_from_document(state.doc)
+    assert _shown(widget, *knobs)
+
+
+def test_sync_reflects_drop_params(panel) -> None:
+    widget, state = panel
+    for cmd in (SetEffectParam("drop", "start_size", 8.0),
+                SetEffectParam("drop", "duration", 2.0),
+                SetEffectParam("drop", "bounce", False)):
+        state.execute(cmd)
+    widget.sync_from_document(state.doc)
+    assert spin(widget, "drop", "start_size").value() == 8.0
+    assert spin(widget, "drop", "duration").value() == 2.0
+    assert not box(widget, "drop", "bounce").isChecked()
+    depth = 0
+    while state.can_undo:
+        state.undo()
+        depth += 1
+    assert depth == 3                            # resync added nothing
+    widget.sync_from_document(state.doc)         # back to the defaults
+    assert spin(widget, "drop", "start_size").value() == 3.0
+    assert spin(widget, "drop", "duration").value() == 0.35
+    assert box(widget, "drop", "bounce").isChecked()
+
+
+def test_drop_params_alone_light_the_reset_button(panel) -> None:
+    widget, state = panel
+    assert not widget._reset_button.isEnabled()
+    state.execute(SetEffectParam("drop", "bounce", False))
+    widget.sync_from_document(state.doc)
+    assert widget._reset_button.isEnabled()
+
+
+def test_slide_knobs_commit_slide_params(panel) -> None:
+    widget, state = panel
+    spin(widget, "slide", "direction").setValue(90)
+    field(widget, "slide", "direction").commit()
+    assert state.committed.style.effect_params["slide"]["direction"] == 90
+    field(widget, "slide", "direction").commit()         # epsilon no-op
+    spin(widget, "slide", "distance").setValue(500.0)
+    field(widget, "slide", "distance").commit()
+    assert state.doc.style.effect_params["slide"]["distance"] == 500.0
+    spin(widget, "slide", "duration").setValue(1.0)
+    field(widget, "slide", "duration").commit()
+    assert state.doc.style.effect_params["slide"]["duration"] == 1.0
+    assert state.undo_text() == "set effect parameter"
+    # bounce starts OFF, so checking it is what writes a param
+    assert not box(widget, "slide", "bounce").isChecked()
+    box(widget, "slide", "bounce").setChecked(True)
+    assert state.doc.style.effect_params["slide"]["bounce"] is True
+    # slide's knobs are slide's own
+    assert set(state.doc.style.effect_params) == {"slide"}
+    for _ in range(4):
+        assert state.can_undo
+        state.undo()
+    assert not state.can_undo                    # four gestures, four steps
+
+
+def test_slide_options_hide_until_slide_is_in_use(panel) -> None:
+    widget, state = panel
+    knobs = (spin(widget, "slide", "direction"),
+             spin(widget, "slide", "distance"),
+             spin(widget, "slide", "duration"),
+             box(widget, "slide", "bounce"))
+    assert not _shown(widget, *knobs)
+    widget._effect_combo.setCurrentText("slide")
+    widget._commit_effect()
+    assert _shown(widget, *knobs)
+    assert not _shown(widget, spin(widget, "drop", "start_size"))
+    # nothing inside the block grays out: slide has no obsoleting option
+    assert all(knob.isEnabled() for knob in knobs)
+    # a PART rule alone also brings the block back
+    from scoreanim.core.project import SetPartEffect
+    from scoreanim.core.score.identity import PartId
+    state.undo()
+    widget.sync_from_document(state.doc)
+    assert not _shown(widget, *knobs)
+    state.execute(SetPartEffect(PartId("P1"), "slide"))
+    widget.sync_from_document(state.doc)
+    assert _shown(widget, *knobs)
+
+
+def test_sync_reflects_slide_params(panel) -> None:
+    widget, state = panel
+    for cmd in (SetEffectParam("slide", "direction", 270),
+                SetEffectParam("slide", "distance", 800.0),
+                SetEffectParam("slide", "duration", 2.0),
+                SetEffectParam("slide", "bounce", True)):
+        state.execute(cmd)
+    widget.sync_from_document(state.doc)
+    assert spin(widget, "slide", "direction").value() == 270
+    assert spin(widget, "slide", "distance").value() == 800.0
+    assert spin(widget, "slide", "duration").value() == 2.0
+    assert box(widget, "slide", "bounce").isChecked()
+    depth = 0
+    while state.can_undo:
+        state.undo()
+        depth += 1
+    assert depth == 4                            # resync added nothing
+    widget.sync_from_document(state.doc)         # back to the defaults
+    assert spin(widget, "slide", "direction").value() == 0
+    assert spin(widget, "slide", "distance").value() == 120.0
+    assert spin(widget, "slide", "duration").value() == 0.35
+    assert not box(widget, "slide", "bounce").isChecked()
+
+
+def test_slide_params_alone_light_the_reset_button(panel) -> None:
+    widget, state = panel
+    assert not widget._reset_button.isEnabled()
+    state.execute(SetEffectParam("slide", "bounce", True))
+    widget.sync_from_document(state.doc)
+    assert widget._reset_button.isEnabled()
+
+
+def test_reset_clears_every_preset_together(panel) -> None:
+    """One Reset really resets what the panel shows: every preset's
+    params go, in ONE undo step."""
+    widget, state = panel
+    widget._effect_combo.setCurrentText("fade")
+    widget._commit_effect()
+    spin(widget, "fade", "duration").setValue(1.5)
+    field(widget, "fade", "duration").commit()
+    state.execute(SetEffectParam("pop", "scale", 2.0))
+    state.execute(SetEffectParam("drop", "start_size", 5.0))
+    state.execute(SetEffectParam("slide", "distance", 900.0))
+    assert widget._reset_button.isEnabled()
+    before = state.doc
+    widget._commit_reset()
+    assert state.doc.style.default_effect is None
+    assert state.doc.style.effect_params == {}
+    assert spin(widget, "fade", "duration").value() == 0.4
+    assert spin(widget, "drop", "start_size").value() == 3.0
+    assert spin(widget, "slide", "distance").value() == 120.0
+    assert not widget._reset_button.isEnabled()
+    state.undo()                                 # ONE step restores them all
+    assert state.doc == before
+
+
+def test_fade_params_alone_light_the_reset_button(panel) -> None:
+    widget, state = panel
+    assert not widget._reset_button.isEnabled()
+    state.execute(SetEffectParam("fade", "duration", 1.0))
+    widget.sync_from_document(state.doc)
+    assert widget._reset_button.isEnabled()
 
 
 def test_reset_restores_pre_m4_defaults_in_one_step(panel) -> None:
@@ -247,11 +637,11 @@ def test_reset_restores_pre_m4_defaults_in_one_step(panel) -> None:
     assert not state.can_undo                    # no-op ran no command
     widget._effect_combo.setCurrentText("pop")
     widget._commit_effect()
-    widget._amplitude_spin.setValue(2.0)
-    widget._amplitude.commit()
-    widget._note_value_box.setChecked(True)
-    widget._peak_spin.setValue(-100)
-    widget._peak.commit()
+    spin(widget, "pop", "scale").setValue(2.0)
+    field(widget, "pop", "scale").commit()
+    box(widget, "pop", "note_value").setChecked(True)
+    spin(widget, "pop", "peak_offset").setValue(-100)
+    field(widget, "pop", "peak_offset").commit()
     assert widget._reset_button.isEnabled()
     depth_before = 4
     widget._commit_reset()
@@ -259,9 +649,9 @@ def test_reset_restores_pre_m4_defaults_in_one_step(panel) -> None:
     assert state.doc.style.default_effect is None
     assert state.doc.style.effect_params == {}
     assert widget._effect_combo.currentText() == DEFAULT_EFFECT
-    assert widget._amplitude_spin.value() == 1.25
-    assert not widget._note_value_box.isChecked()
-    assert widget._peak_spin.value() == 0
+    assert spin(widget, "pop", "scale").value() == 1.25
+    assert not box(widget, "pop", "note_value").isChecked()
+    assert spin(widget, "pop", "peak_offset").value() == 0
     assert not widget._reset_button.isEnabled()
     assert state.undo_text() == "reset effect settings"
     state.undo()                                 # ONE step restores all
@@ -280,16 +670,115 @@ def test_five_knob_undo_walk(panel) -> None:
     widget, state = panel
     widget._effect_combo.setCurrentText("pop")
     widget._commit_effect()
-    widget._amplitude_spin.setValue(2.0)
-    widget._amplitude.commit()
-    widget._settle_spin.setValue(0.5)
-    widget._settle.commit()
-    widget._note_value_box.setChecked(True)
-    widget._peak_spin.setValue(-100)
-    widget._peak.commit()
+    spin(widget, "pop", "scale").setValue(2.0)
+    field(widget, "pop", "scale").commit()
+    spin(widget, "pop", "settle").setValue(0.5)
+    field(widget, "pop", "settle").commit()
+    box(widget, "pop", "note_value").setChecked(True)
+    spin(widget, "pop", "peak_offset").setValue(-100)
+    field(widget, "pop", "peak_offset").commit()
     for _ in range(5):
         assert state.can_undo
         state.undo()
     assert not state.can_undo
     assert state.doc.style.default_effect is None
     assert state.doc.style.effect_params == {}
+
+
+# -- a second effect to run with the first ("drop+fade") --------------------
+
+def _combine_items(widget) -> list[str]:
+    return [widget._combine_combo.itemText(i)
+            for i in range(widget._combine_combo.count())]
+
+
+def test_combine_offers_every_other_preset(panel) -> None:
+    """(none) plus every preset except the one already chosen — and the
+    list follows the first choice."""
+    widget, _state = panel
+    assert _combine_items(widget)[0] == "(none)"
+    assert DEFAULT_EFFECT not in _combine_items(widget)
+    widget._effect_combo.setCurrentText("drop")
+    widget._commit_effect()
+    assert "drop" not in _combine_items(widget)
+    assert {"appear", "fade", "pop", "slide"} <= set(_combine_items(widget))
+
+
+def test_two_effects_are_stored_as_one_name(panel) -> None:
+    widget, state = panel
+    widget._effect_combo.setCurrentText("pop")
+    widget._commit_effect()
+    widget._combine_combo.setCurrentText("fade")
+    widget._commit_effect()
+    assert state.doc.style.default_effect == "pop+fade"
+    assert state.undo_text() == "set default effect"    # ONE command
+    widget._commit_effect()                             # same → no-op
+    state.undo()
+    assert state.doc.style.default_effect == "pop"      # one step back
+    # and taking the second one off stores the first alone
+    widget.sync_from_document(state.doc)
+    widget._combine_combo.setCurrentText("fade")
+    widget._commit_effect()
+    widget._combine_combo.setCurrentText("(none)")
+    widget._commit_effect()
+    assert state.doc.style.default_effect == "pop"
+
+
+def test_a_stored_combination_comes_back_split(panel) -> None:
+    from scoreanim.core.project import SetDefaultEffect
+    widget, state = panel
+    state.execute(SetDefaultEffect("drop+fade"))
+    widget.sync_from_document(state.doc)
+    assert widget._effect_combo.currentText() == "drop"
+    assert widget._combine_combo.currentText() == "fade"
+
+
+def test_a_longer_hand_edited_name_shows_whole(panel) -> None:
+    """More parts than two dropdowns can show: the stored intent is
+    displayed as it stands, never silently shortened."""
+    from scoreanim.core.project import SetDefaultEffect
+    widget, state = panel
+    state.execute(SetDefaultEffect("drop+fade+slide"))
+    widget.sync_from_document(state.doc)
+    assert widget._effect_combo.currentText() == "drop+fade+slide"
+    assert widget._combine_combo.currentText() == "(none)"
+
+
+def test_changing_the_first_effect_drops_a_clashing_second(panel) -> None:
+    widget, state = panel
+    widget._effect_combo.setCurrentText("drop")
+    widget._commit_effect()
+    widget._combine_combo.setCurrentText("fade")
+    widget._commit_effect()
+    widget._effect_combo.setCurrentText("fade")   # now the same as the second
+    widget._commit_effect()
+    assert widget._combine_combo.currentText() == "(none)"
+    assert state.doc.style.default_effect == "fade"
+
+
+def test_both_parts_of_a_combination_show_their_options(panel) -> None:
+    """A preset is in use when it is one PART of the name, so both
+    blocks are on screen."""
+    widget, state = panel
+    widget._effect_combo.setCurrentText("drop")
+    widget._commit_effect()
+    widget._combine_combo.setCurrentText("fade")
+    widget._commit_effect()
+    assert _shown(widget, spin(widget, "drop", "start_size"),
+                  spin(widget, "fade", "duration"))
+    assert not _shown(widget, spin(widget, "pop", "scale"))
+    state.undo()                                 # back to drop alone
+    widget.sync_from_document(state.doc)
+    assert _shown(widget, spin(widget, "drop", "start_size"))
+    assert not _shown(widget, spin(widget, "fade", "duration"))
+
+
+def test_a_part_rule_combination_shows_its_options(panel) -> None:
+    """The same membership test reaches part and element rules."""
+    from scoreanim.core.project import SetPartEffect
+    from scoreanim.core.score.identity import PartId
+    widget, state = panel
+    state.execute(SetPartEffect(PartId("P1"), "slide+fade"))
+    widget.sync_from_document(state.doc)
+    assert _shown(widget, spin(widget, "slide", "distance"),
+                  spin(widget, "fade", "duration"))

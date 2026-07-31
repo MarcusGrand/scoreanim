@@ -94,9 +94,10 @@ class ElementItem(GroupItem):
     """All QGraphicsItems of one RenderedElement (or one stage text).
 
     ``bbox``/``anchor`` (page == scene coordinates) and ``system`` come
-    from the RenderedElement: the anchor is the transform origin for
-    scale effects (pop), the system keys the reveal edge that drives
-    spanner clip-grow.
+    from the RenderedElement: the anchor is the element's own centre,
+    the system keys the reveal edge that drives spanner clip-grow. What
+    a scale effect turns around is the separate ``scale_pivot``, which
+    a whole note shares — see `set_scale_pivot`.
 
     **This item is the one compositing point for how an element looks.**
     Its appearance is a function of independent INPUTS, each written by
@@ -104,8 +105,10 @@ class ElementItem(GroupItem):
 
       authored color   `set_color`            — document intent (part
                                                 tint, element override)
+      layout nudge     `set_offset`             document intent (dx/dy)
       ghost floor      `set_ghost_opacity`      the document's floor
       animation state  `set_animated_opacity` — the effect evaluator
+                       `set_animated_offset`
                        `setScale`
       selection        `set_selected`         — transient UI state
 
@@ -140,14 +143,17 @@ class ElementItem(GroupItem):
         self.bbox = bbox
         self.anchor = anchor
         self.system = system
-        if anchor is not None:
-            # scale/pop transforms pivot on the element's stored anchor
-            # (page == scene == item-local coords; the parent itself
-            # carries no transform)
-            self.setTransformOriginPoint(anchor)
+        # Where a scale effect pivots, set by ScoreScenes from the pure
+        # policy (core/animation/scale_groups.py): a whole note scales
+        # about its noteheads' centre, so its stem, beam, accidental and
+        # dots move with it instead of coming apart. None means this ink
+        # never scales.
+        self.scale_pivot: QPointF | None = None
         # -- composition inputs (see the class docstring) --
         self._color = QColor(DEFAULT_COLOR)      # authored, from the doc
         self._animated_opacity = 1.0             # from the evaluator
+        self._doc_offset = (0.0, 0.0)            # the document's nudge
+        self._animated_offset = (0.0, 0.0)       # from the evaluator
         self._ghost_opacity = 1.0                # document floor, ghosts
         self._selected = False                   # transient UI state
         # (item, fill tracks element color, stroke tracks element color)
@@ -157,6 +163,13 @@ class ElementItem(GroupItem):
         # last reveal edge pushed, so a move can re-derive the clip that
         # the move itself invalidated (see set_offset)
         self._reveal_edge: float | None = None
+
+    def set_scale_pivot(self, pivot: QPointF | None) -> None:
+        """The point a scale effect turns around (page == scene ==
+        item-local coords; the parent itself carries no transform)."""
+        self.scale_pivot = pivot
+        if pivot is not None:
+            self.setTransformOriginPoint(pivot)
 
     def add_path_child(self, item: QGraphicsPathItem,
                        fill_tracks: bool, stroke_tracks: bool,
@@ -181,27 +194,37 @@ class ElementItem(GroupItem):
         return changed
 
     def set_offset(self, dx: float, dy: float) -> None:
-        """Apply the document's layout-override delta (M3.2).
-
-        Moving the item invalidates a cache the reveal clip depends on.
-        `RevealPathItem.set_clip_right` takes the edge as a SCENE x and
-        maps it into local coordinates through the inverse of its scene
-        transform, which it caches on first use — so after a move the
-        clip lands dx off, measured exactly (spikes/nudge_reveal.py: a
-        +30 nudge displaced the edge by +30.00). Invalidating makes the
-        local clip track exactly −dx and stay y-independent.
-
-        The last edge is then re-pushed, because the clip currently in
-        force was computed with the stale inverse and nothing else would
-        recompute it until the next tick — which never comes while
-        paused, and nudging is something people do while paused."""
-        if dx == self.pos().x() and dy == self.pos().y():
+        """Apply the document's layout-override delta (M3.2). One of the
+        two things that move this item; the animation is the other, and
+        `_recompose_pos` adds them."""
+        if (dx, dy) == self._doc_offset:
             return
-        self.setPos(dx, dy)
-        for child in self._reveal_children:
-            child.invalidate_transform_cache()
-        if self._reveal_edge is not None:
-            self.set_reveal_edge(self._reveal_edge)
+        self._doc_offset = (dx, dy)
+        self._recompose_pos()
+
+    def set_animated_offset(self, dx: float, dy: float) -> None:
+        """Set how far the effect evaluator wants this element from its
+        engraved place at the current t (the slide effect). Stored apart
+        from the document's nudge, so a nudged note slides to its NUDGED
+        place and neither writer overwrites the other."""
+        if (dx, dy) == self._animated_offset:
+            return
+        self._animated_offset = (dx, dy)
+        self._recompose_pos()
+
+    def set_animated_offset_x(self, value: float) -> None:
+        """One axis of the animated offset — what the applier's fixed
+        property map reaches, since each property applies on its own."""
+        self.set_animated_offset(value, self._animated_offset[1])
+
+    def set_animated_offset_y(self, value: float) -> None:
+        self.set_animated_offset(self._animated_offset[0], value)
+
+    @property
+    def animated_offset(self) -> tuple[float, float]:
+        """The evaluator's offset for the current t, readable back so a
+        caller can tell the animation input apart from the position."""
+        return self._animated_offset
 
     @property
     def reveal_children(self) -> tuple["RevealPathItem", ...]:
@@ -287,6 +310,35 @@ class ElementItem(GroupItem):
                 pen = item.pen()
                 pen.setColor(color)
                 item.setPen(pen)
+
+    def _recompose_pos(self) -> None:
+        """Where the item actually sits: the document's nudge plus the
+        animation's offset. The one place either input reaches setPos.
+
+        Moving the item invalidates a cache the reveal clip depends on.
+        `RevealPathItem.set_clip_right` takes the edge as a SCENE x and
+        maps it into local coordinates through the inverse of its scene
+        transform, which it caches on first use — so after a move the
+        clip lands dx off, measured exactly (spikes/nudge_reveal.py: a
+        +30 nudge displaced the edge by +30.00). Invalidating makes the
+        local clip track exactly −dx and stay y-independent.
+
+        The last edge is then re-pushed, because the clip currently in
+        force was computed with the stale inverse and nothing else would
+        recompute it until the next tick — which never comes while
+        paused, and nudging is something people do while paused.
+        Spanners never receive triggers, so an animated offset does not
+        reach them today; the invalidation runs either way, so the item
+        stays right if one ever does."""
+        x = self._doc_offset[0] + self._animated_offset[0]
+        y = self._doc_offset[1] + self._animated_offset[1]
+        if x == self.pos().x() and y == self.pos().y():
+            return
+        self.setPos(x, y)
+        for child in self._reveal_children:
+            child.invalidate_transform_cache()
+        if self._reveal_edge is not None:
+            self.set_reveal_edge(self._reveal_edge)
 
     def _recompose_opacity(self) -> None:
         self.setOpacity(self._paint_opacity())

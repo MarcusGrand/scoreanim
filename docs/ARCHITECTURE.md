@@ -536,6 +536,23 @@ class Effect:
 # goes through one swing-aware resolve_seconds call. No hidden state,
 # no timers, no accumulation; the same kernel serves AudioClock
 # playback, scrubbing, and FrameClock export.
+
+# Effects that run together (2026-08-01): one element may animate with
+# SEVERAL effects at once. The stored intent stays ONE name, the parts
+# joined by "+" ("drop+fade"), so the document and its schema are
+# untouched and a part this build does not know is skipped while the
+# rest still runs (presets.split_effect_name / effects_for). Envelopes
+# are NEVER merged — two eased curves cannot be merged exactly at their
+# keyframes — so each part keeps its own tracks, its own trigger_shift
+# and its own timescale, goes through the kernel above on its own, and
+# the RESULTS combine property by property:
+#     combined_state(trigger_seconds, ((effect, timescale), ...), t)
+# The combining table is data too (core/animation/compose.py): opacity
+# takes the MIN (not a product — every opacity envelope starts at the
+# document floor, and a product would put a combined ghost below it),
+# scale multiplies, the two offsets add. A part that carries no track
+# for a property contributes that property's neutral. Every operation
+# is commutative, so the order of the parts never matters.
 ```
 
 ### Reveal / playhead-x unification (revised 2026-07-12, rulings A–C)
@@ -1218,6 +1235,20 @@ nothing else recomputes it until the next tick, which never comes while
 paused, and nudging is something people do while paused. With the
 invalidation the local clip tracks exactly −dx and is y-independent.
 `HAIRPIN` therefore stays nudgeable despite being in `REVEALED_KINDS`.
+
+*Two writers, one position* (2026-07-31, the slide effect). The nudge is
+no longer the only thing that moves an item: `OFFSET_X`/`OFFSET_Y` are
+animatable properties, in scene units from the engraved place. So the
+position joins colour and opacity as a **composed** input —
+`ElementItem` stores the document's nudge and the animation's offset
+separately and derives `setPos(doc + animated)` itself. Neither writer
+may call `setPos`: a nudged note has to slide to its NUDGED place, and
+an applier that wrote the position directly would undo the nudge on
+every frame. The derived path carries the reveal-cache invalidation
+above, so an animated move stays correct too — spanners get no triggers,
+so nothing exercises that today, but the item does not depend on it.
+`AnimationApplier.set_style` resets a stale animated offset to (0, 0)
+the same way it resets a stale scale.
 
 *The `:seg` fan-out.* A per-element override on a system-broken spanner
 writes the whole family (`core/editing/segments.py`: strip one trailing

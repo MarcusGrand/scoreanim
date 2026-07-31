@@ -258,6 +258,68 @@ def test_nudging_a_spanner_keeps_its_reveal_clip_correct(window) -> None:
     assert child.clip_right == pytest.approx(home, abs=1e-6)
 
 
+# -- two writers, one position (the slide effect, 2026-07-31) -----------
+
+def test_a_nudge_and_a_slide_add_up_in_either_order(window) -> None:
+    """The item is the one place the position is composed: the document
+    owns the nudge, the effect evaluator owns the animated offset, and
+    neither writer may overwrite the other. Whichever order they arrive
+    in, the item sits at the sum."""
+    el = _select(window, ElementKind.NOTEHEAD)
+    item = window._scenes.items[el.identity.element_id]
+    item.set_offset(0.0, 0.0)
+    item.set_animated_offset(0.0, 0.0)
+
+    item.set_offset(12.0, -4.0)                 # nudge first
+    item.set_animated_offset(0.0, -200.0)       # then the slide
+    assert (item.pos().x(), item.pos().y()) == (12.0, -204.0)
+
+    item.set_animated_offset(0.0, 0.0)          # the slide lands
+    assert (item.pos().x(), item.pos().y()) == (12.0, -4.0)
+
+    item.set_offset(0.0, 0.0)                   # and back to square one
+    item.set_animated_offset(-30.0, 5.0)        # slide first this time
+    item.set_offset(12.0, -4.0)                 # then the nudge
+    assert (item.pos().x(), item.pos().y()) == (-18.0, 1.0)
+    assert item.animated_offset == (-30.0, 5.0)   # each input intact
+    item.set_animated_offset(0.0, 0.0)
+    assert (item.pos().x(), item.pos().y()) == (12.0, -4.0)
+
+
+def test_one_axis_of_the_animated_offset_leaves_the_other_alone(
+        window) -> None:
+    """What the applier's fixed property map reaches: each property
+    applies on its own, so writing x must not zero y."""
+    el = _select(window, ElementKind.NOTEHEAD)
+    item = window._scenes.items[el.identity.element_id]
+    item.set_offset(0.0, 0.0)
+    item.set_animated_offset(0.0, 0.0)
+
+    item.set_animated_offset_y(-200.0)
+    item.set_animated_offset_x(50.0)
+    assert item.animated_offset == (50.0, -200.0)
+    assert (item.pos().x(), item.pos().y()) == (50.0, -200.0)
+    item.set_animated_offset(0.0, 0.0)
+
+
+def test_an_animated_move_invalidates_the_reveal_cache_too(window) -> None:
+    """Spanners never receive triggers, so this does not fire in the app
+    today — but the same stale-inverse trap sits under both writers, and
+    the item must stay correct if one ever does."""
+    el = _select(window, ElementKind.HAIRPIN)
+    item = window._scenes.items[el.identity.element_id]
+    child = item.reveal_children[0]
+    mid = el.bbox.x + el.bbox.w / 2.0
+
+    item.set_reveal_edge(mid)
+    home = child.clip_right
+    scale = child.sceneTransform().m11()
+    item.set_animated_offset(10.0, 0.0)
+    assert child.clip_right == pytest.approx(home - 10.0 / scale, abs=1e-6)
+    item.set_animated_offset(0.0, 0.0)
+    assert child.clip_right == pytest.approx(home, abs=1e-6)
+
+
 def test_the_reveal_clip_pin_is_not_vacuous(window) -> None:
     """Guard: with the cache left stale the clip does NOT track the
     move, so the test above cannot pass by accident."""

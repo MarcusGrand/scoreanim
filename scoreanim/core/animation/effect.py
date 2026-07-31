@@ -14,17 +14,60 @@ from __future__ import annotations
 import enum
 from bisect import bisect_right
 from dataclasses import dataclass
-from typing import Mapping, NewType
+from typing import Callable, Mapping, NewType
 
 PropertyId = NewType("PropertyId", str)
 
 OPACITY = PropertyId("opacity")
 SCALE = PropertyId("scale")     # factor around the element's stored anchor
+# How far the element sits from where it was engraved, in scene units:
+# 0 is in place, negative y is up the page, positive x is to the right.
+# The applier composes these with the document's own nudge, so a moved
+# note still animates to the place the user moved it to.
+OFFSET_X = PropertyId("offset_x")
+OFFSET_Y = PropertyId("offset_y")
 
 
 class Easing(enum.Enum):
     STEP = enum.auto()      # hold the previous value; jump AT this keyframe
     LINEAR = enum.auto()    # lerp from the previous keyframe into this one
+    EASE_OUT = enum.auto()  # like LINEAR, but quick away and slow to arrive
+    EASE_IN = enum.auto()   # like LINEAR, but slow away and quick to arrive
+    EASE_OUT_BOUNCE = enum.auto()   # arrives early, then bounces to a stop
+
+
+# The bounce curve, the standard piecewise one: four parabolas of the
+# same steepness, each starting where the last one landed. It reaches
+# the target at the end of the first, springs back part of the way, and
+# settles over two smaller bounces. It never travels PAST the target,
+# and it ends exactly on it — which is what makes a bouncing note land
+# at exactly its engraved size.
+_BOUNCE_N = 7.5625
+_BOUNCE_D = 2.75
+
+
+def _bounce(f: float) -> float:
+    if f < 1.0 / _BOUNCE_D:
+        return _BOUNCE_N * f * f
+    if f < 2.0 / _BOUNCE_D:
+        f -= 1.5 / _BOUNCE_D
+        return _BOUNCE_N * f * f + 0.75
+    if f < 2.5 / _BOUNCE_D:
+        f -= 2.25 / _BOUNCE_D
+        return _BOUNCE_N * f * f + 0.9375
+    f -= 2.625 / _BOUNCE_D
+    return _BOUNCE_N * f * f + 0.984375
+
+
+# How far along the move each curve is at fraction f of the gap between
+# the two keyframes. Data, not branches: a new curve is a new entry.
+# STEP is absent on purpose — it holds instead of moving.
+_CURVES: Mapping[Easing, Callable[[float], float]] = {
+    Easing.LINEAR: lambda f: f,
+    Easing.EASE_OUT: lambda f: 1.0 - (1.0 - f) ** 3,
+    Easing.EASE_IN: lambda f: f ** 3,
+    Easing.EASE_OUT_BOUNCE: _bounce,
+}
 
 
 @dataclass(frozen=True)
@@ -52,9 +95,10 @@ class Envelope:
             return self.initial
         i = bisect_right([k.t_rel for k in kfs], t_rel) - 1
         nxt = kfs[i + 1] if i + 1 < len(kfs) else None
-        if nxt is not None and nxt.easing is Easing.LINEAR:
+        curve = _CURVES.get(nxt.easing) if nxt is not None else None
+        if curve is not None:
             f = (t_rel - kfs[i].t_rel) / (nxt.t_rel - kfs[i].t_rel)
-            return kfs[i].value + f * (nxt.value - kfs[i].value)
+            return kfs[i].value + curve(f) * (nxt.value - kfs[i].value)
         return kfs[i].value
 
 

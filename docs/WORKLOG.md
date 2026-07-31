@@ -7,7 +7,9 @@ controls under the lanes, tap tempo gone. Schema is still v10, so a
 project saved from `main` will not open on `v0.2-beta.6`.
 `beta/f-trackpad-gestures` is merged in too, so the stage navigation is
 back: pinch to zoom, two-finger scroll to move.
-`fix/bracket-hidden-staves` is the one branch still unmerged.
+`fix/bracket-hidden-staves`, `beta/f-fade-effect` and
+`beta/f-drop-effect` (which sits on top of the fade branch) are the
+branches still unmerged.
 
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
@@ -18,6 +20,78 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-01 — **Effects combine** (same branch): a note can drop AND
+  fade, picked with a second "Combine with" dropdown. The stored intent
+  stays ONE name — the parts joined by "+" — so no schema bump, and an
+  old build opening "drop+shimmer" still drops. Envelopes are never
+  merged (two eased curves cannot be merged exactly at their
+  keyframes): each part keeps its own tracks, shift and timescale, runs
+  through the same kernel, and the RESULTS combine property by property
+  in a new pure table (`core/animation/compose.py`). Opacity takes the
+  MIN, not a product — every opacity envelope starts at the document
+  floor, so multiplying would put a combined ghost below the floor
+  Marcus set; scale multiplies, offsets add, all commutative. The
+  applier now holds a tuple of effects per element and a timescale for
+  each. The property appliers moved to `render/properties.py` first, as
+  its own commit (animate.py was at 370). Rendered drop+fade and
+  slide+fade to PNG and looked at them; unproven in the running app so
+  far.
+- 2026-07-31 — **A slide effect** (same branch): notes travel in to their
+  place from a direction you pick — Direction in degrees (0 from above,
+  clockwise), Distance, Duration and Bounce. Unlike drop it needed two
+  NEW animatable properties, `OFFSET_X`/`OFFSET_Y` in scene units, so it
+  is three layers, not one: the properties, the applier, the preset. The
+  trap was the position: the document's nudge already owned it, so
+  `ElementItem` now stores the nudge and the animated offset apart and
+  derives `setPos(doc + animated)` — a nudged note slides to its nudged
+  place and neither writer clobbers the other (ARCHITECTURE §M3.2). The
+  angle becomes two track values inside `build_presets`, once per
+  document change, so the evaluator never hears the word "direction".
+  Default distance 120 page units — just clear of the note's own staff
+  and inside the gap to the next one (rendered and looked at; at 200 the
+  note arrives sitting on the staff above). Known compromise, and it
+  shows: a beam slides on its first note's trigger, so a later note in
+  the group comes in with its stem while its beam is already resting —
+  the stem hangs unattached for a moment. Worse here than under drop,
+  because a scale keeps the ink roughly where it belongs.
+- 2026-07-31 — **A scale moves the whole note** (same branch): a drop or
+  a pop used to grow the head and leave the stem behind. Head, stem,
+  flag, beam, accidental, dots and articulations now turn around one
+  point — the centre of the note's own heads — so the note arrives as
+  one object. Ledger lines are the exception: ruled at staff size, they
+  keep it, and only fade. The grouping is the key `durations.py` already
+  uses (part, staff, voice, quantized onset), so nothing new is stored
+  and the adapter is untouched; a beam's onset is its first note's,
+  which is what makes the beam fall in with the note it starts on while
+  the rest of its group drop onto it. Policy in a new pure module
+  (`core/animation/scale_groups.py`), render only applies it: no pivot,
+  no scale.
+- 2026-07-31 — **A drop effect** (`beta/f-drop-effect`, UNMERGED): notes
+  land on the page like a stamp — each one enters at three times its
+  size and part-way solid, then shrinks and goes fully solid over
+  0.35 s, with a small bounce as it lands. No new property and no
+  applier change: it is the existing scale and opacity, so the effect is
+  preset data plus one curve, `EASE_OUT_BOUNCE` (the standard piecewise
+  bounce, which ends exactly on its target — that is what leaves every
+  played note at its engraved size). Knobs: start size, duration,
+  bounce. The panel was split first, as its own commit: a preset's knobs
+  are now a table entry built by `ui/panels/effect_knobs.py`, and
+  `effects_panel.py` went 379 → 232 lines. Stems and beams still appear
+  without the stamp — the same compromise pop makes, since scale only
+  reaches anchored ink.
+- 2026-07-31 — **A fade effect** (`beta/f-fade-effect`, UNMERGED): ink
+  rises from the ghost floor to full over a duration, easing out.
+  `Easing` gained EASE_OUT and EASE_IN, and `value_at` now looks the
+  curve up in a table instead of testing for LINEAR, so the next curve
+  is one entry. The effect itself is one registry entry plus its knobs —
+  no evaluator, applier or schema change, which the applier tests on the
+  real fixture check. Two Marcus calls on the panel: every effect's
+  length is now **Duration** with "Entire note value" beside it on the
+  same row (the alternative to typing one), and an effect's options only
+  show while something resolves to that effect — each preset's block is
+  a named heading plus its rows, hidden as a unit. Reset clears pop and
+  fade together in one undo step. The panel is at 379 lines: split the
+  knob blocks out before adding a third effect.
 - 2026-07-31 — **Every number field previews as you type** — the new
   default (`ui/live_field.py`), not the Tempo field's special case:
   Offset, Swing, Amplitude, Settle, Peak offset and Floor opacity all
