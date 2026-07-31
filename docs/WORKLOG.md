@@ -20,6 +20,17 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-07-31 — **A scale moves the whole note** (same branch): a drop or
+  a pop used to grow the head and leave the stem behind. Head, stem,
+  flag, beam, ledger dashes, accidental, dots and articulations now turn
+  around one point — the centre of the note's own heads — so the note
+  arrives as one object. The grouping is the key `durations.py` already
+  uses (part, staff, voice, quantized onset), so nothing new is stored
+  and the adapter is untouched; a beam's onset is its first note's,
+  which is what makes the beam fall in with the note it starts on while
+  the rest of its group drop onto it. Policy in a new pure module
+  (`core/animation/scale_groups.py`), render only applies it: no pivot,
+  no scale.
 - 2026-07-31 — **A drop effect** (`beta/f-drop-effect`, UNMERGED): notes
   land on the page like a stamp — each one enters at three times its
   size and part-way solid, then shrinks and goes fully solid over
