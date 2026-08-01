@@ -5,8 +5,9 @@ import pytest
 from scoreanim.core.engraving.svg_geom import (ClosePath, CubicTo, LineTo,
                                                MoveTo, QuadTo, ellipse_path,
                                                parse_transform, path_bbox,
-                                               path_segments, polygon_path,
-                                               rect_path)
+                                               path_outline, path_segments,
+                                               polygon_path, rect_path)
+from scoreanim.core.engraving.types import Affine
 
 
 def test_parse_translate_then_scale_applies_right_to_left() -> None:
@@ -142,3 +143,30 @@ def test_segments_reject_arcs_and_leading_numbers() -> None:
         path_segments("M0 0 A5 5 0 0 1 10 10")
     with pytest.raises(ValueError):
         path_segments("10 10 L20 20")
+
+
+def test_outline_maps_a_polygon_to_page_points() -> None:
+    ring, = path_outline("M0 0 L10 0 L10 4 L0 4 Z",
+                         Affine(a=0.1, d=0.1, e=5.0, f=50.0))
+    assert ring == ((5.0, 50.0), (6.0, 50.0), (6.0, 50.4), (5.0, 50.4))
+
+
+def test_outline_keeps_each_subpath_apart() -> None:
+    """Verovio draws a 16th group's two beams as two paths in one
+    element, and a caller walking edges must not join them up."""
+    rings = path_outline("M0 0 L10 0 L10 1 L0 1 Z M0 5 L10 5 L10 6 L0 6 Z",
+                         Affine())
+    assert len(rings) == 2
+    assert rings[1] == ((0.0, 5.0), (10.0, 5.0), (10.0, 6.0), (0.0, 6.0))
+
+
+def test_outline_flattens_a_curve_into_chords() -> None:
+    ring, = path_outline("M0 0 C0 10 10 10 10 0 Z", Affine())
+    assert len(ring) == 9                      # the start plus 8 chords
+    assert ring[0] == (0.0, 0.0)
+    assert ring[-1] == (10.0, 0.0)
+    assert max(y for _, y in ring) == pytest.approx(7.5)   # the curve's top
+
+
+def test_outline_drops_a_degenerate_subpath() -> None:
+    assert path_outline("M0 0 L10 0", Affine()) == ()

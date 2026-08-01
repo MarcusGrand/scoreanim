@@ -44,7 +44,16 @@ lines — history lives in git and `docs/history/`.
   as `scale_cap` and clamped in one `min()` in the applier. Measured:
   the beam's far edge sits ~3% of a stem's length past its tip, so a
   beamed stem thickens where a flagged one pops with its head; 101 of
-  252 stems are capped and none overshoots. Applies to EVERY scale
+  252 stems are capped and none overshoots. The ceiling took two goes —
+  a first cut read the beam's BOX and stems grew straight through
+  tilted beams (28 of testscore's 38 beams are tilted), so it now reads
+  the beam's drawn outline at the stem's own x, across the stem's whole
+  width, through a new pure `svg_geom.path_outline`. The same pass found
+  a second one on video_test: a beam one staff up was close enough to
+  claim an unbeamed stem, so a beam is now this stem's only where the
+  tip is drawn INSIDE its ink. Checked over 8 fixtures, flat and with
+  staves hidden: 3244 capped stems, zero overshoot, zero beamed stem
+  without a ceiling. Applies to EVERY scale
   effect, not just pop, so under drop the heads enter at 3× while the
   beam sits still — deliberate, and it reverses the beam half of the
   2026-07-31 ruling. Rendered rest vs peak and looked at it

@@ -574,7 +574,12 @@ class Effect:
 #     keeps its tip inside the beam (a geometric join, like ledger
 #     dashes finding their note). Measured on testscore, that leaves
 #     about 3% of length, so a beamed stem thickens where a flagged one
-#     pops with its head.
+#     pops with its head. Two traps, both paid for once (2026-08-01):
+#     a beam is measured on its drawn OUTLINE at the stem's own x, never
+#     by its box — most beams are tilted, and a tilted box reaches far
+#     above its own ink at the low end of the slant; and a beam is this
+#     stem's only where the stem's tip is drawn INSIDE its ink, because
+#     a looser test let the beam one staff up claim an unbeamed stem.
 ```
 
 ### Reveal / playhead-x unification (revised 2026-07-12, rulings A–C)

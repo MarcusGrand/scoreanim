@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 
 from scoreanim.core.animation import (PRESETS, StyleRules,  # noqa: E402
                                       build_trigger_schedule, element_state)
+from scoreanim.core.engraving.svg_geom import path_outline  # noqa: E402
 from scoreanim.core.engraving.types import EngravingParams  # noqa: E402
 from scoreanim.core.engraving.verovio import (  # noqa: E402
     VerovioEngravingProvider)
@@ -75,9 +76,15 @@ def main() -> None:
              if el.identity.kind is ElementKind.NOTEHEAD]
 
     def under(beam) -> int:
-        return sum(1 for h in heads
-                   if beam.bbox.x <= h.bbox.center.x <= beam.bbox.x2
-                   and abs(h.bbox.center.y - beam.bbox.center.y) < 300)
+        """Notes under a beam, and only TILTED beams count: a tilt is
+        what broke the first cut of the stem ceiling."""
+        rings = [r for p in beam.glyph.paths
+                 for r in path_outline(p.d, p.transform)]
+        level = len({round(y, 2) for r in rings for _, y in r}) <= 2
+        return 0 if level else sum(
+            1 for h in heads
+            if beam.bbox.x <= h.bbox.center.x <= beam.bbox.x2
+            and abs(h.bbox.center.y - beam.bbox.center.y) < 300)
 
     beam = max((el for el in engraved.layout.elements
                 if el.identity.kind is ElementKind.BEAM and el.page == 1),

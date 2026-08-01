@@ -11,19 +11,26 @@ from __future__ import annotations
 from scoreanim.core.animation import (HEAD_KINDS, NOTE_OWNED_KINDS,
                                       SCALABLE_KINDS, quantize_beats,
                                       scale_pivots)
-from scoreanim.core.engraving.types import (Layout, PageGeometry, Point, Rect,
+from scoreanim.core.engraving.svg_geom import polygon_path, rect_path
+from scoreanim.core.engraving.types import (Affine, Layout, PageGeometry,
+                                            PathPrimitive, Point, Rect,
                                             RenderedElement, RenderPrimitive)
 from scoreanim.core.score.identity import (ElementId, ElementIdentity,
                                            ElementKind, PartId)
 
 
 def _el(eid: str, kind: ElementKind, onset: float | None,
-        box: Rect = Rect(0, 0, 2, 2), voice: int | None = 1
+        box: Rect = Rect(0, 0, 2, 2), voice: int | None = 1,
+        corners: tuple[tuple[float, float], ...] | None = None
         ) -> RenderedElement:
+    """One element, drawn as its own box unless `corners` gives a shape —
+    a tilted beam is a polygon, and stem_caps reads the real ink."""
     ident = ElementIdentity(ElementId(eid), kind, PartId("P1"), "Part",
                             1, voice, onset)
-    return RenderedElement(ident, 1, box.x, box.y, box, box.center,
-                           RenderPrimitive(paths=()))
+    d = (polygon_path(" ".join(f"{x},{y}" for x, y in corners))
+         if corners else rect_path(box.x, box.y, box.w, box.h))
+    glyph = RenderPrimitive(paths=(PathPrimitive(d=d, transform=Affine()),))
+    return RenderedElement(ident, 1, box.x, box.y, box, box.center, glyph)
 
 
 # One beamed two-note chord, one flagged note, and the ink that must be
