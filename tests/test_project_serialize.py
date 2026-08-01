@@ -488,6 +488,19 @@ def test_v11_pulse_round_trips_raw() -> None:
     assert "pulse" not in to_dict(ProjectDoc())["style"]
 
 
+def test_the_pop_settings_ride_the_same_entry() -> None:
+    """The second mode is more keys in the map the first one already
+    has, which is what keeps it clear of a schema bump."""
+    doc = ProjectDoc(style=StyleRules(
+        pulse={"amount": 0.05, "pop_amount": 0.1, "notes_for_full": 8,
+               "settle": 0.4}))
+    out = from_dict(to_dict(doc))
+    assert out.style.pulse == doc.style.pulse
+    pulse = read_pulse(out.style.pulse)
+    assert (pulse.amount, pulse.pop_amount) == (0.05, 0.1)
+    assert (pulse.notes_for_full, pulse.settle) == (8, 0.4)
+
+
 def test_the_two_v11_maps_are_stored_apart() -> None:
     """One setting each, never sharing a map: turning the page's pulse
     up must not touch how hard a single note pops."""
