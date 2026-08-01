@@ -56,8 +56,9 @@ from scoreanim.core.animation import (PRESETS, REVEALED_KINDS, Effect,
                                       RevealCurve, StyleRules,
                                       SystemRevealTrack, TriggerSchedule,
                                       build_presets, combined_state,
-                                      effects_for, modulate_state,
-                                      read_volume, reveal_x, trigger_gains)
+                                      derive_windows, effects_for,
+                                      modulate_state, read_volume, reveal_x,
+                                      trigger_gains)
 from scoreanim.core.audio import PeakCache
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
@@ -76,6 +77,15 @@ class AnimationApplier:
         self._items_per_trigger: tuple[tuple[ElementItem, ...], ...] = tuple(
             tuple(items[eid] for eid in trig.element_ids if eid in items)
             for trig in schedule.triggers)
+        # The same rows as ids, for the pure timing arithmetic in core
+        # (core/animation/windows.py): it must never see a Qt item. An
+        # item with no identity contributes None, which every duration
+        # lookup treats as "no engraved duration".
+        self._element_ids_per_trigger: tuple[
+            tuple[ElementId | None, ...], ...] = tuple(
+            tuple(None if item.identity is None else item.identity.element_id
+                  for item in row)
+            for row in self._items_per_trigger)
         # Followed page/system is monotonic non-decreasing over the
         # time-ordered triggers (prefix-max): the view must never turn
         # backward while the clock advances. A per-trigger page/system is
@@ -247,67 +257,21 @@ class AnimationApplier:
         """Per-component timescales and per-trigger effective windows
         (M4.6), recomputed from BOTH configuration seams: set_timing
         (tempo/swing moved the seconds axis) and _resolve_effects (params
-        or effect assignments moved). A note-value effect's timescale is
-        its element's engraved duration in seconds over the effect's
-        authored duration (F7 — guarded dur > 0 both sides, absent
-        entry → 1.0); the engraved end resolves through the ONE
-        swing-aware seam in a single batched resolve_seconds call. Every
-        one of these is per COMPONENT: an element animating with two
-        effects at once may stretch one of them to its note value and
-        run the other at its authored speed. A trigger's window is
-        max(shift + duration × timescale) over every component of every
-        item; `lead` is the F3 forward bound (max positive lead of any
-        negatively shifted component). Before timing exists
-        (construction) stretches park at 1.0 — set_timing recomputes
-        immediately."""
-        triggers = self._schedule.triggers
-        durs = self._schedule.duration_by_element
-        stretch: dict[tuple[int, int, int], float] = {}
-        if self._tempo_map is not None and durs:
-            refs: list[tuple[int, int, int]] = []
-            end_beats: list[float] = []
-            for i, trig in enumerate(triggers):
-                for j, (item, effects) in enumerate(
-                        zip(self._items_per_trigger[i],
-                            self._effects_per_trigger[i])):
-                    for k, effect in enumerate(effects):
-                        if (not effect.settle_to_note_value
-                                or effect.duration <= 0.0
-                                or item.identity is None):
-                            continue
-                        dur_beats = durs.get(item.identity.element_id, 0.0)
-                        if dur_beats > 0.0:
-                            refs.append((i, j, k))
-                            end_beats.append(trig.beats + dur_beats)
-            if refs:
-                ends_s = resolve_seconds(end_beats, self._tempo_map,
-                                         self._swing)
-                for (i, j, k), end_s in zip(refs, ends_s):
-                    dur_s = end_s - self._trigger_seconds[i]
-                    if dur_s > 0.0:
-                        stretch[(i, j, k)] = dur_s
-        timescales: list[tuple[tuple[float, ...], ...]] = []
-        windows: list[float] = []
-        lead = 0.0
-        for i in range(len(triggers)):
-            row: list[tuple[float, ...]] = []
-            window = 0.0
-            for j, effects in enumerate(self._effects_per_trigger[i]):
-                scales: list[float] = []
-                for k, effect in enumerate(effects):
-                    dur_s = stretch.get((i, j, k))
-                    ts = dur_s / effect.duration if dur_s is not None else 1.0
-                    scales.append(ts)
-                    window = max(window,
-                                 effect.trigger_shift + effect.duration * ts)
-                    lead = max(lead, -effect.trigger_shift)
-                row.append(tuple(scales))
-            timescales.append(tuple(row))
-            windows.append(window)
-        self._timescales_per_trigger = tuple(timescales)
-        self._durations = tuple(windows)
-        self._d_max = max(windows, default=0.0)
-        self._lead = max(0.0, lead)
+        or effect assignments moved). The arithmetic itself is pure and
+        lives in core (core/animation/windows.py); all this does is hand
+        it element ids instead of items and unpack the answer."""
+        plan = derive_windows(
+            [trig.beats for trig in self._schedule.triggers],
+            self._trigger_seconds,
+            self._element_ids_per_trigger,
+            self._effects_per_trigger,
+            self._schedule.duration_by_element,
+            self._tempo_map,
+            self._swing)
+        self._timescales_per_trigger = plan.timescales_per_trigger
+        self._durations = plan.durations
+        self._d_max = plan.d_max
+        self._lead = plan.lead
 
     # -- application ---------------------------------------------------------
 
