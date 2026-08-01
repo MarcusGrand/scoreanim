@@ -14,7 +14,9 @@ from scoreanim.core.animation.intensity import (DEFAULT_LOUD, DEFAULT_QUIET,
                                                 VolumeResponse, gain_for,
                                                 peak_reference, read_volume,
                                                 trigger_gains,
-                                                trigger_intensities)
+                                                trigger_intensities,
+                                                window_gains,
+                                                window_intensities)
 from scoreanim.core.audio import PeakCacheBuilder
 
 RATE = 44100
@@ -96,6 +98,101 @@ def test_a_silent_file_has_no_loudness_information() -> None:
     empty = PeakCacheBuilder(RATE).snapshot()
     assert peak_reference(empty) == 0.0
     assert trigger_intensities(empty, [0.5]) == (0.0,)
+
+
+# -- reading a whole note's worth of audio ---------------------------------
+
+def test_a_window_reads_the_average_over_its_whole_length() -> None:
+    """Half the window at full amplitude and half silent: the energy
+    average is sqrt(0.5) of the loud part, not the loud part itself."""
+    cache = _cache(4.0, bursts=[(1.0, 1.0, 1.0)])
+    reference = peak_reference(cache)
+    assert reference == pytest.approx(1.0, abs=0.01)   # the sound is at 1.0
+    half, = window_intensities(cache, [(1.0, 3.0)])
+    assert half == pytest.approx(np.sqrt(0.5), abs=0.01)
+    whole, = window_intensities(cache, [(1.0, 2.0)])
+    assert whole == pytest.approx(1.0, abs=0.01)
+
+
+def test_a_short_note_and_a_long_one_on_the_same_beat_differ() -> None:
+    """The feature. Both start together on a beat that is loud for a
+    moment and quiet after; the short one reads the loud part alone, the
+    long one averages the quiet in."""
+    cache = _cache(6.0, bursts=[(1.0, 0.25, 1.0), (1.25, 2.75, 0.1)])
+    short, long = window_intensities(cache, [(1.0, 1.25), (1.0, 4.0)])
+    assert short > long
+    assert short == pytest.approx(1.0, abs=0.05)
+    assert long == pytest.approx(0.33, abs=0.05)   # mostly the quiet tail
+
+
+def test_a_window_with_no_duration_falls_back_to_the_attack() -> None:
+    """Dynamics, texts and chord symbols carry no notated length, so
+    they read exactly what they always did."""
+    cache = _cache(4.0, bursts=[(1.0, 0.1, 1.0), (2.0, 0.1, 0.3)])
+    times = [1.0, 2.0, 3.0]
+    assert window_intensities(cache, [(t, t) for t in times]) \
+        == trigger_intensities(cache, times)
+    # an end BEFORE the start is the same thing, not a negative window
+    assert window_intensities(cache, [(1.0, 0.5)]) \
+        == trigger_intensities(cache, [1.0])
+
+
+def test_an_average_never_reads_louder_than_the_attack() -> None:
+    """Why the effect may feel gentler than it did: against the same
+    reference, an average over a note can only be at or below the peak
+    at its start."""
+    cache = _cache(8.0, bursts=[(t / 2.0, 0.15, 0.2 + t / 20.0)
+                                for t in range(2, 15)])
+    starts = [1.0, 2.0, 3.0, 4.0, 5.0]
+    peaks = trigger_intensities(cache, starts)
+    averages = window_intensities(cache, [(t, t + 0.5) for t in starts])
+    assert all(a <= p + 1e-6 for a, p in zip(averages, peaks))
+    assert max(averages) < max(peaks)          # non-vacuity: it really moved
+
+
+def test_a_window_clamps_to_what_the_recording_holds() -> None:
+    """One starting before the file and one running past the decoded
+    end both read the part that exists — the same answer as the window
+    clipped to the recording by hand."""
+    cache = _cache(2.0, bursts=[(0.0, 2.0, 0.5)])
+    early, = window_intensities(cache, [(-3.0, 1.0)])
+    late, = window_intensities(cache, [(1.0, 90.0)])
+    clipped_early, clipped_late = window_intensities(cache,
+                                                     [(0.0, 1.0), (1.0, 2.0)])
+    assert early == pytest.approx(clipped_early, abs=0.01)
+    assert late == pytest.approx(clipped_late, abs=0.01)
+
+
+def test_a_window_outside_the_recording_reads_zero() -> None:
+    cache = _cache(2.0, bursts=[(0.5, 0.5, 1.0)])
+    assert window_intensities(cache, [(-9.0, -5.0), (50.0, 60.0)]) \
+        == (0.0, 0.0)
+
+
+def test_a_window_shorter_than_one_bin_reads_the_bin_under_it() -> None:
+    """A grace note can be shorter than the ~11.6 ms the cache resolves.
+    It still gets a reading rather than a zero."""
+    cache = _cache(3.0, bursts=[(1.0, 0.5, 1.0)])
+    tiny, = window_intensities(cache, [(1.2, 1.2 + BIN_S / 4)])
+    assert tiny == pytest.approx(1.0, abs=0.05)
+
+
+def test_a_silent_file_gives_no_window_any_loudness() -> None:
+    assert window_intensities(_cache(2.0), [(0.5, 1.5)]) == (0.0,)
+    empty = PeakCacheBuilder(RATE).snapshot()
+    assert window_intensities(empty, [(0.5, 1.5)]) == (0.0,)
+
+
+def test_window_gains_skip_when_there_is_nothing_to_do() -> None:
+    """The same None contract as the per-trigger gains."""
+    cache = _cache(2.0, bursts=[(0.5, 0.5, 1.0)])
+    on = VolumeResponse(amount=1.0)
+    assert window_gains(None, [(0.5, 1.0)], on) is None
+    assert window_gains(cache, [(0.5, 1.0)], VolumeResponse()) is None
+    assert window_gains(cache, [], on) is None
+    gains = window_gains(cache, [(0.5, 1.0), (1.5, 2.0)], on)
+    assert gains is not None and len(gains) == 2
+    assert gains[0] > gains[1]            # loud window, then the silence
 
 
 # -- the gain -------------------------------------------------------------

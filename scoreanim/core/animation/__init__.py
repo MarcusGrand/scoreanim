@@ -8,7 +8,9 @@ from scoreanim.core.animation.effect import (OFFSET_X, OFFSET_Y, OPACITY,
 from scoreanim.core.animation.intensity import (VolumeResponse, gain_for,
                                                 peak_reference, read_volume,
                                                 trigger_gains,
-                                                trigger_intensities)
+                                                trigger_intensities,
+                                                window_gains,
+                                                window_intensities)
 from scoreanim.core.animation.presets import (COMBINE_SEP, DEFAULT_EFFECT,
                                               FLOOR_OPACITY, PRESETS,
                                               build_presets, effect_for,
@@ -48,4 +50,5 @@ __all__ = [
     "read_volume", "resolve_durations", "reveal_x",
     "scale_pivots", "split_effect_name", "takes_part_color",
     "trigger_gains", "trigger_intensities",
+    "window_gains", "window_intensities",
 ]

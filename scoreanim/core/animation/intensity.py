@@ -3,10 +3,19 @@ animation.
 
 The recording already carries the answer: the peak cache
 (`core/audio/peaks.py`) holds one rms value per ~11.6 ms bin. This
-module reads it at each trigger and hands back ONE number per trigger —
-an intensity in [0, 1], and from it a gain. The applier then uses the
-gain to scale how far the animation departs from rest, so a loud beat
-pops harder than a quiet one.
+module reads it and hands back ONE number per element — an intensity in
+[0, 1], and from it a gain. The applier then uses the gain to scale how
+far the animation departs from rest, so a loud beat pops harder than a
+quiet one.
+
+There are two ways to read it, and the difference matters. The attack
+reading (`trigger_intensities`) takes the loudest bin in a small window
+around an onset. The duration reading (`window_intensities`) takes the
+average loudness over an element's whole notated length, so a whole
+note reads its bar and a sixteenth reads its sixteenth — two elements
+starting on the same beat get different numbers. The duration reading
+is what the animation uses; the attack reading is its fallback for ink
+with no notated length.
 
 All of this is derived data, recomputed from the audio and never saved
 (rule 5). What the document stores is the three settings below.
@@ -102,6 +111,21 @@ def peak_reference(cache: PeakCache) -> float:
     return float(np.percentile(sounding, REFERENCE_PERCENTILE))
 
 
+def _onset_reading(rms: np.ndarray, bins_per_sec: float, n_bins: int,
+                   reference: float, t: float) -> float:
+    """The loudest rms bin in the attack window around `t`, over the
+    reference. Both readings below share this one copy of the −25/+75 ms
+    convention. A time before the recording starts, or past what has
+    been decoded, reads 0."""
+    lo = int((t - WINDOW_BEFORE_S) * bins_per_sec)
+    hi = int((t + WINDOW_AFTER_S) * bins_per_sec) + 1
+    lo = max(lo, 0)
+    hi = min(hi, n_bins)
+    if hi <= lo:                     # before the start, or past the end
+        return 0.0
+    return _clamp(float(rms[lo:hi].max()) / reference, 0.0, 1.0)
+
+
 def trigger_intensities(cache: PeakCache,
                         times_seconds: Sequence[float]) -> tuple[float, ...]:
     """One loudness reading in [0, 1] per time, in the order given.
@@ -112,8 +136,7 @@ def trigger_intensities(cache: PeakCache,
 
     Each reading is the loudest rms bin in the window around the time,
     at the finest level the cache has (~11.6 ms per bin), over the
-    reference above. A time before the recording starts, or past what
-    has been decoded, reads 0."""
+    reference above."""
     reference = peak_reference(cache)
     if reference <= 0.0:
         return tuple(0.0 for _ in times_seconds)
@@ -121,17 +144,60 @@ def trigger_intensities(cache: PeakCache,
     n_bins = len(level.rms)
     # bin index from seconds — the one conversion peaks.py uses
     bins_per_sec = cache.sample_rate / level.samples_per_bin
+    return tuple(_onset_reading(level.rms, bins_per_sec, n_bins, reference, t)
+                 for t in times_seconds)
+
+
+def window_intensities(cache: PeakCache,
+                       windows: Sequence[tuple[float, float]]
+                       ) -> tuple[float, ...]:
+    """One loudness reading in [0, 1] per window, in the order given.
+
+    A window is (start, end) in AUDIO seconds — an element's onset and
+    the end of its notated duration. The reading is the AVERAGE loudness
+    over it, so a whole note reads its whole bar and a sixteenth reads
+    its sixteenth, and two elements starting together but lasting
+    different lengths get different numbers.
+
+    Averaging is done on ENERGY, not on rms: mean of rms squared, then
+    the square root. That is the honest loudness of the whole stretch —
+    averaging rms directly would weight a quiet bin the same as a loud
+    one.
+
+    `end <= start` means the element has no notated duration (dynamics,
+    texts, chord symbols — see core/animation/durations.py). Those fall
+    back to the attack reading at `start`, which is what every element
+    used to get.
+
+    A window that starts before the recording or ends past what has been
+    decoded reads whatever exists inside it; one that overlaps nothing
+    reads 0."""
+    reference = peak_reference(cache)
+    if reference <= 0.0:
+        return tuple(0.0 for _ in windows)
+    level = cache.levels[0]
+    rms = level.rms
+    n_bins = len(rms)
+    bins_per_sec = cache.sample_rate / level.samples_per_bin
+    # Running total of energy, so every window below costs one
+    # subtraction however long it is. energy[i] is the total over all
+    # bins before i; building it is a single pass and nothing is kept.
+    energy = np.concatenate(
+        ([0.0], np.cumsum(np.square(rms, dtype=np.float64))))
     out: list[float] = []
-    for t in times_seconds:
-        lo = int((t - WINDOW_BEFORE_S) * bins_per_sec)
-        hi = int((t + WINDOW_AFTER_S) * bins_per_sec) + 1
-        lo = max(lo, 0)
-        hi = min(hi, n_bins)
-        if hi <= lo:                 # before the start, or past the end
+    for start, end in windows:
+        if end <= start:
+            out.append(_onset_reading(rms, bins_per_sec, n_bins, reference,
+                                      start))
+            continue
+        # every bin the window touches, clamped to what has been decoded
+        lo = max(int(np.floor(start * bins_per_sec)), 0)
+        hi = min(int(np.ceil(end * bins_per_sec)), n_bins)
+        if hi <= lo:                 # nothing of the window was recorded
             out.append(0.0)
             continue
-        out.append(_clamp(float(level.rms[lo:hi].max()) / reference,
-                          0.0, 1.0))
+        mean_energy = (energy[hi] - energy[lo]) / (hi - lo)
+        out.append(_clamp(float(np.sqrt(mean_energy)) / reference, 0.0, 1.0))
     return tuple(out)
 
 
@@ -159,3 +225,15 @@ def trigger_gains(cache: PeakCache | None, times_seconds: Sequence[float],
         return None
     return tuple(gain_for(value, volume)
                  for value in trigger_intensities(cache, times_seconds))
+
+
+def window_gains(cache: PeakCache | None,
+                 windows: Sequence[tuple[float, float]],
+                 volume: VolumeResponse) -> tuple[float, ...] | None:
+    """One gain per window, or None when there is nothing to do — the
+    same contract as `trigger_gains`, read over each element's own
+    notated duration instead of its attack."""
+    if cache is None or volume.is_off or not windows:
+        return None
+    return tuple(gain_for(value, volume)
+                 for value in window_intensities(cache, windows))
