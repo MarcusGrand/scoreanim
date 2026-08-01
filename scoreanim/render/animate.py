@@ -37,36 +37,30 @@ are no gains at all and every state is exactly what it was before the
 feature existed.
 
 Spanners (REVEALED_KINDS) are not trigger-driven at all: their clip
-edges follow the per-system reveal curves (core/animation/reveal.py).
-A revealed item whose (system, part) key matches NO reveal track can
-never receive an edge; since the FINDING-2 fix (2026-07-22) its clip
-children default to hidden (fail-safe — only the floor ghost shows)
-and construction warns loudly on stderr, one line per uncovered key
-(``uncovered_reveal_keys`` carries them for tests and callers).
+edges follow the per-system reveal curves, and that whole concern lives
+in render/reveal_driver.py.
 
 Opacity floor overlap caveat (Phase 3, accepted): separate elements
 whose ink overlaps double-darken at floor opacity.
 """
 from __future__ import annotations
 
-import sys
 from bisect import bisect_left, bisect_right
-from collections import defaultdict
 from itertools import accumulate
 from typing import Mapping, Sequence
 
-from scoreanim.core.animation import (PRESETS, REVEALED_KINDS, Effect,
-                                      RevealCurve, StyleRules,
+from scoreanim.core.animation import (PRESETS, Effect, StyleRules,
                                       SystemRevealTrack, TriggerSchedule,
                                       audio_windows, build_presets,
                                       combined_state, derive_windows,
                                       effects_for, modulate_state,
-                                      read_volume, reveal_x, window_gains)
+                                      read_volume, window_gains)
 from scoreanim.core.audio import PeakCache
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
 from scoreanim.render.items import ElementItem
 from scoreanim.render.properties import PROPERTY_APPLIERS
+from scoreanim.render.reveal_driver import RevealDriver
 
 _BEFORE_EVERYTHING = float("-inf")
 
@@ -130,36 +124,8 @@ class AnimationApplier:
 
         # Spanners reveal by clip-grow at their (system, part) reveal
         # edge — no triggers involved (REVEALED_KINDS left the
-        # schedule). Per-part edges: one part's tied group holds only
-        # that part's spanners (ruling A, 2026-07-12).
-        self._reveal_tracks = tuple(reveal_tracks)
-        track_keys = {(tr.system, tr.part) for tr in self._reveal_tracks}
-        by_key: dict[tuple, list[ElementItem]] = defaultdict(list)
-        uncovered: dict[tuple, list[ElementId]] = defaultdict(list)
-        for eid, item in items.items():
-            if (item.identity is None
-                    or item.identity.kind not in REVEALED_KINDS):
-                continue
-            key = (item.system, item.identity.part)
-            if item.system is not None and key in track_keys:
-                by_key[key].append(item)
-            else:
-                # no track can ever reach this item: its clip children
-                # stay at the hidden construction default (FINDING-2
-                # fix — fail safe, never silently visible from t=0)
-                uncovered[key].append(eid)
-        self._revealed_by_key: dict[tuple, tuple[ElementItem, ...]] = {
-            k: tuple(v) for k, v in by_key.items()}
-        self.uncovered_reveal_keys: dict[tuple, tuple[ElementId, ...]] = {
-            k: tuple(v) for k, v in uncovered.items()}
-        for (system, part), eids in sorted(
-                self.uncovered_reveal_keys.items(), key=repr):
-            print(f"reveal warning [curve-less-key]: system {system} "
-                  f"part {part} matches no reveal curve — "
-                  f"{len(eids)} spanner(s) stay hidden: "
-                  f"{', '.join(str(e) for e in eids)}", file=sys.stderr)
-        self._curves: tuple[RevealCurve, ...] = ()
-        self._last_edges: dict[tuple, float] = {}  # (system, part) → edge
+        # schedule), so the whole concern sits behind its own object.
+        self._reveal = RevealDriver(items, reveal_tracks)
 
         self._style = style
         self._resolve_effects()
@@ -179,8 +145,7 @@ class AnimationApplier:
         self._trigger_seconds = resolve_seconds(
             [trig.beats for trig in self._schedule.triggers],
             tempo_map, swing)
-        self._curves = tuple(track.resolve(tempo_map, swing)
-                             for track in self._reveal_tracks)
+        self._reveal.resolve(tempo_map, swing)
         self._recompute_windows()
         self._recompute_gains()      # the triggers moved along the audio
         self.refresh(self._t)
@@ -318,7 +283,8 @@ class AnimationApplier:
         self._cursor = idx
         self._t = t_score_seconds
         changed += self._apply_window(t_score_seconds, t_prev)
-        changed += self._apply_reveal(t_score_seconds)
+        changed += self._reveal.apply(t_score_seconds,
+                                      self._style.reveal_mode)
         return changed
 
     def refresh(self, t_score_seconds: float) -> None:
@@ -327,8 +293,14 @@ class AnimationApplier:
             self._apply_trigger(i, t_score_seconds)
         self._cursor = bisect_right(self._trigger_seconds, t_score_seconds)
         self._t = t_score_seconds
-        self._last_edges.clear()
-        self._apply_reveal(t_score_seconds)
+        self._reveal.invalidate()
+        self._reveal.apply(t_score_seconds, self._style.reveal_mode)
+
+    @property
+    def uncovered_reveal_keys(self) -> dict[tuple, tuple[ElementId, ...]]:
+        """Revealed items no curve can ever reach — they stay hidden.
+        Carried for tests and callers (reveal_driver.py)."""
+        return self._reveal.uncovered_keys
 
     def current_page(self) -> int:
         """Page of the last crossed trigger (1 before anything fires)."""
@@ -392,18 +364,4 @@ class AnimationApplier:
                               max(t, t_prev) + self._lead)
             for i in range(self._cursor, hi):
                 changed += self._apply_trigger(i, t)
-        return changed
-
-    def _apply_reveal(self, t_score_seconds: float) -> int:
-        changed = 0
-        mode = self._style.reveal_mode
-        for curve in self._curves:
-            key = (curve.system, curve.part)
-            edge = reveal_x(curve, t_score_seconds, mode)
-            if self._last_edges.get(key) == edge:
-                continue
-            self._last_edges[key] = edge
-            for item in self._revealed_by_key.get(key, ()):
-                if item.set_reveal_edge(edge):
-                    changed += 1
         return changed
