@@ -197,6 +197,23 @@ ticks and locks warp on the way to a pixel, event positions unwarp
 (`swing_unwarp`) on the way to being compared with them. Get this wrong and everything looks right at
 ratio 0.5 and drifts the moment swing is on.
 
+**A per-frame reading stays a pure function of t** — anything the
+applier looks up every frame (the recording's live loudness,
+`intensity_at`) takes `(cache, t)` and nothing else, or `apply_at`
+walking to a time and `refresh` jumping there stop agreeing. What is
+expensive but constant — the peak reference, a percentile over every
+bin — is worked out on the seams that can move it (`set_audio`,
+`set_style`, `set_timing`) and handed in as an optional argument that
+never changes the answer. Pin it with a scrub-equivalence test AND the
+export/live parity test; the two catch different mistakes.
+
+**A knob another knob forces on** — when core decides a flag regardless
+of what the document says (follow forces swell's note value), the panel
+says so rather than staying silent: `Check.forced_by` makes
+`KnobGroup.param` read True, so the box shows checked and grayed and
+everything downstream of it (the duration that grays out) follows for
+free. The document is never written to — core stays the one authority.
+
 **Two hit paths, on purpose** — selection resolves rule-13 OBJECTS;
 double-click-to-edit has its own resolver that also reaches stage
 texts. Stage texts are editable but never selectable (they carry no
@@ -204,6 +221,11 @@ measure/part). Do not merge the paths.
 
 ## Traps (each of these has already cost a debugging session)
 
+- **The applier's pre-roll time is `-inf`.** `AnimationApplier._t`
+  starts at `float("-inf")` and `set_audio`/`set_style`/`set_timing` all
+  call `refresh(self._t)`, so anything reading the clock inside the
+  apply path sees it before it ever sees a real second. Test `t < 0`
+  FIRST, before any arithmetic — `int(-inf * bins_per_sec)` raises.
 - **All prepare() calls carry all intent.** `load_detailed` re-prepares
   on the repagination and scale-to-fit retries; every intent map must be
   threaded through every call, pinned by test — a map dropped from one

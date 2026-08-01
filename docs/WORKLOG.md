@@ -1,11 +1,11 @@
 # ScoreAnim — Worklog
 
-**NOW:** `beta/f-swell-effect` is unmerged and waiting on Marcus's eyes
-in the running app. It sits on `beta/f-pop-per-note`, which is also
-waiting, and that one on `beta/f-volume-duration`, and that one on
-`beta/f-volume-response`; between them the two volume branches moved the
-schema to **v11**, so a project saved from any of the four will not open
-on `main`.
+**NOW:** `beta/f-follow-volume` is unmerged and waiting on Marcus's eyes
+in the running app. It sits on `beta/f-swell-effect`, which is also
+waiting, and that one on `beta/f-pop-per-note`, and that one on
+`beta/f-volume-duration`, and that one on `beta/f-volume-response`;
+between them the two volume branches moved the schema to **v11**, so a
+project saved from any of the five will not open on `main`.
 
 `main` carries `beta/live-fields` (`ffd0ac8`, no tag), confirmed
 in the app: every number field previews as you type. It brought
@@ -29,6 +29,36 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-01 — **A swell follows the recording**
+  (`beta/f-follow-volume`, UNMERGED, off `beta/f-swell-effect`): a
+  "Follow volume" box in the Swell block, off by default. With it on a
+  note's size tracks how loud the recording is WHILE IT SOUNDS — a
+  crescendo grows it, a diminuendo shrinks it — instead of playing one
+  frozen average. The shape changes to suit: a plateau instead of a
+  hump, 10 % up / 75 % hold / 15 % back (Marcus's call), where the hold
+  is what the live volume plays on and the tail is the snap-back that
+  lands the note at exactly its engraved size as the next one arrives.
+  Follow forces the note-value stretch on — a fixed 0.8 s window cannot
+  track a whole note — and the panel shows that box checked and grayed
+  rather than lying about it (new `Check.forced_by`, five lines in the
+  shared knob module); Peak grays too, since the top is a stretch now,
+  not a point. Three layers, each one small: a third reading in
+  `intensity.py` (`intensity_at`, off the ~90 ms level of the pyramid
+  the cache already built, interpolated between bins — no new sums), one
+  more `Effect` flag beside `settle_to_note_value`, and one choice in
+  the applier between the live gain and the average. The flag comes out
+  of `derive_windows`, which already walks every effect of every item,
+  so the lookup is once per trigger per frame and the peak reference is
+  cached on the seams that move it. **`render/animate.py` went 409 →
+  367 first**, as its own commit: reveal was never trigger-driven, so
+  the index, the warning, the curves and the edge cache moved to
+  `render/reveal_driver.py`; it lands back at 398. No schema change, no
+  golden movement. Measured on testscore.wav
+  (`spikes/follow_volume.py`): across a dotted half the reading runs
+  0.40–0.71 and the biggest jump between two frames is 0.13, so it
+  breathes without flickering. Checked end to end in the real window
+  with the recording loaded — the note holds between 1.36× and 1.46×
+  and lands on exactly 1.0. Unproven under a human's eye.
 - 2026-08-01 — **A note swells over its own length**
   (`beta/f-swell-effect`, UNMERGED, off `beta/f-pop-per-note`): a fifth
   effect, and the first one about a note's LENGTH instead of its
