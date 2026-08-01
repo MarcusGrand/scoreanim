@@ -11,8 +11,10 @@ import numpy as np
 import pytest
 
 from scoreanim.core.animation.intensity import (DEFAULT_LOUD, DEFAULT_QUIET,
-                                                VolumeResponse, gain_for,
-                                                peak_reference, read_volume,
+                                                SMOOTHING_S, VolumeResponse,
+                                                _smoothing_level, gain_for,
+                                                intensity_at, peak_reference,
+                                                read_volume,
                                                 trigger_intensities,
                                                 window_gains,
                                                 window_intensities)
@@ -180,6 +182,96 @@ def test_a_silent_file_gives_no_window_any_loudness() -> None:
     assert window_intensities(_cache(2.0), [(0.5, 1.5)]) == (0.0,)
     empty = PeakCacheBuilder(RATE).snapshot()
     assert window_intensities(empty, [(0.5, 1.5)]) == (0.0,)
+
+
+# -- reading one moment ----------------------------------------------------
+
+def _smooth_bin_s(cache) -> float:
+    """Seconds per bin at the level the live reading actually uses."""
+    level = _smoothing_level(cache)
+    assert level is not None
+    return level.samples_per_bin / RATE
+
+
+def test_the_live_reading_comes_off_the_ninety_millisecond_level() -> None:
+    """At 44.1 kHz the pyramid is 11.6, 23.2, 46.4, 92.9 ms ... so the
+    reading is taken four levels up, not at the finest one."""
+    cache = _cache(4.0, bursts=[(1.0, 1.0, 1.0)])
+    assert _smooth_bin_s(cache) == pytest.approx(0.0929, abs=0.001)
+    assert abs(_smooth_bin_s(cache) - SMOOTHING_S) < 0.005
+
+
+def test_it_interpolates_between_neighbouring_bins() -> None:
+    """A step from silence to full sound: on a bin's centre the reading
+    is that bin's own value, and between two centres it is part-way
+    between them, climbing all the way."""
+    step_s = 2.0
+    cache = _cache(4.0, bursts=[(step_s, 2.0, 1.0)])
+    reference = peak_reference(cache)
+    bin_s = _smooth_bin_s(cache)
+    level = _smoothing_level(cache)
+    # the first bin lying wholly inside the sound, and the one before it
+    inside = int(np.ceil(step_s / bin_s)) + 1
+    quiet, loud = inside - 3, inside
+    at_quiet = intensity_at(cache, (quiet + 0.5) * bin_s)
+    at_loud = intensity_at(cache, (loud + 0.5) * bin_s)
+    assert at_quiet == pytest.approx(float(level.rms[quiet]) / reference,
+                                     abs=1e-6)
+    assert at_loud == pytest.approx(float(level.rms[loud]) / reference,
+                                    abs=1e-6)
+    assert at_quiet == pytest.approx(0.0, abs=0.01)
+    assert at_loud == pytest.approx(1.0, abs=0.01)
+    # halfway between two centres is halfway between two values
+    a, b = loud - 1, loud
+    half = intensity_at(cache, (a + 1.0) * bin_s)
+    assert half == pytest.approx(
+        (float(level.rms[a]) + float(level.rms[b])) / 2 / reference,
+        abs=1e-6)
+    # and the whole ramp climbs, with no step back
+    walk = [intensity_at(cache, (quiet + 0.5) * bin_s + k * bin_s / 8)
+            for k in range(8 * 3 + 1)]
+    assert all(b >= a - 1e-9 for a, b in zip(walk, walk[1:]))
+    assert walk[0] < walk[-1]
+
+
+def test_it_reads_nothing_outside_the_recording() -> None:
+    cache = _cache(2.0, bursts=[(0.0, 2.0, 1.0)])
+    assert intensity_at(cache, -0.001) == 0.0
+    assert intensity_at(cache, -5.0) == 0.0
+    assert intensity_at(cache, float("-inf")) == 0.0    # the pre-roll time
+    assert intensity_at(cache, 2.5) == 0.0
+    assert intensity_at(cache, 1.0) > 0.5               # not vacuous
+    assert intensity_at(PeakCacheBuilder(RATE).snapshot(), 0.5) == 0.0
+    assert intensity_at(_cache(2.0), 1.0) == 0.0        # silent file
+
+
+def test_the_reading_is_smoothed_so_the_ink_cannot_flicker() -> None:
+    """One loud bin's worth of sound between quiet ones. The attack
+    reading takes it at face value; the live reading averages it down
+    over ~90 ms, which is what stops a tremolo shaking the note.
+
+    Four seconds of real playing first, so the reference is the music's
+    own loudness and not the spike's."""
+    spike_s = 5.0
+    cache = _cache(6.0, bursts=[(0.0, 4.0, 1.0),        # the music
+                                (4.0, 2.0, 0.05),       # a quiet stretch
+                                (spike_s, BIN_S, 1.0)])  # one loud bin
+    assert peak_reference(cache) == pytest.approx(1.0, abs=0.05)
+    attack, = trigger_intensities(cache, [spike_s])
+    live = intensity_at(cache, spike_s + BIN_S / 2)
+    assert attack > 0.8                   # the spike, near enough at face value
+    assert live < attack / 2
+    # it still moves: the spike reads clearly above the quiet either side
+    assert live > intensity_at(cache, spike_s - 0.5) + 0.1
+
+
+def test_the_reference_may_be_handed_in_and_never_changes_the_answer():
+    """The applier works the reference out once and passes it every
+    frame; that must be a speed-up and nothing else."""
+    cache = _cache(4.0, bursts=[(1.0, 0.5, 1.0), (2.0, 0.5, 0.3)])
+    reference = peak_reference(cache)
+    for t in (0.0, 0.5, 1.2, 2.2, 3.9):
+        assert intensity_at(cache, t, reference) == intensity_at(cache, t)
 
 
 def test_window_gains_skip_when_there_is_nothing_to_do() -> None:

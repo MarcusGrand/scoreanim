@@ -8,29 +8,35 @@ module reads it and hands back ONE number per element — an intensity in
 far the animation departs from rest, so a loud beat pops harder than a
 quiet one.
 
-There are two ways to read it, and the difference matters. The attack
-reading (`trigger_intensities`) takes the loudest bin in a small window
-around an onset. The duration reading (`window_intensities`) takes the
-average loudness over an element's whole notated length, so a whole
-note reads its bar and a sixteenth reads its sixteenth — two elements
-starting on the same beat get different numbers. The duration reading
-is what the animation uses; the attack reading is its fallback for ink
-with no notated length.
+There are three ways to read it, and the differences matter.
+
+- The attack reading (`trigger_intensities`) takes the loudest bin in a
+  small window around an onset.
+- The duration reading (`window_intensities`) takes the average loudness
+  over an element's whole notated length, so a whole note reads its bar
+  and a sixteenth reads its sixteenth — two elements starting on the
+  same beat get different numbers. This is the one the animation uses
+  by default; the attack reading is its fallback for ink with no
+  notated length.
+- The live reading (`intensity_at`) is how loud the recording is at ONE
+  moment, smoothed. The first two hand back one frozen number per
+  element; this one is read again every frame, so a note can follow the
+  recording while it sounds.
 
 All of this is derived data, recomputed from the audio and never saved
 (rule 5). What the document stores is the three settings below.
 
 Two things stay deliberately separate:
 
-- WHAT the audio says — `trigger_intensities`, an honest 0-to-1 reading
-  of the recording. It knows nothing about the user's settings.
+- WHAT the audio says — the three readings, honest 0-to-1 numbers about
+  the recording. They know nothing about the user's settings.
 - WHAT WE DO ABOUT IT — `gain_for`, one small function, which is where
   the whole mapping lives.
 
 The mapping is linear in rms today. It may become perceptual (based on
 decibels, which is closer to how loudness is heard) once we have looked
-at it in the app; when it does, `gain_for` and `trigger_intensities`
-are the only two places to change.
+at it in the app; when it does, `gain_for` and the readings are the
+only places to change.
 """
 from __future__ import annotations
 
@@ -39,7 +45,7 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
-from scoreanim.core.audio.peaks import PeakCache
+from scoreanim.core.audio.peaks import PeakCache, PeakLevel
 
 # How much of the recording to listen to around a trigger. It leans
 # forward on purpose: the attack — the loud first moment of a note — is
@@ -55,6 +61,13 @@ WINDOW_AFTER_S = 0.075
 # it ignores a single outlier, and long silences cannot drag it down
 # because silent bins are left out of the reckoning.
 REFERENCE_PERCENTILE = 95.0
+
+# How much of the recording ONE live reading listens to. A note that
+# follows the volume must not flicker with vibrato or a tremolo, so the
+# reading comes off a coarse level of the peak pyramid rather than the
+# finest one. About 90 ms is long enough to smooth a fast wobble and
+# short enough that a real crescendo still shows while the note sounds.
+SMOOTHING_S = 0.090
 
 DEFAULT_AMOUNT = 0.0        # off: the feature costs nothing until asked for
 DEFAULT_QUIET = 0.5
@@ -199,6 +212,76 @@ def window_intensities(cache: PeakCache,
         mean_energy = (energy[hi] - energy[lo]) / (hi - lo)
         out.append(_clamp(float(np.sqrt(mean_energy)) / reference, 0.0, 1.0))
     return tuple(out)
+
+
+def _smoothing_level(cache: PeakCache) -> PeakLevel | None:
+    """The pyramid level whose bins come closest to SMOOTHING_S.
+
+    At 44.1 kHz the levels are 11.6, 23.2, 46.4, 92.9, 185.8 ms and so
+    on, so level 3 normally wins. A recording too short to have built
+    that many levels takes the closest one it does have."""
+    if not cache.levels or cache.sample_rate <= 0:
+        return None
+    return min(cache.levels,
+               key=lambda lv: abs(lv.samples_per_bin / cache.sample_rate
+                                  - SMOOTHING_S))
+
+
+def intensity_at(cache: PeakCache, t_seconds: float,
+                 reference: float | None = None) -> float:
+    """How loud the recording is at ONE audio time, in [0, 1].
+
+    The time is AUDIO seconds, measured from the start of the sound
+    file, the same as the other two readings.
+
+    Smoothed, so vibrato and tremolo do not make the ink flicker: the
+    value comes off the ~90 ms level of the pyramid the cache already
+    built (SMOOTHING_S), read between the two bins the time falls
+    between so the number moves continuously instead of stepping. No
+    new sums — the levels are already there.
+
+    Over the same `peak_reference` as the other readings, and clamped
+    the same way, so the three are on one scale.
+
+    A pure function of (cache, t): scrubbing, live playback and export
+    all read exactly the same number at the same time. `reference` is
+    that same `peak_reference`, worked out in advance; it never changes
+    the answer, and it is what makes this cheap enough to call every
+    frame, since the reference itself is a percentile over every bin.
+
+    Reads 0 before the recording starts and past what has been decoded.
+    """
+    # First, before any arithmetic: t may be -inf (the applier's
+    # pre-roll time), and multiplying that would blow up.
+    if not t_seconds >= 0.0:
+        return 0.0
+    level = _smoothing_level(cache)
+    if level is None:
+        return 0.0
+    n_bins = len(level.rms)
+    if n_bins == 0:
+        return 0.0
+    if reference is None:
+        reference = peak_reference(cache)
+    if reference <= 0.0:
+        return 0.0
+    bins_per_sec = cache.sample_rate / level.samples_per_bin
+    if t_seconds * bins_per_sec >= n_bins:      # past the decoded extent
+        return 0.0
+    # Bins are read at their CENTRES, so the value moves smoothly from
+    # one to the next instead of jumping at the boundary. The first and
+    # last half-bin have no neighbour to lean on and hold their own bin.
+    x = t_seconds * bins_per_sec - 0.5
+    lo = int(np.floor(x))
+    frac = x - lo
+    if lo < 0:
+        lo, frac = 0, 0.0
+    elif lo >= n_bins - 1:
+        lo, frac = n_bins - 1, 0.0
+    value = float(level.rms[lo])
+    if frac > 0.0:
+        value += frac * (float(level.rms[lo + 1]) - value)
+    return _clamp(value / reference, 0.0, 1.0)
 
 
 def gain_for(intensity: float, volume: VolumeResponse) -> float:
