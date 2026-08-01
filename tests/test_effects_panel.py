@@ -16,7 +16,8 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from scoreanim.core.animation import DEFAULT_EFFECT, RevealMode  # noqa: E402
 from scoreanim.core.project import (SetDefaultEffect,  # noqa: E402
-                                    SetEffectParam, SetVolumeParam)
+                                    SetEffectParam, SetPulseParam,
+                                    SetVolumeParam)
 from scoreanim.ui.app_state import AppState  # noqa: E402
 from scoreanim.ui.panels import EffectsPanel  # noqa: E402
 
@@ -171,6 +172,10 @@ def test_every_number_field_previews_while_you_type(panel) -> None:
              (widget.volume.spins["loud"],
               widget.volume.fields["loud"], 2.5,
               lambda doc: doc.style.volume.get("loud"), 2.5),
+             # per cent in the box, a fraction in the document
+             (widget.pulse.spins["amount"],
+              widget.pulse.fields["amount"], 8,
+              lambda doc: doc.style.pulse.get("amount"), 0.08),
              (widget._floor_spin, widget._floor, 0.4,
               lambda doc: doc.style.floor_opacity, 0.4))
     for knob, live, typed, read, expected in cases:
@@ -987,4 +992,57 @@ def test_a_volume_setting_alone_lights_the_reset_button(panel) -> None:
     assert widget._reset_button.isEnabled()
     widget._commit_reset()
     assert state.doc.style.volume == {}
+    assert not widget._reset_button.isEnabled()
+
+
+# -- System pulse ---------------------------------------------------------
+
+def _pulse(widget):
+    return widget.pulse.spins["amount"]
+
+
+def test_the_pulse_block_shows_the_document_in_per_cent(panel) -> None:
+    """Per cent in the box, a fraction in the document — the swell Peak
+    precedent, in both directions."""
+    widget, state = panel
+    assert _pulse(widget).value() == 0
+    state.execute(SetPulseParam("amount", 0.1))
+    widget.sync_from_document(state.doc)
+    assert _pulse(widget).value() == 10
+
+
+def test_a_pulse_commit_stores_a_fraction(panel) -> None:
+    widget, state = panel
+    _pulse(widget).setValue(15)
+    widget.pulse.fields["amount"].commit()
+    assert state.doc.style.pulse["amount"] == pytest.approx(0.15)
+
+
+def test_the_pulse_box_stops_at_twenty_per_cent(panel) -> None:
+    """A whole system is a big thing to move, so the box will not let
+    the page past the range core clamps to anyway."""
+    widget, _ = panel
+    assert (_pulse(widget).minimum(), _pulse(widget).maximum()) == (0, 20)
+
+
+def test_the_pulse_block_is_always_on_screen(panel) -> None:
+    """It is not an effect, so the "show the options of the effect you
+    are using" rule has nothing to say about it."""
+    widget, state = panel
+    # non-vacuity: a preset's block IS hidden here
+    assert not widget.blocks["pop"].header.isVisibleTo(widget)
+    assert widget.pulse.header.isVisibleTo(widget)
+    state.execute(SetDefaultEffect("slide"))
+    widget.sync_from_document(state.doc)
+    assert widget.pulse.header.isVisibleTo(widget)
+
+
+def test_a_pulse_amount_alone_lights_the_reset_button(panel) -> None:
+    widget, state = panel
+    assert not widget._reset_button.isEnabled()
+    state.execute(SetPulseParam("amount", 0.1))
+    widget.sync_from_document(state.doc)
+    assert widget._reset_button.isEnabled()
+    widget._commit_reset()
+    assert state.doc.style.pulse == {}
     assert not widget._reset_button.isEnabled()
