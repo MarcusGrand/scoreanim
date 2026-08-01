@@ -32,6 +32,35 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-02 — **Every system jumps when its notes land**
+  (`beta/f-system-pulse`, UNMERGED): the system pulse's second mode, an
+  onset pop, and it needs **no recording at all** — the schedule is the
+  whole input. At every beat the system the notes appear in bumps up and
+  eases back over 0.25 s, and the more noteheads land there the harder
+  it jumps. Only HEADS count (a stem, dot or beam hangs off a head
+  already counted), and each head counts in the system it is DRAWN in,
+  not in the trigger's single min() hint — the reveal-grouping
+  precedent, which matters at a system break. Overlapping bumps take the
+  LARGEST live one, never the sum, so a fast run cannot inflate a
+  system. The two modes' DEVIATIONS add (`1 + follow + pop`), so either
+  alone is exactly what it was; both at 0 still touches no group. The
+  skip is per GROUP now, keyed like the reveal edges, since the bumps
+  differ per system. Same sparse `style.pulse` entry, three more keys,
+  **no schema bump**. **Measured on testscore** (`spikes/onset_pop.py`):
+  **the default notes_for_full of 6 is low** — a six-part score puts a
+  median of SEVEN heads on a beat, so 63 of 88 bumps (72 %) already hit
+  the ceiling and every jump is the same size; 8–16 is where the
+  strengths spread out on this fixture. The frame-to-frame jump IS the
+  amount every time (the rise is instant, by design). Gaps close about
+  half as fast as the follow half's, because only the firing system
+  grows — but 0.20 still overlaps, and the two amounts can reach 1.4
+  together. **`render/animate.py` was split first**, as its own commit
+  (421 → 363): the volume response's bookkeeping moved to
+  `render/gain_index.py`, the third half of the applier after reveal and
+  pulse. Checked end to end in the real window offscreen: 10 % in the
+  box, system 1 moving over 200 distinct sizes between 1.0 and 1.0996
+  while scrubbing, the resting systems at exactly 1.0, undo putting the
+  box and every system back. Unproven under a human's eye.
 - 2026-08-02 — **The whole page breathes with the recording**
   (`beta/f-system-pulse`, UNMERGED): the branch is
   `beta/system-groups` with `beta/f-follow-volume` merged in, which is
@@ -58,8 +87,8 @@ lines — history lives in git and `docs/history/`.
   1.05 with a recording loaded, exactly 1.0 without one, and undo puts
   the box and every system back. Unproven under a human's eye.
   No schema bump — the key rides the unreleased v11 beside
-  `style.volume` (Marcus's call). **`render/animate.py` is at 421
-  lines** and is the next split, alongside `render/items.py` at 432.
+  `style.volume` (Marcus's call). *(`render/animate.py` was split on
+  2026-08-02, above; `render/items.py` at 432 is still the next one.)*
 - 2026-08-01 — **Every system is one object now**
   (`beta/system-groups`, UNMERGED, off `main`): a structural change with
   no visible half. Each element whose system is known hangs off a
