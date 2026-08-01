@@ -13,7 +13,6 @@ import pytest
 from scoreanim.core.animation.intensity import (DEFAULT_LOUD, DEFAULT_QUIET,
                                                 VolumeResponse, gain_for,
                                                 peak_reference, read_volume,
-                                                trigger_gains,
                                                 trigger_intensities,
                                                 window_gains,
                                                 window_intensities)
@@ -219,21 +218,10 @@ def test_amount_mixes_toward_the_full_range() -> None:
     assert gain_for(1.0, vol) == pytest.approx(1.25)
 
 
-def test_gains_are_skipped_when_there_is_nothing_to_do() -> None:
-    """None, not a row of ones: it tells the applier to leave the state
-    alone entirely."""
-    cache = _cache(2.0, bursts=[(0.5, 0.5, 1.0)])
-    on = VolumeResponse(amount=1.0)
-    assert trigger_gains(None, [0.5], on) is None
-    assert trigger_gains(cache, [0.5], VolumeResponse()) is None
-    assert trigger_gains(cache, [], on) is None
-    assert trigger_gains(cache, [0.5], on) is not None
-
-
-def test_gains_come_back_one_per_trigger_in_order() -> None:
+def test_gains_come_back_one_per_window_in_order() -> None:
     cache = _cache(4.0, bursts=[(1.0, 0.1, 1.0), (2.0, 0.1, 0.15)])
-    gains = trigger_gains(cache, [1.0, 2.0, 3.0],
-                          VolumeResponse(amount=1.0, quiet=0.5, loud=1.5))
+    gains = window_gains(cache, [(1.0, 1.1), (2.0, 2.1), (3.0, 3.1)],
+                         VolumeResponse(amount=1.0, quiet=0.5, loud=1.5))
     assert gains is not None and len(gains) == 3
     assert gains[0] > gains[1] > gains[2]
     assert gains[2] == pytest.approx(0.5)      # silence: the quiet end

@@ -215,24 +215,13 @@ def gain_for(intensity: float, volume: VolumeResponse) -> float:
     return 1.0 + (raw - 1.0) * volume.amount
 
 
-def trigger_gains(cache: PeakCache | None, times_seconds: Sequence[float],
-                  volume: VolumeResponse) -> tuple[float, ...] | None:
-    """One gain per trigger, or None when there is nothing to do — no
-    recording, or the response turned off. None is not "all ones": it
-    tells the caller to skip the modulation entirely, which is what
-    keeps the old look bit-for-bit identical."""
-    if cache is None or volume.is_off or not times_seconds:
-        return None
-    return tuple(gain_for(value, volume)
-                 for value in trigger_intensities(cache, times_seconds))
-
-
 def window_gains(cache: PeakCache | None,
                  windows: Sequence[tuple[float, float]],
                  volume: VolumeResponse) -> tuple[float, ...] | None:
-    """One gain per window, or None when there is nothing to do — the
-    same contract as `trigger_gains`, read over each element's own
-    notated duration instead of its attack."""
+    """One gain per window, or None when there is nothing to do — no
+    recording, or the response turned off. None is not "all ones": it
+    tells the caller to skip the modulation entirely, which is what
+    keeps the old look bit-for-bit identical."""
     if cache is None or volume.is_off or not windows:
         return None
     return tuple(gain_for(value, volume)

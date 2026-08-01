@@ -1,9 +1,14 @@
 """What the volume response actually does on the real recording.
 
 Decodes testdata/testscore.wav with the app's own PeakExtractor, then
-prints the intensity and gain at every trigger and renders two frames
+prints the intensity and gain at every element and renders two frames
 of the same moment — Amount 0 and Amount 1 — so the difference can be
 looked at rather than argued about.
+
+Both readings are printed side by side: the old attack reading (the
+loudest bin at the onset) and the one the animation now uses (the
+average over the element's own notated duration). The second column is
+the answer to "how much gentler did it get".
 
     python spikes/volume_response.py
 
@@ -26,7 +31,9 @@ from PySide6.QtWidgets import QApplication                       # noqa: E402
 from scoreanim.core.animation import (StyleRules,                # noqa: E402
                                       build_reveal_tracks,
                                       build_trigger_schedule,
-                                      read_volume, trigger_intensities)
+                                      read_volume, resolve_durations,
+                                      trigger_intensities,
+                                      window_intensities)
 from scoreanim.core.animation.intensity import gain_for          # noqa: E402
 from scoreanim.core.engraving.types import EngravingParams       # noqa: E402
 from scoreanim.core.engraving.verovio import (                   # noqa: E402
@@ -73,7 +80,10 @@ def main() -> None:
     model = build_score_model(engraved.prepared, engraved.timeline)
     report = join_notes(model, engraved.note_records)
     joins = report.mapping
-    schedule = build_trigger_schedule(engraved.layout, joins, model.measures)
+    durations = resolve_durations(engraved.layout, joins,
+                                  engraved.note_durations, model.measures)
+    schedule = build_trigger_schedule(engraved.layout, joins, model.measures,
+                                      durations)
     setup = parse_tempo_file(SIDECAR.read_text(), model.measures)
     tempo = TempoMap(list(setup.events))
     offset = setup.offset_seconds
@@ -81,14 +91,36 @@ def main() -> None:
     from scoreanim.core.timing import resolve_seconds
     trig_s = resolve_seconds([t.beats for t in schedule.triggers], tempo, ())
     volume = read_volume({"amount": 1.0, "quiet": 0.5, "loud": 1.5})
-    values = trigger_intensities(peaks, [t + offset for t in trig_s])
 
-    print(f"\n{len(values)} triggers, offset {offset:.2f} s")
-    print(f"{'audio s':>9}  {'intensity':>9}  {'gain':>6}")
-    for t, value in zip(trig_s, values):
-        print(f"{t + offset:9.2f}  {value:9.3f}  "
-              f"{gain_for(value, volume):6.3f}")
-    print(f"\nspread: {min(values):.3f} to {max(values):.3f}")
+    # one row per ELEMENT, the way the applier reads it: the attack at
+    # its onset, and the average over its own notated length
+    rows = []
+    for trig, start in zip(schedule.triggers, trig_s):
+        for eid in trig.element_ids:
+            dur = durations.get(eid, 0.0)
+            end = tempo.seconds_at(trig.beats + dur) if dur > 0.0 else start
+            rows.append((eid, start, end, dur))
+    attack = trigger_intensities(peaks, [s + offset for _, s, _, _ in rows])
+    average = window_intensities(peaks, [(s + offset, e + offset)
+                                         for _, s, e, _ in rows])
+
+    print(f"\n{len(rows)} elements over {len(trig_s)} triggers, "
+          f"offset {offset:.2f} s")
+    print(f"{'audio s':>9} {'beats':>6}  {'attack':>7} {'average':>7}  "
+          f"{'gain':>6}")
+    for (eid, start, _, dur), was, now in zip(rows, attack, average):
+        print(f"{start + offset:9.2f} {dur:6.2f}  {was:7.3f} {now:7.3f}  "
+              f"{gain_for(now, volume):6.3f}  {eid}")
+    timed = [(w, n) for (_, _, _, d), w, n in zip(rows, attack, average)
+             if d > 0.0]
+    print(f"\nattack  spread {min(attack):.3f} to {max(attack):.3f}, "
+          f"mean {sum(attack) / len(attack):.3f}")
+    print(f"average spread {min(average):.3f} to {max(average):.3f}, "
+          f"mean {sum(average) / len(average):.3f}")
+    if timed:
+        print(f"of the {len(timed)} elements with a notated length, the "
+              f"average reads {sum(n for _, n in timed) / sum(w for w, _ in timed):.2f}"
+              f"× the attack")
 
     # the same frame, response off and on
     stage = default_stage_config(engraved.prepared,

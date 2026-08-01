@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from scoreanim.core.animation import (SCALE, Effect, Envelope, Keyframe,
-                                      derive_windows)
+                                      audio_windows, derive_windows)
 from scoreanim.core.timing import TempoEvent, TempoMap
 
 # 60 bpm: one beat is one second, so a duration in beats is the same
@@ -124,3 +124,54 @@ def test_an_element_with_no_identity_is_never_stretched() -> None:
 def test_an_empty_schedule_is_not_a_crash() -> None:
     plan = derive_windows([], [], [], [], {}, TEMPO)
     assert plan.durations == () and plan.d_max == 0.0 and plan.lead == 0.0
+
+
+# -- which stretch of the recording each element covers --------------------
+
+def test_an_element_covers_its_own_notated_length() -> None:
+    """At 60 bpm a 4-beat note covers 4 seconds of the recording and a
+    1-beat note covers one, from the same start."""
+    rows = audio_windows([2.0], [2.0], [["whole", "quarter"]],
+                         {"whole": 4.0, "quarter": 1.0}, TEMPO)
+    assert rows == (((2.0, 6.0), (2.0, 3.0)),)
+
+
+def test_ink_with_no_notated_length_gets_a_window_of_no_length() -> None:
+    """Which the reading takes as "use the attack" — dynamics, texts and
+    rests all land here."""
+    rows = audio_windows([1.0], [1.0], [["dyn", "rest", None]],
+                         {"note": 2.0}, TEMPO)
+    assert rows == (((1.0, 1.0), (1.0, 1.0), (1.0, 1.0)),)
+
+
+def test_the_offset_moves_both_ends_of_every_window() -> None:
+    """The caller works in score seconds; the peak cache is indexed from
+    the start of the sound file."""
+    rows = audio_windows([0.0], [0.0], [["n1"]], {"n1": 2.0}, TEMPO,
+                         offset_seconds=7.5)
+    assert rows == (((7.5, 9.5),),)
+
+
+def test_a_tempo_change_moves_the_start_and_the_end_together() -> None:
+    """Half the tempo and a note covers twice as much recording, from
+    twice as late — which is why a tempo edit has to recompute these."""
+    slow = TempoMap([TempoEvent(0.0, 30.0)])
+    fast_start = TEMPO.seconds_at(4.0)
+    slow_start = slow.seconds_at(4.0)
+    fast = audio_windows([4.0], [fast_start], [["n1"]], {"n1": 2.0}, TEMPO)
+    lazy = audio_windows([4.0], [slow_start], [["n1"]], {"n1": 2.0}, slow)
+    assert fast == (((4.0, 6.0),),)
+    assert lazy == (((8.0, 12.0),),)
+
+
+def test_without_a_tempo_map_every_window_has_no_length() -> None:
+    rows = audio_windows([0.0], [0.0], [["n1"]], {"n1": 4.0}, None)
+    assert rows == (((0.0, 0.0),),)
+
+
+def test_the_rows_match_the_ids_given() -> None:
+    """The applier unflattens the gains by these widths, so the shape
+    has to line up exactly."""
+    ids = [["a", "b", "c"], [], ["d"]]
+    rows = audio_windows([0.0, 1.0, 2.0], [0.0, 1.0, 2.0], ids, {}, TEMPO)
+    assert [len(r) for r in rows] == [3, 0, 1]

@@ -1078,3 +1078,111 @@ def test_settings_and_tempo_both_move_the_gains(scenes, schedule,
     assert slow_s != pytest.approx(trig_s)          # non-vacuity
     applier.refresh(slow_s + 0.125)
     assert scenes.items[head].scale() == pytest.approx(1.0 + 0.125 * 0.5)
+
+
+# -- the gain follows each element's own duration (2026-08-01) -----------------
+
+def _quiet_after(seconds: float, duration: float = 12.0, rate: int = 44100):
+    """A recording that is loud up to `seconds` and near-silent after —
+    so how much of it a note reads depends on how long the note is."""
+    import numpy as np
+
+    from scoreanim.core.audio import PeakCacheBuilder
+
+    samples = np.full(int(duration * rate), 0.02, dtype=np.float32)
+    samples[:int(seconds * rate)] = 1.0
+    builder = PeakCacheBuilder(rate)
+    builder.add_samples(samples)
+    return builder.snapshot()
+
+
+def _mixed_duration_trigger(scenes, schedule):
+    """A trigger carrying two noteheads of DIFFERENT notated length —
+    testscore has one at beat 6 (a quarter against a dotted quarter)."""
+    from scoreanim.core.score.identity import ElementKind
+
+    durs = schedule.duration_by_element
+    for i, trig in enumerate(schedule.triggers):
+        heads = {eid: durs[eid] for eid in trig.element_ids
+                 if eid in durs and eid in scenes.items
+                 and scenes.items[eid].identity.kind is ElementKind.NOTEHEAD}
+        if len(set(heads.values())) > 1:
+            by_length = sorted(heads.items(), key=lambda kv: kv[1])
+            return i, by_length[0], by_length[-1]
+    raise AssertionError("no trigger carries two different note lengths")
+
+
+def test_two_notes_on_one_beat_pop_by_their_own_lengths(scenes,
+                                                        schedule_nv) -> None:
+    """The feature. Two noteheads fire on the same beat, one shorter
+    than the other, over a recording that is loud at that beat and quiet
+    after. The short note reads only the loud part, the long note
+    averages the quiet in — so they pop by different amounts, which a
+    per-trigger gain could never do."""
+    i, (short, short_beats), (long, long_beats) = \
+        _mixed_duration_trigger(scenes, schedule_nv)
+    trig_s = TEMPO.seconds_at(schedule_nv.triggers[i].beats)
+    short_s = TEMPO.seconds_at(schedule_nv.triggers[i].beats + short_beats)
+    assert long_beats > short_beats                       # non-vacuity
+
+    rules = StyleRules(default_effect="pop",
+                       volume={"amount": 1.0, "quiet": 0.5, "loud": 1.5})
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
+    applier.set_audio(_quiet_after(short_s), 0.0)
+    applier.refresh(trig_s + 0.05)
+
+    short_scale = scenes.items[short].scale()
+    long_scale = scenes.items[long].scale()
+    assert short_scale > long_scale
+    # the short note read the loud part alone, so it sits at the loud end
+    assert short_scale > 1.0
+
+
+def test_gains_are_one_per_element_not_one_per_trigger(scenes,
+                                                       schedule_nv) -> None:
+    """A structural pin: the gains are shaped like the items, so a
+    future change cannot quietly go back to one number per beat."""
+    i, (_, short_beats), _ = _mixed_duration_trigger(scenes, schedule_nv)
+    short_s = TEMPO.seconds_at(schedule_nv.triggers[i].beats + short_beats)
+
+    rules = StyleRules(default_effect="pop", volume={"amount": 1.0})
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
+    applier.set_audio(_quiet_after(short_s), 0.0)
+    gains = applier._gains
+    assert gains is not None
+    assert [len(row) for row in gains] \
+        == [len(items) for items in applier._items_per_trigger]
+    assert len(set(gains[i])) > 1          # they really do differ
+
+
+def test_ink_with_no_notated_length_still_reads_the_attack(scenes,
+                                                           schedule_nv,
+                                                           schedule) -> None:
+    """Dynamics, texts and rests never enter the duration map, so they
+    get exactly the reading every element used to get. Pinned against a
+    schedule carrying no durations at all — where every element takes
+    the attack reading."""
+    rules = StyleRules(default_effect="pop",
+                       volume={"amount": 1.0, "quiet": 0.5, "loud": 1.5})
+    peaks = _quiet_after(3.0)
+
+    with_durations = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
+    with_durations.set_audio(peaks, 0.0)
+    plain = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    plain.set_audio(peaks, 0.0)
+    # the two schedules differ only in the duration map, so the element
+    # rows line up and the gains can be compared position by position
+    assert with_durations._element_ids_per_trigger \
+        == plain._element_ids_per_trigger
+
+    lengthless = moved = 0
+    for row, mine, theirs in zip(with_durations._element_ids_per_trigger,
+                                 with_durations._gains, plain._gains):
+        for eid, a, b in zip(row, mine, theirs):
+            if eid is not None and eid in schedule_nv.duration_by_element:
+                moved += a != pytest.approx(b)
+                continue
+            lengthless += 1
+            assert a == pytest.approx(b)
+    assert lengthless                      # non-vacuity: some ink has none
+    assert moved                           # and the notes really did move

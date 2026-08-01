@@ -112,3 +112,46 @@ def derive_windows(trigger_beats: Sequence[Beats],
                       durations=tuple(windows),
                       d_max=max(windows, default=0.0),
                       lead=max(0.0, lead))
+
+
+def audio_windows(trigger_beats: Sequence[Beats],
+                  trigger_seconds: Sequence[float],
+                  element_ids_per_trigger: Sequence[
+                      Sequence[ElementId | None]],
+                  duration_by_element: Mapping[ElementId, Beats],
+                  tempo_map: TempoMap | None,
+                  swing: Sequence[SwingRegion] = (),
+                  offset_seconds: float = 0.0
+                  ) -> tuple[tuple[tuple[float, float], ...], ...]:
+    """Which stretch of the recording each element covers: its onset,
+    out to the end of its notated duration, in the same nested shape as
+    the ids given. Used by the volume response, which averages the
+    loudness over each one (core/animation/intensity.py).
+
+    An element the duration map omits — a dynamic, a text, a rest —
+    gets a zero-length window, which the reading takes as "use the
+    attack instead".
+
+    `offset_seconds` is the audio time of score beat 0, added to both
+    ends: the caller works in score seconds and the peak cache is
+    indexed from the start of the sound file. Engraved ends resolve
+    through the ONE swing-aware seam in a single batched call.
+    """
+    refs: list[tuple[int, int]] = []
+    end_beats: list[float] = []
+    if tempo_map is not None and duration_by_element:
+        for i, beats in enumerate(trigger_beats):
+            for j, eid in enumerate(element_ids_per_trigger[i]):
+                dur = duration_by_element.get(eid, 0.0) \
+                    if eid is not None else 0.0
+                if dur > 0.0:
+                    refs.append((i, j))
+                    end_beats.append(beats + dur)
+    ends_s = resolve_seconds(end_beats, tempo_map, swing) \
+        if refs and tempo_map is not None else []
+    end_by_ref = dict(zip(refs, ends_s))
+    return tuple(
+        tuple((start + offset_seconds,
+               max(end_by_ref.get((i, j), start), start) + offset_seconds)
+              for j in range(len(element_ids_per_trigger[i])))
+        for i, start in enumerate(trigger_seconds))
