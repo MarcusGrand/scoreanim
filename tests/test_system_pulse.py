@@ -1,15 +1,19 @@
-"""The whole page breathing with the recording.
+"""The whole page breathing.
 
-Every system takes ONE size at time t — 1 + amount × how loud the
-recording is there — and turns around the centre of its own ink. What is
-pinned here: that amount 0 leaves the systems untouched rather than
-written with 1.0, that the size is a pure function of t (so scrubbing,
-playing and exporting agree), that every system gets the same number,
-and that an unchanged number costs no writes at all.
+Every system takes ONE size at time t and turns around the centre of its
+own ink. Two things move it, and both are wired here: the recording's
+loudness, which moves the whole page together, and a bump on every beat,
+which moves only the system the notes landed in and needs no recording
+at all.
 
-The value's own arithmetic is pinned in test_pulse.py, and the reading
-it multiplies in test_intensity.py. These tests are about the wiring:
-the driver, the applier seam, and the group items.
+What is pinned here: that both amounts at 0 leave the systems untouched
+rather than written with 1.0, that the size is a pure function of t (so
+scrubbing, playing and exporting agree), that a tempo edit moves every
+bump with the beats, and that an unchanged number costs no writes.
+
+The values' own arithmetic is pinned in test_pulse.py, and the reading
+the follow half multiplies in test_intensity.py. These tests are about
+the wiring: the driver, the applier seam, and the group items.
 """
 
 import os
@@ -22,8 +26,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from scoreanim.core.animation import (StyleRules,  # noqa: E402
-                                      build_trigger_schedule, intensity_at,
-                                      peak_reference, pulse_scale, read_pulse)
+                                      build_bumps, build_trigger_schedule,
+                                      intensity_at, peak_reference, pop_at,
+                                      pulse_scale, read_pulse)
 from scoreanim.core.project.stage_config import (  # noqa: E402
     default_stage_config, page_content_top)
 from scoreanim.core.timing import TempoEvent, TempoMap  # noqa: E402
@@ -32,7 +37,11 @@ from scoreanim.render.scene import ScoreScenes  # noqa: E402
 from scoreanim.render.system_group import SystemGroupItem  # noqa: E402
 
 TEMPO = TempoMap([TempoEvent(0.0, 120.0)])
+HALF_TEMPO = TempoMap([TempoEvent(0.0, 60.0)])     # every beat twice as late
 AMOUNT = 0.1
+# A pop big enough to read off the numbers, and a low notes_for_full so
+# ordinary beats on the fixture reach full strength.
+POP = {"pop_amount": 0.1, "notes_for_full": 4, "settle": 0.25}
 
 
 @pytest.fixture(scope="session")
@@ -121,10 +130,46 @@ def _expected(peaks, t: float, amount: float, offset: float = 0.0) -> float:
         read_pulse({"amount": amount}))
 
 
+def _bumps(scenes, schedule, stored, tempo=TEMPO) -> dict:
+    """Every system's bumps, built the way the applier builds them —
+    from each item's OWN system — but independently of it."""
+    rows = [[(None if scenes.items[eid].identity is None
+              else scenes.items[eid].identity.kind, scenes.items[eid].system)
+             for eid in trig.element_ids if eid in scenes.items]
+            for trig in schedule.triggers]
+    return build_bumps([tempo.seconds_at(trig.beats)
+                        for trig in schedule.triggers],
+                       rows, read_pulse(stored))
+
+
+def _expected_sizes(scenes, schedule, stored, t: float, peaks=None,
+                    tempo=TEMPO) -> dict:
+    """What every group should be at t: the loudness for the whole page,
+    each system's own bump on top."""
+    pulse = read_pulse(stored)
+    bumps = _bumps(scenes, schedule, stored, tempo)
+    intensity = (intensity_at(peaks, t, peak_reference(peaks))
+                 if peaks is not None else 0.0)
+    return {(page, system): pulse_scale(intensity, pulse,
+                                        pop_at(bumps.get(system), t, pulse))
+            for page, system in scenes.system_groups}
+
+
+def _busiest_beat(scenes, schedule, stored) -> float:
+    """The moment the heaviest bump on the fixture fires."""
+    bumps = _bumps(scenes, schedule, stored)
+    return max(((strength, t) for entry in bumps.values()
+                for t, strength in zip(entry.seconds, entry.strengths)))[1]
+
+
 # -- off means untouched -------------------------------------------------
 
 
-@pytest.mark.parametrize("stored", [{}, {"amount": 0.0}])
+@pytest.mark.parametrize("stored", [
+    {}, {"amount": 0.0}, {"amount": 0.0, "pop_amount": 0.0},
+    # the shape settings alone are not a reason to touch anything
+    {"pop_amount": 0.0, "notes_for_full": 2, "settle": 1.0},
+])
 def test_amount_zero_never_touches_a_system(scenes, schedule, writes,
                                             stored) -> None:
     """Off is not "written with 1.0 every frame" — no system is scaled
@@ -326,6 +371,169 @@ def test_turning_it_off_puts_the_systems_back(scenes, schedule) -> None:
     for group in scenes.system_groups.values():
         assert group.system_scale == 1.0
         assert group.sceneTransform().isIdentity()
+
+
+# -- the onset pop -------------------------------------------------------
+
+
+def test_a_pop_needs_no_recording_at_all(scenes, schedule) -> None:
+    """The whole point of this mode: it is driven by the schedule, so it
+    works with nothing loaded."""
+    applier = _applier(scenes, schedule, StyleRules(pulse=POP))
+    t = _busiest_beat(scenes, schedule, POP)
+    applier.refresh(t)
+
+    sizes = _sizes(scenes)
+    assert sizes == pytest.approx(_expected_sizes(scenes, schedule, POP, t))
+    assert max(sizes.values()) == pytest.approx(1.1)   # a full-strength beat
+
+
+def test_only_the_system_the_notes_landed_in_bumps(scenes,
+                                                   schedule) -> None:
+    """Unlike the follow half, this one is per system: a page whose other
+    systems are resting leaves them at exactly their engraved size."""
+    applier = _applier(scenes, schedule, StyleRules(pulse=POP))
+    applier.refresh(_busiest_beat(scenes, schedule, POP))
+
+    sizes = _sizes(scenes)
+    assert len(set(sizes.values())) > 1                # they really differ
+    assert 1.0 in set(sizes.values())                  # some system rests
+    assert max(sizes.values()) > 1.0
+
+
+def test_a_bump_rises_at_the_beat_and_settles_back(scenes,
+                                                   schedule) -> None:
+    """Walked forward, the way playback reaches it: biggest at the beat,
+    falling after it, and exactly back to engraved size by the settle."""
+    applier = _applier(scenes, schedule, StyleRules(pulse=POP))
+    t = _busiest_beat(scenes, schedule, POP)
+    key = max(_expected_sizes(scenes, schedule, POP, t).items(),
+              key=lambda kv: kv[1])[0]
+
+    applier.apply_at(t - 0.5)
+    before = _sizes(scenes)[key]
+    walked = []
+    for step in range(26):
+        applier.apply_at(t + step * 0.01)
+        walked.append(_sizes(scenes)[key])
+
+    assert before == 1.0
+    assert walked[0] == pytest.approx(1.1)             # up at the beat
+    assert walked == sorted(walked, reverse=True)      # and only falling
+    applier.apply_at(t + 0.25)
+    assert _sizes(scenes)[key] == 1.0                  # gone at the settle
+
+
+def test_scrubbing_a_bump_gives_the_same_size_as_arriving_fresh(
+        qapp, engraved, schedule) -> None:
+    """Rule 2 for the pop half, with no audio anywhere in it: walking to
+    a time and jumping to it cold leave the page the same size."""
+    style = StyleRules(pulse=POP)
+    walked_scenes = _build_scenes(engraved)
+    walked = _applier(walked_scenes, schedule, style)
+    mid = _busiest_beat(walked_scenes, schedule, POP) + 0.11   # mid-bump
+
+    rng = random.Random(23)
+    t = 0.0
+    for _ in range(40):
+        t = max(-2.0, t + rng.uniform(-9.0, 11.0))
+        walked.apply_at(t)
+    for step in range(20):                             # and tick up to it
+        walked.apply_at(mid - 0.4 + step * 0.02)
+    walked.apply_at(mid)
+
+    fresh_scenes = _build_scenes(engraved)
+    fresh = _applier(fresh_scenes, schedule, style)
+    fresh.refresh(mid)
+
+    assert _sizes(walked_scenes) == _sizes(fresh_scenes)
+    # non-vacuity: a bump really is mid-fall at `mid`
+    assert 1.0 < max(_sizes(fresh_scenes).values()) < 1.1
+
+
+def test_a_tempo_change_moves_every_bump(scenes, schedule) -> None:
+    """Same beat, new seconds. The bumps are built where the trigger
+    seconds are, so a tempo edit has to carry them along."""
+    applier = _applier(scenes, schedule, StyleRules(pulse=POP))
+    t = _busiest_beat(scenes, schedule, POP)
+    applier.refresh(t)
+    before = _sizes(scenes)
+    assert max(before.values()) > 1.0                  # non-vacuity
+
+    applier.set_timing(HALF_TEMPO)
+    applier.refresh(t)
+    assert set(_sizes(scenes).values()) == {1.0}       # nothing fires here now
+
+    applier.refresh(t * 2.0)                           # the same beat, later
+    assert _sizes(scenes) == pytest.approx(before)
+    assert _sizes(scenes) == pytest.approx(
+        _expected_sizes(scenes, schedule, POP, t * 2.0, tempo=HALF_TEMPO))
+
+
+def test_the_settings_moving_rebuilds_the_bumps(scenes, schedule) -> None:
+    """notes_for_full is what a strength is measured against, so turning
+    it changes every bump without the beats moving at all."""
+    applier = _applier(scenes, schedule, StyleRules(pulse=POP))
+    t = _busiest_beat(scenes, schedule, POP)
+    applier.refresh(t)
+    at_four = _sizes(scenes)
+
+    applier.set_style(StyleRules(pulse={**POP, "notes_for_full": 24}))
+    applier.refresh(t)
+
+    assert _sizes(scenes) != pytest.approx(at_four)
+    assert _sizes(scenes) == pytest.approx(
+        _expected_sizes(scenes, schedule, {**POP, "notes_for_full": 24}, t))
+
+
+def test_a_resting_system_costs_no_writes(scenes, schedule,
+                                          writes) -> None:
+    """The saving is per group now: playing through a passage writes the
+    system that just fired, not the whole page."""
+    applier = _applier(scenes, schedule, StyleRules(pulse=POP))
+    t = _busiest_beat(scenes, schedule, POP)
+    applier.apply_at(t)
+    writes.clear()
+
+    applier.apply_at(t + 0.01)
+    assert 0 < len(writes) < len(scenes.system_groups)
+
+
+# -- both halves at once -------------------------------------------------
+
+
+def test_the_two_halves_add_on_the_page(scenes, schedule) -> None:
+    """A bump lands on top of however swollen the recording has the page
+    already: the deviations add."""
+    peaks = _loud_after(0.0)
+    both = {"amount": AMOUNT, **POP}
+    applier = _applier(scenes, schedule, StyleRules(pulse=both), peaks)
+    t = _busiest_beat(scenes, schedule, POP)
+    applier.refresh(t)
+    sizes = _sizes(scenes)
+
+    assert sizes == pytest.approx(
+        _expected_sizes(scenes, schedule, both, t, peaks=peaks))
+    follow_only = _expected(peaks, t, AMOUNT)
+    assert min(sizes.values()) == pytest.approx(follow_only)
+    assert max(sizes.values()) == pytest.approx(follow_only + 0.1)
+
+
+def test_losing_the_recording_leaves_the_pop_alone(scenes,
+                                                   schedule) -> None:
+    """The pop half never reads the audio, so it must survive the
+    recording going away."""
+    both = {"amount": AMOUNT, **POP}
+    applier = _applier(scenes, schedule, StyleRules(pulse=both),
+                       _loud_after(0.0))
+    t = _busiest_beat(scenes, schedule, POP)
+
+    applier.set_audio(None, 0.0)
+    applier.refresh(t)
+
+    assert _sizes(scenes) == pytest.approx(
+        _expected_sizes(scenes, schedule, both, t))
+    assert max(_sizes(scenes).values()) == pytest.approx(1.1)
 
 
 def test_losing_the_recording_puts_the_systems_back(scenes,

@@ -976,3 +976,62 @@ def test_export_matches_live_with_the_system_pulse(qapp, engraved,
     plain.apply_frame(n)
     assert set(sizes(plain.scenes).values()) == {1.0}
     assert sizes(plain.scenes) != exported
+
+
+def test_export_matches_live_with_an_onset_pop(qapp, engraved, join_mapping,
+                                               score_model, tempo_map,
+                                               tempo_setup) -> None:
+    """The pop half needs no recording at all, so this is the export
+    proof for a document with no audio loaded: the same beats bump the
+    same systems by the same amount in the video as in the preview.
+
+    Frame by frame, not one frame: the exported walk (FrameClock) and a
+    seeking preview must agree everywhere, which is the pure-function-of-t
+    guarantee seen from the export side."""
+    from scoreanim.render.animate import AnimationApplier
+    from scoreanim.render.scene import ScoreScenes
+
+    style = StyleRules(pulse={"pop_amount": 0.1, "notes_for_full": 4,
+                              "settle": 0.25})
+    schedule = build_trigger_schedule(engraved.layout, join_mapping,
+                                      score_model.measures)
+    stage = default_stage_config(engraved.prepared,
+                                 page_content_top(engraved.layout))
+    score_end = max((m.start + m.quarter_length
+                     for m in score_model.measures), default=0.0)
+    tracks = tuple(build_reveal_tracks(engraved.layout, schedule, score_end))
+    inputs = AnimationInputs(engraved.layout, stage, schedule, tracks)
+    offset = tempo_setup.offset_seconds
+    trigs = _trigger_seconds(schedule, tempo_map)
+
+    spec = ExportSpec(fps=FPS, height=HEIGHT, start_seconds=0.0,
+                      end_seconds=_audio_end(schedule, tempo_map, offset),
+                      offset_seconds=offset,
+                      format=ExportFormat.PNG_SEQUENCE,
+                      out_path=Path("unused"))
+    renderer = FrameRenderer(inputs, style, tempo_map, (), spec)
+
+    def sizes(scenes):
+        return {key: group.system_scale
+                for key, group in scenes.system_groups.items()}
+
+    live_scenes = ScoreScenes(engraved.layout, stage,
+                              ghost_opacity=style.floor_opacity)
+    live = AnimationApplier(live_scenes.items, schedule, tempo_map, style,
+                            tracks, live_scenes.system_groups.values())
+
+    seen = set()
+    split = False
+    for n in range(math.ceil((trigs[0] + offset) * FPS),
+                   math.ceil((trigs[0] + offset + 1.0) * FPS)):
+        renderer.apply_frame(n)
+        exported = sizes(renderer.scenes)
+        live.refresh(renderer.state_time(n))
+        assert exported == sizes(live_scenes), n
+        seen.update(exported.values())
+        split = split or len(set(exported.values())) > 1
+    # non-vacuity: the systems really did bump, over a range of sizes,
+    # and not all together — each one on its own beats
+    assert len(seen) > 2
+    assert max(seen) > 1.0
+    assert split

@@ -38,11 +38,13 @@ Spanners (REVEALED_KINDS) are not trigger-driven at all: their clip
 edges follow the per-system reveal curves, and that whole concern lives
 in render/reveal_driver.py.
 
-The whole page can breathe with the recording too: one size for every
-system at time t, each turning around the centre of its own ink. That is
-per FRAME rather than per element, so it also sits behind its own object
-(render/pulse_driver.py). It reads the RAW loudness, not the volume
-response's gain, and at amount 0 no system is touched at all.
+The whole page can breathe as well: one size per system at time t, each
+turning around the centre of its own ink. Two things move it — the
+recording's raw loudness (not the volume response's gain) and a bump on
+every beat, sized by how many noteheads land there. Both are per FRAME
+rather than per element, so they sit behind their own object
+(render/pulse_driver.py); the bump half needs no audio at all, and with
+both amounts at 0 no system is touched.
 
 Opacity floor overlap caveat (Phase 3, accepted): separate elements
 whose ink overlaps double-darken at floor opacity.
@@ -55,9 +57,9 @@ from typing import Iterable, Mapping, Sequence
 
 from scoreanim.core.animation import (PRESETS, Effect, StyleRules,
                                       SystemRevealTrack, TriggerSchedule,
-                                      build_presets, combined_state,
-                                      derive_windows, effects_for,
-                                      modulate_state, read_pulse)
+                                      build_bumps, build_presets,
+                                      combined_state, derive_windows,
+                                      effects_for, modulate_state, read_pulse)
 from scoreanim.core.audio import PeakCache
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
@@ -151,6 +153,7 @@ class AnimationApplier:
         self._reveal.resolve(tempo_map, swing)
         self._recompute_windows()
         self._recompute_audio()      # the triggers moved along the audio
+        self._recompute_bumps()      # and every onset bump moved with them
         self.refresh(self._t)
 
     def set_audio(self, peaks: PeakCache | None,
@@ -176,6 +179,7 @@ class AnimationApplier:
         self._style = style
         self._resolve_effects()
         self._recompute_audio()      # the volume settings may have moved
+        self._recompute_bumps()      # and so may the pulse settings
         # an element whose effects no longer carry a SCALE track would
         # otherwise keep a stale mid-pop transform, and one that lost
         # its offset tracks would be left standing wherever its slide
@@ -227,6 +231,23 @@ class AnimationApplier:
         self._pulse.configure(self._audio.peaks, self._audio.offset,
                               self._audio.reference,
                               read_pulse(self._style.pulse))
+
+    def _recompute_bumps(self) -> None:
+        """Where every system's onset bump sits on the seconds axis, and
+        how hard it hits. No audio in it at all — the schedule is the
+        whole input — so it is rebuilt from the two seams that can move
+        it: set_timing (a tempo edit moves every bump) and set_style (the
+        settings the strengths are measured against).
+
+        Each item's OWN system goes to core, never the trigger's single
+        system hint: around a system break one beat's ink straddles two
+        systems, and both should bump."""
+        self._pulse.set_bumps(build_bumps(
+            self._trigger_seconds,
+            [[(None if item.identity is None else item.identity.kind,
+               item.system) for item in row]
+             for row in self._items_per_trigger],
+            read_pulse(self._style.pulse)))
 
     def _recompute_windows(self) -> None:
         """Per-component timescales and per-trigger effective windows

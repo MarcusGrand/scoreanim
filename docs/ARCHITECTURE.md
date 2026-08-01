@@ -1017,21 +1017,38 @@ re-touching. "Clear overrides on selection" must be cheap.
   Measured invisible: 21 pages over testscore, video_test and complex1
   render bit-identically (`tools/render_page_png.py`, 2026-08-01).
 - **The system pulse is the one thing that scales those groups**
-  (2026-08-02, `render/pulse_driver.py`). One value per FRAME —
-  `1 + amount × intensity_at(recording, t + offset)` — set on every
-  group, so the page breathes as one object while each system turns
-  around its own centre. Deliberately NOT a property track: it is not
-  per element, not per trigger, and never enters `element_state`, so
-  the evaluator and the compose table are untouched. It reads the RAW
-  loudness, not the volume response's quiet-to-loud gain — two features,
-  two knobs, one reading. The applier holds it beside the reveal driver
-  and feeds it from `_recompute_gains`, which already runs on both seams
-  that can move it, which is why live preview and export need no wiring
-  of their own. Amount 0 means no group is ever touched, so the page is
-  bit-for-bit what it was. Nothing checks whether two systems meet: the
-  0–0.2 clamp is the only guard, and it is **not tight enough** — at
-  0.10 two systems already overlap on testscore page 2
-  (`spikes/system_pulse.py`).
+  (2026-08-02, `render/pulse_driver.py`). A size per system per FRAME,
+  and two independent things move it. Deliberately NOT a property track
+  either way: it is not per element, not per trigger, and never enters
+  `element_state`, so the evaluator and the compose table are untouched.
+  - *Follow volume*: `amount × intensity_at(recording, t + offset)`, one
+    number for the whole page, so it breathes as one object. It reads
+    the RAW loudness, not the volume response's quiet-to-loud gain —
+    two features, two knobs, one reading.
+  - *Onset pop*: at every beat the system the notes land in jumps to
+    `pop_amount × strength` and eases linearly back to nothing over
+    `settle` — the note pop's own shape, so the two read as one gesture.
+    `strength = heads / notes_for_full`, capped at 1, counting HEAD_KINDS
+    only (a stem or dot is ink hanging off a head already counted) and
+    counting each head in the system it is DRAWN in, never in the
+    trigger's single min()-aggregated system hint. Overlapping bumps take
+    the LARGEST live one, never the sum, so a fast run cannot inflate a
+    system. Evaluation is a bisect over that system's trigger times
+    bounded by `settle`. **No audio anywhere in it** — the schedule is
+    the whole input.
+  - The two DEVIATIONS add: `1 + follow + pop`. Both at 0 means no group
+    is ever touched, so the page is bit-for-bit what it was.
+  - The applier holds the driver beside the reveal driver and feeds it
+    from `_recompute_audio` (the recording half) and `_recompute_bumps`
+    (the schedule half), both of which already run on every seam that can
+    move them — which is why live preview and export need no wiring of
+    their own. The unchanged-value skip is per GROUP, keyed like the
+    reveal edges, because the bumps differ per system.
+  - Nothing checks whether two systems meet: the 0–0.2 clamps are the
+    only guard, and they are **not tight enough** — at 0.10 two systems
+    already overlap on testscore page 2 (`spikes/system_pulse.py`;
+    `spikes/onset_pop.py` for the pop half, where a gap closes from one
+    side only and 0.10 leaves 6.2 units).
 
 ## 7. UI structure
 
