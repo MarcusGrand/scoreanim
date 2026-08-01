@@ -118,6 +118,12 @@ class Effect:
     # duration, resolved per element — F7); the kernel itself only ever
     # sees the resulting scalar.
     settle_to_note_value: bool = False
+    # When True an element carrying this effect is modulated by how loud
+    # the recording is RIGHT NOW, instead of by the one average gain
+    # over its whole note (core/animation/intensity.py). Like the flag
+    # above, the kernel never sees it: it only changes which number
+    # reaches modulate_state.
+    follow_volume: bool = False
 
     def state_at(self, t_rel: float) -> dict[PropertyId, float]:
         return {pid: env.value_at(t_rel) for pid, env in self.tracks.items()}

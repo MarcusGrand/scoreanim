@@ -470,6 +470,79 @@ def test_swell_has_no_shift() -> None:
     assert PRESETS["swell"].trigger_shift == 0.0
 
 
+# --- swell following the recording ----------------------------------------
+
+def test_follow_is_off_by_default() -> None:
+    """Nothing anyone has saved changes shape."""
+    assert PRESETS["swell"].follow_volume is False
+    assert build_presets(0.3, {"swell": {"size": 2.0}})["swell"] \
+        .follow_volume is False
+
+
+def test_follow_turns_the_hump_into_a_plateau() -> None:
+    """A quick ease up, a hold the live volume plays on, and a quick
+    ease back — not a point at the top."""
+    swell = build_presets(0.3, {"swell": {"follow": True, "size": 2.0,
+                                          "duration": 1.0}})["swell"]
+    at = lambda t: element_state(0.0, swell, t)[SCALE]     # noqa: E731
+    assert at(0.0) == 1.0                       # starts where it was drawn
+    # up over the first 10 %, held from there to 85 %
+    assert at(0.10) == pytest.approx(2.0)
+    for t in (0.10, 0.25, 0.5, 0.7, 0.85):
+        assert at(t) == pytest.approx(2.0), t
+    # nothing ever goes past the size asked for
+    values = [at(i / 200.0) for i in range(201)]
+    assert max(values) == pytest.approx(2.0)
+    # and the top is a stretch, not a spike: most of the note sits on it
+    assert sum(v == pytest.approx(2.0) for v in values) > 140
+    # the tail eases back, and the fall is monotone
+    tail = [at(0.85 + i / 300.0) for i in range(46)]
+    assert all(b <= a + 1e-9 for a, b in zip(tail, tail[1:]))
+    assert 1.0 < at(0.95) < 2.0
+
+
+def test_follow_ends_exactly_at_the_engraved_size() -> None:
+    """The whole point of the tail: the note lands where it was drawn,
+    in time for the next one, whatever size it was held at."""
+    for size in (1.05, 1.4, 3.0, 10.0):
+        swell = build_presets(0.3, {"swell": {"follow": True, "size": size,
+                                              "duration": 2.0}})["swell"]
+        assert element_state(0.0, swell, 2.0)[SCALE] == 1.0
+        assert element_state(0.0, swell, 5.0)[SCALE] == 1.0
+
+
+def test_follow_forces_the_note_value_stretch_on() -> None:
+    """A fixed 0.8 s window cannot track a whole note, so follow turns
+    the stretch on however the other box is set."""
+    forced = build_presets(0.3, {"swell": {"follow": True,
+                                           "note_value": False}})["swell"]
+    assert forced.follow_volume is True
+    assert forced.settle_to_note_value is True
+    # and the plateau keeps its proportions inside a long note
+    stretched = derive_windows([0.0], [0.0], [["whole"]], [[(forced,)]],
+                               {"whole": 4.0}, _SWELL_TEMPO)
+    timescale = stretched.timescales_per_trigger[0][0][0]
+    assert timescale == pytest.approx(5.0)          # 4 s over 0.8 s
+    assert stretched.durations[0] == pytest.approx(4.0)
+    held = element_state(0.0, forced, 2.0, timescale=timescale)[SCALE]
+    assert held == pytest.approx(1.4)               # still on the plateau
+    assert element_state(0.0, forced, 4.0, timescale=timescale)[SCALE] == 1.0
+
+
+def test_the_peak_knob_is_ignored_while_following() -> None:
+    """The top is no longer a point, so where it sits means nothing."""
+    shapes = [build_presets(0.3, {"swell": {"follow": True, "peak": peak,
+                                            "duration": 1.0}})["swell"]
+              for peak in (0.05, 0.5, 0.95)]
+    assert shapes[0] == shapes[1] == shapes[2]
+
+
+def test_follow_does_not_disturb_the_other_presets() -> None:
+    reg = build_presets(0.3, {"swell": {"follow": True}})
+    for name in ("appear", "pop", "fade", "drop", "slide"):
+        assert reg[name] == PRESETS[name]
+
+
 def test_swell_params_do_not_disturb_the_other_presets() -> None:
     reg = build_presets(0.3, {"swell": {"size": 3.0}})
     for name in ("appear", "pop", "fade", "drop", "slide"):

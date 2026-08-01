@@ -75,6 +75,19 @@ _SWELL_SIZE = 1.4           # size at the top, in engraved sizes
 _SWELL_PEAK = 0.5           # how far through the swell the top lands
 _SWELL_S = 0.8              # authored length, used when note_value is off
 _SWELL_NOTE_VALUE = True
+_SWELL_FOLLOW = False
+
+# With follow on the swell is a PLATEAU, not a hump: a quick ease up, a
+# hold across the note, and a quick ease back to exactly 1.0 at the end.
+# The held part is the size the recording's own loudness then plays on,
+# and the tail is the snap-back that lands the note at its engraved size
+# just as the next one arrives. Fractions of the window, not absolute
+# seconds — the timescale stretches the whole shape at once, so a whole
+# note's ease is proportionally the same as an eighth's. 10 / 75 / 15,
+# Marcus 2026-08-01: 15 % is long enough that the return reads as a
+# release rather than a flick on a fast note.
+_FOLLOW_RISE = 0.10
+_FOLLOW_FALL = 0.15
 
 # Consumption clamps (M4, brief F7 ranges). The command layer validates
 # only type/finiteness, so a future preset reuses it unchanged; ranges
@@ -93,6 +106,39 @@ _DISTANCE_RANGE = (0.0, 2000.0)
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return min(hi, max(lo, value))
+
+
+def swell_scale(size: float, peak: float, seconds: float,
+                follow: bool) -> Envelope:
+    """The swell's size over time, in either of its two shapes.
+
+    Both start and end at exactly 1.0 — the note is already on the page
+    at its engraved size, and a played note is never left bigger than it
+    was drawn.
+
+    Authored: a hump. Up on EASE_IN, gentle away from rest and gathering
+    pace the way a crescendo grows; down on EASE_OUT, quick away from
+    the top and slow to arrive, so it settles back softly. `peak` says
+    how far through the top lands.
+
+    Following the recording: a plateau. A quick ease up, a hold, and a
+    quick ease back. `peak` has no meaning in this shape — the top is
+    not a point any more, it is the stretch the live volume plays on.
+    Both eases are EASE_OUT, quick away and gentle arrival, so neither
+    end of the hold has a corner in it."""
+    if not follow:
+        return Envelope(initial=1.0,
+                        keyframes=(Keyframe(0.0, 1.0, Easing.STEP),
+                                   Keyframe(peak * seconds, size,
+                                            Easing.EASE_IN),
+                                   Keyframe(seconds, 1.0, Easing.EASE_OUT)))
+    return Envelope(initial=1.0,
+                    keyframes=(Keyframe(0.0, 1.0, Easing.STEP),
+                               Keyframe(_FOLLOW_RISE * seconds, size,
+                                        Easing.EASE_OUT),
+                               Keyframe((1.0 - _FOLLOW_FALL) * seconds, size,
+                                        Easing.LINEAR),
+                               Keyframe(seconds, 1.0, Easing.EASE_OUT)))
 
 
 def slide_start(direction_degrees: float, distance: float
@@ -117,10 +163,12 @@ def build_presets(floor: float,
     duration / note-value from ``params["fade"]``, drop's start size /
     duration / bounce from ``params["drop"]``, slide's direction /
     distance / duration / bounce from ``params["slide"]`` and swell's
-    size / peak / duration / note-value from ``params["swell"]`` (all
-    merged over defaults, clamped). Unknown presets and unknown keys are
-    ignored here — they round-trip through the document untouched (the
-    effect-name precedent)."""
+    size / peak / duration / note-value / follow from ``params["swell"]``
+    (all merged over defaults, clamped). Follow is the one param that
+    reaches past its own knob: it forces swell's note-value stretch on,
+    because a fixed window cannot track a whole note. Unknown presets
+    and unknown keys are ignored here — they round-trip through the
+    document untouched (the effect-name precedent)."""
     pop = dict(params.get("pop", {})) if params else {}
     scale = _clamp(float(pop.get("scale", _POP_SCALE)), *_SCALE_RANGE)
     settle = max(_SETTLE_MIN, float(pop.get("settle", _POP_SETTLE_S)))
@@ -154,7 +202,13 @@ def build_presets(floor: float,
     swell_size = _clamp(float(swell.get("size", _SWELL_SIZE)), *_SCALE_RANGE)
     swell_s = max(_SETTLE_MIN, float(swell.get("duration", _SWELL_S)))
     swell_peak = _clamp(float(swell.get("peak", _SWELL_PEAK)), *_PEAK_RANGE)
-    swell_note_value = bool(swell.get("note_value", _SWELL_NOTE_VALUE))
+    swell_follow = bool(swell.get("follow", _SWELL_FOLLOW))
+    # Following the recording only works over the note's own length: a
+    # fixed 0.8 s window cannot track a whole note. So follow turns the
+    # note-value stretch on whatever the other box says, and the panel
+    # shows that box checked and grayed to match.
+    swell_note_value = swell_follow or bool(
+        swell.get("note_value", _SWELL_NOTE_VALUE))
     return {
         "appear": appear(floor),
         "pop": Effect("pop", {
@@ -211,23 +265,17 @@ def build_presets(floor: float,
         # The note appears at its engraved size and stays there — it is
         # already on the page, so the step at the trigger is opacity's
         # alone and scale steps to 1.0, which is also what the rise has
-        # to lerp from. Up on EASE_IN: gentle away from rest, gathering
-        # pace, the way a crescendo grows. Down on EASE_OUT: quick away
-        # from the top and slow to arrive, so it settles softly back.
-        # Both ends are exactly 1.0, so a played note is never left
-        # bigger than it was drawn. With the note value on, the
-        # timescale stretches the whole shape at once, so the peak keeps
-        # its place INSIDE the note whatever the note's length.
+        # to lerp from. The size track has two shapes, the authored hump
+        # and the plateau the recording plays on (swell_scale above).
+        # With the note value on, the timescale stretches whichever
+        # shape it is all at once, so it keeps its proportions inside
+        # the note however long the note is.
         "swell": Effect("swell", {
             OPACITY: Envelope(initial=floor,
                               keyframes=(Keyframe(0.0, 1.0, Easing.STEP),)),
-            SCALE: Envelope(initial=1.0,
-                            keyframes=(Keyframe(0.0, 1.0, Easing.STEP),
-                                       Keyframe(swell_peak * swell_s,
-                                                swell_size, Easing.EASE_IN),
-                                       Keyframe(swell_s, 1.0,
-                                                Easing.EASE_OUT))),
-        }, settle_to_note_value=swell_note_value),
+            SCALE: swell_scale(swell_size, swell_peak, swell_s, swell_follow),
+        }, settle_to_note_value=swell_note_value,
+            follow_volume=swell_follow),
     }
 
 
