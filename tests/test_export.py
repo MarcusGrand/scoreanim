@@ -898,3 +898,81 @@ def test_export_scenes_are_built_unselected(qapp, inputs, tempo_map,
     renderer.render_frame(0)
     assert not any(item.selected
                    for item in renderer._scenes.items.values())
+
+
+# -- the system pulse reaches export (2026-08-02) ------------------------------
+
+def test_export_matches_live_with_the_system_pulse(qapp, engraved,
+                                                   join_mapping, score_model,
+                                                   tempo_map,
+                                                   tempo_setup) -> None:
+    """The page breathes the same size in the video as it does in the
+    preview. Both read the same recording through the same seam
+    (set_audio), and both apply it to the system groups their own
+    ScoreScenes built — so the offset and the size land the same way on
+    each side."""
+    import numpy as np
+
+    from scoreanim.core.audio import PeakCacheBuilder
+    from scoreanim.render.animate import AnimationApplier
+    from scoreanim.render.scene import ScoreScenes
+
+    style = StyleRules(pulse={"amount": 0.1})
+    schedule = build_trigger_schedule(engraved.layout, join_mapping,
+                                      score_model.measures)
+    stage = default_stage_config(engraved.prepared,
+                                 page_content_top(engraved.layout))
+    score_end = max((m.start + m.quarter_length
+                     for m in score_model.measures), default=0.0)
+    tracks = tuple(build_reveal_tracks(engraved.layout, schedule, score_end))
+    inputs = AnimationInputs(engraved.layout, stage, schedule, tracks)
+    offset = tempo_setup.offset_seconds
+    end = _audio_end(schedule, tempo_map, offset)
+
+    # loud on every other trigger, so the page is a different size at
+    # every frame rather than sitting on one number
+    trigs = _trigger_seconds(schedule, tempo_map)
+    rate = 44100
+    samples = np.zeros(int((end + 2.0) * rate), dtype=np.float32)
+    for beat_s in trigs[::2]:
+        lo = int((beat_s + offset) * rate)
+        samples[lo:lo + int(0.08 * rate)] = 1.0
+    builder = PeakCacheBuilder(rate)
+    builder.add_samples(samples)
+    peaks = builder.snapshot()
+
+    spec = ExportSpec(fps=FPS, height=HEIGHT, start_seconds=0.0,
+                      end_seconds=end, offset_seconds=offset,
+                      format=ExportFormat.PNG_SEQUENCE,
+                      out_path=Path("unused"))
+    renderer = FrameRenderer(inputs, style, tempo_map, (), spec, peaks=peaks)
+
+    def sizes(scenes):
+        return {key: group.system_scale
+                for key, group in scenes.system_groups.items()}
+
+    live_scenes = ScoreScenes(engraved.layout, stage,
+                              ghost_opacity=style.floor_opacity)
+    live = AnimationApplier(live_scenes.items, schedule, tempo_map, style,
+                            tracks, live_scenes.system_groups.values())
+    live.set_audio(peaks, offset)
+
+    # several frames, not one: the exported walk must agree with a
+    # seeking preview at every one of them
+    seen = set()
+    for n in range(math.ceil((trigs[0] + offset) * FPS),
+                   math.ceil((trigs[0] + offset + 0.5) * FPS)):
+        renderer.apply_frame(n)
+        exported = sizes(renderer.scenes)
+        live.refresh(renderer.state_time(n))
+        assert exported == sizes(live_scenes), n
+        seen.update(exported.values())
+    # the page really did breathe, and every system together
+    assert len(seen) > 1
+    assert len(set(sizes(renderer.scenes).values())) == 1
+
+    # and without the recording the same frame is the engraved size
+    plain = FrameRenderer(inputs, style, tempo_map, (), spec)
+    plain.apply_frame(n)
+    assert set(sizes(plain.scenes).values()) == {1.0}
+    assert sizes(plain.scenes) != exported

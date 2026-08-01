@@ -35,6 +35,7 @@ class SystemGroupItem(GroupItem):
         self.system = system
         self._ink: QRectF | None = None
         self._scale = 1.0
+        self._reveal_kids: tuple[ElementItem, ...] = ()
 
     # -- the system's own ink ----------------------------------------------
 
@@ -49,6 +50,15 @@ class SystemGroupItem(GroupItem):
         Group-local coordinates are page coordinates, because the group
         sits at the origin with no transform."""
         self._ink = self.childrenBoundingRect()
+        # The members a scale has to do extra work for, found once here
+        # for the same reason: their reveal paths are all added during
+        # construction, before anything is parented, so this set is
+        # final. It matters because a scale that moves every frame would
+        # otherwise walk every element on the system to reach the handful
+        # of spanners that need a new clip.
+        self._reveal_kids = tuple(
+            child for child in self.childItems()
+            if isinstance(child, ElementItem) and child.reveal_children)
 
     @property
     def ink_rect(self) -> QRectF:
@@ -79,12 +89,13 @@ class SystemGroupItem(GroupItem):
 
         Scaling changes every descendant's scene transform, which is
         what a reveal clip's cached inverse depends on — the same trap
-        a nudge sprang at M3.2. Each child re-derives its clip here."""
+        a nudge sprang at M3.2. The children that have a clip re-derive
+        it here; the rest need nothing, since Qt carries the transform
+        for them."""
         if scale == self._scale:
             return
         self._scale = scale
         self.setTransformOriginPoint(self.pivot)
         self.setScale(scale)
-        for child in self.childItems():
-            if isinstance(child, ElementItem):
-                child.refresh_reveal_clip()
+        for child in self._reveal_kids:
+            child.refresh_reveal_clip()

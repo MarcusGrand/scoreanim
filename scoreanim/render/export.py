@@ -154,10 +154,12 @@ class FrameRenderer:
         apply_overrides(self._scenes, overrides or {})
         self._applier = AnimationApplier(self._scenes.items, inputs.schedule,
                                          tempo_map, style,
-                                         inputs.reveal_tracks)
+                                         inputs.reveal_tracks,
+                                         self._scenes.system_groups.values())
         self._applier.set_timing(tempo_map, swing)
-        # the recording the volume response reads, on the same seam the
-        # stage uses — an exported video pops exactly like the preview
+        # the recording the volume response and the system pulse read, on
+        # the same seam the stage uses — an exported video pops and
+        # breathes exactly like the preview
         self._applier.set_audio(peaks, spec.offset_seconds)
         # both modes share the page-aspect canvas (Phase 10R ruling:
         # the frame never changes shape); system mode only adds bands

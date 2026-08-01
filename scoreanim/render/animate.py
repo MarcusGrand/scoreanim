@@ -43,6 +43,12 @@ Spanners (REVEALED_KINDS) are not trigger-driven at all: their clip
 edges follow the per-system reveal curves, and that whole concern lives
 in render/reveal_driver.py.
 
+The whole page can breathe with the recording too: one size for every
+system at time t, each turning around the centre of its own ink. That is
+per FRAME rather than per element, so it also sits behind its own object
+(render/pulse_driver.py). It reads the RAW loudness, not the volume
+response's gain, and at amount 0 no system is touched at all.
+
 Opacity floor overlap caveat (Phase 3, accepted): separate elements
 whose ink overlaps double-darken at floor opacity.
 """
@@ -50,7 +56,7 @@ from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
 from itertools import accumulate
-from typing import Mapping, Sequence
+from typing import Iterable, Mapping, Sequence
 
 from scoreanim.core.animation import (PRESETS, Effect, StyleRules,
                                       SystemRevealTrack, TriggerSchedule,
@@ -58,14 +64,16 @@ from scoreanim.core.animation import (PRESETS, Effect, StyleRules,
                                       build_presets, combined_state,
                                       derive_windows, effects_for, gain_for,
                                       intensity_at, modulate_state,
-                                      peak_reference, read_volume,
+                                      peak_reference, read_pulse, read_volume,
                                       window_gains)
 from scoreanim.core.audio import PeakCache
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
 from scoreanim.render.items import ElementItem
 from scoreanim.render.properties import PROPERTY_APPLIERS
+from scoreanim.render.pulse_driver import PulseDriver
 from scoreanim.render.reveal_driver import RevealDriver
+from scoreanim.render.system_group import SystemGroupItem
 
 _BEFORE_EVERYTHING = float("-inf")
 
@@ -74,7 +82,8 @@ class AnimationApplier:
     def __init__(self, items: Mapping[ElementId, ElementItem],
                  schedule: TriggerSchedule, tempo_map: TempoMap,
                  style: StyleRules,
-                 reveal_tracks: Sequence[SystemRevealTrack] = ()) -> None:
+                 reveal_tracks: Sequence[SystemRevealTrack] = (),
+                 system_groups: Iterable[SystemGroupItem] = ()) -> None:
         self._schedule = schedule
         self._items_per_trigger: tuple[tuple[ElementItem, ...], ...] = tuple(
             tuple(items[eid] for eid in trig.element_ids if eid in items)
@@ -138,6 +147,10 @@ class AnimationApplier:
         # edge — no triggers involved (REVEALED_KINDS left the
         # schedule), so the whole concern sits behind its own object.
         self._reveal = RevealDriver(items, reveal_tracks)
+        # The page breathing with the recording: one size per frame for
+        # every system, so it has its own object too. With no groups it
+        # can never do anything (render/pulse_driver.py).
+        self._pulse = PulseDriver(system_groups)
 
         self._style = style
         self._resolve_effects()
@@ -242,6 +255,13 @@ class AnimationApplier:
         self._volume = read_volume(self._style.volume)
         self._reference = (peak_reference(self._peaks)
                            if self._peaks is not None else 0.0)
+        # The system pulse reads the same three things, so it is fed
+        # here, above the early return below (which is about the
+        # per-element gains only). This one call covers both seams that
+        # can move it, so live preview and export need no wiring of
+        # their own.
+        self._pulse.configure(self._peaks, self._audio_offset,
+                              self._reference, read_pulse(self._style.pulse))
         rows = audio_windows(
             [trig.beats for trig in self._schedule.triggers],
             self._trigger_seconds,
@@ -302,6 +322,7 @@ class AnimationApplier:
         changed += self._apply_window(t_score_seconds, t_prev)
         changed += self._reveal.apply(t_score_seconds,
                                       self._style.reveal_mode)
+        changed += self._pulse.apply(t_score_seconds)
         return changed
 
     def refresh(self, t_score_seconds: float) -> None:
@@ -312,6 +333,8 @@ class AnimationApplier:
         self._t = t_score_seconds
         self._reveal.invalidate()
         self._reveal.apply(t_score_seconds, self._style.reveal_mode)
+        self._pulse.invalidate()
+        self._pulse.apply(t_score_seconds)
 
     @property
     def uncovered_reveal_keys(self) -> dict[tuple, tuple[ElementId, ...]]:

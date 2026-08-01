@@ -185,7 +185,8 @@ class ScoreLoader:
             engraved.layout, stage, schedule, tuple(reveal_tracks))
         applier = AnimationApplier(scenes.items, schedule,
                                    TempoMap([TempoEvent(0.0, DEFAULT_BPM)]),
-                                   style, reveal_tracks)
+                                   style, reveal_tracks,
+                                   scenes.system_groups.values())
         # per-system band rects for system-at-a-time framing (Phase 7.4)
         # — derived from the Layout, never persisted (rule 5)
         bands = system_bands(engraved.layout)
