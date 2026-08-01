@@ -44,6 +44,7 @@ from scoreanim.core.project.commands.style import (ResetEffectSettings,
                                                    SetFloorOpacity,
                                                    SetPartColor,
                                                    SetPartEffect,
+                                                   SetPulseParam,
                                                    SetRevealMode,
                                                    SetVolumeParam)
 from scoreanim.core.project.commands.timing import (AddSwingRegion,
@@ -76,7 +77,7 @@ __all__ = [
     "SetFloorOpacity", "SetGlobalSwing", "SetHideEmptyStaves",
     "SetHideFirstSystem", "SetOffset", "SetPartColor", "SetPartEffect",
     "SetLayoutOverride", "SetPageBreak",
-    "SetPartText", "SetPresentationMode", "SetRevealMode",
+    "SetPartText", "SetPresentationMode", "SetPulseParam", "SetRevealMode",
     "SetSwingRegion", "SetTempoFrom", "SetSystemBreak", "SetVolumeParam",
     "UndoStack",
 ]

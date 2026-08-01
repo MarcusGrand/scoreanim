@@ -470,13 +470,40 @@ def test_set_volume_param_validates_type_and_finiteness_only(doc) -> None:
         .style.volume["amount"] == 99.0
 
 
+def test_set_pulse_param_sparse_semantics(doc) -> None:
+    from scoreanim.core.project import SetPulseParam
+
+    d2 = SetPulseParam("amount", 0.1).apply(doc)
+    assert d2.style.pulse == {"amount": 0.1}
+    # None deletes the key
+    assert SetPulseParam("amount", None).apply(d2).style.pulse == {}
+    # deleting an absent key is a no-op, not an error
+    assert SetPulseParam("zzz", None).apply(doc).style.pulse == {}
+    # and it never touches the volume response's own map
+    assert d2.style.volume == {}
+
+
+def test_set_pulse_param_validates_type_and_finiteness_only(doc) -> None:
+    from scoreanim.core.project import SetPulseParam
+
+    for bad in (float("nan"), float("inf"), "loud", (1, 2)):
+        with pytest.raises(CommandError):
+            SetPulseParam("amount", bad).apply(doc)     # type: ignore
+    with pytest.raises(CommandError):
+        SetPulseParam("", 1.0).apply(doc)
+    # no range policy here — the clamp lives at consumption (read_pulse)
+    assert SetPulseParam("amount", 99.0).apply(doc) \
+        .style.pulse["amount"] == 99.0
+
+
 def test_reset_effect_settings_one_step_keeps_foreign_presets(doc) -> None:
     from scoreanim.core.project import (ResetEffectSettings, SetDefaultEffect,
-                                        SetVolumeParam)
+                                        SetPulseParam, SetVolumeParam)
 
     stack = UndoStack()
     d = stack.execute(SetDefaultEffect("pop"), doc)
     d = stack.execute(SetVolumeParam("amount", 0.7), d)
+    d = stack.execute(SetPulseParam("amount", 0.1), d)
     d = stack.execute(SetEffectParam("pop", "scale", 2.0), d)
     d = stack.execute(SetEffectParam("pop", "note_value", True), d)
     d = stack.execute(SetEffectParam("fade", "duration", 1.5), d)
@@ -490,12 +517,15 @@ def test_reset_effect_settings_one_step_keeps_foreign_presets(doc) -> None:
     # (raw-round-trip guarantee)
     assert d.style.default_effect is None
     assert d.style.effect_params == {"shimmer": {"wobble": 1.5}}
-    # the volume response is on the panel too, so Reset clears it
+    # the volume response and the system pulse are on the panel too, so
+    # Reset clears them
     assert d.style.volume == {}
+    assert d.style.pulse == {}
     # ONE undo step restores every knob at once
     assert stack.undo() == before_reset
     assert before_reset.style.default_effect == "pop"
     assert before_reset.style.volume == {"amount": 0.7}
+    assert before_reset.style.pulse == {"amount": 0.1}
     assert before_reset.style.effect_params["pop"] == {"scale": 2.0,
                                                        "note_value": True}
     assert before_reset.style.effect_params["fade"] == {"duration": 1.5}

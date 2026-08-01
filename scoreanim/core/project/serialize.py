@@ -89,6 +89,13 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 # exactly the pre-option look for every v<=10 file. The bump keeps a
 # v10 reader refusing loudly instead of silently dropping the user's
 # settings on a resave — the v2 rationale.
+#   Also v11 (system pulse, 2026-08-02): style.pulse — the sparse
+#   {key: value} map over "amount" that says how much the whole page
+#   swells with the recording. Same shape, same raw round-trip, same
+#   "missing key means off" reading, so it rides this version rather
+#   than taking one of its own: no build has ever shipped reading v11,
+#   so a second number would protect nothing (the v3 precedent — ONE
+#   bump carrying every planned field).
 PROJECT_VERSION = 11
 _READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
 SUFFIX = ".scoreanim"
@@ -150,6 +157,9 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
             # omitted when empty
             **({"volume": dict(sorted(doc.style.volume.items()))}
                if doc.style.volume else {}),
+            # v11: the system pulse, its twin
+            **({"pulse": dict(sorted(doc.style.pulse.items()))}
+               if doc.style.pulse else {}),
         },
         "stage": {
             "mode": doc.stage.mode.name.lower(),
@@ -362,9 +372,10 @@ def _style_rules_in(style: dict[str, Any]) -> StyleRules:
         default_effect=style.get("default_effect"),
         effect_params={str(name): dict(entry) for name, entry
                        in style.get("effect_params", {}).items()},
-        # v11 key; absent in v<=10 files → {} → the response off, which
-        # is the look those files have always had
+        # v11 keys; absent in v<=10 files → {} → both off, which is the
+        # look those files have always had
         volume=dict(style.get("volume", {})),
+        pulse=dict(style.get("pulse", {})),
     )
 
 

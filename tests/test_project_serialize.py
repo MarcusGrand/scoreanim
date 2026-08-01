@@ -15,7 +15,8 @@ from scoreanim.core.project import (FileRef, LayoutOverride, PageBreak,
                                     SystemBreak, TimingConfig, check_ref,
                                     from_dict, load_project, save_project,
                                     sha256_of, to_dict)
-from scoreanim.core.animation import ElementStyle, RevealMode, read_volume
+from scoreanim.core.animation import (ElementStyle, RevealMode, read_pulse,
+                                      read_volume)
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.core.timing import SwingRegion, Tap, TapSession, TempoEvent
 
@@ -471,3 +472,36 @@ def test_v11_file_is_refused_by_a_v10_reader() -> None:
             ser.from_dict(payload)
     finally:
         ser._READABLE_VERSIONS = original
+
+
+# -- v11: the system pulse, riding the same version -----------------------
+
+def test_v11_pulse_round_trips_raw() -> None:
+    """The volume map's twin: same sparse shape, same raw round-trip,
+    same version. A key this build does not consume survives."""
+    doc = ProjectDoc(style=StyleRules(
+        pulse={"amount": 0.12, "shape": "square"}))
+    out = from_dict(to_dict(doc))
+    assert out.style.pulse == {"amount": 0.12, "shape": "square"}
+    assert out == doc
+    # sparse: nothing stored writes no key at all
+    assert "pulse" not in to_dict(ProjectDoc())["style"]
+
+
+def test_the_two_v11_maps_are_stored_apart() -> None:
+    """One setting each, never sharing a map: turning the page's pulse
+    up must not touch how hard a single note pops."""
+    doc = ProjectDoc(style=StyleRules(volume={"amount": 0.4},
+                                      pulse={"amount": 0.1}))
+    out = from_dict(to_dict(doc))
+    assert out.style.volume == {"amount": 0.4}
+    assert out.style.pulse == {"amount": 0.1}
+
+
+def test_older_files_load_with_the_pulse_off() -> None:
+    """No read gate, for the identical reason: a missing key means {},
+    which reads as amount 0, which never touches a system — exactly the
+    look those files have always had."""
+    for version in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
+        assert from_dict({"version": version}).style.pulse == {}
+    assert read_pulse(from_dict({"version": 10}).style.pulse).is_off

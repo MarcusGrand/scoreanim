@@ -82,6 +82,12 @@ class StyleRules:
     # animation.intensity.read_volume; keys this build doesn't consume
     # round-trip untouched. Empty = amount 0 = off.
     volume: Mapping[str, object] = field(default_factory=dict)
+    # System pulse (schema v11, alongside volume): how much the whole
+    # page swells with the recording. Sparse {key: value} over "amount",
+    # read clamped by animation.pulse.read_pulse; keys this build
+    # doesn't consume round-trip untouched. Empty = amount 0 = off, and
+    # off means no system is ever scaled at all.
+    pulse: Mapping[str, object] = field(default_factory=dict)
 
     def resolve(self, identity: ElementIdentity | None) -> ElementStyle:
         """Element override > part rule > document default, per field.
