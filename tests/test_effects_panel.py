@@ -1046,3 +1046,61 @@ def test_a_pulse_amount_alone_lights_the_reset_button(panel) -> None:
     widget._commit_reset()
     assert state.doc.style.pulse == {}
     assert not widget._reset_button.isEnabled()
+
+
+def test_the_two_pulse_amounts_are_a_pair_of_knobs(panel) -> None:
+    """One follows the recording, the other follows the notes — same
+    units, same range, so they read as the pair they are."""
+    widget, state = panel
+    follow, pop = widget.pulse.spins["amount"], widget.pulse.spins["pop_amount"]
+    assert (pop.minimum(), pop.maximum()) == (follow.minimum(),
+                                              follow.maximum()) == (0, 20)
+    assert pop.value() == 0
+
+    pop.setValue(8)
+    widget.pulse.fields["pop_amount"].commit()
+    assert state.doc.style.pulse == {"pop_amount": pytest.approx(0.08)}
+    assert "amount" not in state.doc.style.pulse   # one knob, one key
+
+
+def test_the_pop_shape_knobs_show_the_document(panel) -> None:
+    widget, state = panel
+    assert widget.pulse.spins["notes_for_full"].value() == 6
+    assert widget.pulse.spins["settle"].value() == pytest.approx(0.25)
+
+    state.execute(SetPulseParam("notes_for_full", 10))
+    state.execute(SetPulseParam("settle", 0.4))
+    widget.sync_from_document(state.doc)
+
+    assert widget.pulse.spins["notes_for_full"].value() == 10
+    assert widget.pulse.spins["settle"].value() == pytest.approx(0.4)
+
+
+def test_the_pop_shape_knobs_wait_on_the_pop_amount(panel) -> None:
+    """They describe a jump nothing is drawing while the amount is 0 —
+    the Quiet/Loud precedent in the Volume response block."""
+    widget, state = panel
+    assert not widget.pulse.spins["notes_for_full"].isEnabled()
+    assert not widget.pulse.spins["settle"].isEnabled()
+    # and the follow half is not what wakes them
+    state.execute(SetPulseParam("amount", 0.1))
+    widget.sync_from_document(state.doc)
+    assert not widget.pulse.spins["settle"].isEnabled()
+
+    state.execute(SetPulseParam("pop_amount", 0.05))
+    widget.sync_from_document(state.doc)
+    assert widget.pulse.spins["notes_for_full"].isEnabled()
+    assert widget.pulse.spins["settle"].isEnabled()
+
+
+def test_reset_clears_the_pop_settings_too(panel) -> None:
+    widget, state = panel
+    state.execute(SetPulseParam("pop_amount", 0.1))
+    state.execute(SetPulseParam("notes_for_full", 12))
+    widget.sync_from_document(state.doc)
+    assert widget._reset_button.isEnabled()
+
+    widget._commit_reset()
+    assert state.doc.style.pulse == {}
+    assert widget.pulse.spins["pop_amount"].value() == 0
+    assert widget.pulse.spins["notes_for_full"].value() == 6
