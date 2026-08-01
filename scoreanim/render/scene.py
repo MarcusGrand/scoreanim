@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsRectItem,
 
 from scoreanim.core.animation.reveal import REVEALED_KINDS
 from scoreanim.core.animation.scale_groups import scale_pivots
+from scoreanim.core.animation.stem_caps import stem_scale_caps
 from scoreanim.core.animation.style import StyleRules, takes_part_color
 from scoreanim.core.engraving.types import Layout, PathPrimitive
 from scoreanim.core.project.document import LayoutOverride
@@ -102,10 +103,13 @@ class ScoreScenes:
             self.page_rects.append(rect)
             self.scenes.append(scene)
 
-        # Where each element's scale effect pivots — a whole note turns
-        # around its noteheads' centre, so it grows and shrinks as one
-        # object (core/animation/scale_groups.py owns that policy).
+        # Where each element's scale effect pivots — every notehead turns
+        # around its own centre, and the ink hanging off it follows the
+        # head it belongs to (core/animation/scale_groups.py owns that
+        # policy) — and how far it may grow, which is what stops a stem
+        # at its beam (core/animation/stem_caps.py).
         pivots = scale_pivots(layout)
+        caps = stem_scale_caps(layout)
 
         for el in layout.elements:
             item = ElementItem(
@@ -116,6 +120,7 @@ class ScoreScenes:
             pivot = pivots.get(el.identity.element_id)
             item.set_scale_pivot(QPointF(pivot.x, pivot.y)
                                  if pivot is not None else None)
+            item.set_scale_cap(caps.get(el.identity.element_id))
             item.set_ghost_opacity(self._ghost_opacity)
             # Spanners reveal by clip-grow: each path gets a dimmed ghost
             # of the whole curve underneath the clipped full-opacity copy

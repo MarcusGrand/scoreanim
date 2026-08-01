@@ -515,8 +515,8 @@ class Effect:
                                         # own engraved duration
 
 # Open property set; the evaluator never branches on a property.
-# Applied today: opacity (ElementItem parent), scale (around the stored
-# anchor, restricted render-side to anchored kinds). REVISED from the
+# Applied today: opacity (ElementItem parent), scale (around a pivot and
+# under a ceiling, both pure policy — see below). REVISED from the
 # original sketch (Phase 5 as built): reveal is NOT a property track —
 # it is the clip edge driven by reveal_x below — and color is static
 # tint (StyleRules), not an animated track. offset/glow remain unbuilt.
@@ -553,6 +553,28 @@ class Effect:
 # scale multiplies, the two offsets add. A part that carries no track
 # for a property contributes that property's neutral. Every operation
 # is commutative, so the order of the parts never matters.
+
+# What a SCALE turns around, and how far it may go (2026-08-01, revising
+# the 2026-07-31 "a scale moves the whole note" ruling). Both are pure
+# policy, decided once per load and carried on the item; the applier
+# only applies (render/properties.py).
+#   core/animation/scale_groups.py — the pivot. Every notehead swells
+#     about its OWN centre, so it grows where it was engraved; a chord's
+#     heads used to share one point and slid sideways as they grew. The
+#     ink hanging off a note follows the head it belongs to: a stem
+#     stands on the head at its foot, a flag and tremolo strokes ride
+#     the stem, an accidental or dot turns around the nearest head.
+#     BEAMS and LEDGER LINES never scale — a beam belongs to several
+#     notes at once, so any pivot for it is a compromise. No pivot, no
+#     scale, which is also how a cross-staff beam with no head in its
+#     group stays out of it.
+#   core/animation/stem_caps.py — the ceiling. A stem grows towards its
+#     beam, and the beam no longer moves, so an unchecked stem would
+#     push through it. Each beamed stem carries the largest scale that
+#     keeps its tip inside the beam (a geometric join, like ledger
+#     dashes finding their note). Measured on testscore, that leaves
+#     about 3% of length, so a beamed stem thickens where a flagged one
+#     pops with its head.
 ```
 
 ### Reveal / playhead-x unification (revised 2026-07-12, rulings A–C)

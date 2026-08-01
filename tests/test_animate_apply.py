@@ -240,10 +240,16 @@ def _p1_head_and_stem(scenes, schedule):
     return head, stem
 
 
+def _capped(item, value: float) -> float:
+    """What the applier should paint: the ceiling wins where there is
+    one, which for a beamed stem is a scale barely over 1.0."""
+    return value if item.scale_cap is None else min(value, item.scale_cap)
+
+
 def test_timed_effect_scales_mid_window(scenes, schedule, pop_rules) -> None:
-    """Mid-decay the whole note sits at the lerped scale — the stem
-    included, turning around the SAME point as its head, so the note
-    pops as one object; past the window everything is 1.0."""
+    """Mid-decay the note sits at the lerped scale — the stem included,
+    turning around its own head and stopping at its beam; past the
+    window everything is 1.0."""
     applier = AnimationApplier(scenes.items, schedule, TEMPO, pop_rules)
     head, stem = _p1_head_and_stem(scenes, schedule)
     trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
@@ -251,9 +257,9 @@ def test_timed_effect_scales_mid_window(scenes, schedule, pop_rules) -> None:
     applier.apply_at(trig_s + 0.125)               # mid-decay
     assert scenes.items[head].scale() == pytest.approx(1.125)
     assert scenes.items[head].opacity() == pytest.approx(1.0)
-    assert scenes.items[stem].scale() == pytest.approx(1.125)
-    assert scenes.items[stem].scale_pivot == scenes.items[head].scale_pivot
-    # the stem pivots on its head, not on its own middle
+    assert scenes.items[stem].scale() == pytest.approx(
+        _capped(scenes.items[stem], 1.125))
+    # the stem pivots on a head, not on its own middle
     assert scenes.items[stem].scale_pivot != scenes.items[stem].anchor
     applier.apply_at(trig_s + 0.5)                 # window expired
     assert scenes.items[head].scale() == pytest.approx(1.0)
@@ -261,6 +267,43 @@ def test_timed_effect_scales_mid_window(scenes, schedule, pop_rules) -> None:
     applier.apply_at(trig_s - 0.5)                 # scrub back: pre-onset
     assert scenes.items[head].scale() == pytest.approx(1.0)
     assert scenes.items[head].opacity() == pytest.approx(FLOOR)
+
+
+def test_a_notehead_pops_about_its_own_centre(scenes, schedule,
+                                              pop_rules) -> None:
+    """Marcus, 2026-08-01: the pivot is the head's own centre, so a
+    chord's heads each grow where they were engraved instead of sliding
+    towards a shared point."""
+    from scoreanim.core.score.identity import ElementKind
+    heads = [i for i in scenes.items.values()
+             if i.identity is not None
+             and i.identity.kind is ElementKind.NOTEHEAD
+             and i.scale_pivot is not None]
+    assert heads
+    for item in heads:
+        assert item.scale_pivot == item.bbox.center()
+
+
+def test_a_beamed_stem_swells_no_further_than_its_beam(scenes, schedule,
+                                                       pop_rules) -> None:
+    """Marcus, 2026-08-01: the stem pops with its note, but its ink must
+    never come out the far side of the beam. The ceiling is pure policy
+    (core/animation/stem_caps.py); the applier just clamps to it."""
+    from scoreanim.core.score.identity import ElementKind
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, pop_rules)
+    stem = next(i for eid, i in scenes.items.items()
+                if i.identity is not None
+                and i.identity.kind is ElementKind.STEM
+                and i.identity.part == "P1"
+                and i.scale_cap is not None
+                and eid in schedule.beats_by_element)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[stem.element_key])
+
+    assert stem.scale_cap < 1.125                  # there IS a ceiling here
+    applier.apply_at(trig_s + 0.125)               # asks for 1.125
+    assert stem.scale() == pytest.approx(stem.scale_cap)
+    applier.apply_at(trig_s + 0.5)                 # window over: home again
+    assert stem.scale() == pytest.approx(1.0)
 
 
 def test_seek_mid_pop_lands_and_advances(scenes, schedule,
@@ -519,9 +562,10 @@ def test_drop_shrinks_and_solidifies_with_no_applier_change(
     applier.refresh(trig_s)                        # the moment it enters
     assert scenes.items[head].scale() == pytest.approx(3.0)
     assert scenes.items[head].opacity() == pytest.approx(0.3)
-    # the stem drops with it, around the same point
-    assert scenes.items[stem].scale() == pytest.approx(3.0)
-    assert scenes.items[stem].scale_pivot == scenes.items[head].scale_pivot
+    # the stem drops with it, out of a head and no further than its beam
+    assert scenes.items[stem].scale() == pytest.approx(
+        _capped(scenes.items[stem], 3.0))
+    assert scenes.items[stem].scale_pivot is not None
     applier.apply_at(trig_s + 0.35 / 2.75)         # first landing
     assert scenes.items[head].scale() == pytest.approx(1.0)
     applier.apply_at(trig_s + 0.35 * 1.5 / 2.75)   # bounced back up
@@ -561,28 +605,30 @@ def _beamed_group(scenes):
     raise AssertionError("no beamed group in the fixture")
 
 
-def test_a_beam_drops_with_the_first_note_of_its_group(scenes,
+def test_a_beam_appears_with_its_note_but_never_grows(scenes,
                                                       schedule) -> None:
-    """Marcus's rule for beams: the whole beam falls in with the note it
-    starts on, and the notes after it drop onto it with their own stems.
-    It comes free from the group key — a beam's onset is its first
-    note's."""
+    """Marcus's rule for beams (2026-08-01): a beam comes in with the
+    note it starts on, straight at its engraved size. It belongs to
+    several notes at once, so it never scales — the notes under it do."""
     beam, first, later = _beamed_group(scenes)
     applier = AnimationApplier(scenes.items, schedule, TEMPO, _DROP_RULES)
     first_s = TEMPO.seconds_at(schedule.beats_by_element[first.element_key])
     later_s = TEMPO.seconds_at(schedule.beats_by_element[later.element_key])
     assert later_s > first_s
+    assert beam.scale_pivot is None                # never scales at all
 
+    applier.refresh(first_s - 0.5)
+    assert beam.opacity() == pytest.approx(FLOOR)  # a ghost before its turn
     applier.refresh(first_s)
-    assert beam.scale() == pytest.approx(3.0)      # it rides note 1
-    assert beam.scale_pivot == first.scale_pivot   # around note 1's head
+    assert beam.scale() == 1.0                     # full size, straight away
+    assert beam.opacity() == pytest.approx(0.3)    # it appears with note 1
+    assert first.scale() == pytest.approx(3.0)     # which is still growing
     assert later.scale() == pytest.approx(1.0)     # not its turn yet
     assert later.opacity() == pytest.approx(FLOOR)
 
     applier.refresh(later_s)
     assert later.scale() == pytest.approx(3.0)     # now it drops
-    assert beam.scale() < 1.6                      # nearly home already
-    assert beam.scale() < later.scale()
+    assert beam.scale() == 1.0                     # and the beam sits still
 
 
 def test_a_ledger_line_fades_in_but_never_grows(scenes, schedule) -> None:

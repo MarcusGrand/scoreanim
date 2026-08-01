@@ -1,9 +1,10 @@
 # ScoreAnim — Worklog
 
-**NOW:** `beta/f-volume-duration` is unmerged and waiting on Marcus's
-eyes in the running app. It sits on top of `beta/f-volume-response`,
-which is also unmerged; between them they moved the schema to **v11**,
-so a project saved from either will not open on `main`.
+**NOW:** `beta/f-pop-per-note` is unmerged and waiting on Marcus's eyes
+in the running app. It sits on `beta/f-volume-duration`, which is also
+unmerged and waiting, and that one sits on `beta/f-volume-response`;
+between them the two volume branches moved the schema to **v11**, so a
+project saved from any of the three will not open on `main`.
 
 `main` carries `beta/live-fields` (`ffd0ac8`, no tag), confirmed
 in the app: every number field previews as you type. It brought
@@ -27,6 +28,30 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-01 — **Every notehead pops in its own place**
+  (`beta/f-pop-per-note`, UNMERGED, off `beta/f-volume-duration`): a
+  chord's heads used to share one pivot — the centre of the whole stack
+  — so the outer ones slid sideways as they grew. Each head now turns
+  around its OWN centre, and the ink hanging off it follows the head it
+  belongs to: a stem stands on the head at its foot, a flag and tremolo
+  strokes ride the stem, an accidental or dot takes the nearest head.
+  133 of testscore's 252 note groups are chords, so this is most of the
+  fixture. Two Marcus calls with it: **beams never scale** (they appear
+  with their note at engraved size — a beam belongs to several notes, so
+  any pivot is a compromise), and a **stem stops at its beam**. The stem
+  ceiling is a new pure module (`core/animation/stem_caps.py`), a
+  geometric stem↔beam join like the ledger dashes', carried on the item
+  as `scale_cap` and clamped in one `min()` in the applier. Measured:
+  the beam's far edge sits ~3% of a stem's length past its tip, so a
+  beamed stem thickens where a flagged one pops with its head; 101 of
+  252 stems are capped and none overshoots. Applies to EVERY scale
+  effect, not just pop, so under drop the heads enter at 3× while the
+  beam sits still — deliberate, and it reverses the beam half of the
+  2026-07-31 ruling. Rendered rest vs peak and looked at it
+  (`spikes/pop_pivot.py`); unproven under a human's eye in the running
+  app. No schema change, no golden movement. **`render/items.py` is at
+  432 lines** — it was already over the ceiling before this, and it is
+  the next split.
 - 2026-08-01 — **The gain follows each note's own length**
   (`beta/f-volume-duration`, UNMERGED, off `beta/f-volume-response`): the
   volume response reads a note's whole notated duration instead of the
