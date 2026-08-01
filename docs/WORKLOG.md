@@ -11,7 +11,9 @@ back: pinch to zoom, two-finger scroll to move.
 brought `beta/f-fade-effect` with it: the fade, drop and slide effects,
 and effects that run together ("drop+fade"). Merged on Marcus's word
 without the usual app run first — worth a look in the running app.
-`fix/bracket-hidden-staves` is the only branch still unmerged.
+`fix/bracket-hidden-staves` and `beta/system-groups` are unmerged, along
+with the five stacked volume/swell branches (which moved the schema to
+v11 and start from `beta/f-volume-response`).
 
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
@@ -22,6 +24,29 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-01 — **Every system is one object now**
+  (`beta/system-groups`, UNMERGED, off `main`): a structural change with
+  no visible half. Each element whose system is known hangs off a
+  `SystemGroupItem` for its (page, system) (new `render/system_group.py`,
+  90 lines); stage texts and page furniture stay top-level. The group
+  paints nothing, is hit-transparent by the same empty `shape()` the
+  per-element parents already use, and carries NO transform until
+  something scales it — so every child keeps the scene coordinates it
+  had. The seam for the next step, with no caller: `set_system_scale`
+  turns the system around the centre of its own ink, frozen once at
+  build (a nudge must not drag that point), 1.0 exactly identity, and it
+  re-derives descendant reveal clips, because a scale springs the M3.2
+  cached-inverse trap from the other side. The one real risk was paint
+  order — synthesis appends slashes and stray ties after the systems
+  they belong to, so grouping moves that tail earlier relative to other
+  systems on the page. Measured: **21 pages over testscore, video_test
+  and complex1 render bit-identically** before and after
+  (`tools/render_page_png.py`, sha256). Goldens never moved (they pin
+  the core Layout, not the Qt scene), full suite green. Checked in the
+  real window offscreen: click-select still lands on the notehead and
+  tints it, a nudge still previews and commits 20/−10. Unproven under a
+  human's eye. **`render/items.py` is at 430 lines** — it was over the
+  ceiling before this and it is still the next split.
 - 2026-08-01 — **Effects combine** (same branch): a note can drop AND
   fade, picked with a second "Combine with" dropdown. The stored intent
   stays ONE name — the parts joined by "+" — so no schema bump, and an

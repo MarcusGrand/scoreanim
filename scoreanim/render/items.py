@@ -193,6 +193,15 @@ class ElementItem(GroupItem):
             changed |= child.set_clip_right(scene_x)
         return changed
 
+    def refresh_reveal_clip(self) -> None:
+        """Re-derive every reveal child's clip after this item's SCENE
+        transform changed — it moved, or a parent group scaled. See
+        `_recompose_pos` for why both halves are needed."""
+        for child in self._reveal_children:
+            child.invalidate_transform_cache()
+        if self._reveal_edge is not None:
+            self.set_reveal_edge(self._reveal_edge)
+
     def set_offset(self, dx: float, dy: float) -> None:
         """Apply the document's layout-override delta (M3.2). One of the
         two things that move this item; the animation is the other, and
@@ -335,10 +344,7 @@ class ElementItem(GroupItem):
         if x == self.pos().x() and y == self.pos().y():
             return
         self.setPos(x, y)
-        for child in self._reveal_children:
-            child.invalidate_transform_cache()
-        if self._reveal_edge is not None:
-            self.set_reveal_edge(self._reveal_edge)
+        self.refresh_reveal_clip()
 
     def _recompose_opacity(self) -> None:
         self.setOpacity(self._paint_opacity())

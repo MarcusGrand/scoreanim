@@ -969,6 +969,26 @@ re-touching. "Clear overrides on selection" must be cheap.
   pre-rendered halo item whose opacity animates. Spike before promising
   glow on tutti textures.
 - Scale/pop transforms use the element's stored `anchor` as origin.
+- **The scene has one parent per system.** Every element whose `system`
+  is known hangs off a `SystemGroupItem` for its (page, system)
+  (`render/system_group.py`); ink that belongs to no system — stage
+  texts, page furniture — stays a direct child of the scene. The group
+  paints nothing, is hit-transparent (the same empty `shape()` that
+  keeps per-element parents out of selection's candidate list), sits at
+  the origin, and carries **no transform at all** until somebody scales
+  it, so every child keeps the scene coordinates it had before the
+  parent existed. `set_system_scale` turns the system around the centre
+  of its own ink, frozen once at build time — nudges and animation both
+  run later and must not drag that point — and 1.0 is exactly identity.
+  A scale changes every descendant's scene transform, so it re-derives
+  their reveal clips through `ElementItem.refresh_reveal_clip` (the M3.2
+  trap below, reached the other way).
+  *Paint-order caveat:* elements are mostly but not entirely contiguous
+  by system — synthesis appends slashes and stray ties at the end of
+  `layout.elements` — so grouping moves that tail earlier relative to
+  OTHER systems' ink on the same page. Order within a system is exact.
+  Measured invisible: 21 pages over testscore, video_test and complex1
+  render bit-identically (`tools/render_page_png.py`, 2026-08-01).
 
 ## 7. UI structure
 
