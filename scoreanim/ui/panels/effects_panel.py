@@ -129,8 +129,11 @@ _BLOCKS: tuple[tuple[str, str, tuple], ...] = (
         # document holds seconds.
         Number("Peak", "peak", 0.5, 5, 95, 5,
                "How far through the swell the top lands — 50 % is "
-               "halfway, less is an early top, more a late one",
-               suffix=" %", factor=100.0, integer=True),
+               "halfway, less is an early top, more a late one. "
+               "Inactive while 'Follow volume' is on: the top is then a "
+               "stretch, not a point",
+               suffix=" %", factor=100.0, integer=True,
+               grayed_by="follow"),
         Number("Duration", "duration", 0.8, 0.01, 5.0, 0.05,
                "Seconds the whole swell takes — inactive while 'Entire "
                "note value' is on (each note then swells over its own "
@@ -139,7 +142,13 @@ _BLOCKS: tuple[tuple[str, str, tuple], ...] = (
         Check("Entire note value", "note_value", True,
               "Use each note's own length as the duration — a whole "
               "note swells across its bar, an eighth is a quick breath",
-              beside="duration"),
+              beside="duration", forced_by="follow"),
+        Check("Follow volume", "follow", False,
+              "While the note sounds, its size tracks how loud the "
+              "recording is: a crescendo grows it, a diminuendo shrinks "
+              "it, and it eases back to its engraved size at the end. "
+              "Needs a recording loaded and the Volume response turned "
+              "up"),
     )),
 )
 

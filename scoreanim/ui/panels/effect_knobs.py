@@ -16,6 +16,11 @@ for so far:
   duration grays out while its "Entire note value" is on (Marcus,
   2026-07-25). `enabled_by` is its mirror — the knob is live only while
   another key is on, which is how Quiet and Loud wait for Amount.
+- `forced_by` on a Check names the key that turns it on regardless: the
+  box then shows checked and grayed, because that IS what the effect is
+  doing (Marcus, 2026-08-01 — "Follow volume" forces "Entire note
+  value"). The document is left alone; core is still the one that
+  decides, and this only stops the panel from saying otherwise.
 
 Every knob carries its own default — the value the consumer falls back
 to when the document is sparse. That default is what the panel shows,
@@ -62,12 +67,14 @@ class Number:
 @dataclass(frozen=True)
 class Check:
     """A checkbox knob. `beside` names the knob whose row it shares; on
-    its own it takes a full row with no label."""
+    its own it takes a full row with no label. `forced_by` names the key
+    that turns this one on whatever the document says."""
     text: str
     key: str
     default: bool
     tooltip: str
     beside: str | None = None
+    forced_by: str | None = None
 
 
 Knob = Number | Check
@@ -189,7 +196,16 @@ class KnobGroup:
         default. The caller says WHICH document it read: an edit guard
         reads the committed one (`doc` hands a live field back its own
         preview, and it would then never commit), while what is grayed
-        out follows what is showing."""
+        out follows what is showing.
+
+        A checkbox another knob has forced on reads True whatever is
+        stored, so the panel shows what the effect is actually doing —
+        and so does everything downstream of it, like the duration that
+        grays out while the note value is on."""
+        knob = self._by_key[key]
+        if (isinstance(knob, Check) and knob.forced_by is not None
+                and bool(self.param(doc, knob.forced_by))):
+            return True
         return self.store.stored(doc).get(key, self.defaults[key])
 
     def has_params(self, doc: ProjectDoc) -> bool:
@@ -214,9 +230,13 @@ class KnobGroup:
         """Gray out the knobs another knob has made obsolete, and the
         ones waiting on a knob that is off. `set_enabled`, not
         `setEnabled`: a live field is never grayed out from under the
-        cursor."""
+        cursor. A checkbox has no such trap — there is nothing
+        half-typed in it — so a forced one is disabled outright."""
         for knob in self._knobs:
-            if not isinstance(knob, Number):
+            if isinstance(knob, Check):
+                if knob.forced_by is not None:
+                    self.boxes[knob.key].setEnabled(
+                        not bool(self.param(doc, knob.forced_by)))
                 continue
             if knob.grayed_by is not None:
                 self.fields[knob.key].set_enabled(

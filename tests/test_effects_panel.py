@@ -680,6 +680,51 @@ def test_sync_reflects_swell_params(panel) -> None:
     assert box(widget, "swell", "note_value").isChecked()
 
 
+def test_follow_volume_commits_and_shows_with_the_swell(panel) -> None:
+    widget, state = panel
+    check = box(widget, "swell", "follow")
+    assert check.text() == "Follow volume"
+    assert not check.isChecked()                 # off by default
+    assert not _shown(widget, check)             # and hidden until in use
+    widget._effect_combo.setCurrentText("swell")
+    widget._commit_effect()
+    assert _shown(widget, check)
+    check.setChecked(True)
+    assert state.doc.style.effect_params["swell"]["follow"] is True
+    assert state.undo_text() == "set effect parameter"
+
+
+def test_follow_grays_the_peak_and_forces_the_note_value(panel) -> None:
+    """Peak means nothing while following — the top is a stretch, not a
+    point — and the note-value stretch is on whatever the box said, so
+    the box says so too (Marcus, 2026-08-01)."""
+    widget, state = panel
+    widget._effect_combo.setCurrentText("swell")
+    widget._commit_effect()
+    note_value = box(widget, "swell", "note_value")
+    assert spin(widget, "swell", "peak").isEnabled()
+    assert note_value.isEnabled()
+
+    box(widget, "swell", "follow").setChecked(True)
+    assert not spin(widget, "swell", "peak").isEnabled()
+    assert note_value.isChecked() and not note_value.isEnabled()
+    assert not spin(widget, "swell", "duration").isEnabled()
+    assert spin(widget, "swell", "size").isEnabled()   # the plateau's height
+
+    # even when the document says otherwise: follow is what decides
+    state.execute(SetEffectParam("swell", "note_value", False))
+    widget.sync_from_document(state.doc)
+    assert note_value.isChecked() and not note_value.isEnabled()
+    assert not spin(widget, "swell", "duration").isEnabled()
+
+    # and turning follow off hands the boxes straight back
+    state.execute(SetEffectParam("swell", "follow", False))
+    widget.sync_from_document(state.doc)
+    assert spin(widget, "swell", "peak").isEnabled()
+    assert note_value.isEnabled() and not note_value.isChecked()
+    assert spin(widget, "swell", "duration").isEnabled()
+
+
 def test_swell_params_alone_light_the_reset_button(panel) -> None:
     widget, state = panel
     assert not widget._reset_button.isEnabled()
