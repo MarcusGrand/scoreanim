@@ -32,6 +32,34 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-02 — **The whole page breathes with the recording**
+  (`beta/f-system-pulse`, UNMERGED): the branch is
+  `beta/system-groups` with `beta/f-follow-volume` merged in, which is
+  what the feature needed — the group items on one side, the live
+  loudness reading on the other. Every system now takes ONE size at
+  time t, `1 + Amount × how loud the recording is there`, each turning
+  around the centre of its own ink, so the page swells and shrinks as
+  one object. Deliberately not a property track: it is per FRAME, not
+  per element, so the evaluator, the compose table and the schema are
+  all untouched, and it reads the RAW loudness rather than the volume
+  response's gain — two features, one reading, a knob each. Its own
+  driver (`render/pulse_driver.py`, the reveal driver's shape), fed
+  from the recompute that already runs on both seams that can move it,
+  so live preview and export needed no wiring at all. Amount 0 means no
+  group is ever touched — the tests spy on `set_system_scale` itself,
+  so "never touched" means the call and not the change. **Measured on
+  testscore.wav** (`spikes/system_pulse.py`): at 5 % the biggest jump
+  between two frames is 2.4 % of the page, which breathes rather than
+  shakes — but two systems on page 2 close from 73.9 units to 8.7, and
+  at 10 % they OVERLAP by 57. **The 0–20 % range is too generous and
+  nothing detects a collision**; 5 % is about where a busy page runs
+  out of room, so the ceiling probably wants lowering. Checked end to
+  end in the real window offscreen: 5 % in the box, five systems at
+  1.05 with a recording loaded, exactly 1.0 without one, and undo puts
+  the box and every system back. Unproven under a human's eye.
+  No schema bump — the key rides the unreleased v11 beside
+  `style.volume` (Marcus's call). **`render/animate.py` is at 421
+  lines** and is the next split, alongside `render/items.py` at 432.
 - 2026-08-01 — **Every system is one object now**
   (`beta/system-groups`, UNMERGED, off `main`): a structural change with
   no visible half. Each element whose system is known hangs off a

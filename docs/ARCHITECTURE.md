@@ -1016,6 +1016,22 @@ re-touching. "Clear overrides on selection" must be cheap.
   OTHER systems' ink on the same page. Order within a system is exact.
   Measured invisible: 21 pages over testscore, video_test and complex1
   render bit-identically (`tools/render_page_png.py`, 2026-08-01).
+- **The system pulse is the one thing that scales those groups**
+  (2026-08-02, `render/pulse_driver.py`). One value per FRAME —
+  `1 + amount × intensity_at(recording, t + offset)` — set on every
+  group, so the page breathes as one object while each system turns
+  around its own centre. Deliberately NOT a property track: it is not
+  per element, not per trigger, and never enters `element_state`, so
+  the evaluator and the compose table are untouched. It reads the RAW
+  loudness, not the volume response's quiet-to-loud gain — two features,
+  two knobs, one reading. The applier holds it beside the reveal driver
+  and feeds it from `_recompute_gains`, which already runs on both seams
+  that can move it, which is why live preview and export need no wiring
+  of their own. Amount 0 means no group is ever touched, so the page is
+  bit-for-bit what it was. Nothing checks whether two systems meet: the
+  0–0.2 clamp is the only guard, and it is **not tight enough** — at
+  0.10 two systems already overlap on testscore page 2
+  (`spikes/system_pulse.py`).
 
 ## 7. UI structure
 
