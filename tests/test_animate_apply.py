@@ -477,6 +477,38 @@ def test_fade_stretches_over_the_note_value(scenes, schedule_nv) -> None:
             assert opacity == pytest.approx(1.0)
 
 
+def test_swell_runs_over_each_note_s_own_length(scenes,
+                                                schedule_nv) -> None:
+    """The swell's whole point, end to end: at 120 bpm a dotted half
+    swells over 1.5 s, so it is at its top at +0.75 s and back to its
+    engraved size at +1.5 s — while an eighth (0.25 s) topped out at
+    +0.125 s and was home long before. Nothing here is swell-specific
+    code: it is the same timescale pop and fade take."""
+    applier = AnimationApplier(scenes.items, schedule_nv,
+                               TEMPO, StyleRules(default_effect="swell"))
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    eighth = _head_with_duration(scenes, schedule_nv, 0.5)
+    long_trig = TEMPO.seconds_at(schedule_nv.beats_by_element[long_head])
+    eighth_trig = TEMPO.seconds_at(schedule_nv.beats_by_element[eighth])
+
+    applier.refresh(long_trig + 0.75)
+    assert scenes.items[long_head].scale() == pytest.approx(1.4)
+    applier.refresh(eighth_trig + 0.125)
+    assert scenes.items[eighth].scale() == pytest.approx(1.4)
+
+    # at the same distance past its own onset the short note is home and
+    # the long one is only starting to grow
+    applier.refresh(eighth_trig + 0.25)
+    assert scenes.items[eighth].scale() == pytest.approx(1.0)
+    applier.refresh(long_trig + 0.25)
+    growing = scenes.items[long_head].scale()
+    assert 1.0 < growing < 1.4
+    applier.refresh(long_trig + 1.5)
+    assert scenes.items[long_head].scale() == pytest.approx(1.0)
+    # and the note is fully visible throughout, engraved size or not
+    assert scenes.items[long_head].opacity() == pytest.approx(1.0)
+
+
 def test_negative_shift_lights_early_page_cursor_unmoved(
         scenes, schedule) -> None:
     """F3: at peak offset −100 ms the whole effect — including the

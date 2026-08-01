@@ -65,12 +65,27 @@ _SLIDE_BOUNCE = False   # a small settle as it arrives
 # arrives sitting in the middle of the staff above.
 _SLIDE_DISTANCE = 120.0
 
+# swell: the note is already on the page at its engraved size, grows to
+# a peak and eases back down to where it started — a crescendo you can
+# see. It is the first effect whose whole point is the note's LENGTH, so
+# it is also the only one that stretches to the note value by default: a
+# whole note swells across its bar, an eighth gives a quick breath.
+# These four are the DEFAULTS for the document's effect_params["swell"].
+_SWELL_SIZE = 1.4           # size at the top, in engraved sizes
+_SWELL_PEAK = 0.5           # how far through the swell the top lands
+_SWELL_S = 0.8              # authored length, used when note_value is off
+_SWELL_NOTE_VALUE = True
+
 # Consumption clamps (M4, brief F7 ranges). The command layer validates
 # only type/finiteness, so a future preset reuses it unchanged; ranges
 # are enforced here, where the params are consumed.
 _SCALE_RANGE = (0.1, 10.0)
 _SETTLE_MIN = 0.01              # shared floor for any authored duration
 _SHIFT_RANGE = (-0.5, 0.5)
+# Where a peak may sit inside its effect, as a fraction of the way
+# through. Never at either end: the shape needs a rise AND a fall, and
+# a keyframe exactly on top of another one is not an envelope.
+_PEAK_RANGE = (0.05, 0.95)
 # Scene units. The far end is about a page wide: past that the note
 # starts from somewhere nobody is looking.
 _DISTANCE_RANGE = (0.0, 2000.0)
@@ -100,10 +115,11 @@ def build_presets(floor: float,
     opacity envelope's pre-trigger `initial`, pop's amplitude / settle /
     peak-offset / note-value read from ``params["pop"]``, fade's
     duration / note-value from ``params["fade"]``, drop's start size /
-    duration / bounce from ``params["drop"]`` and slide's direction /
-    distance / duration / bounce from ``params["slide"]`` (all merged
-    over defaults, clamped). Unknown presets and unknown keys are ignored
-    here — they round-trip through the document untouched (the
+    duration / bounce from ``params["drop"]``, slide's direction /
+    distance / duration / bounce from ``params["slide"]`` and swell's
+    size / peak / duration / note-value from ``params["swell"]`` (all
+    merged over defaults, clamped). Unknown presets and unknown keys are
+    ignored here — they round-trip through the document untouched (the
     effect-name precedent)."""
     pop = dict(params.get("pop", {})) if params else {}
     scale = _clamp(float(pop.get("scale", _POP_SCALE)), *_SCALE_RANGE)
@@ -134,6 +150,11 @@ def build_presets(floor: float,
         float(slide.get("direction", _SLIDE_DIRECTION)),
         _clamp(float(slide.get("distance", _SLIDE_DISTANCE)),
                *_DISTANCE_RANGE))
+    swell = dict(params.get("swell", {})) if params else {}
+    swell_size = _clamp(float(swell.get("size", _SWELL_SIZE)), *_SCALE_RANGE)
+    swell_s = max(_SETTLE_MIN, float(swell.get("duration", _SWELL_S)))
+    swell_peak = _clamp(float(swell.get("peak", _SWELL_PEAK)), *_PEAK_RANGE)
+    swell_note_value = bool(swell.get("note_value", _SWELL_NOTE_VALUE))
     return {
         "appear": appear(floor),
         "pop": Effect("pop", {
@@ -187,6 +208,26 @@ def build_presets(floor: float,
                                           Keyframe(slide_s, 0.0,
                                                    slide_curve))),
         }),
+        # The note appears at its engraved size and stays there — it is
+        # already on the page, so the step at the trigger is opacity's
+        # alone and scale steps to 1.0, which is also what the rise has
+        # to lerp from. Up on EASE_IN: gentle away from rest, gathering
+        # pace, the way a crescendo grows. Down on EASE_OUT: quick away
+        # from the top and slow to arrive, so it settles softly back.
+        # Both ends are exactly 1.0, so a played note is never left
+        # bigger than it was drawn. With the note value on, the
+        # timescale stretches the whole shape at once, so the peak keeps
+        # its place INSIDE the note whatever the note's length.
+        "swell": Effect("swell", {
+            OPACITY: Envelope(initial=floor,
+                              keyframes=(Keyframe(0.0, 1.0, Easing.STEP),)),
+            SCALE: Envelope(initial=1.0,
+                            keyframes=(Keyframe(0.0, 1.0, Easing.STEP),
+                                       Keyframe(swell_peak * swell_s,
+                                                swell_size, Easing.EASE_IN),
+                                       Keyframe(swell_s, 1.0,
+                                                Easing.EASE_OUT))),
+        }, settle_to_note_value=swell_note_value),
     }
 
 

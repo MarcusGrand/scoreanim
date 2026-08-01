@@ -198,7 +198,7 @@ class ResetEffectSettings(Command):
     what the panel shows — which is why the volume response goes with
     them. Other presets' params (possibly from a newer build) survive
     untouched, the raw-round-trip guarantee."""
-    presets: tuple[str, ...] = ("pop", "fade", "drop", "slide")
+    presets: tuple[str, ...] = ("pop", "fade", "drop", "slide", "swell")
 
     def apply(self, doc: ProjectDoc) -> ProjectDoc:
         params = {name: dict(entry)

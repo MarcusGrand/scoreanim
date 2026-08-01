@@ -120,6 +120,27 @@ _BLOCKS: tuple[tuple[str, str, tuple], ...] = (
               "A small settle as the note arrives, instead of coming "
               "straight to rest"),
     )),
+    ("swell", "Swell", (
+        Number("Amplitude", "size", 1.4, 0.1, 10.0, 0.05,
+               "How many times its engraved size the note reaches at "
+               "the top of the swell (1.0 = no growth)"),
+        # Per cent in the UI, a fraction in the document: pop's Peak
+        # offset precedent, where the box shows milliseconds and the
+        # document holds seconds.
+        Number("Peak", "peak", 0.5, 5, 95, 5,
+               "How far through the swell the top lands — 50 % is "
+               "halfway, less is an early top, more a late one",
+               suffix=" %", factor=100.0, integer=True),
+        Number("Duration", "duration", 0.8, 0.01, 5.0, 0.05,
+               "Seconds the whole swell takes — inactive while 'Entire "
+               "note value' is on (each note then swells over its own "
+               "length)",
+               suffix=" s", grayed_by="note_value"),
+        Check("Entire note value", "note_value", True,
+              "Use each note's own length as the duration — a whole "
+              "note swells across its bar, an eighth is a quick breath",
+              beside="duration"),
+    )),
 )
 
 

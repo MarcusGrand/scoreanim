@@ -126,7 +126,10 @@ def test_every_number_field_previews_while_you_type(panel) -> None:
     def slide(doc, key):
         return doc.style.effect_params.get("slide", {}).get(key)
 
-    cases = ((spin(widget, "pop", "scale"),
+    def swell(doc, key):
+        return doc.style.effect_params.get("swell", {}).get(key)
+
+    cases =((spin(widget, "pop", "scale"),
               field(widget, "pop", "scale"), 2.5,
               lambda doc: pop(doc, "scale"), 2.5),
              (spin(widget, "pop", "settle"),
@@ -153,6 +156,15 @@ def test_every_number_field_previews_while_you_type(panel) -> None:
              (spin(widget, "slide", "duration"),
               field(widget, "slide", "duration"), 0.8,
               lambda doc: slide(doc, "duration"), 0.8),
+             (spin(widget, "swell", "size"),
+              field(widget, "swell", "size"), 2.0,
+              lambda doc: swell(doc, "size"), 2.0),
+             (spin(widget, "swell", "peak"),               # % in, fraction out
+              field(widget, "swell", "peak"), 75,
+              lambda doc: swell(doc, "peak"), pytest.approx(0.75)),
+             (spin(widget, "swell", "duration"),
+              field(widget, "swell", "duration"), 1.75,
+              lambda doc: swell(doc, "duration"), 1.75),
              (widget.volume.spins["amount"],
               widget.volume.fields["amount"], 0.7,
               lambda doc: doc.style.volume.get("amount"), 0.7),
@@ -597,6 +609,85 @@ def test_sync_reflects_slide_params(panel) -> None:
     assert not box(widget, "slide", "bounce").isChecked()
 
 
+def test_swell_knobs_commit_swell_params(panel) -> None:
+    widget, state = panel
+    spin(widget, "swell", "size").setValue(2.0)
+    field(widget, "swell", "size").commit()
+    assert state.committed.style.effect_params["swell"]["size"] == 2.0
+    field(widget, "swell", "size").commit()              # epsilon no-op
+    # per cent in the box, a fraction in the document
+    spin(widget, "swell", "peak").setValue(25)
+    field(widget, "swell", "peak").commit()
+    assert state.doc.style.effect_params["swell"]["peak"] == \
+        pytest.approx(0.25)
+    spin(widget, "swell", "duration").setValue(1.5)
+    field(widget, "swell", "duration").commit()
+    assert state.doc.style.effect_params["swell"]["duration"] == 1.5
+    assert state.undo_text() == "set effect parameter"
+    # note_value starts ON here — the one preset it defaults to — so
+    # UNchecking it is what writes a param
+    assert box(widget, "swell", "note_value").isChecked()
+    box(widget, "swell", "note_value").setChecked(False)
+    assert state.doc.style.effect_params["swell"]["note_value"] is False
+    # swell's knobs are swell's own
+    assert set(state.doc.style.effect_params) == {"swell"}
+    for _ in range(4):
+        assert state.can_undo
+        state.undo()
+    assert not state.can_undo                    # four gestures, four steps
+
+
+def test_swell_options_hide_until_swell_is_in_use(panel) -> None:
+    widget, state = panel
+    knobs = (spin(widget, "swell", "size"),
+             spin(widget, "swell", "peak"),
+             spin(widget, "swell", "duration"),
+             box(widget, "swell", "note_value"))
+    assert not _shown(widget, *knobs)
+    widget._effect_combo.setCurrentText("swell")
+    widget._commit_effect()
+    assert _shown(widget, *knobs)
+    assert not _shown(widget, spin(widget, "drop", "start_size"))
+    # the duration opens GRAYED: "Entire note value" is on by default,
+    # so the number it would type is already obsolete
+    assert not spin(widget, "swell", "duration").isEnabled()
+    assert spin(widget, "swell", "size").isEnabled()
+    box(widget, "swell", "note_value").setChecked(False)
+    assert spin(widget, "swell", "duration").isEnabled()
+
+
+def test_sync_reflects_swell_params(panel) -> None:
+    widget, state = panel
+    for cmd in (SetEffectParam("swell", "size", 2.5),
+                SetEffectParam("swell", "peak", 0.8),
+                SetEffectParam("swell", "duration", 2.0),
+                SetEffectParam("swell", "note_value", False)):
+        state.execute(cmd)
+    widget.sync_from_document(state.doc)
+    assert spin(widget, "swell", "size").value() == 2.5
+    assert spin(widget, "swell", "peak").value() == 80
+    assert spin(widget, "swell", "duration").value() == 2.0
+    assert not box(widget, "swell", "note_value").isChecked()
+    depth = 0
+    while state.can_undo:
+        state.undo()
+        depth += 1
+    assert depth == 4                            # resync added nothing
+    widget.sync_from_document(state.doc)         # back to the defaults
+    assert spin(widget, "swell", "size").value() == 1.4
+    assert spin(widget, "swell", "peak").value() == 50
+    assert spin(widget, "swell", "duration").value() == 0.8
+    assert box(widget, "swell", "note_value").isChecked()
+
+
+def test_swell_params_alone_light_the_reset_button(panel) -> None:
+    widget, state = panel
+    assert not widget._reset_button.isEnabled()
+    state.execute(SetEffectParam("swell", "size", 2.0))
+    widget.sync_from_document(state.doc)
+    assert widget._reset_button.isEnabled()
+
+
 def test_slide_params_alone_light_the_reset_button(panel) -> None:
     widget, state = panel
     assert not widget._reset_button.isEnabled()
@@ -616,6 +707,7 @@ def test_reset_clears_every_preset_together(panel) -> None:
     state.execute(SetEffectParam("pop", "scale", 2.0))
     state.execute(SetEffectParam("drop", "start_size", 5.0))
     state.execute(SetEffectParam("slide", "distance", 900.0))
+    state.execute(SetEffectParam("swell", "size", 2.0))
     assert widget._reset_button.isEnabled()
     before = state.doc
     widget._commit_reset()
@@ -624,6 +716,7 @@ def test_reset_clears_every_preset_together(panel) -> None:
     assert spin(widget, "fade", "duration").value() == 0.4
     assert spin(widget, "drop", "start_size").value() == 3.0
     assert spin(widget, "slide", "distance").value() == 120.0
+    assert spin(widget, "swell", "size").value() == 1.4
     assert not widget._reset_button.isEnabled()
     state.undo()                                 # ONE step restores them all
     assert state.doc == before

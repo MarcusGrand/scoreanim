@@ -1,10 +1,11 @@
 # ScoreAnim — Worklog
 
-**NOW:** `beta/f-pop-per-note` is unmerged and waiting on Marcus's eyes
-in the running app. It sits on `beta/f-volume-duration`, which is also
-unmerged and waiting, and that one sits on `beta/f-volume-response`;
-between them the two volume branches moved the schema to **v11**, so a
-project saved from any of the three will not open on `main`.
+**NOW:** `beta/f-swell-effect` is unmerged and waiting on Marcus's eyes
+in the running app. It sits on `beta/f-pop-per-note`, which is also
+waiting, and that one on `beta/f-volume-duration`, and that one on
+`beta/f-volume-response`; between them the two volume branches moved the
+schema to **v11**, so a project saved from any of the four will not open
+on `main`.
 
 `main` carries `beta/live-fields` (`ffd0ac8`, no tag), confirmed
 in the app: every number field previews as you type. It brought
@@ -28,6 +29,27 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-01 — **A note swells over its own length**
+  (`beta/f-swell-effect`, UNMERGED, off `beta/f-pop-per-note`): a fifth
+  effect, and the first one about a note's LENGTH instead of its
+  arrival. The note is already on the page at its engraved size, grows
+  to 1.4× and eases back down to exactly where it started, timed to its
+  notated value — a whole note swells across its bar, an eighth is a
+  quick breath. Pure preset data (rule 6): one registry entry plus four
+  knobs, and nothing in the evaluator, the applier, the compose table or
+  the schema. Up on EASE_IN and down on EASE_OUT — gentle away from
+  rest, softly back to it — which puts a brief point at the top; both
+  ends land exactly on 1.0, so no note is ever left oversized.
+  `settle_to_note_value` defaults ON here, the only preset it does, and
+  the existing per-element timescale stretches the whole authored shape
+  at once, so the top keeps its place inside the note however long the
+  note is (Peak, shown as a per cent of the way through). The two
+  interactions asked about needed no code and are now pinned: pop+swell
+  multiplies into a dip-then-swell, and the volume response modulates a
+  swell like any other scale departure. Checked end to end through the
+  applier on testscore — a dotted half tops out at +0.75 s where an
+  eighth was home at +0.25 s. No schema change, no golden movement;
+  unproven under a human's eye in the running app.
 - 2026-08-01 — **Every notehead pops in its own place**
   (`beta/f-pop-per-note`, UNMERGED, off `beta/f-volume-duration`): a
   chord's heads used to share one pivot — the centre of the whole stack

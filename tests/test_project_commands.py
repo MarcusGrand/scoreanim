@@ -481,6 +481,7 @@ def test_reset_effect_settings_one_step_keeps_foreign_presets(doc) -> None:
     d = stack.execute(SetEffectParam("pop", "note_value", True), d)
     d = stack.execute(SetEffectParam("fade", "duration", 1.5), d)
     d = stack.execute(SetEffectParam("drop", "start_size", 5.0), d)
+    d = stack.execute(SetEffectParam("swell", "size", 2.0), d)
     d = stack.execute(SetEffectParam("shimmer", "wobble", 1.5), d)
     before_reset = d
     d = stack.execute(ResetEffectSettings(), d)
@@ -499,6 +500,7 @@ def test_reset_effect_settings_one_step_keeps_foreign_presets(doc) -> None:
                                                        "note_value": True}
     assert before_reset.style.effect_params["fade"] == {"duration": 1.5}
     assert before_reset.style.effect_params["drop"] == {"start_size": 5.0}
+    assert before_reset.style.effect_params["swell"] == {"size": 2.0}
 
 
 def test_effect_param_undo_restores_the_prior_value(doc) -> None:

@@ -12,9 +12,9 @@ from scoreanim.core.animation import (COMPOSE_OPS, FLOOR_OPACITY,
                                       MODULATED_PROPERTIES, OFFSET_X,
                                       OFFSET_Y, OPACITY, PRESETS, SCALE,
                                       Easing, Effect, Envelope, Keyframe,
-                                      PropertyId, combined_state,
-                                      compose_states, element_state,
-                                      modulate_state)
+                                      PropertyId, build_presets,
+                                      combined_state, compose_states,
+                                      element_state, modulate_state)
 from scoreanim.core.animation import effect as effect_module
 
 
@@ -127,6 +127,55 @@ def test_each_component_keeps_its_own_trigger_shift() -> None:
                           9.95)[SCALE] == pytest.approx(2.0)
     assert combined_state(10.0, ((early, 1.0), (on_time, 1.0)),
                           10.0)[SCALE] == pytest.approx(6.0)
+
+
+def test_pop_and_swell_multiply_into_a_dip_then_a_swell() -> None:
+    """The look the compose table buys for free: a pop that DIPS to 0.75
+    under a swell that rises to 1.5. Nothing in either preset knows
+    about the other — the scales simply multiply."""
+    reg = build_presets(FLOOR_OPACITY,
+                        {"pop": {"scale": 0.75, "settle": 0.2},
+                         "swell": {"size": 1.5, "duration": 0.8,
+                                   "note_value": False}})
+    combo = ((reg["pop"], 1.0), (reg["swell"], 1.0))
+    # at the onset the note shrinks: the pop is at its dip, the swell
+    # has not left rest
+    dip = combined_state(10.0, combo, 10.0)[SCALE]
+    assert dip == pytest.approx(0.75)
+    # at the swell's top the pop is long home, so the swell is all there is
+    top = combined_state(10.0, combo, 10.4)[SCALE]
+    assert top == pytest.approx(1.5)
+    # the dip and the top must differ, or this test would pass on a
+    # flat state
+    assert dip < 1.0 < top
+    # anywhere inside both windows it is exactly the product
+    inside = combined_state(10.0, combo, 10.1)[SCALE]
+    assert inside == pytest.approx(
+        element_state(10.0, reg["pop"], 10.1)[SCALE]
+        * element_state(10.0, reg["swell"], 10.1)[SCALE])
+    assert inside != pytest.approx(dip)
+    # and both leave the note at its engraved size
+    assert combined_state(10.0, combo, 10.8)[SCALE] == pytest.approx(1.0)
+
+
+def test_a_gain_scales_the_swell_like_any_other_departure() -> None:
+    """The volume response modulates the swell's amplitude with no
+    special case: SCALE's rest is 1.0, so a quiet note swells less and a
+    loud one more, and the note is still fully visible either way."""
+    peak = element_state(10.0, PRESETS["swell"], 10.4)
+    assert peak[SCALE] == pytest.approx(1.4)
+    assert modulate_state(peak, 0.5)[SCALE] == pytest.approx(1.2)
+    assert modulate_state(peak, 2.0)[SCALE] == pytest.approx(1.8)
+    # at rest — before the trigger, and once it has settled — the gain
+    # has nothing to scale
+    for t in (9.9, 10.8):
+        rest = element_state(10.0, PRESETS["swell"], t)
+        assert modulate_state(rest, 3.0)[SCALE] == pytest.approx(1.0)
+    # opacity is untouched, at the top and at the floor
+    assert modulate_state(peak, 0.25)[OPACITY] == 1.0
+    ghost = element_state(10.0, PRESETS["swell"], 9.9)
+    assert modulate_state(ghost, 0.25)[OPACITY] == pytest.approx(
+        FLOOR_OPACITY)
 
 
 def test_two_movers_add_their_travel() -> None:
