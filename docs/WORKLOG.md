@@ -1,8 +1,9 @@
 # ScoreAnim — Worklog
 
-**NOW:** `beta/f-volume-response` is unmerged and waiting on Marcus's
-eyes in the running app. It moved the schema to **v11**, so a project
-saved from that branch will not open on `main`.
+**NOW:** `beta/f-volume-duration` is unmerged and waiting on Marcus's
+eyes in the running app. It sits on top of `beta/f-volume-response`,
+which is also unmerged; between them they moved the schema to **v11**,
+so a project saved from either will not open on `main`.
 
 `main` carries `beta/live-fields` (`ffd0ac8`, no tag), confirmed
 in the app: every number field previews as you type. It brought
@@ -26,6 +27,28 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-01 — **The gain follows each note's own length**
+  (`beta/f-volume-duration`, UNMERGED, off `beta/f-volume-response`): the
+  volume response reads a note's whole notated duration instead of the
+  moment it starts, and the gain is per ELEMENT, not per trigger — two
+  notes on the same beat with different lengths now pop by different
+  amounts. Averaging is on ENERGY (mean of rms squared, then the square
+  root), one running total per call so each window costs a subtraction.
+  Ink with no notated length — dynamics, texts, rests — falls back to
+  the old attack reading through a zero-length window, so nothing loses
+  its gain. No schema change, no new settings, `peak_reference`
+  untouched. Split first as its own commit: the window arithmetic moved
+  to a pure `core/animation/windows.py` (`derive_windows` for the settle
+  stretches, `audio_windows` for these), which is what kept animate.py at
+  409 rather than 450 — still AT the ceiling, and the reveal-index wiring
+  in `__init__` is the next seam if it has to come down. `trigger_gains`
+  is gone; `window_gains` is the one None contract. Measured on
+  testscore.wav (`spikes/volume_response.py`, now prints both readings):
+  the average reads **0.80× the attack** over the 1159 elements with a
+  length, the spread widens at the quiet end (0.040–1.00 → 0.011–1.00),
+  and the busiest frame's largest pop goes 1.24 → 1.15 where it used to
+  go 1.24 → 1.34. So it is gentler AND leans quiet — recalibration is
+  Marcus's call after he looks at it.
 - 2026-08-01 — **Animation strength follows the recording**
   (`beta/f-volume-response`, UNMERGED): a loud beat pops harder, a quiet
   one more subtly. One derived scalar per trigger — the loudest rms bin
