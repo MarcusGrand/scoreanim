@@ -80,8 +80,17 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 # which is exactly the pre-option behaviour for every v<=9 file. The bump
 # keeps v0.2-beta.6 (a TAGGED v9 reader) refusing loudly instead of
 # silently dropping the user's locks on a resave — the v2 rationale.
-PROJECT_VERSION = 10
-_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+# 11 (volume response, 2026-08-01): style.volume — the sparse
+# {key: value} map over "amount", "quiet" and "loud" that says how much
+# the recording's loudness changes how strongly a note animates.
+# Round-tripped raw, like effect_params, so a key this build doesn't
+# consume survives a save/load cycle. No read gate: a missing key
+# defaults to {}, which reads as amount 0, which is gain 1 everywhere —
+# exactly the pre-option look for every v<=10 file. The bump keeps a
+# v10 reader refusing loudly instead of silently dropping the user's
+# settings on a resave — the v2 rationale.
+PROJECT_VERSION = 11
+_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
 SUFFIX = ".scoreanim"
 
 
@@ -137,6 +146,10 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
                     name: dict(entry) for name, entry
                     in sorted(doc.style.effect_params.items())}}
                if doc.style.effect_params else {}),
+            # v11: the volume response, written the same way — raw and
+            # omitted when empty
+            **({"volume": dict(sorted(doc.style.volume.items()))}
+               if doc.style.volume else {}),
         },
         "stage": {
             "mode": doc.stage.mode.name.lower(),
@@ -349,6 +362,9 @@ def _style_rules_in(style: dict[str, Any]) -> StyleRules:
         default_effect=style.get("default_effect"),
         effect_params={str(name): dict(entry) for name, entry
                        in style.get("effect_params", {}).items()},
+        # v11 key; absent in v<=10 files → {} → the response off, which
+        # is the look those files have always had
+        volume=dict(style.get("volume", {})),
     )
 
 

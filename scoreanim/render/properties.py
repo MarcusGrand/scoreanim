@@ -21,11 +21,15 @@ def _apply_opacity(item: ElementItem, value: float) -> None:
 
 
 def _apply_scale(item: ElementItem, value: float) -> None:
-    # No pivot, no scale. Which ink scales and what it turns around is
-    # decided once, in core (scale_groups.py), and carried on the item
-    # by ScoreScenes — the applier only applies.
+    # No pivot, no scale. Which ink scales, what it turns around and how
+    # far it may grow are all decided once, in core (scale_groups.py and
+    # stem_caps.py), and carried on the item by ScoreScenes — the applier
+    # only applies. The ceiling is what keeps a swelling stem inside its
+    # beam.
     if item.scale_pivot is None:
         return
+    if item.scale_cap is not None:
+        value = min(value, item.scale_cap)
     item.setScale(value)
 
 

@@ -443,15 +443,45 @@ def test_set_effect_param_validates_type_and_finiteness_only(doc) -> None:
         .style.effect_params["pop"]["scale"] == 99.0
 
 
+def test_set_volume_param_sparse_semantics(doc) -> None:
+    from scoreanim.core.project import SetVolumeParam
+
+    d2 = SetVolumeParam("amount", 0.8).apply(doc)
+    assert d2.style.volume == {"amount": 0.8}
+    d3 = SetVolumeParam("loud", 2.5).apply(d2)
+    assert d3.style.volume == {"amount": 0.8, "loud": 2.5}
+    # None deletes the key
+    d4 = SetVolumeParam("amount", None).apply(d3)
+    assert d4.style.volume == {"loud": 2.5}
+    # deleting an absent key is a no-op, not an error
+    assert SetVolumeParam("zzz", None).apply(doc).style.volume == {}
+
+
+def test_set_volume_param_validates_type_and_finiteness_only(doc) -> None:
+    from scoreanim.core.project import SetVolumeParam
+
+    for bad in (float("nan"), float("inf"), "loud", (1, 2)):
+        with pytest.raises(CommandError):
+            SetVolumeParam("amount", bad).apply(doc)   # type: ignore
+    with pytest.raises(CommandError):
+        SetVolumeParam("", 1.0).apply(doc)
+    # no range policy here — clamps live at consumption (read_volume)
+    assert SetVolumeParam("amount", 99.0).apply(doc) \
+        .style.volume["amount"] == 99.0
+
+
 def test_reset_effect_settings_one_step_keeps_foreign_presets(doc) -> None:
-    from scoreanim.core.project import ResetEffectSettings, SetDefaultEffect
+    from scoreanim.core.project import (ResetEffectSettings, SetDefaultEffect,
+                                        SetVolumeParam)
 
     stack = UndoStack()
     d = stack.execute(SetDefaultEffect("pop"), doc)
+    d = stack.execute(SetVolumeParam("amount", 0.7), d)
     d = stack.execute(SetEffectParam("pop", "scale", 2.0), d)
     d = stack.execute(SetEffectParam("pop", "note_value", True), d)
     d = stack.execute(SetEffectParam("fade", "duration", 1.5), d)
     d = stack.execute(SetEffectParam("drop", "start_size", 5.0), d)
+    d = stack.execute(SetEffectParam("swell", "size", 2.0), d)
     d = stack.execute(SetEffectParam("shimmer", "wobble", 1.5), d)
     before_reset = d
     d = stack.execute(ResetEffectSettings(), d)
@@ -460,13 +490,17 @@ def test_reset_effect_settings_one_step_keeps_foreign_presets(doc) -> None:
     # (raw-round-trip guarantee)
     assert d.style.default_effect is None
     assert d.style.effect_params == {"shimmer": {"wobble": 1.5}}
+    # the volume response is on the panel too, so Reset clears it
+    assert d.style.volume == {}
     # ONE undo step restores every knob at once
     assert stack.undo() == before_reset
     assert before_reset.style.default_effect == "pop"
+    assert before_reset.style.volume == {"amount": 0.7}
     assert before_reset.style.effect_params["pop"] == {"scale": 2.0,
                                                        "note_value": True}
     assert before_reset.style.effect_params["fade"] == {"duration": 1.5}
     assert before_reset.style.effect_params["drop"] == {"start_size": 5.0}
+    assert before_reset.style.effect_params["swell"] == {"size": 2.0}
 
 
 def test_effect_param_undo_restores_the_prior_value(doc) -> None:

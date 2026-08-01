@@ -15,7 +15,7 @@ from scoreanim.core.project import (FileRef, LayoutOverride, PageBreak,
                                     SystemBreak, TimingConfig, check_ref,
                                     from_dict, load_project, save_project,
                                     sha256_of, to_dict)
-from scoreanim.core.animation import ElementStyle, RevealMode
+from scoreanim.core.animation import ElementStyle, RevealMode, read_volume
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.core.timing import SwingRegion, Tap, TapSession, TempoEvent
 
@@ -143,11 +143,11 @@ def test_v1_part_colors_fold_into_style_rules() -> None:
     }
     assert legacy.style.reveal_mode is RevealMode.STEPPED
     assert legacy.style.elements == {}
-    # new files declare version 10 (locks); a build from the future is
-    # refused
-    assert to_dict(ProjectDoc())["version"] == 10
+    # new files declare version 11 (volume response); a build from the
+    # future is refused
+    assert to_dict(ProjectDoc())["version"] == 11
     with pytest.raises(ValueError, match="version"):
-        from_dict({"version": 11})
+        from_dict({"version": 12})
 
 
 def test_v4_hide_empty_staves() -> None:
@@ -420,9 +420,52 @@ def test_v10_file_is_refused_by_a_v9_reader() -> None:
     import scoreanim.core.project.serialize as ser
 
     payload = to_dict(ProjectDoc(timing=TimingConfig(locked_beats=(4.0,))))
-    assert payload["version"] == 10
     original = ser._READABLE_VERSIONS
     ser._READABLE_VERSIONS = tuple(v for v in original if v <= 9)
+    try:
+        with pytest.raises(ValueError, match="version"):
+            ser.from_dict(payload)
+    finally:
+        ser._READABLE_VERSIONS = original
+
+
+# -- v11: the volume response ---------------------------------------------
+
+def test_v11_volume_round_trips_raw() -> None:
+    """The sparse volume map survives a save/load cycle, including a key
+    this build does not consume — the effect_params guarantee, so a
+    project written by a newer build is not damaged by an older one."""
+    doc = ProjectDoc(style=StyleRules(
+        volume={"amount": 0.8, "quiet": 0.25, "loud": 2.0,
+                "curve": "perceptual"}))
+    out = from_dict(to_dict(doc))
+    assert out.style.volume == {"amount": 0.8, "quiet": 0.25, "loud": 2.0,
+                                "curve": "perceptual"}
+    assert out == doc
+    # sparse: nothing stored writes no key at all
+    assert "volume" not in to_dict(ProjectDoc())["style"]
+
+
+def test_older_files_load_with_the_response_off() -> None:
+    """No read gate: a missing key means {} for every older version,
+    which reads as amount 0, which is gain 1 everywhere — exactly the
+    look those files have always had."""
+    for version in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
+        assert from_dict({"version": version}).style.volume == {}
+    assert read_volume(from_dict({"version": 10}).style.volume).is_off
+
+
+def test_v11_file_is_refused_by_a_v10_reader() -> None:
+    """The gate's own test: a tagged v10 build must REFUSE a v11 file
+    rather than silently drop the volume settings and destroy them on
+    the next save (the v2 rationale). This is the whole point of
+    bumping, since the field itself needs no read gate."""
+    import scoreanim.core.project.serialize as ser
+
+    payload = to_dict(ProjectDoc(style=StyleRules(volume={"amount": 1.0})))
+    assert payload["version"] == 11
+    original = ser._READABLE_VERSIONS
+    ser._READABLE_VERSIONS = tuple(v for v in original if v <= 10)
     try:
         with pytest.raises(ValueError, match="version"):
             ser.from_dict(payload)

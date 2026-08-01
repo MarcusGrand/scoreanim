@@ -23,6 +23,7 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.timing import SwingRegion, TempoMap
 from scoreanim.core.timing.swing import resolve_seconds
+from scoreanim.core.audio import PeakCache
 from scoreanim.render.animate import AnimationApplier
 from scoreanim.ui.audio import AudioTransport
 from scoreanim.ui.wall_clock import WallClock
@@ -55,6 +56,9 @@ class PlaybackController(QObject):
         self._tempo_map: TempoMap | None = None
         self._swing: Sequence[SwingRegion] = ()
         self._offset_seconds = 0.0
+        # the decoded recording the volume response reads; None until a
+        # file has been decoded, and cleared when the audio goes away
+        self._peaks: PeakCache | None = None
         self._follow = True
         self._last_page = 1
         self._last_system = 1
@@ -103,6 +107,7 @@ class PlaybackController(QObject):
                       measures: Sequence[MeasureInfo]) -> None:
         self._applier = applier
         self._measures = measures
+        self._push_audio()               # a fresh score gets the recording
         self._emit_duration_if_no_audio()
         self._refresh()
 
@@ -117,8 +122,23 @@ class PlaybackController(QObject):
         self._swing = swing
         if self._applier is not None:
             self._applier.set_timing(tempo_map, swing)
+        self._push_audio()               # the offset may have moved too
         self._emit_duration_if_no_audio()
         self._refresh()
+
+    def set_peaks(self, peaks: PeakCache | None) -> None:
+        """The decoded recording, for the volume response. None is no
+        audio — every element then animates as authored."""
+        self._peaks = peaks
+        self._push_audio()
+        self._refresh()
+
+    def _push_audio(self) -> None:
+        """Hand the applier the recording and the audio time of beat 0 —
+        the pair it needs to read loudness at each trigger. Cheap when
+        neither has moved; the applier no-ops."""
+        if self._applier is not None:
+            self._applier.set_audio(self._peaks, self._offset_seconds)
 
     def _emit_duration_if_no_audio(self) -> None:
         # with a recording, the audio backend owns duration; without one,
@@ -143,6 +163,9 @@ class PlaybackController(QObject):
             self._wall.pause()
             self._set_playing(False)
         self.transport.load(path)
+        # the old recording's loudness says nothing about this one; the
+        # decode hands the new peaks over when it finishes
+        self.set_peaks(None)
         self._refresh()
         self.status_message.emit(f"audio: {path.name}")
 

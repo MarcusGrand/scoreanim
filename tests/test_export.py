@@ -605,6 +605,154 @@ def test_export_matches_live_at_m4_settings(qapp, engraved, join_mapping,
     assert exported == full_state(live_scenes)
 
 
+# -- the volume response reaches export (2026-08-01) ---------------------------
+
+def test_export_matches_live_with_the_volume_response(qapp, engraved,
+                                                      join_mapping,
+                                                      score_model, tempo_map,
+                                                      tempo_setup) -> None:
+    """An exported frame pops exactly as hard as the preview does. Both
+    read the same peak cache through the same seam (set_audio), so a
+    loud beat is loud in the video too — and the offset is applied the
+    same way on both sides."""
+    import numpy as np
+
+    from scoreanim.core.audio import PeakCacheBuilder
+    from scoreanim.render.animate import AnimationApplier
+    from scoreanim.render.scene import ScoreScenes
+
+    style = StyleRules(default_effect="pop",
+                       volume={"amount": 1.0, "quiet": 0.4, "loud": 1.8})
+    schedule = build_trigger_schedule(engraved.layout, join_mapping,
+                                      score_model.measures)
+    stage = default_stage_config(engraved.prepared,
+                                 page_content_top(engraved.layout))
+    score_end = max((m.start + m.quarter_length
+                     for m in score_model.measures), default=0.0)
+    tracks = tuple(build_reveal_tracks(engraved.layout, schedule,
+                                       score_end))
+    inputs = AnimationInputs(engraved.layout, stage, schedule, tracks)
+    offset = tempo_setup.offset_seconds
+    end = _audio_end(schedule, tempo_map, offset)
+
+    # a recording that is loud on every other trigger, so the frame
+    # under test genuinely mixes hard and soft pops
+    trigs = _trigger_seconds(schedule, tempo_map)
+    rate = 44100
+    samples = np.zeros(int((end + 2.0) * rate), dtype=np.float32)
+    for beat_s in trigs[::2]:
+        lo = int((beat_s + offset) * rate)
+        samples[lo:lo + int(0.08 * rate)] = 1.0
+    builder = PeakCacheBuilder(rate)
+    builder.add_samples(samples)
+    peaks = builder.snapshot()
+
+    spec = ExportSpec(fps=FPS, height=HEIGHT, start_seconds=0.0,
+                      end_seconds=end, offset_seconds=offset,
+                      format=ExportFormat.PNG_SEQUENCE,
+                      out_path=Path("unused"))
+    renderer = FrameRenderer(inputs, style, tempo_map, (), spec,
+                             peaks=peaks)
+
+    def scales(scenes):
+        return {eid: item.scale() for eid, item in scenes.items.items()}
+
+    n = math.ceil((trigs[0] + offset + 0.1) * FPS)
+    renderer.apply_frame(n)
+    exported = scales(renderer.scenes)
+    # non-vacuity: something really is mid-pop, and the modulation
+    # really moved it off the unmodulated 1.25-and-settle curve
+    assert max(exported.values()) > 1.0
+
+    live_scenes = ScoreScenes(engraved.layout, stage,
+                              ghost_opacity=style.floor_opacity)
+    live = AnimationApplier(live_scenes.items, schedule, tempo_map, style,
+                            tracks)
+    live.set_audio(peaks, offset)
+    live.refresh(renderer.state_time(n))
+    assert exported == scales(live_scenes)
+
+    # and without the cache the same frame is the plain, unmodulated one
+    plain = FrameRenderer(inputs, style, tempo_map, (), spec)
+    plain.apply_frame(n)
+    assert scales(plain.scenes) != exported
+
+
+def test_export_matches_live_with_a_swell_following_the_volume(
+        qapp, engraved, join_mapping, score_model, tempo_map,
+        tempo_setup) -> None:
+    """The same guarantee for the gain that is read PER FRAME rather
+    than once per note. Export walks its own clock and the preview walks
+    the transport's, so a reading that was not a pure function of t
+    would show up here as two different sizes for the same frame."""
+    import numpy as np
+
+    from scoreanim.core.animation import resolve_durations
+    from scoreanim.core.audio import PeakCacheBuilder
+    from scoreanim.render.animate import AnimationApplier
+    from scoreanim.render.scene import ScoreScenes
+
+    style = StyleRules(default_effect="swell",
+                       effect_params={"swell": {"follow": True}},
+                       volume={"amount": 1.0, "quiet": 0.4, "loud": 1.8})
+    durs = resolve_durations(engraved.layout, join_mapping,
+                             engraved.note_durations, score_model.measures)
+    schedule = build_trigger_schedule(engraved.layout, join_mapping,
+                                      score_model.measures, durs)
+    stage = default_stage_config(engraved.prepared,
+                                 page_content_top(engraved.layout))
+    score_end = max((m.start + m.quarter_length
+                     for m in score_model.measures), default=0.0)
+    tracks = tuple(build_reveal_tracks(engraved.layout, schedule, score_end))
+    inputs = AnimationInputs(engraved.layout, stage, schedule, tracks)
+    offset = tempo_setup.offset_seconds
+    end = _audio_end(schedule, tempo_map, offset)
+
+    # loud on every other trigger, so the live reading is somewhere
+    # different at every frame a following note is held through
+    trigs = _trigger_seconds(schedule, tempo_map)
+    rate = 44100
+    samples = np.zeros(int((end + 2.0) * rate), dtype=np.float32)
+    for beat_s in trigs[::2]:
+        lo = int((beat_s + offset) * rate)
+        samples[lo:lo + int(0.08 * rate)] = 1.0
+    builder = PeakCacheBuilder(rate)
+    builder.add_samples(samples)
+    peaks = builder.snapshot()
+
+    spec = ExportSpec(fps=FPS, height=HEIGHT, start_seconds=0.0,
+                      end_seconds=end, offset_seconds=offset,
+                      format=ExportFormat.PNG_SEQUENCE,
+                      out_path=Path("unused"))
+    renderer = FrameRenderer(inputs, style, tempo_map, (), spec, peaks=peaks)
+
+    def scales(scenes):
+        return {eid: item.scale() for eid, item in scenes.items.items()}
+
+    live_scenes = ScoreScenes(engraved.layout, stage,
+                              ghost_opacity=style.floor_opacity)
+    live = AnimationApplier(live_scenes.items, schedule, tempo_map, style,
+                            tracks)
+    live.set_audio(peaks, offset)
+
+    # several frames, not one: the live gain moves between them, and a
+    # walked export must agree with a seeking preview at every one
+    moved = set()
+    for n in range(math.ceil((trigs[0] + offset) * FPS),
+                   math.ceil((trigs[0] + offset + 0.5) * FPS)):
+        renderer.apply_frame(n)
+        exported = scales(renderer.scenes)
+        live.refresh(renderer.state_time(n))
+        assert exported == scales(live_scenes), n
+        moved.update(v for v in exported.values() if v != 1.0)
+    assert len(moved) > 1                # the ink really did change size
+
+    # and without the cache the same frame is the plain plateau
+    plain = FrameRenderer(inputs, style, tempo_map, (), spec)
+    plain.apply_frame(n)
+    assert scales(plain.scenes) != exported
+
+
 # -- hidden overrides in export scenes (Phase 9.2) ------------------------------
 
 def test_export_scenes_apply_hidden_overrides(qapp, inputs, engraved,

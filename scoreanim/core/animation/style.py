@@ -76,6 +76,12 @@ class StyleRules:
     # presets/keys this build doesn't consume round-trip untouched.
     effect_params: Mapping[str, Mapping[str, object]] = \
         field(default_factory=dict)
+    # Volume response (schema v11): how much the recording's loudness
+    # changes how strongly a note animates. Sparse {key: value} over
+    # "amount", "quiet" and "loud", read clamped by
+    # animation.intensity.read_volume; keys this build doesn't consume
+    # round-trip untouched. Empty = amount 0 = off.
+    volume: Mapping[str, object] = field(default_factory=dict)
 
     def resolve(self, identity: ElementIdentity | None) -> ElementStyle:
         """Element override > part rule > document default, per field.

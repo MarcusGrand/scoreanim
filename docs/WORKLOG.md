@@ -1,6 +1,16 @@
 # ScoreAnim — Worklog
 
-**NOW:** `main` carries `beta/live-fields` (`ffd0ac8`, no tag), confirmed
+**NOW:** `beta/f-system-pulse` is where the work is. It is
+`beta/system-groups` with `beta/f-follow-volume` merged into it — the
+system group items on one side, the recording's live loudness on the
+other — and both halves are still waiting on Marcus's eyes in the
+running app. Under `beta/f-follow-volume` sit `beta/f-swell-effect`,
+`beta/f-pop-per-note`, `beta/f-volume-duration` and
+`beta/f-volume-response`; between them the two volume branches moved the
+schema to **v11**, so a project saved from any of them will not open on
+`main`.
+
+`main` carries `beta/live-fields` (`ffd0ac8`, no tag), confirmed
 in the app: every number field previews as you type. It brought
 `beta/shell-layout` with it — the openers on the toolbar, the grid
 controls under the lanes, tap tempo gone. Schema is still v10, so a
@@ -11,9 +21,7 @@ back: pinch to zoom, two-finger scroll to move.
 brought `beta/f-fade-effect` with it: the fade, drop and slide effects,
 and effects that run together ("drop+fade"). Merged on Marcus's word
 without the usual app run first — worth a look in the running app.
-`fix/bracket-hidden-staves` and `beta/system-groups` are unmerged, along
-with the five stacked volume/swell branches (which moved the schema to
-v11 and start from `beta/f-volume-response`).
+`fix/bracket-hidden-staves` is the only other branch still unmerged.
 
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
@@ -47,6 +55,137 @@ lines — history lives in git and `docs/history/`.
   tints it, a nudge still previews and commits 20/−10. Unproven under a
   human's eye. **`render/items.py` is at 430 lines** — it was over the
   ceiling before this and it is still the next split.
+- 2026-08-01 — **A swell follows the recording**
+  (`beta/f-follow-volume`, UNMERGED, off `beta/f-swell-effect`): a
+  "Follow volume" box in the Swell block, off by default. With it on a
+  note's size tracks how loud the recording is WHILE IT SOUNDS — a
+  crescendo grows it, a diminuendo shrinks it — instead of playing one
+  frozen average. The shape changes to suit: a plateau instead of a
+  hump, 10 % up / 75 % hold / 15 % back (Marcus's call), where the hold
+  is what the live volume plays on and the tail is the snap-back that
+  lands the note at exactly its engraved size as the next one arrives.
+  Follow forces the note-value stretch on — a fixed 0.8 s window cannot
+  track a whole note — and the panel shows that box checked and grayed
+  rather than lying about it (new `Check.forced_by`, five lines in the
+  shared knob module); Peak grays too, since the top is a stretch now,
+  not a point. Three layers, each one small: a third reading in
+  `intensity.py` (`intensity_at`, off the ~90 ms level of the pyramid
+  the cache already built, interpolated between bins — no new sums), one
+  more `Effect` flag beside `settle_to_note_value`, and one choice in
+  the applier between the live gain and the average. The flag comes out
+  of `derive_windows`, which already walks every effect of every item,
+  so the lookup is once per trigger per frame and the peak reference is
+  cached on the seams that move it. **`render/animate.py` went 409 →
+  367 first**, as its own commit: reveal was never trigger-driven, so
+  the index, the warning, the curves and the edge cache moved to
+  `render/reveal_driver.py`; it lands back at 398. No schema change, no
+  golden movement. Measured on testscore.wav
+  (`spikes/follow_volume.py`): across a dotted half the reading runs
+  0.40–0.71 and the biggest jump between two frames is 0.13, so it
+  breathes without flickering. Checked end to end in the real window
+  with the recording loaded — the note holds between 1.36× and 1.46×
+  and lands on exactly 1.0. Unproven under a human's eye.
+- 2026-08-01 — **A note swells over its own length**
+  (`beta/f-swell-effect`, UNMERGED, off `beta/f-pop-per-note`): a fifth
+  effect, and the first one about a note's LENGTH instead of its
+  arrival. The note is already on the page at its engraved size, grows
+  to 1.4× and eases back down to exactly where it started, timed to its
+  notated value — a whole note swells across its bar, an eighth is a
+  quick breath. Pure preset data (rule 6): one registry entry plus four
+  knobs, and nothing in the evaluator, the applier, the compose table or
+  the schema. Up on EASE_IN and down on EASE_OUT — gentle away from
+  rest, softly back to it — which puts a brief point at the top; both
+  ends land exactly on 1.0, so no note is ever left oversized.
+  `settle_to_note_value` defaults ON here, the only preset it does, and
+  the existing per-element timescale stretches the whole authored shape
+  at once, so the top keeps its place inside the note however long the
+  note is (Peak, shown as a per cent of the way through). The two
+  interactions asked about needed no code and are now pinned: pop+swell
+  multiplies into a dip-then-swell, and the volume response modulates a
+  swell like any other scale departure. Checked end to end through the
+  applier on testscore — a dotted half tops out at +0.75 s where an
+  eighth was home at +0.25 s. No schema change, no golden movement;
+  unproven under a human's eye in the running app.
+- 2026-08-01 — **Every notehead pops in its own place**
+  (`beta/f-pop-per-note`, UNMERGED, off `beta/f-volume-duration`): a
+  chord's heads used to share one pivot — the centre of the whole stack
+  — so the outer ones slid sideways as they grew. Each head now turns
+  around its OWN centre, and the ink hanging off it follows the head it
+  belongs to: a stem stands on the head at its foot, a flag and tremolo
+  strokes ride the stem, an accidental or dot takes the nearest head.
+  133 of testscore's 252 note groups are chords, so this is most of the
+  fixture. Two Marcus calls with it: **beams never scale** (they appear
+  with their note at engraved size — a beam belongs to several notes, so
+  any pivot is a compromise), and a **stem stops at its beam**. The stem
+  ceiling is a new pure module (`core/animation/stem_caps.py`), a
+  geometric stem↔beam join like the ledger dashes', carried on the item
+  as `scale_cap` and clamped in one `min()` in the applier. Measured:
+  the beam's far edge sits ~3% of a stem's length past its tip, so a
+  beamed stem thickens where a flagged one pops with its head; 101 of
+  252 stems are capped and none overshoots. The ceiling took two goes —
+  a first cut read the beam's BOX and stems grew straight through
+  tilted beams (28 of testscore's 38 beams are tilted), so it now reads
+  the beam's drawn outline at the stem's own x, across the stem's whole
+  width, through a new pure `svg_geom.path_outline`. The same pass found
+  a second one on video_test: a beam one staff up was close enough to
+  claim an unbeamed stem, so a beam is now this stem's only where the
+  tip is drawn INSIDE its ink. Checked over 8 fixtures, flat and with
+  staves hidden: 3244 capped stems, zero overshoot, zero beamed stem
+  without a ceiling. Applies to EVERY scale
+  effect, not just pop, so under drop the heads enter at 3× while the
+  beam sits still — deliberate, and it reverses the beam half of the
+  2026-07-31 ruling. Rendered rest vs peak and looked at it
+  (`spikes/pop_pivot.py`); unproven under a human's eye in the running
+  app. No schema change, no golden movement. **`render/items.py` is at
+  432 lines** — it was already over the ceiling before this, and it is
+  the next split.
+- 2026-08-01 — **The gain follows each note's own length**
+  (`beta/f-volume-duration`, UNMERGED, off `beta/f-volume-response`): the
+  volume response reads a note's whole notated duration instead of the
+  moment it starts, and the gain is per ELEMENT, not per trigger — two
+  notes on the same beat with different lengths now pop by different
+  amounts. Averaging is on ENERGY (mean of rms squared, then the square
+  root), one running total per call so each window costs a subtraction.
+  Ink with no notated length — dynamics, texts, rests — falls back to
+  the old attack reading through a zero-length window, so nothing loses
+  its gain. No schema change, no new settings, `peak_reference`
+  untouched. Split first as its own commit: the window arithmetic moved
+  to a pure `core/animation/windows.py` (`derive_windows` for the settle
+  stretches, `audio_windows` for these), which is what kept animate.py at
+  409 rather than 450 — still AT the ceiling, and the reveal-index wiring
+  in `__init__` is the next seam if it has to come down. `trigger_gains`
+  is gone; `window_gains` is the one None contract. Measured on
+  testscore.wav (`spikes/volume_response.py`, now prints both readings):
+  the average reads **0.80× the attack** over the 1159 elements with a
+  length, the spread widens at the quiet end (0.040–1.00 → 0.011–1.00),
+  and the busiest frame's largest pop goes 1.24 → 1.15 where it used to
+  go 1.24 → 1.34. So it is gentler AND leans quiet — recalibration is
+  Marcus's call after he looks at it.
+- 2026-08-01 — **Animation strength follows the recording**
+  (`beta/f-volume-response`, UNMERGED): a loud beat pops harder, a quiet
+  one more subtly. One derived scalar per trigger — the loudest rms bin
+  in a window that leans forward onto the attack (−25/+75 ms), over the
+  95th percentile of the bins that carry any sound. A percentile, not
+  the maximum, or one stray transient flattens every real note; only
+  sounding bins, or a silent tail makes quiet music read as loud
+  (`core/animation/intensity.py`). The gain scales the FINISHED state
+  about the compose table's neutral — SCALE and the two offsets only.
+  Opacity is never modulated and never will be: a quiet note still has
+  to become fully visible. Gain 1.0 returns the state by an early
+  return, not by arithmetic, so amount 0 is bit-identical to before.
+  Three settings (Amount, Quiet, Loud) in a sparse `style.volume`,
+  **schema v11** — no read gate, a missing key is the response off.
+  Live and export share one seam (`AnimationApplier.set_audio`), pinned
+  by a test that walks both. The live path reads the peaks on
+  `finished`, not `progress`: a half-decoded file's reference is wrong
+  and moves every tick. Panel first: `PresetKnobs` became `KnobGroup`
+  with a pluggable store, so the Volume response block rides the same
+  live fields instead of a second copy. Measured on testscore.wav:
+  intensity spreads 0.04–1.00 over 89 triggers, and the busiest frame's
+  largest pop goes 1.23 → 1.34 (`spikes/volume_response.py`). Checked
+  end to end in the real window offscreen; unproven under a human's eye
+  so far. **`render/animate.py` is at 415 lines** — over the ceiling,
+  and due a split before anything else lands in it.
 - 2026-08-01 — **Effects combine** (same branch): a note can drop AND
   fade, picked with a second "Combine with" dropdown. The stored intent
   stays ONE name — the parts joined by "+" — so no schema bump, and an
