@@ -19,6 +19,10 @@ Three things come out of one pass (`WindowPlan`):
   inside this window.
 - `lead` — the F3 forward bound: how far ahead of a trigger a negatively
   shifted component is already live.
+- `follows_per_trigger` — one flag per ITEM: does any of its effects
+  want the recording's live loudness rather than the one average over
+  its note (`Effect.follow_volume`). Worked out here because this is
+  already the pass that walks every effect of every item.
 
 Engraved ends resolve through the ONE swing-aware seam
 (`core/timing/resolve_seconds`) in a single batched call, so a tempo or
@@ -42,6 +46,7 @@ class WindowPlan:
     durations: tuple[float, ...]
     d_max: float
     lead: float
+    follows_per_trigger: tuple[tuple[bool, ...], ...]
 
 
 def derive_windows(trigger_beats: Sequence[Beats],
@@ -91,10 +96,12 @@ def derive_windows(trigger_beats: Sequence[Beats],
                     stretch[(i, j, k)] = dur_s
 
     timescales: list[tuple[tuple[float, ...], ...]] = []
+    follows: list[tuple[bool, ...]] = []
     windows: list[float] = []
     lead = 0.0
     for i in range(len(trigger_beats)):
         row: list[tuple[float, ...]] = []
+        follow_row: list[bool] = []
         window = 0.0
         for j, effects in enumerate(effects_per_trigger[i]):
             scales: list[float] = []
@@ -106,12 +113,18 @@ def derive_windows(trigger_beats: Sequence[Beats],
                              effect.trigger_shift + effect.duration * ts)
                 lead = max(lead, -effect.trigger_shift)
             row.append(tuple(scales))
+            # ANY of an item's effects wanting the live loudness makes
+            # the whole item follow: the gain scales the item's finished
+            # state, so there is one answer per item, not per effect.
+            follow_row.append(any(e.follow_volume for e in effects))
         timescales.append(tuple(row))
+        follows.append(tuple(follow_row))
         windows.append(window)
     return WindowPlan(timescales_per_trigger=tuple(timescales),
                       durations=tuple(windows),
                       d_max=max(windows, default=0.0),
-                      lead=max(0.0, lead))
+                      lead=max(0.0, lead),
+                      follows_per_trigger=tuple(follows))
 
 
 def audio_windows(trigger_beats: Sequence[Beats],

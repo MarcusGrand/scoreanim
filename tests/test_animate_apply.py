@@ -1264,3 +1264,162 @@ def test_ink_with_no_notated_length_still_reads_the_attack(scenes,
             assert a == pytest.approx(b)
     assert lengthless                      # non-vacuity: some ink has none
     assert moved                           # and the notes really did move
+
+
+# --- following the recording while the note sounds -------------------------
+
+_FOLLOW_VOLUME = {"amount": 1.0, "quiet": 0.5, "loud": 1.5}
+
+
+def _loud_after(seconds: float, duration: float = 30.0, rate: int = 44100):
+    """The mirror of _quiet_after: near-silent up to `seconds`, loud
+    after — so a note's average over its whole length and how loud the
+    recording is at one moment inside it are plainly different numbers."""
+    import numpy as np
+
+    from scoreanim.core.audio import PeakCacheBuilder
+
+    samples = np.full(int(duration * rate), 1.0, dtype=np.float32)
+    samples[:int(seconds * rate)] = 0.02
+    builder = PeakCacheBuilder(rate)
+    builder.add_samples(samples)
+    return builder.snapshot()
+
+
+def _follow_rules(follower):
+    """Everything pops over its own note value; the one element handed
+    in swells and follows the recording instead."""
+    from scoreanim.core.animation import ElementStyle
+
+    return StyleRules(
+        default_effect="pop",
+        elements={follower: ElementStyle(effect="swell")},
+        effect_params={"pop": {"note_value": True},
+                       "swell": {"follow": True}},
+        volume=_FOLLOW_VOLUME)
+
+
+def _row_index(applier, i: int, eid) -> int:
+    return list(applier._element_ids_per_trigger[i]).index(eid)
+
+
+def test_a_following_element_reads_the_moment_and_its_neighbour_does_not(
+        scenes, schedule_nv) -> None:
+    """The feature, in one frame. Two noteheads on the same beat over a
+    recording that is quiet at the beat and loud a moment later. The
+    following one is modulated by how loud the recording is RIGHT THEN;
+    the plain one still carries the one average over its own note."""
+    from scoreanim.core.animation import (VolumeResponse, combined_state,
+                                          gain_for, intensity_at,
+                                          modulate_state)
+    from scoreanim.core.animation.effect import SCALE
+
+    i, (plain, plain_beats), (follower, follow_beats) = \
+        _mixed_duration_trigger(scenes, schedule_nv)
+    assert follow_beats > plain_beats                      # non-vacuity
+    trig_s = TEMPO.seconds_at(schedule_nv.triggers[i].beats)
+    short_s = TEMPO.seconds_at(
+        schedule_nv.triggers[i].beats + plain_beats) - trig_s
+    # quiet over most of the shorter note, loud from there on, and the
+    # frame taken late enough to be well inside the loud part but early
+    # enough that BOTH notes are still animating
+    peaks = _loud_after(trig_s + 0.7 * short_s)
+    t = trig_s + 0.9 * short_s
+
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO,
+                               _follow_rules(follower))
+    applier.set_audio(peaks, 0.0)
+    applier.refresh(t)
+
+    volume = VolumeResponse(**_FOLLOW_VOLUME)
+    live = gain_for(intensity_at(peaks, t), volume)
+    j_follow = _row_index(applier, i, follower)
+    j_plain = _row_index(applier, i, plain)
+    average = applier._gains[i][j_follow]
+    # the two numbers really are different, or the test proves nothing
+    assert live > average + 0.1
+
+    def expected(j, gain):
+        state = combined_state(
+            trig_s,
+            tuple(zip(applier._effects_per_trigger[i][j],
+                      applier._timescales_per_trigger[i][j])),
+            t)
+        return modulate_state(state, gain)[SCALE]
+
+    assert scenes.items[follower].scale() == \
+        pytest.approx(expected(j_follow, live))
+    assert scenes.items[plain].scale() == \
+        pytest.approx(expected(j_plain, applier._gains[i][j_plain]))
+    # and the follower is plainly NOT on its own average
+    assert scenes.items[follower].scale() != \
+        pytest.approx(expected(j_follow, average))
+
+
+def test_a_following_element_moves_with_the_recording(scenes,
+                                                      schedule_nv) -> None:
+    """Two frames of the same note: quiet early, loud later, and the
+    ink is bigger in the loud one. Its own average never moves, so this
+    can only come from the live reading."""
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    trig_s = TEMPO.seconds_at(schedule_nv.beats_by_element[long_head])
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO,
+                               _follow_rules(long_head))
+    applier.set_audio(_loud_after(trig_s + 0.75), 0.0)
+
+    # both times sit on the plateau (10 %..85 % of a 1.5 s window)
+    applier.refresh(trig_s + 0.4)
+    quiet_frame = scenes.items[long_head].scale()
+    applier.refresh(trig_s + 1.1)
+    loud_frame = scenes.items[long_head].scale()
+    assert loud_frame > quiet_frame + 0.1
+    # and it still lands at exactly its engraved size at the end
+    applier.refresh(trig_s + 1.5)
+    assert scenes.items[long_head].scale() == 1.0
+
+
+def test_no_audio_leaves_a_follow_swell_playing_its_plateau(
+        scenes, schedule_nv) -> None:
+    """With no recording, or the response off, there are no gains at
+    all — a follow swell simply plays the shape as authored."""
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    trig_s = TEMPO.seconds_at(schedule_nv.beats_by_element[long_head])
+    rules = _follow_rules(long_head)
+    silent = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
+    silent.refresh(trig_s + 0.75)
+    assert silent._gains is None
+    assert scenes.items[long_head].scale() == pytest.approx(1.4)  # the plateau
+
+
+def test_scrubbing_a_following_element_is_stateless(qapp, engraved,
+                                                    schedule_nv,
+                                                    scenes) -> None:
+    """The live reading is a pure function of t, so walking forward to a
+    time and jumping straight to it must leave the same ink. Every other
+    volume test refreshes only; this one walks."""
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    trig_s = TEMPO.seconds_at(schedule_nv.beats_by_element[long_head])
+    rules = _follow_rules(long_head)
+    peaks = _loud_after(trig_s + 0.75)
+    mid = trig_s + 1.0                        # on the plateau, in the loud part
+
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
+    applier.set_audio(peaks, 0.0)
+    rng = random.Random(31)
+    t = 0.0
+    for _ in range(60):
+        t = max(-2.0, t + rng.uniform(-9.0, 11.0))
+        applier.apply_at(t)
+    for step in range(20):                    # and tick up to it in small hops
+        applier.apply_at(mid - 0.4 + step * 0.02)
+    applier.apply_at(mid)
+    walked = _visual_state(scenes)
+
+    fresh_scenes = ScoreScenes(engraved.layout, default_stage_config(
+        engraved.prepared, page_content_top(engraved.layout)))
+    fresh = AnimationApplier(fresh_scenes.items, schedule_nv, TEMPO, rules)
+    fresh.set_audio(peaks, 0.0)
+    fresh.refresh(mid)
+    assert walked == _visual_state(fresh_scenes)
+    # non-vacuity: the followed note really is animating at `mid`
+    assert walked[long_head][1] != 1.0

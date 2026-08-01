@@ -28,13 +28,16 @@ adds the two. Unknown properties are skipped, so a preset from a newer
 build degrades instead of crashing.
 
 How strongly an element animates can follow the recording: ``set_audio``
-hands over the peak cache, and one gain per ELEMENT scales the finished
-state away from rest (core/animation/intensity.py). The gain comes from
-the average loudness over that element's own notated duration, so two
-notes on the same beat with different lengths pop by different amounts.
-Opacity is never modulated. With no audio, or the response off, there
-are no gains at all and every state is exactly what it was before the
-feature existed.
+hands over the peak cache, and a gain scales the finished state away
+from rest (core/animation/intensity.py). Which gain is decided per
+element. Normally it is the average loudness over that element's own
+notated duration, worked out once, so two notes on the same beat with
+different lengths pop by different amounts. An element whose effects
+carry ``follow_volume`` instead reads how loud the recording is RIGHT
+NOW, every time it re-evaluates, so its ink moves with the playing while
+the note sounds. Opacity is never modulated. With no audio, or the
+response off, there are no gains at all and every state is exactly what
+it was before the feature existed.
 
 Spanners (REVEALED_KINDS) are not trigger-driven at all: their clip
 edges follow the per-system reveal curves, and that whole concern lives
@@ -51,10 +54,12 @@ from typing import Mapping, Sequence
 
 from scoreanim.core.animation import (PRESETS, Effect, StyleRules,
                                       SystemRevealTrack, TriggerSchedule,
-                                      audio_windows, build_presets,
-                                      combined_state, derive_windows,
-                                      effects_for, modulate_state,
-                                      read_volume, window_gains)
+                                      VolumeResponse, audio_windows,
+                                      build_presets, combined_state,
+                                      derive_windows, effects_for, gain_for,
+                                      intensity_at, modulate_state,
+                                      peak_reference, read_volume,
+                                      window_gains)
 from scoreanim.core.audio import PeakCache
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
@@ -121,6 +126,13 @@ class AnimationApplier:
         self._peaks: PeakCache | None = None
         self._audio_offset = 0.0
         self._gains: tuple[tuple[float, ...], ...] | None = None
+        # What an element that FOLLOWS the recording needs instead: the
+        # settings to map a reading onto, and the "full loudness" the
+        # reading is measured against. The reference is a percentile over
+        # every bin, so it is worked out on the seams that can move it
+        # and handed to each lookup, never recomputed per frame.
+        self._volume = VolumeResponse()
+        self._reference = 0.0
 
         # Spanners reveal by clip-grow at their (system, part) reveal
         # edge — no triggers involved (REVEALED_KINDS left the
@@ -224,8 +236,12 @@ class AnimationApplier:
         which intensity.py reads as "use the attack".
 
         The triggers are score seconds; the peak cache is indexed from
-        the start of the sound file, so the offset goes back on here.
-        This is the ONE place the two axes meet."""
+        the start of the sound file, so the offset goes back on here —
+        and in `_apply_trigger`, the only other place the two axes
+        meet."""
+        self._volume = read_volume(self._style.volume)
+        self._reference = (peak_reference(self._peaks)
+                           if self._peaks is not None else 0.0)
         rows = audio_windows(
             [trig.beats for trig in self._schedule.triggers],
             self._trigger_seconds,
@@ -236,7 +252,7 @@ class AnimationApplier:
             self._audio_offset)
         flat = window_gains(self._peaks,
                             [w for row in rows for w in row],
-                            read_volume(self._style.volume))
+                            self._volume)
         if flat is None:
             self._gains = None
             return
@@ -263,6 +279,7 @@ class AnimationApplier:
             self._tempo_map,
             self._swing)
         self._timescales_per_trigger = plan.timescales_per_trigger
+        self._follows = plan.follows_per_trigger
         self._durations = plan.durations
         self._d_max = plan.d_max
         self._lead = plan.lead
@@ -317,6 +334,15 @@ class AnimationApplier:
     def _apply_trigger(self, i: int, t: float) -> int:
         trigger_s = self._trigger_seconds[i]
         gains = self._gains[i] if self._gains is not None else None
+        # How loud the recording is at THIS moment, for the elements
+        # here that follow it. One lookup per trigger, not per element:
+        # every following element in the row reads the same instant. The
+        # score seconds become audio seconds the same way the windows
+        # do, by adding the offset.
+        live = None
+        if gains is not None and any(self._follows[i]):
+            live = gain_for(intensity_at(self._peaks, t + self._audio_offset,
+                                         self._reference), self._volume)
         changed = 0
         for j, (item, effects, timescales) in enumerate(zip(
                 self._items_per_trigger[i],
@@ -326,9 +352,14 @@ class AnimationApplier:
                                    t)
             # The volume response scales the FINISHED state, once, so an
             # element running two effects at a time is modulated as one
-            # thing (core/animation/compose.py).
+            # thing (core/animation/compose.py). A following element
+            # takes the live reading; every other one keeps the average
+            # over its own note.
             if gains is not None:
-                state = modulate_state(state, gains[j])
+                state = modulate_state(
+                    state,
+                    live if live is not None and self._follows[i][j]
+                    else gains[j])
             for prop, value in state.items():
                 applier = PROPERTY_APPLIERS.get(prop)
                 if applier is not None:
