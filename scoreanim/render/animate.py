@@ -29,15 +29,10 @@ build degrades instead of crashing.
 
 How strongly an element animates can follow the recording: ``set_audio``
 hands over the peak cache, and a gain scales the finished state away
-from rest (core/animation/intensity.py). Which gain is decided per
-element. Normally it is the average loudness over that element's own
-notated duration, worked out once, so two notes on the same beat with
-different lengths pop by different amounts. An element whose effects
-carry ``follow_volume`` instead reads how loud the recording is RIGHT
-NOW, every time it re-evaluates, so its ink moves with the playing while
-the note sounds. Opacity is never modulated. With no audio, or the
-response off, there are no gains at all and every state is exactly what
-it was before the feature existed.
+from rest. Which gain each element takes, and the bookkeeping behind it,
+is its own object (render/gain_index.py). Opacity is never modulated.
+With no audio, or the response off, there are no gains at all and every
+state is exactly what it was before the feature existed.
 
 Spanners (REVEALED_KINDS) are not trigger-driven at all: their clip
 edges follow the per-system reveal curves, and that whole concern lives
@@ -60,15 +55,13 @@ from typing import Iterable, Mapping, Sequence
 
 from scoreanim.core.animation import (PRESETS, Effect, StyleRules,
                                       SystemRevealTrack, TriggerSchedule,
-                                      VolumeResponse, audio_windows,
                                       build_presets, combined_state,
-                                      derive_windows, effects_for, gain_for,
-                                      intensity_at, modulate_state,
-                                      peak_reference, read_pulse, read_volume,
-                                      window_gains)
+                                      derive_windows, effects_for,
+                                      modulate_state, read_pulse)
 from scoreanim.core.audio import PeakCache
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
+from scoreanim.render.gain_index import GainIndex
 from scoreanim.render.items import ElementItem
 from scoreanim.render.properties import PROPERTY_APPLIERS
 from scoreanim.render.pulse_driver import PulseDriver
@@ -121,27 +114,12 @@ class AnimationApplier:
         # swing-aware seam, so a bpm/swing change re-times every stretch
         self._tempo_map: TempoMap | None = None
         self._swing: tuple[SwingRegion, ...] = ()
-        # The volume response (core/animation/intensity.py): one gain per
-        # ELEMENT, in the same shape as _items_per_trigger, saying how
-        # strongly that element animates. Per element and not per
-        # trigger because the gain follows each one's own notated
-        # duration — two notes on the same beat, one long and one short,
-        # read different stretches of the recording. None means "leave
-        # every state alone" — no recording, or the response turned
-        # off — which is what keeps the look bit-for-bit what it was
-        # before the feature existed. The audio inputs are kept because
-        # the gains have to be recomputed whenever the seconds axis or
-        # the settings move.
-        self._peaks: PeakCache | None = None
-        self._audio_offset = 0.0
-        self._gains: tuple[tuple[float, ...], ...] | None = None
-        # What an element that FOLLOWS the recording needs instead: the
-        # settings to map a reading onto, and the "full loudness" the
-        # reading is measured against. The reference is a percentile over
-        # every bin, so it is worked out on the seams that can move it
-        # and handed to each lookup, never recomputed per frame.
-        self._volume = VolumeResponse()
-        self._reference = 0.0
+        # How strongly each element animates, if it follows the
+        # recording: one gain per ELEMENT and the audio state behind it,
+        # all in its own object (render/gain_index.py).
+        self._audio = GainIndex([trig.beats for trig in schedule.triggers],
+                                self._element_ids_per_trigger,
+                                schedule.duration_by_element)
 
         # Spanners reveal by clip-grow at their (system, part) reveal
         # edge — no triggers involved (REVEALED_KINDS left the
@@ -172,7 +150,7 @@ class AnimationApplier:
             tempo_map, swing)
         self._reveal.resolve(tempo_map, swing)
         self._recompute_windows()
-        self._recompute_gains()      # the triggers moved along the audio
+        self._recompute_audio()      # the triggers moved along the audio
         self.refresh(self._t)
 
     def set_audio(self, peaks: PeakCache | None,
@@ -184,11 +162,9 @@ class AnimationApplier:
         `None` is no audio: every element animates as authored. The
         offset is what turns a trigger's score seconds into the audio
         seconds the peak cache is indexed by."""
-        if peaks is self._peaks and offset_seconds == self._audio_offset:
+        if not self._audio.set_audio(peaks, offset_seconds):
             return
-        self._peaks = peaks
-        self._audio_offset = offset_seconds
-        self._recompute_gains()
+        self._recompute_audio()
         self.refresh(self._t)
 
     def set_style(self, style: StyleRules) -> None:
@@ -199,7 +175,7 @@ class AnimationApplier:
             return
         self._style = style
         self._resolve_effects()
-        self._recompute_gains()      # the volume settings may have moved
+        self._recompute_audio()      # the volume settings may have moved
         # an element whose effects no longer carry a SCALE track would
         # otherwise keep a stale mid-pop transform, and one that lost
         # its offset tracks would be left standing wherever its slide
@@ -234,54 +210,23 @@ class AnimationApplier:
             for items in self._items_per_trigger)
         self._recompute_windows()
 
-    def _recompute_gains(self) -> None:
-        """The volume response, re-read from BOTH seams that can move
-        it: the audio (set_audio) and the settings (set_style), plus the
-        seconds axis itself (set_timing) — a tempo edit slides every
-        element to a different stretch of the recording, and it moves
-        both ends of that stretch.
+    def _recompute_audio(self) -> None:
+        """Everything the recording drives, re-read from ALL THREE seams
+        that can move it: the audio (set_audio), the settings
+        (set_style), and the seconds axis itself (set_timing) — a tempo
+        edit slides every element to a different stretch of the
+        recording.
 
-        Every element gets its own window: its trigger, out to the end
-        of its notated duration. The engraved end resolves through the
-        ONE swing-aware seam in a single batched call, the same pattern
-        derive_windows uses for the settle stretches. An element the
-        duration map omits (dynamics, texts) gets a zero-length window,
-        which intensity.py reads as "use the attack".
-
-        The triggers are score seconds; the peak cache is indexed from
-        the start of the sound file, so the offset goes back on here —
-        and in `_apply_trigger`, the only other place the two axes
-        meet."""
-        self._volume = read_volume(self._style.volume)
-        self._reference = (peak_reference(self._peaks)
-                           if self._peaks is not None else 0.0)
-        # The system pulse reads the same three things, so it is fed
-        # here, above the early return below (which is about the
-        # per-element gains only). This one call covers both seams that
-        # can move it, so live preview and export need no wiring of
-        # their own.
-        self._pulse.configure(self._peaks, self._audio_offset,
-                              self._reference, read_pulse(self._style.pulse))
-        rows = audio_windows(
-            [trig.beats for trig in self._schedule.triggers],
-            self._trigger_seconds,
-            self._element_ids_per_trigger,
-            self._schedule.duration_by_element,
-            self._tempo_map,
-            self._swing,
-            self._audio_offset)
-        flat = window_gains(self._peaks,
-                            [w for row in rows for w in row],
-                            self._volume)
-        if flat is None:
-            self._gains = None
-            return
-        out: list[tuple[float, ...]] = []
-        at = 0
-        for row in rows:
-            out.append(tuple(flat[at:at + len(row)]))
-            at += len(row)
-        self._gains = tuple(out)
+        Two consumers, one call: the per-element gains
+        (render/gain_index.py) and the page's own breathing, which reads
+        the same recording through settings of its own. That is why live
+        preview and export needed no wiring of their own — both already
+        come through these seams."""
+        self._audio.recompute(self._trigger_seconds, self._tempo_map,
+                              self._swing, self._style.volume)
+        self._pulse.configure(self._audio.peaks, self._audio.offset,
+                              self._audio.reference,
+                              read_pulse(self._style.pulse))
 
     def _recompute_windows(self) -> None:
         """Per-component timescales and per-trigger effective windows
@@ -356,16 +301,13 @@ class AnimationApplier:
 
     def _apply_trigger(self, i: int, t: float) -> int:
         trigger_s = self._trigger_seconds[i]
-        gains = self._gains[i] if self._gains is not None else None
+        gains = self._audio.row(i)
         # How loud the recording is at THIS moment, for the elements
         # here that follow it. One lookup per trigger, not per element:
-        # every following element in the row reads the same instant. The
-        # score seconds become audio seconds the same way the windows
-        # do, by adding the offset.
+        # every following element in the row reads the same instant.
         live = None
         if gains is not None and any(self._follows[i]):
-            live = gain_for(intensity_at(self._peaks, t + self._audio_offset,
-                                         self._reference), self._volume)
+            live = self._audio.live_gain(t)
         changed = 0
         for j, (item, effects, timescales) in enumerate(zip(
                 self._items_per_trigger[i],

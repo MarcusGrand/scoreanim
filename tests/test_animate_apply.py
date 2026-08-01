@@ -1226,7 +1226,7 @@ def test_gains_are_one_per_element_not_one_per_trigger(scenes,
     rules = StyleRules(default_effect="pop", volume={"amount": 1.0})
     applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
     applier.set_audio(_quiet_after(short_s), 0.0)
-    gains = applier._gains
+    gains = applier._audio.gains
     assert gains is not None
     assert [len(row) for row in gains] \
         == [len(items) for items in applier._items_per_trigger]
@@ -1255,7 +1255,8 @@ def test_ink_with_no_notated_length_still_reads_the_attack(scenes,
 
     lengthless = moved = 0
     for row, mine, theirs in zip(with_durations._element_ids_per_trigger,
-                                 with_durations._gains, plain._gains):
+                                 with_durations._audio.gains,
+                                 plain._audio.gains):
         for eid, a, b in zip(row, mine, theirs):
             if eid is not None and eid in schedule_nv.duration_by_element:
                 moved += a != pytest.approx(b)
@@ -1335,7 +1336,7 @@ def test_a_following_element_reads_the_moment_and_its_neighbour_does_not(
     live = gain_for(intensity_at(peaks, t), volume)
     j_follow = _row_index(applier, i, follower)
     j_plain = _row_index(applier, i, plain)
-    average = applier._gains[i][j_follow]
+    average = applier._audio.gains[i][j_follow]
     # the two numbers really are different, or the test proves nothing
     assert live > average + 0.1
 
@@ -1350,7 +1351,7 @@ def test_a_following_element_reads_the_moment_and_its_neighbour_does_not(
     assert scenes.items[follower].scale() == \
         pytest.approx(expected(j_follow, live))
     assert scenes.items[plain].scale() == \
-        pytest.approx(expected(j_plain, applier._gains[i][j_plain]))
+        pytest.approx(expected(j_plain, applier._audio.gains[i][j_plain]))
     # and the follower is plainly NOT on its own average
     assert scenes.items[follower].scale() != \
         pytest.approx(expected(j_follow, average))
@@ -1387,7 +1388,7 @@ def test_no_audio_leaves_a_follow_swell_playing_its_plateau(
     rules = _follow_rules(long_head)
     silent = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
     silent.refresh(trig_s + 0.75)
-    assert silent._gains is None
+    assert silent._audio.gains is None
     assert scenes.items[long_head].scale() == pytest.approx(1.4)  # the plateau
 
 
