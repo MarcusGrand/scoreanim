@@ -1,30 +1,23 @@
 # ScoreAnim — Worklog
 
-**NOW:** `beta/f-system-pulse` is where the work is. It is
-`beta/system-groups` with `beta/f-follow-volume` merged into it — the
-system group items on one side, the recording's live loudness on the
-other — and both halves are still waiting on Marcus's eyes in the
-running app. Under `beta/f-follow-volume` sit `beta/f-swell-effect`,
-`beta/f-pop-per-note`, `beta/f-volume-duration` and
-`beta/f-volume-response`; between them the two volume branches moved the
-schema to **v11**, so a project saved from any of them will not open on
-`main`.
+**NOW:** everything is on `main` (`5372ea0`, no tag).
+`beta/f-system-pulse` merged on 2026-08-02 and brought five branches with
+it: the volume response, the swell effect, per-notehead pop pivots, the
+system group items and the system pulse. **Schema is v11**, so a project
+saved from here will not open on `v0.2-beta.6` or on any older build.
+`fix/bracket-hidden-staves` is the only branch still unmerged.
 
-`main` carries `beta/live-fields` (`ffd0ac8`, no tag), confirmed
-in the app: every number field previews as you type. It brought
-`beta/shell-layout` with it — the openers on the toolbar, the grid
-controls under the lanes, tap tempo gone. Schema is still v10, so a
-project saved from `main` will not open on `v0.2-beta.6`.
-`beta/f-trackpad-gestures` is merged in too, so the stage navigation is
-back: pinch to zoom, two-finger scroll to move.
-`beta/f-drop-effect` is merged as well (`3c60723`, no tag), and it
-brought `beta/f-fade-effect` with it: the fade, drop and slide effects,
-and effects that run together ("drop+fade"). Merged on Marcus's word
-without the usual app run first — worth a look in the running app.
-`fix/bracket-hidden-staves` is the only other branch still unmerged.
+Two calibration questions left open on purpose, both measured (see the
+2026-08-02 lines): the pulse amounts' **0–20 % range is too generous** —
+two systems overlap on testscore page 2 at 0.10 and nothing detects a
+collision — and the onset pop's **default `notes_for_full` of 6
+saturates 72 %** of that fixture's beats, so most bumps come out the same
+size. Marcus's call on both; he has said he wants to tweak them.
 
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
+
+The next module split is `render/items.py` at 432 lines.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
