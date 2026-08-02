@@ -63,6 +63,14 @@ OVERSAMPLE = 2.0
 # filter margin.
 _PAD_RADII = 2.0
 
+# The drop shadow blurred with Qt's exponential blur; the blur effect's
+# quality mode is a tighter three-pass box blur that reaches about half
+# again as far at the same radius. Measured 2026-08-02 (alpha profiles
+# of both at radius 20): scaling the blur-effect radius by 0.6 is the
+# closest match, so the document's radius keeps the calibrated look the
+# default of 24 was chosen for.
+_BLUR_MATCH = 0.6
+
 # One pixmap per distinct (shape, radius, colour). Module-level, so the
 # live scenes and an export's own scenes share the same builds.
 _cache: dict[tuple, QPixmap] = {}
@@ -183,7 +191,8 @@ def sprite_for(owner: QGraphicsItem, color: QColor,
         global build_count
         build_count += 1
         pixmap = QPixmap.fromImage(
-            _blur(_silhouette(owner, padded, color), radius * OVERSAMPLE))
+            _blur(_silhouette(owner, padded, color),
+                  radius * _BLUR_MATCH * OVERSAMPLE))
         _cache[key] = pixmap
     return pixmap, padded.topLeft()
 
