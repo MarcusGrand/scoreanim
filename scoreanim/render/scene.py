@@ -31,9 +31,9 @@ from scoreanim.core.project.document import LayoutOverride
 from scoreanim.core.project.stage_config import StageConfig, StageTextElement
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.render.items import (DEFAULT_COLOR, ElementItem,
-                                    RevealPathItem, fill_tracks_color,
-                                    svg_pen)
+                                    fill_tracks_color, svg_pen)
 from scoreanim.render.qpath import to_qpainter_path, to_qtransform
+from scoreanim.render.reveal_item import RevealPathItem
 from scoreanim.render.system_group import SystemGroupItem
 from scoreanim.render.text import add_stage_text, add_text_rows
 
