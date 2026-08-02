@@ -96,6 +96,13 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 #   than taking one of its own: no build has ever shipped reading v11,
 #   so a second number would protect nothing (the v3 precedent — ONE
 #   bump carrying every planned field).
+#   Also v11 (page colours, 2026-08-02): style.colors — the sparse
+#   {key: value} map over "background" and "ink". Third entry of the
+#   same shape and it rides v11 for the same reason: v11 is still
+#   untagged, so no shipped build can be surprised by it, and a missing
+#   key means the default look (white paper, black ink), which needs no
+#   read gate. Values are validated where they are consumed
+#   (animation.page_colors.read_colors), not here.
 PROJECT_VERSION = 11
 _READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
 SUFFIX = ".scoreanim"
@@ -160,6 +167,11 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
             # v11: the system pulse, its twin
             **({"pulse": dict(sorted(doc.style.pulse.items()))}
                if doc.style.pulse else {}),
+            # v11: the page's two colours, the third entry of the same
+            # shape — raw, and omitted when nothing is stored, which is
+            # what keeps an untouched document byte-identical
+            **({"colors": dict(sorted(doc.style.colors.items()))}
+               if doc.style.colors else {}),
         },
         "stage": {
             "mode": doc.stage.mode.name.lower(),
@@ -376,6 +388,9 @@ def _style_rules_in(style: dict[str, Any]) -> StyleRules:
         # look those files have always had
         volume=dict(style.get("volume", {})),
         pulse=dict(style.get("pulse", {})),
+        # absent → {} → white paper and black ink, the look every file
+        # written before this existed has always had
+        colors=dict(style.get("colors", {})),
     )
 
 

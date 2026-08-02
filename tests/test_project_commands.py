@@ -496,6 +496,51 @@ def test_set_pulse_param_validates_type_and_finiteness_only(doc) -> None:
         .style.pulse["amount"] == 99.0
 
 
+def test_set_page_color_sparse_semantics(doc) -> None:
+    from scoreanim.core.project import SetPageColor
+
+    d2 = SetPageColor("ink", "#ffffff").apply(doc)
+    assert d2.style.colors == {"ink": "#ffffff"}
+    d3 = SetPageColor("background", "#000000").apply(d2)
+    assert d3.style.colors == {"ink": "#ffffff", "background": "#000000"}
+    # None deletes the key — that is the "Default" button, and it leaves
+    # the OTHER colour alone
+    assert SetPageColor("ink", None).apply(d3).style.colors == {
+        "background": "#000000"}
+    # deleting an absent key is a no-op, not an error
+    assert SetPageColor("zzz", None).apply(doc).style.colors == {}
+    # and it never touches the two maps it sits beside
+    assert (d3.style.volume, d3.style.pulse) == ({}, {})
+    assert doc.style.colors == {}                 # source doc untouched
+
+
+def test_set_page_color_validates_type_only(doc) -> None:
+    """The volume/pulse precedent: the command checks the type, and the
+    VALUE is validated where it is read. An unreadable string is
+    accepted here and falls back to the default at consumption, which is
+    what stops a hand-edited file producing an invisible score."""
+    from scoreanim.core.animation import read_colors
+    from scoreanim.core.project import SetPageColor
+
+    for bad in (1.0, 42, ("#ff0000",), ["#ff0000"]):
+        with pytest.raises(CommandError):
+            SetPageColor("ink", bad).apply(doc)          # type: ignore
+    with pytest.raises(CommandError):
+        SetPageColor("", "#ffffff").apply(doc)
+    accepted = SetPageColor("ink", "not a colour").apply(doc)
+    assert accepted.style.colors == {"ink": "not a colour"}
+    assert read_colors(accepted.style.colors).ink == "#000000"
+
+
+def test_page_color_undo_round_trip(doc) -> None:
+    from scoreanim.core.project import SetPageColor, UndoStack
+
+    stack = UndoStack()
+    d1 = stack.execute(SetPageColor("background", "#101014"), doc)
+    assert d1.style.colors == {"background": "#101014"}
+    assert stack.undo().style.colors == {}
+
+
 def test_reset_effect_settings_one_step_keeps_foreign_presets(doc) -> None:
     from scoreanim.core.project import (ResetEffectSettings, SetDefaultEffect,
                                         SetPulseParam, SetVolumeParam)

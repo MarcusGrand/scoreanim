@@ -220,6 +220,42 @@ class SetPulseParam(Command):
 
 
 @dataclass(frozen=True)
+class SetPageColor(Command):
+    """One of the page's two colours (schema v11): sparse {key: value}
+    over "background" and "ink", None deleting the key — the
+    SetPulseParam shape, with strings instead of numbers.
+
+    Validation is TYPE ONLY, which is worth a word because colour has
+    another precedent here: SetPartColor and SetElementStyle both check
+    `_HEX_COLOR` and refuse. These two are different. They are read
+    through `animation.page_colors.read_colors`, which falls back to the
+    default on anything it cannot read — and that fallback is only real
+    if a value can actually get past this point. A hand-edited file has
+    to land on a readable page either way; refusing here would only move
+    the failure, not prevent it.
+
+    Deleting the key, rather than storing the default, is what keeps an
+    untouched document byte-identical on save."""
+    key: str
+    value: str | None
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not self.key.strip():
+            raise CommandError("empty page colour setting")
+        if self.value is not None and not isinstance(self.value, str):
+            raise CommandError(f"bad page colour {self.value!r}")
+        colors = dict(doc.style.colors)
+        if self.value is None:
+            colors.pop(self.key, None)
+        else:
+            colors[self.key] = self.value
+        return replace(doc, style=replace(doc.style, colors=colors))
+
+    def describe(self) -> str:
+        return "set page colour"
+
+
+@dataclass(frozen=True)
 class ResetEffectSettings(Command):
     """Restore the pre-M4 effect defaults in ONE undo step (Marcus,
     2026-07-25): default_effect cleared (back to "appear" via the

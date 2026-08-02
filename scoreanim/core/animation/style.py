@@ -88,6 +88,12 @@ class StyleRules:
     # doesn't consume round-trip untouched. Empty = amount 0 = off, and
     # off means no system is ever scaled at all.
     pulse: Mapping[str, object] = field(default_factory=dict)
+    # The page's own two colours, riding the same v11 as its neighbours:
+    # sparse {key: value} over "background" and "ink", read validated by
+    # animation.page_colors.read_colors; keys this build doesn't consume
+    # round-trip untouched. Empty = white paper, black ink = exactly the
+    # look the app has always had.
+    colors: Mapping[str, object] = field(default_factory=dict)
 
     def resolve(self, identity: ElementIdentity | None) -> ElementStyle:
         """Element override > part rule > document default, per field.
