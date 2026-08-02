@@ -22,7 +22,7 @@ around the item's scale pivot — a whole note (head, stem, flag, beam,
 accidental, dots) turns around its noteheads' centre, so it grows and
 shrinks as one object. The glow is the one property with a styling half:
 what the halo looks like goes to the items once per document change
-(render/glow_effect.py), and only how brightly it burns moves per frame. Which ink scales and where it pivots is core
+(render/glow_sprite.py), and only how brightly it burns moves per frame. Which ink scales and where it pivots is core
 policy (core/animation/scale_groups.py); ink with no pivot never
 scales. The two offsets (the slide effect) go to the item as well, not
 to setPos: the document's own nudge moves the item too, and the item
@@ -66,7 +66,7 @@ from scoreanim.core.audio import PeakCache
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
 from scoreanim.render.gain_index import GainIndex
-from scoreanim.render.glow_effect import push_glow_style
+from scoreanim.render.glow_sprite import push_glow_style
 from scoreanim.render.items import ElementItem
 from scoreanim.render.properties import PROPERTY_APPLIERS
 from scoreanim.render.pulse_driver import PulseDriver

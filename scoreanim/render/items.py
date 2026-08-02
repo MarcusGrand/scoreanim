@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (QGraphicsItem, QGraphicsPathItem,
 from scoreanim.core.score.identity import ElementIdentity
 from scoreanim.core.selection.highlight import (SELECTION_MIN_OPACITY,
                                                 selection_color_for)
-from scoreanim.render.glow_effect import GlowSlot
+from scoreanim.render.glow_sprite import GlowSlot
 from scoreanim.render.reveal_item import RevealPathItem
 from scoreanim.render.svg_paint import DEFAULT_COLOR
 
@@ -137,8 +137,8 @@ class ElementItem(GroupItem):
         self._selected = False                   # transient UI state
         # The outer glow: the halo's colour and size are document
         # intent, how brightly it burns comes from the evaluator, and
-        # the Qt effect behind both is its own small object
-        # (render/glow_effect.py).
+        # the pre-rendered pixmap child behind both is its own small
+        # object (render/glow_sprite.py).
         self._glow = GlowSlot(self, DEFAULT_COLOR)
         # (item, fill tracks element color, stroke tracks element color)
         self._tracked: list[tuple[QGraphicsItem, bool, bool]] = []
