@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (QGraphicsItem, QGraphicsPathItem,
 from scoreanim.core.score.identity import ElementIdentity
 from scoreanim.core.selection.highlight import (SELECTION_MIN_OPACITY,
                                                 selection_color_for)
+from scoreanim.render.glow_effect import GlowSlot
 from scoreanim.render.reveal_item import RevealPathItem
 from scoreanim.render.svg_paint import DEFAULT_COLOR
 
@@ -74,9 +75,12 @@ class ElementItem(GroupItem):
                                                 tint, element override)
       layout nudge     `set_offset`             document intent (dx/dy)
       ghost floor      `set_ghost_opacity`      the document's floor
+      glow style       `set_glow_style`       — document intent (the
+                                                halo's colour and size)
       animation state  `set_animated_opacity` — the effect evaluator
                        `set_animated_offset`
                        `setScale`
+                       `set_glow`
       selection        `set_selected`         — transient UI state
 
     Each setter stores its own input and re-derives the painted result,
@@ -131,6 +135,11 @@ class ElementItem(GroupItem):
         self._animated_offset = (0.0, 0.0)       # from the evaluator
         self._ghost_opacity = 1.0                # document floor, ghosts
         self._selected = False                   # transient UI state
+        # The outer glow: the halo's colour and size are document
+        # intent, how brightly it burns comes from the evaluator, and
+        # the Qt effect behind both is its own small object
+        # (render/glow_effect.py).
+        self._glow = GlowSlot(self, DEFAULT_COLOR)
         # (item, fill tracks element color, stroke tracks element color)
         self._tracked: list[tuple[QGraphicsItem, bool, bool]] = []
         self._reveal_children: list[RevealPathItem] = []
@@ -247,6 +256,23 @@ class ElementItem(GroupItem):
         this input without owning the painted result."""
         self._animated_opacity = value
         self._recompose_opacity()
+
+    def set_glow_style(self, color: QColor, radius: float) -> None:
+        """What this element's halo looks like when it is lit: document
+        intent, written once when the document changes, never per
+        frame."""
+        self._glow.set_style(color, radius)
+
+    def set_glow(self, value: float) -> None:
+        """Set how brightly the effect evaluator wants this element's
+        halo to burn at the current t."""
+        self._glow.set_strength(value)
+
+    @property
+    def glow_strength(self) -> float:
+        """The evaluator's glow for the current t, readable back so a
+        caller can tell the animation input apart from the halo."""
+        return self._glow.strength
 
     def set_ghost_opacity(self, value: float) -> None:
         """Set the document's ghost floor for this element's spanner

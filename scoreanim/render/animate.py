@@ -20,7 +20,9 @@ core (core/animation/compose.py). Properties apply through a fixed map
 opacity on the ElementItem parent (composites over children), scale
 around the item's scale pivot — a whole note (head, stem, flag, beam,
 accidental, dots) turns around its noteheads' centre, so it grows and
-shrinks as one object. Which ink scales and where it pivots is core
+shrinks as one object. The glow is the one property with a styling half:
+what the halo looks like goes to the items once per document change
+(render/glow_effect.py), and only how brightly it burns moves per frame. Which ink scales and where it pivots is core
 policy (core/animation/scale_groups.py); ink with no pivot never
 scales. The two offsets (the slide effect) go to the item as well, not
 to setPos: the document's own nudge moves the item too, and the item
@@ -64,6 +66,7 @@ from scoreanim.core.audio import PeakCache
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
 from scoreanim.render.gain_index import GainIndex
+from scoreanim.render.glow_effect import push_glow_style
 from scoreanim.render.items import ElementItem
 from scoreanim.render.properties import PROPERTY_APPLIERS
 from scoreanim.render.pulse_driver import PulseDriver
@@ -181,17 +184,20 @@ class AnimationApplier:
         self._recompute_audio()      # the volume settings may have moved
         self._recompute_bumps()      # and so may the pulse settings
         # an element whose effects no longer carry a SCALE track would
-        # otherwise keep a stale mid-pop transform, and one that lost
-        # its offset tracks would be left standing wherever its slide
-        # had reached. Unconditional, so it covers a combination losing
-        # a component as well: the refresh below writes back only the
-        # properties the new effects actually animate.
+        # otherwise keep a stale mid-pop transform, one that lost its
+        # offset tracks would be left standing wherever its slide had
+        # reached, and one that lost its glow would keep a lit halo.
+        # Unconditional, so it covers a combination losing a component
+        # as well: the refresh below writes back only the properties the
+        # new effects actually animate.
         for items in self._items_per_trigger:
             for item in items:
                 if item.scale() != 1.0:
                     item.setScale(1.0)
                 if item.animated_offset != (0.0, 0.0):
                     item.set_animated_offset(0.0, 0.0)
+                if item.glow_strength != 0.0:
+                    item.set_glow(0.0)
         self.refresh(self._t)
 
     def _resolve_effects(self) -> None:
@@ -204,6 +210,11 @@ class AnimationApplier:
         # untouched).
         presets = {**PRESETS, **build_presets(rules.floor_opacity,
                                               rules.effect_params)}
+        # The glow's colour and radius never reach an envelope — they
+        # are what the halo LOOKS like, not what it does over time — so
+        # they go to the items here, once, rather than every frame.
+        push_glow_style((item for items in self._items_per_trigger
+                         for item in items), rules.effect_params)
         # One element may animate with SEVERAL effects at once
         # ("drop+fade"), so each item holds a tuple. A plain name gives
         # a tuple of one and behaves exactly as it always did.
