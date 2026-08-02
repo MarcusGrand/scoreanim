@@ -107,6 +107,8 @@ class ElementItem(GroupItem):
     Its appearance is a function of independent INPUTS, each written by
     the layer that owns it and never by the others, composed here:
 
+      ink color        `set_ink_color`        — document intent, the
+                                                whole page's ink
       authored color   `set_color`            — document intent (part
                                                 tint, element override)
       layout nudge     `set_offset`             document intent (dx/dy)
@@ -122,6 +124,13 @@ class ElementItem(GroupItem):
     style pass is a DIFF cache, so anything that overwrote the authored
     color behind its back would leave it believing a color it can no
     longer restore.
+
+    **Ink and authored color are two inputs, not one.** The ink is what
+    this element paints as when nothing has authored a color for it; an
+    authored color always wins. Keeping them apart is what lets the two
+    be applied in either order, and what stops a page recolor from
+    corrupting the authored-color diff cache — which is the same
+    argument the paragraph above makes, one input further down.
 
     **Selection composites last, and touches only what it must.** It
     replaces the color and raises an opacity floor — it never touches
@@ -157,7 +166,8 @@ class ElementItem(GroupItem):
         # means no ceiling.
         self.scale_cap: float | None = None
         # -- composition inputs (see the class docstring) --
-        self._color = QColor(DEFAULT_COLOR)      # authored, from the doc
+        self._authored: QColor | None = None     # a tint or an override
+        self._ink = QColor(DEFAULT_COLOR)        # the document's ink
         self._animated_opacity = 1.0             # from the evaluator
         self._doc_offset = (0.0, 0.0)            # the document's nudge
         self._animated_offset = (0.0, 0.0)       # from the evaluator
@@ -259,9 +269,19 @@ class ElementItem(GroupItem):
 
     def set_color(self, color: QColor | None) -> None:
         """Set the AUTHORED ink color — document intent (a part tint or
-        a per-element override). None restores black."""
-        self._color = QColor(color) if color is not None \
-            else QColor(DEFAULT_COLOR)
+        a per-element override). None means nothing is authored, so the
+        element falls back to the document's ink color."""
+        self._authored = QColor(color) if color is not None else None
+        self._repaint()
+
+    def set_ink_color(self, color: QColor) -> None:
+        """Set the document's ink color — what this element paints as
+        when no part tint and no per-element override has claimed it.
+
+        Its own input, never written into `_authored`: a page recolor
+        must not look like authored intent to DocumentSync's diff cache,
+        and an authored color must survive one."""
+        self._ink = QColor(color)
         self._repaint()
 
     def set_animated_opacity(self, value: float) -> None:
@@ -290,9 +310,18 @@ class ElementItem(GroupItem):
 
     @property
     def color(self) -> QColor:
-        """The AUTHORED color — what the document says, not necessarily
-        what is on screen."""
-        return QColor(self._color)
+        """What the document says this element's color is, which is not
+        necessarily what is on screen (selection tints over the top).
+        The authored color if one was written, otherwise the page's
+        ink."""
+        return QColor(self._authored if self._authored is not None
+                      else self._ink)
+
+    @property
+    def authored_color(self) -> QColor | None:
+        """Only the authored half — None when nothing has claimed this
+        element and it is simply painting the page's ink."""
+        return QColor(self._authored) if self._authored is not None else None
 
     @property
     def animated_opacity(self) -> float:
@@ -307,9 +336,16 @@ class ElementItem(GroupItem):
     # -- composition -------------------------------------------------------
 
     def _paint_color(self) -> QColor:
+        """Authored color over ink, then the selection tint over that.
+
+        The collision check reads the EFFECTIVE color, not the authored
+        one: on a white-ink page the thing the tint has to stay tellable
+        apart from is the white, and asking about a black nobody can see
+        would answer the wrong question."""
+        effective = self.color
         if not self._selected:
-            return self._color
-        return QColor(selection_color_for(self._color.name()))
+            return effective
+        return QColor(selection_color_for(effective.name()))
 
     def _paint_opacity(self) -> float:
         if not self._selected:

@@ -75,7 +75,12 @@ def add_stage_text(parent: ElementItem, text: StageTextElement) -> None:
           "end": text.x - advance}[text.anchor]
     item = _run_item(text.content, font, text.color)
     item.setPos(x0, text.y - metric.ascent())
-    parent.add_text_child(item, fill_tracks=text.color is None)
+    # the same predicate its sibling above uses, rather than a plain
+    # "is None": black is the default written out, not a choice, so a
+    # title carrying #000000 follows the page's ink instead of going
+    # invisible on a black page. A real colour (the gray lyricist) is
+    # still a choice and is still kept.
+    parent.add_text_child(item, fill_tracks=fill_tracks_color(text.color))
 
 
 def _run_item(content: str, font: QFont,

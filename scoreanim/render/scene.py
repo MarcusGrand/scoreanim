@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsRectItem,
                                QGraphicsScene)
 
 from scoreanim.core.animation.reveal import REVEALED_KINDS
+from scoreanim.core.animation.page_colors import read_colors
 from scoreanim.core.animation.scale_groups import scale_pivots
 from scoreanim.core.animation.stem_caps import stem_scale_caps
 from scoreanim.core.animation.style import StyleRules, takes_part_color
@@ -62,10 +63,28 @@ def apply_overrides(scenes: "ScoreScenes",
 
 def apply_style_colors(scenes: "ScoreScenes", style: StyleRules) -> None:
     """Full one-shot application of the document's static ink colors
-    onto FRESH scenes: part color rules, then per-element overrides on
-    top — the same precedence the main window's diff-based _sync_styles
-    maintains incrementally. Color scope is takes_part_color (ruling D)
-    for rules and overrides alike."""
+    onto FRESH scenes: the page's own two colors, then part color rules,
+    then per-element overrides on top — the same precedence the main
+    window's diff-based _sync_styles maintains incrementally. Color
+    scope is takes_part_color (ruling D) for rules and overrides alike;
+    the page ink deliberately reaches everything.
+
+    Widest first, but the order is a reading convenience, not a
+    requirement — ink and authored color are separate inputs on the item
+    and compose either way round.
+
+    Export gets the page colors through this function and needs no
+    wiring of its own. The BACKGROUND still never reaches an exported
+    frame: FrameRenderer hides the paper rects (ruling R1), so a
+    recolored page exports as its new ink over transparency, which is
+    what an overlay wants."""
+    colors = read_colors(style.colors)
+    if not colors.is_default:
+        # A fresh scene is already black on white, so the default costs
+        # nothing — which is what makes an untouched document provably
+        # identical to before this existed, rather than merely equal.
+        scenes.set_ink_color(QColor(colors.ink))
+        scenes.set_page_color(QColor(colors.background))
     for part, rule in style.parts.items():
         if rule.color is not None:
             scenes.set_part_color(part, QColor(rule.color))
@@ -88,6 +107,10 @@ class ScoreScenes:
         # (Phase 7.2). Each ElementItem owns its own ghost children's
         # opacity, since selection composes with it (M2.8).
         self._ghost_opacity = ghost_opacity
+        # The document's ink, retained for the same reason the floor is:
+        # `set_stage_texts` builds FRESH items after construction, and
+        # they have to be born the colour the page is currently in.
+        self._ink = QColor(DEFAULT_COLOR)
         self.scenes: list[QGraphicsScene] = []
         # kept by reference so export can hide the paper for
         # transparent-background frames (Phase 6, ruling R1)
@@ -179,6 +202,10 @@ class ScoreScenes:
         for text in texts:
             item = ElementItem(identity=None)
             add_stage_text(item, text)
+            # born in the page's current ink, not black: these items are
+            # rebuilt on every stage-text edit, long after the recolour
+            # pass that set the page's colour ran
+            item.set_ink_color(self._ink)
             self.scenes[text.page - 1].addItem(item)
             item.element_key = ElementId(text.element_id)
             self.items[ElementId(text.element_id)] = item
@@ -242,6 +269,31 @@ class ScoreScenes:
         item = self.items.get(element_id)
         if item is not None:
             item.set_offset(dx, dy)
+
+    def set_ink_color(self, color: QColor) -> None:
+        """Recolour every piece of ink on the page.
+
+        Scope is EVERYTHING — not `takes_part_color`. That list is the
+        scope of a part TINT, where clefs and rests deliberately stay
+        black while the notes go red. This is the colour the page is
+        drawn in, so a white-on-black score needs its staff lines,
+        clefs, rests, barlines and titles white too, or there is no
+        staff to read.
+
+        An element with an authored colour keeps it: the item composes
+        the two, and authored wins (see `ElementItem`)."""
+        self._ink = QColor(color)
+        for item in self.items.values():
+            item.set_ink_color(color)
+
+    def set_page_color(self, color: QColor) -> None:
+        """Repaint the paper. Brush only — visibility belongs to
+        `set_page_background_visible`, and export hides these rects to
+        keep its frames transparent (ruling R1), so touching visibility
+        here would quietly make every exported video opaque."""
+        brush = QBrush(color)
+        for rect in self.page_rects:
+            rect.setBrush(brush)
 
     def set_part_color(self, part: PartId, color: QColor | None) -> None:
         """Tint a part's playing ink (None restores black). Scope is
