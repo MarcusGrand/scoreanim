@@ -1104,3 +1104,141 @@ def test_reset_clears_the_pop_settings_too(panel) -> None:
     assert state.doc.style.pulse == {}
     assert widget.pulse.spins["pop_amount"].value() == 0
     assert widget.pulse.spins["notes_for_full"].value() == 6
+
+
+# -- the glow block -------------------------------------------------------
+
+def swatch(widget, preset, key):
+    return widget.blocks[preset].swatches[key]
+
+
+def combo(widget, preset, key):
+    return widget.blocks[preset].combos[key]
+
+
+def test_glow_options_hide_until_glow_is_in_use(panel) -> None:
+    widget, state = panel
+    knobs = (swatch(widget, "glow", "color"),
+             spin(widget, "glow", "radius"),
+             spin(widget, "glow", "strength"),
+             combo(widget, "glow", "shape"),
+             spin(widget, "glow", "duration"),
+             box(widget, "glow", "note_value"))
+    assert not _shown(widget, *knobs)
+    widget._effect_combo.setCurrentText("glow")
+    widget._commit_effect()
+    assert _shown(widget, *knobs)
+    assert not _shown(widget, spin(widget, "swell", "size"))
+    # the duration opens GRAYED: the note value is on by default here
+    assert box(widget, "glow", "note_value").isChecked()
+    assert not spin(widget, "glow", "duration").isEnabled()
+    box(widget, "glow", "note_value").setChecked(False)
+    assert spin(widget, "glow", "duration").isEnabled()
+
+
+def test_glow_knobs_commit_glow_params(panel) -> None:
+    widget, state = panel
+    spin(widget, "glow", "radius").setValue(60.0)
+    field(widget, "glow", "radius").commit()
+    assert state.committed.style.effect_params["glow"]["radius"] == 60.0
+    spin(widget, "glow", "strength").setValue(0.5)
+    field(widget, "glow", "strength").commit()
+    assert state.doc.style.effect_params["glow"]["strength"] == 0.5
+    spin(widget, "glow", "duration").setValue(1.2)
+    field(widget, "glow", "duration").commit()
+    assert state.doc.style.effect_params["glow"]["duration"] == 1.2
+    # note_value starts ON, so UNchecking it is what writes a param
+    box(widget, "glow", "note_value").setChecked(False)
+    assert state.doc.style.effect_params["glow"]["note_value"] is False
+    assert set(state.doc.style.effect_params) == {"glow"}
+    for _ in range(4):
+        assert state.can_undo
+        state.undo()
+    assert not state.can_undo                    # four gestures, four steps
+
+
+def test_the_shape_choice_commits_one_command(panel) -> None:
+    widget, state = panel
+    shape = combo(widget, "glow", "shape")
+    assert shape.currentData() == "pop"          # the default
+    assert [shape.itemText(i) for i in range(shape.count())] == ["Pop",
+                                                                "Swell"]
+    shape.setCurrentIndex(1)
+    widget.blocks["glow"]._commit_choice(
+        widget.blocks["glow"]._by_key["shape"])
+    assert state.doc.style.effect_params["glow"]["shape"] == "swell"
+    assert state.undo_text() == "set effect parameter"
+    # choosing it again changes nothing and is not a second undo step
+    widget.blocks["glow"]._commit_choice(
+        widget.blocks["glow"]._by_key["shape"])
+    state.undo()
+    assert not state.can_undo
+
+
+def test_the_colour_swatch_commits_one_command(panel, monkeypatch) -> None:
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QColorDialog
+
+    widget, state = panel
+    monkeypatch.setattr(QColorDialog, "getColor",
+                        staticmethod(lambda *a, **k: QColor("#00ff88")))
+    widget.blocks["glow"]._pick_color(widget.blocks["glow"]._by_key["color"])
+    assert state.doc.style.effect_params["glow"]["color"] == "#00ff88"
+    assert state.undo_text() == "set effect parameter"
+    # the swatch shows what the document says
+    widget.sync_from_document(state.doc)
+    assert swatch(widget, "glow", "color").text() == "#00ff88"
+    # cancelling (an invalid colour) commits nothing
+    monkeypatch.setattr(QColorDialog, "getColor",
+                        staticmethod(lambda *a, **k: QColor()))
+    widget.blocks["glow"]._pick_color(widget.blocks["glow"]._by_key["color"])
+    state.undo()
+    assert not state.can_undo
+
+
+def test_sync_reflects_glow_params(panel) -> None:
+    widget, state = panel
+    for cmd in (SetEffectParam("glow", "color", "#123456"),
+                SetEffectParam("glow", "radius", 12.0),
+                SetEffectParam("glow", "strength", 0.25),
+                SetEffectParam("glow", "shape", "swell"),
+                SetEffectParam("glow", "note_value", False)):
+        state.execute(cmd)
+    widget.sync_from_document(state.doc)
+    assert swatch(widget, "glow", "color").text() == "#123456"
+    assert spin(widget, "glow", "radius").value() == 12.0
+    assert spin(widget, "glow", "strength").value() == 0.25
+    assert combo(widget, "glow", "shape").currentData() == "swell"
+    assert not box(widget, "glow", "note_value").isChecked()
+    depth = 0
+    while state.can_undo:
+        state.undo()
+        depth += 1
+    assert depth == 5                            # resync added nothing
+    widget.sync_from_document(state.doc)         # back to the defaults
+    assert swatch(widget, "glow", "color").text() == "#ffcc66"
+    assert spin(widget, "glow", "radius").value() == 36.0
+    assert combo(widget, "glow", "shape").currentData() == "pop"
+    assert box(widget, "glow", "note_value").isChecked()
+
+
+def test_a_shape_this_build_does_not_know_shows_the_first_option(
+        panel) -> None:
+    """A hand-edited word must not make the box lie about a match."""
+    widget, state = panel
+    state.execute(SetEffectParam("glow", "shape", "shimmer"))
+    widget.sync_from_document(state.doc)
+    assert combo(widget, "glow", "shape").currentIndex() == 0
+    # and the document is untouched by the resync
+    assert state.doc.style.effect_params["glow"]["shape"] == "shimmer"
+
+
+def test_glow_params_alone_light_the_reset_button(panel) -> None:
+    widget, state = panel
+    assert not widget._reset_button.isEnabled()
+    state.execute(SetEffectParam("glow", "radius", 12.0))
+    widget.sync_from_document(state.doc)
+    assert widget._reset_button.isEnabled()
+    widget._commit_reset()
+    assert state.doc.style.effect_params == {}
+    assert spin(widget, "glow", "radius").value() == 36.0

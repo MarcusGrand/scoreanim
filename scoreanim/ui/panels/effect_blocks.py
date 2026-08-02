@@ -16,7 +16,9 @@ alternative to typing one (Marcus, 2026-07-31).
 """
 from __future__ import annotations
 
-from scoreanim.ui.panels.effect_knobs import Check, Knob, Number
+from scoreanim.core.animation import (GLOW_COLOR, GLOW_POP, GLOW_RADIUS,
+                                      GLOW_SWELL)
+from scoreanim.ui.panels.effect_knobs import Check, Choice, Color, Knob, Number
 
 # (preset name, block title, its knobs), in the order the blocks appear.
 BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (
@@ -113,5 +115,33 @@ BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (
               "it, and it eases back to its engraved size at the end. "
               "Needs a recording loaded and the Volume response turned "
               "up"),
+    )),
+    ("glow", "Glow", (
+        Color("Colour", "color", GLOW_COLOR,
+              "The colour of the halo around a sounding note",
+              title="Glow colour"),
+        Number("Radius", "radius", GLOW_RADIUS, 0.0, 500.0, 4.0,
+               "How far the halo reaches, in page units — 36 is about a "
+               "notehead's height of light around the ink"),
+        Number("Strength", "strength", 1.0, 0.0, 1.0, 0.05,
+               "How brightly the halo burns at its brightest (0 = no "
+               "glow at all)"),
+        # Peak has no knob on purpose: the swell shape's top sits
+        # halfway through unless a hand-edited file says otherwise.
+        Choice("Shape", "shape", GLOW_POP,
+               ((GLOW_POP, "Pop"), (GLOW_SWELL, "Swell")),
+               "Pop lights the note fully at the onset and fades out; "
+               "Swell grows the light to a peak partway through and back "
+               "down again"),
+        Number("Duration", "duration", 0.4, 0.01, 5.0, 0.05,
+               "Seconds the glow takes to die away — inactive while "
+               "'Entire note value' is on (the light then lasts exactly "
+               "as long as the note does)",
+               suffix=" s", grayed_by="note_value"),
+        Check("Entire note value", "note_value", True,
+              "Use each note's own length, so the glow goes out exactly "
+              "when the note stops sounding — which is what keeps the "
+              "light on the notes that are actually playing",
+              beside="duration"),
     )),
 )

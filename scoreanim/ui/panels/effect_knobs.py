@@ -3,7 +3,7 @@ commit.
 
 Effects are data (rule 6), and so are their knobs. A preset with
 options is a `Knobs` list here plus one entry in the panel's table —
-never a second code path. Three kinds cover everything the presets ask
+never a second code path. Four kinds cover everything the presets ask
 for so far:
 
 - `Number` — a spinbox that previews as you type (`ui/live_field.py`).
@@ -12,6 +12,11 @@ for so far:
 - `Check` — a checkbox, which has no half-typed state and so commits
   outright. `beside` puts it on another knob's row instead of its own,
   the way "Entire note value" sits beside the duration it replaces.
+- `Color` — a swatch button that opens the colour dialog, storing
+  "#rrggbb" (the selection panel's pattern). Like a checkbox it has no
+  half-chosen state: the dialog either returns a colour or it does not.
+- `Choice` — a dropdown over a few named options, storing the chosen
+  option's own word — the glow's two shapes.
 - `grayed_by` on a Number names the key that renders it obsolete: a
   duration grays out while its "Entire note value" is on (Marcus,
   2026-07-25). `enabled_by` is its mirror — the knob is live only while
@@ -38,8 +43,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping, Protocol
 
-from PySide6.QtWidgets import (QCheckBox, QDoubleSpinBox, QFormLayout,
-                               QHBoxLayout, QLabel, QSpinBox, QWidget)
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox,
+                               QDoubleSpinBox, QFormLayout, QHBoxLayout,
+                               QLabel, QPushButton, QSpinBox, QWidget)
 
 from scoreanim.core.project import Command, ProjectDoc, SetEffectParam
 from scoreanim.ui.app_state import AppState
@@ -77,7 +84,29 @@ class Check:
     forced_by: str | None = None
 
 
-Knob = Number | Check
+@dataclass(frozen=True)
+class Color:
+    """A colour knob: a swatch showing the colour, opening the colour
+    dialog. Stored as "#rrggbb"."""
+    label: str
+    key: str
+    default: str
+    tooltip: str
+    title: str = "Colour"           # the dialog's own title
+
+
+@dataclass(frozen=True)
+class Choice:
+    """A few named options, one of them stored. `options` is
+    (what the document holds, what the user reads)."""
+    label: str
+    key: str
+    default: str
+    options: tuple[tuple[str, str], ...]
+    tooltip: str
+
+
+Knob = Number | Check | Color | Choice
 
 
 class KnobStore(Protocol):
@@ -129,11 +158,17 @@ class KnobGroup:
         self.spins: dict[str, QDoubleSpinBox | QSpinBox] = {}
         self.boxes: dict[str, QCheckBox] = {}
         self.fields: dict[str, LiveField] = {}
+        self.swatches: dict[str, QPushButton] = {}
+        self.combos: dict[str, QComboBox] = {}
         for knob in self._knobs:
             if isinstance(knob, Number):
                 self._build_number(knob)
-            else:
+            elif isinstance(knob, Check):
                 self._build_check(knob)
+            elif isinstance(knob, Color):
+                self._build_color(knob)
+            else:
+                self._build_choice(knob)
         self.rows = self._add_rows(form)
 
     # -- widgets ---------------------------------------------------------------
@@ -163,6 +198,21 @@ class KnobGroup:
                                                                       checked))
         self.boxes[knob.key] = box
 
+    def _build_color(self, knob: Color) -> None:
+        button = QPushButton()
+        button.setToolTip(knob.tooltip)
+        button.clicked.connect(lambda _=False, k=knob: self._pick_color(k))
+        self.swatches[knob.key] = button
+
+    def _build_choice(self, knob: Choice) -> None:
+        combo = QComboBox()
+        for stored, shown in knob.options:
+            combo.addItem(shown, stored)
+        combo.setToolTip(knob.tooltip)
+        # activated is user-only, so a resync can never re-execute
+        combo.activated.connect(lambda _i, k=knob: self._commit_choice(k))
+        self.combos[knob.key] = combo
+
     def _add_rows(self, form: QFormLayout) -> tuple[int, ...]:
         """A heading plus the knob rows. The heading names what the block
         belongs to, which is what keeps two "Duration" rows apart when a
@@ -182,12 +232,19 @@ class KnobGroup:
                 form.addRow(self.boxes[knob.key])
             else:
                 companion = beside.get(knob.key)
-                widget: QWidget = self.spins[knob.key]
+                widget: QWidget = self._widget_for(knob)
                 if companion is not None:
                     widget = _pair(widget, self.boxes[companion.key])
                 form.addRow(knob.label, widget)
             rows.append(form.rowCount() - 1)
         return tuple(rows)
+
+    def _widget_for(self, knob: Knob) -> QWidget:
+        if isinstance(knob, Color):
+            return self.swatches[knob.key]
+        if isinstance(knob, Choice):
+            return self.combos[knob.key]
+        return self.spins[knob.key]
 
     # -- document ---------------------------------------------------------------
 
@@ -231,8 +288,13 @@ class KnobGroup:
         ones waiting on a knob that is off. `set_enabled`, not
         `setEnabled`: a live field is never grayed out from under the
         cursor. A checkbox has no such trap — there is nothing
-        half-typed in it — so a forced one is disabled outright."""
+        half-typed in it — so a forced one is disabled outright.
+
+        A colour or a choice has nothing to gray out: neither is ever
+        made obsolete by another knob today."""
         for knob in self._knobs:
+            if isinstance(knob, (Color, Choice)):
+                continue
             if isinstance(knob, Check):
                 if knob.forced_by is not None:
                     self.boxes[knob.key].setEnabled(
@@ -256,6 +318,15 @@ class KnobGroup:
             box.blockSignals(True)
             box.setChecked(bool(self.param(doc, key)))
             box.blockSignals(False)
+        for key, button in self.swatches.items():
+            _paint_swatch(button, str(self.param(doc, key)))
+        for key, combo in self.combos.items():
+            index = combo.findData(str(self.param(doc, key)))
+            combo.blockSignals(True)
+            # a shape from a newer build, or a hand-edited word: show
+            # the first option rather than lying about a match
+            combo.setCurrentIndex(max(0, index))
+            combo.blockSignals(False)
 
     # -- what a value means (one command per gesture) ---------------------------
 
@@ -274,6 +345,35 @@ class KnobGroup:
             return
         self._state.execute(self.store.command(knob.key, checked))
         self._on_change()
+
+    def _pick_color(self, knob: Color) -> None:
+        """One dialog, one command. Cancel returns an invalid colour and
+        nothing is committed — there is no half-chosen state."""
+        current = QColor(str(self.param(self._state.committed, knob.key)))
+        picked = QColorDialog.getColor(current, self.swatches[knob.key],
+                                       knob.title)
+        if not picked.isValid() or picked.name() == current.name():
+            return
+        self._state.execute(self.store.command(knob.key, picked.name()))
+        self._on_change()
+
+    def _commit_choice(self, knob: Choice) -> None:
+        chosen = self.combos[knob.key].currentData()
+        if chosen == str(self.param(self._state.committed, knob.key)):
+            return
+        self._state.execute(self.store.command(knob.key, chosen))
+        self._on_change()
+
+
+def _paint_swatch(button: QPushButton, color: str) -> None:
+    """The button IS the swatch: filled with the colour, labelled with
+    it, and with readable text over either a light or a dark fill."""
+    shown = QColor(color)
+    if not shown.isValid():
+        shown = QColor("#000000")       # a hand-edited word, shown plainly
+    ink = "#000000" if shown.lightness() > 127 else "#ffffff"
+    button.setText(color)
+    button.setStyleSheet(f"background-color: {shown.name()}; color: {ink};")
 
 
 def _pair(spin: QWidget, box: QCheckBox) -> QWidget:
