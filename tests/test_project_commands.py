@@ -431,7 +431,7 @@ def test_set_effect_param_sparse_semantics(doc) -> None:
 
 
 def test_set_effect_param_validates_type_and_finiteness_only(doc) -> None:
-    for bad in (float("nan"), float("inf"), "big", (1, 2)):
+    for bad in (float("nan"), float("inf"), (1, 2), {"a": 1}):
         with pytest.raises(CommandError):
             SetEffectParam("pop", "scale", bad).apply(doc)  # type: ignore
     with pytest.raises(CommandError):
@@ -441,6 +441,23 @@ def test_set_effect_param_validates_type_and_finiteness_only(doc) -> None:
     # no range policy here — clamps live at consumption (build_presets)
     assert SetEffectParam("pop", "scale", 99.0).apply(doc) \
         .style.effect_params["pop"]["scale"] == 99.0
+
+
+def test_set_effect_param_takes_a_word_as_well_as_a_number(doc) -> None:
+    """The glow's colour and its shape are both words. Legality is the
+    consumer's business (read_glow falls back on anything it cannot
+    read), so this layer only asks that it is a string."""
+    d2 = SetEffectParam("glow", "color", "#ffcc66").apply(doc)
+    assert d2.style.effect_params["glow"] == {"color": "#ffcc66"}
+    d3 = SetEffectParam("glow", "shape", "swell").apply(d2)
+    assert d3.style.effect_params["glow"]["shape"] == "swell"
+    # nonsense a hand edit could write gets through here and is caught
+    # at consumption, exactly like an unknown colour mode
+    assert SetEffectParam("glow", "color", "banana").apply(doc) \
+        .style.effect_params["glow"]["color"] == "banana"
+    # and None still deletes the key
+    assert SetEffectParam("glow", "color", None).apply(d2) \
+        .style.effect_params == {}
 
 
 def test_set_volume_param_sparse_semantics(doc) -> None:

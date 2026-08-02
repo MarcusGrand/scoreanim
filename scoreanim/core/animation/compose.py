@@ -29,8 +29,8 @@ from __future__ import annotations
 
 from typing import Callable, Mapping, Sequence
 
-from scoreanim.core.animation.effect import (OFFSET_X, OFFSET_Y, OPACITY,
-                                             SCALE, PropertyId)
+from scoreanim.core.animation.effect import (GLOW, OFFSET_X, OFFSET_Y,
+                                             OPACITY, SCALE, PropertyId)
 
 
 def _mul(a: float, b: float) -> float:
@@ -48,6 +48,11 @@ COMPOSE_OPS: Mapping[PropertyId, tuple[Callable[[float, float], float],
     SCALE: (_mul, 1.0),
     OFFSET_X: (_add, 0.0),
     OFFSET_Y: (_add, 0.0),
+    # Two effects glowing at once take the BRIGHTER, they do not stack:
+    # light that added would blow past full glow and leave a note
+    # brighter than the effect ever asked for. Commutative, like every
+    # other operation here.
+    GLOW: (max, 0.0),
 }
 
 
@@ -58,8 +63,12 @@ COMPOSE_OPS: Mapping[PropertyId, tuple[Callable[[float, float], float],
 # still has to become fully visible, or the score would be unreadable
 # wherever the playing is soft. Loudness changes how a note MOVES, not
 # whether it is there.
+#
+# GLOW is here: the halo is not what makes a note readable, so a loud
+# note may burn brighter and a quiet one may barely light — the same
+# thing the response does to a pop's size, on a different property.
 MODULATED_PROPERTIES: frozenset[PropertyId] = frozenset({
-    SCALE, OFFSET_X, OFFSET_Y,
+    SCALE, OFFSET_X, OFFSET_Y, GLOW,
 })
 
 

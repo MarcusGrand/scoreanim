@@ -122,10 +122,18 @@ class SetEffectParam(Command):
     param dict drops (the _merge_rule sparse idiom). Validation is
     type/finiteness ONLY; ranges are clamped at consumption
     (presets.build_presets), so a future preset reuses this command
-    unchanged."""
+    unchanged.
+
+    A knob's value may be a STRING as well as a number or a flag: the
+    glow's colour and its shape are both words. Legality is still the
+    consumer's business — `glow.read_glow` falls back to its defaults on
+    anything it cannot read, the `SetColorMode` argument — so refusing
+    here would only move the failure. Strings round-trip through
+    serialization raw like every other param value, so no schema
+    change."""
     preset: str
     key: str
-    value: float | int | bool | None
+    value: float | int | bool | str | None
 
     def apply(self, doc: ProjectDoc) -> ProjectDoc:
         if not self.preset.strip():
@@ -133,9 +141,9 @@ class SetEffectParam(Command):
         if not self.key.strip():
             raise CommandError("empty parameter key")
         if self.value is not None:
-            if not isinstance(self.value, (bool, int, float)):
+            if not isinstance(self.value, (bool, int, float, str)):
                 raise CommandError(f"bad parameter value {self.value!r}")
-            if (not isinstance(self.value, bool)
+            if (not isinstance(self.value, (bool, str))
                     and not math.isfinite(self.value)):
                 raise CommandError(f"parameter value {self.value!r} "
                                    f"is not finite")
@@ -267,7 +275,8 @@ class ResetEffectSettings(Command):
     what the panel shows — which is why the volume response and the
     system pulse go with them. Other presets' params (possibly from a
     newer build) survive untouched, the raw-round-trip guarantee."""
-    presets: tuple[str, ...] = ("pop", "fade", "drop", "slide", "swell")
+    presets: tuple[str, ...] = ("pop", "fade", "drop", "slide", "swell",
+                                "glow")
 
     def apply(self, doc: ProjectDoc) -> ProjectDoc:
         params = {name: dict(entry)

@@ -93,7 +93,8 @@ def test_note_value_lands_in_settle_to_note_value() -> None:
 def test_unknown_params_and_presets_are_ignored() -> None:
     reg = build_presets(0.3, {"pop": {"sparkle": 99}, "shimmer": {"x": 1}})
     assert reg == build_presets(0.3)
-    assert set(reg) == {"appear", "drop", "fade", "pop", "slide", "swell"}
+    assert set(reg) == {"appear", "drop", "fade", "glow", "pop", "slide",
+                        "swell"}
 
 
 def test_consumption_clamps() -> None:
@@ -589,7 +590,7 @@ def test_an_unknown_part_is_skipped_and_the_rest_kept() -> None:
 
 def test_a_wholly_unknown_name_falls_back_to_the_default() -> None:
     default = PRESETS[DEFAULT_EFFECT]
-    assert effects_for("shimmer+glow") == (default,)
+    assert effects_for("shimmer+sparkle") == (default,)
     assert effects_for("no-such-effect") == (default,)
     assert effects_for(None) == (default,)
     assert effects_for("") == (default,)
