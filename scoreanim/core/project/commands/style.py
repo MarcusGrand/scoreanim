@@ -157,22 +157,87 @@ class SetEffectParam(Command):
 
 
 @dataclass(frozen=True)
+class SetVolumeParam(Command):
+    """One setting of the volume response (schema v11): sparse
+    {key: value} over "amount", "quiet" and "loud" — value None deletes
+    the key and an emptied map drops, the sparse idiom SetEffectParam
+    uses. Validation is type/finiteness ONLY; ranges are clamped at
+    consumption (animation.intensity.read_volume), so a fourth setting
+    reuses this command unchanged."""
+    key: str
+    value: float | int | bool | None
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not self.key.strip():
+            raise CommandError("empty volume setting")
+        if self.value is not None:
+            if not isinstance(self.value, (bool, int, float)):
+                raise CommandError(f"bad volume value {self.value!r}")
+            if (not isinstance(self.value, bool)
+                    and not math.isfinite(self.value)):
+                raise CommandError(f"volume value {self.value!r} "
+                                   f"is not finite")
+        volume = dict(doc.style.volume)
+        if self.value is None:
+            volume.pop(self.key, None)
+        else:
+            volume[self.key] = self.value
+        return replace(doc, style=replace(doc.style, volume=volume))
+
+    def describe(self) -> str:
+        return "set volume response"
+
+
+@dataclass(frozen=True)
+class SetPulseParam(Command):
+    """One setting of the system pulse (schema v11): sparse {key: value}
+    over "amount" — the SetVolumeParam shape exactly, down to None
+    deleting the key. Validation is type/finiteness ONLY; the range is
+    clamped at consumption (animation.pulse.read_pulse), so a second
+    setting reuses this command unchanged."""
+    key: str
+    value: float | int | bool | None
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not self.key.strip():
+            raise CommandError("empty pulse setting")
+        if self.value is not None:
+            if not isinstance(self.value, (bool, int, float)):
+                raise CommandError(f"bad pulse value {self.value!r}")
+            if (not isinstance(self.value, bool)
+                    and not math.isfinite(self.value)):
+                raise CommandError(f"pulse value {self.value!r} "
+                                   f"is not finite")
+        pulse = dict(doc.style.pulse)
+        if self.value is None:
+            pulse.pop(self.key, None)
+        else:
+            pulse[self.key] = self.value
+        return replace(doc, style=replace(doc.style, pulse=pulse))
+
+    def describe(self) -> str:
+        return "set system pulse"
+
+
+@dataclass(frozen=True)
 class ResetEffectSettings(Command):
     """Restore the pre-M4 effect defaults in ONE undo step (Marcus,
     2026-07-25): default_effect cleared (back to "appear" via the
     fail-soft) and the named presets' params dropped entirely — the
     built-in defaults reassert at consumption. Every preset the panel
     has knobs for is cleared together, so one Reset really does reset
-    what the panel shows. Other presets' params (possibly from a newer
-    build) survive untouched, the raw-round-trip guarantee."""
-    presets: tuple[str, ...] = ("pop", "fade", "drop", "slide")
+    what the panel shows — which is why the volume response and the
+    system pulse go with them. Other presets' params (possibly from a
+    newer build) survive untouched, the raw-round-trip guarantee."""
+    presets: tuple[str, ...] = ("pop", "fade", "drop", "slide", "swell")
 
     def apply(self, doc: ProjectDoc) -> ProjectDoc:
         params = {name: dict(entry)
                   for name, entry in doc.style.effect_params.items()
                   if name not in self.presets}
         return replace(doc, style=replace(doc.style, default_effect=None,
-                                          effect_params=params))
+                                          effect_params=params, volume={},
+                                          pulse={}))
 
     def describe(self) -> str:
         return "reset effect settings"

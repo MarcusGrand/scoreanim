@@ -240,10 +240,16 @@ def _p1_head_and_stem(scenes, schedule):
     return head, stem
 
 
+def _capped(item, value: float) -> float:
+    """What the applier should paint: the ceiling wins where there is
+    one, which for a beamed stem is a scale barely over 1.0."""
+    return value if item.scale_cap is None else min(value, item.scale_cap)
+
+
 def test_timed_effect_scales_mid_window(scenes, schedule, pop_rules) -> None:
-    """Mid-decay the whole note sits at the lerped scale — the stem
-    included, turning around the SAME point as its head, so the note
-    pops as one object; past the window everything is 1.0."""
+    """Mid-decay the note sits at the lerped scale — the stem included,
+    turning around its own head and stopping at its beam; past the
+    window everything is 1.0."""
     applier = AnimationApplier(scenes.items, schedule, TEMPO, pop_rules)
     head, stem = _p1_head_and_stem(scenes, schedule)
     trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
@@ -251,9 +257,9 @@ def test_timed_effect_scales_mid_window(scenes, schedule, pop_rules) -> None:
     applier.apply_at(trig_s + 0.125)               # mid-decay
     assert scenes.items[head].scale() == pytest.approx(1.125)
     assert scenes.items[head].opacity() == pytest.approx(1.0)
-    assert scenes.items[stem].scale() == pytest.approx(1.125)
-    assert scenes.items[stem].scale_pivot == scenes.items[head].scale_pivot
-    # the stem pivots on its head, not on its own middle
+    assert scenes.items[stem].scale() == pytest.approx(
+        _capped(scenes.items[stem], 1.125))
+    # the stem pivots on a head, not on its own middle
     assert scenes.items[stem].scale_pivot != scenes.items[stem].anchor
     applier.apply_at(trig_s + 0.5)                 # window expired
     assert scenes.items[head].scale() == pytest.approx(1.0)
@@ -261,6 +267,43 @@ def test_timed_effect_scales_mid_window(scenes, schedule, pop_rules) -> None:
     applier.apply_at(trig_s - 0.5)                 # scrub back: pre-onset
     assert scenes.items[head].scale() == pytest.approx(1.0)
     assert scenes.items[head].opacity() == pytest.approx(FLOOR)
+
+
+def test_a_notehead_pops_about_its_own_centre(scenes, schedule,
+                                              pop_rules) -> None:
+    """Marcus, 2026-08-01: the pivot is the head's own centre, so a
+    chord's heads each grow where they were engraved instead of sliding
+    towards a shared point."""
+    from scoreanim.core.score.identity import ElementKind
+    heads = [i for i in scenes.items.values()
+             if i.identity is not None
+             and i.identity.kind is ElementKind.NOTEHEAD
+             and i.scale_pivot is not None]
+    assert heads
+    for item in heads:
+        assert item.scale_pivot == item.bbox.center()
+
+
+def test_a_beamed_stem_swells_no_further_than_its_beam(scenes, schedule,
+                                                       pop_rules) -> None:
+    """Marcus, 2026-08-01: the stem pops with its note, but its ink must
+    never come out the far side of the beam. The ceiling is pure policy
+    (core/animation/stem_caps.py); the applier just clamps to it."""
+    from scoreanim.core.score.identity import ElementKind
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, pop_rules)
+    stem = next(i for eid, i in scenes.items.items()
+                if i.identity is not None
+                and i.identity.kind is ElementKind.STEM
+                and i.identity.part == "P1"
+                and i.scale_cap is not None
+                and eid in schedule.beats_by_element)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[stem.element_key])
+
+    assert stem.scale_cap < 1.125                  # there IS a ceiling here
+    applier.apply_at(trig_s + 0.125)               # asks for 1.125
+    assert stem.scale() == pytest.approx(stem.scale_cap)
+    applier.apply_at(trig_s + 0.5)                 # window over: home again
+    assert stem.scale() == pytest.approx(1.0)
 
 
 def test_seek_mid_pop_lands_and_advances(scenes, schedule,
@@ -434,6 +477,38 @@ def test_fade_stretches_over_the_note_value(scenes, schedule_nv) -> None:
             assert opacity == pytest.approx(1.0)
 
 
+def test_swell_runs_over_each_note_s_own_length(scenes,
+                                                schedule_nv) -> None:
+    """The swell's whole point, end to end: at 120 bpm a dotted half
+    swells over 1.5 s, so it is at its top at +0.75 s and back to its
+    engraved size at +1.5 s — while an eighth (0.25 s) topped out at
+    +0.125 s and was home long before. Nothing here is swell-specific
+    code: it is the same timescale pop and fade take."""
+    applier = AnimationApplier(scenes.items, schedule_nv,
+                               TEMPO, StyleRules(default_effect="swell"))
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    eighth = _head_with_duration(scenes, schedule_nv, 0.5)
+    long_trig = TEMPO.seconds_at(schedule_nv.beats_by_element[long_head])
+    eighth_trig = TEMPO.seconds_at(schedule_nv.beats_by_element[eighth])
+
+    applier.refresh(long_trig + 0.75)
+    assert scenes.items[long_head].scale() == pytest.approx(1.4)
+    applier.refresh(eighth_trig + 0.125)
+    assert scenes.items[eighth].scale() == pytest.approx(1.4)
+
+    # at the same distance past its own onset the short note is home and
+    # the long one is only starting to grow
+    applier.refresh(eighth_trig + 0.25)
+    assert scenes.items[eighth].scale() == pytest.approx(1.0)
+    applier.refresh(long_trig + 0.25)
+    growing = scenes.items[long_head].scale()
+    assert 1.0 < growing < 1.4
+    applier.refresh(long_trig + 1.5)
+    assert scenes.items[long_head].scale() == pytest.approx(1.0)
+    # and the note is fully visible throughout, engraved size or not
+    assert scenes.items[long_head].opacity() == pytest.approx(1.0)
+
+
 def test_negative_shift_lights_early_page_cursor_unmoved(
         scenes, schedule) -> None:
     """F3: at peak offset −100 ms the whole effect — including the
@@ -519,9 +594,10 @@ def test_drop_shrinks_and_solidifies_with_no_applier_change(
     applier.refresh(trig_s)                        # the moment it enters
     assert scenes.items[head].scale() == pytest.approx(3.0)
     assert scenes.items[head].opacity() == pytest.approx(0.3)
-    # the stem drops with it, around the same point
-    assert scenes.items[stem].scale() == pytest.approx(3.0)
-    assert scenes.items[stem].scale_pivot == scenes.items[head].scale_pivot
+    # the stem drops with it, out of a head and no further than its beam
+    assert scenes.items[stem].scale() == pytest.approx(
+        _capped(scenes.items[stem], 3.0))
+    assert scenes.items[stem].scale_pivot is not None
     applier.apply_at(trig_s + 0.35 / 2.75)         # first landing
     assert scenes.items[head].scale() == pytest.approx(1.0)
     applier.apply_at(trig_s + 0.35 * 1.5 / 2.75)   # bounced back up
@@ -561,28 +637,30 @@ def _beamed_group(scenes):
     raise AssertionError("no beamed group in the fixture")
 
 
-def test_a_beam_drops_with_the_first_note_of_its_group(scenes,
+def test_a_beam_appears_with_its_note_but_never_grows(scenes,
                                                       schedule) -> None:
-    """Marcus's rule for beams: the whole beam falls in with the note it
-    starts on, and the notes after it drop onto it with their own stems.
-    It comes free from the group key — a beam's onset is its first
-    note's."""
+    """Marcus's rule for beams (2026-08-01): a beam comes in with the
+    note it starts on, straight at its engraved size. It belongs to
+    several notes at once, so it never scales — the notes under it do."""
     beam, first, later = _beamed_group(scenes)
     applier = AnimationApplier(scenes.items, schedule, TEMPO, _DROP_RULES)
     first_s = TEMPO.seconds_at(schedule.beats_by_element[first.element_key])
     later_s = TEMPO.seconds_at(schedule.beats_by_element[later.element_key])
     assert later_s > first_s
+    assert beam.scale_pivot is None                # never scales at all
 
+    applier.refresh(first_s - 0.5)
+    assert beam.opacity() == pytest.approx(FLOOR)  # a ghost before its turn
     applier.refresh(first_s)
-    assert beam.scale() == pytest.approx(3.0)      # it rides note 1
-    assert beam.scale_pivot == first.scale_pivot   # around note 1's head
+    assert beam.scale() == 1.0                     # full size, straight away
+    assert beam.opacity() == pytest.approx(0.3)    # it appears with note 1
+    assert first.scale() == pytest.approx(3.0)     # which is still growing
     assert later.scale() == pytest.approx(1.0)     # not its turn yet
     assert later.opacity() == pytest.approx(FLOOR)
 
     applier.refresh(later_s)
     assert later.scale() == pytest.approx(3.0)     # now it drops
-    assert beam.scale() < 1.6                      # nearly home already
-    assert beam.scale() < later.scale()
+    assert beam.scale() == 1.0                     # and the beam sits still
 
 
 def test_a_ledger_line_fades_in_but_never_grows(scenes, schedule) -> None:
@@ -909,3 +987,440 @@ def test_scrubbing_a_combination_is_stateless(qapp, engraved, schedule,
     for eid, item in scenes.items.items():
         assert item.scale() == pytest.approx(1.0), eid
         assert (item.pos().x(), item.pos().y()) == (0.0, 0.0), eid
+
+
+# -- the volume response ---------------------------------------------------
+
+def _loud_at(seconds, duration=30.0, rate=44100):
+    """A cache that is loud at each of `seconds` and silent elsewhere."""
+    import numpy as np
+
+    from scoreanim.core.audio import PeakCacheBuilder
+
+    samples = np.zeros(int(duration * rate), dtype=np.float32)
+    for start in seconds:
+        lo = int(start * rate)
+        samples[lo:lo + int(0.1 * rate)] = 1.0
+    builder = PeakCacheBuilder(rate)
+    builder.add_samples(samples)
+    return builder.snapshot()
+
+
+def _two_p1_heads(scenes, schedule):
+    """Two noteheads in P1 on different beats — the pair whose loudness
+    the tests below make differ."""
+    from scoreanim.core.score.identity import ElementKind
+
+    heads = sorted(
+        (eid for eid in schedule.beats_by_element
+         if scenes.items[eid].identity.kind is ElementKind.NOTEHEAD
+         and scenes.items[eid].identity.part == "P1"),
+        key=lambda eid: schedule.beats_by_element[eid])
+    first = heads[0]
+    later = next(eid for eid in heads
+                 if schedule.beats_by_element[eid]
+                 > schedule.beats_by_element[first] + 0.5)
+    return first, later
+
+
+def _full_state(scenes):
+    return {eid: (item.opacity(), item.scale(), item.animated_offset)
+            for eid, item in scenes.items.items()}
+
+
+def test_no_audio_leaves_every_state_exactly_as_it_was(scenes, schedule,
+                                                       pop_rules) -> None:
+    """With no recording the applier must be bit-for-bit what it was
+    before the volume response existed — even with the response turned
+    all the way up."""
+    from dataclasses import replace
+
+    rules = replace(pop_rules, volume={"amount": 1.0})
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    t = TEMPO.seconds_at(schedule.beats_by_element[head]) + 0.125
+    applier.apply_at(t)
+    before = _full_state(scenes)
+    applier.set_audio(None, 0.0)
+    applier.refresh(t)
+    assert _full_state(scenes) == before
+
+
+def test_amount_zero_leaves_every_state_exactly_as_it_was(scenes, schedule,
+                                                          pop_rules) -> None:
+    """The same guarantee from the other side: a recording is loaded,
+    but the response is off. Not approximately equal — equal."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, pop_rules)
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    t = TEMPO.seconds_at(schedule.beats_by_element[head]) + 0.125
+    applier.apply_at(t)
+    before = _full_state(scenes)
+    applier.set_audio(_loud_at([t - 0.125]), 0.0)
+    applier.refresh(t)
+    assert _full_state(scenes) == before
+
+
+def test_a_loud_beat_pops_harder_than_a_quiet_one(scenes, schedule,
+                                                  pop_rules) -> None:
+    """The feature itself. testpop jumps to 1.25 and settles over
+    0.25 s, so mid-decay it sits at 1.125 — a departure of 0.125 from
+    rest. At gain 1.5 that departure becomes 0.1875, at gain 0.5 it
+    becomes 0.0625."""
+    from dataclasses import replace
+
+    loud_head, quiet_head = _two_p1_heads(scenes, schedule)
+    loud_s = TEMPO.seconds_at(schedule.beats_by_element[loud_head])
+    quiet_s = TEMPO.seconds_at(schedule.beats_by_element[quiet_head])
+    rules = replace(pop_rules,
+                    volume={"amount": 1.0, "quiet": 0.5, "loud": 1.5})
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    applier.set_audio(_loud_at([loud_s]), 0.0)
+
+    applier.refresh(loud_s + 0.125)
+    loud_scale = scenes.items[loud_head].scale()
+    applier.refresh(quiet_s + 0.125)
+    quiet_scale = scenes.items[quiet_head].scale()
+
+    # non-vacuity: the two beats must genuinely differ in loudness, or
+    # this test would pass on a dead sample forever
+    assert loud_scale != pytest.approx(quiet_scale)
+    assert loud_scale == pytest.approx(1.0 + 0.125 * 1.5)
+    assert quiet_scale == pytest.approx(1.0 + 0.125 * 0.5)
+
+
+def test_a_quiet_note_still_becomes_fully_visible(scenes, schedule,
+                                                  pop_rules) -> None:
+    """Opacity is never modulated: the score has to stay readable
+    wherever the playing is soft."""
+    from dataclasses import replace
+
+    loud_head, quiet_head = _two_p1_heads(scenes, schedule)
+    loud_s = TEMPO.seconds_at(schedule.beats_by_element[loud_head])
+    quiet_s = TEMPO.seconds_at(schedule.beats_by_element[quiet_head])
+    rules = replace(pop_rules,
+                    volume={"amount": 1.0, "quiet": 0.1, "loud": 2.0})
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    applier.set_audio(_loud_at([loud_s]), 0.0)
+
+    applier.refresh(quiet_s + 0.05)
+    assert scenes.items[quiet_head].opacity() == pytest.approx(1.0)
+    applier.refresh(loud_s + 0.05)
+    assert scenes.items[loud_head].opacity() == pytest.approx(1.0)
+
+
+def test_the_offset_moves_which_part_of_the_recording_is_read(
+        scenes, schedule, pop_rules) -> None:
+    """Triggers carry score seconds; the cache is indexed from the start
+    of the sound file. Move the offset and a beat lands on a different
+    moment of the waveform."""
+    from dataclasses import replace
+
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+    rules = replace(pop_rules,
+                    volume={"amount": 1.0, "quiet": 0.5, "loud": 1.5})
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    # the burst sits 2 s into the recording; at offset 0 the beat misses
+    # it, at offset 2 it lands on it
+    applier.set_audio(_loud_at([trig_s + 2.0]), 0.0)
+    applier.refresh(trig_s + 0.125)
+    assert scenes.items[head].scale() == pytest.approx(1.0 + 0.125 * 0.5)
+    applier.set_audio(_loud_at([trig_s + 2.0]), 2.0)
+    applier.refresh(trig_s + 0.125)
+    assert scenes.items[head].scale() == pytest.approx(1.0 + 0.125 * 1.5)
+
+
+def test_settings_and_tempo_both_move_the_gains(scenes, schedule,
+                                                pop_rules) -> None:
+    """The three seams that can move a gain: the audio, the settings and
+    the seconds axis. set_style and set_timing must both re-read."""
+    from dataclasses import replace
+
+    head, _ = _p1_head_and_stem(scenes, schedule)
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, pop_rules)
+    applier.set_audio(_loud_at([trig_s]), 0.0)
+    applier.refresh(trig_s + 0.125)
+    assert scenes.items[head].scale() == pytest.approx(1.125)   # off
+
+    louder = replace(pop_rules,
+                     volume={"amount": 1.0, "quiet": 0.5, "loud": 1.5})
+    applier.set_style(louder)
+    applier.refresh(trig_s + 0.125)
+    assert scenes.items[head].scale() == pytest.approx(1.0 + 0.125 * 1.5)
+
+    # half tempo: the beat now falls at twice the second, off the burst
+    slow = TempoMap([TempoEvent(0.0, 60.0)])
+    applier.set_timing(slow)
+    slow_s = slow.seconds_at(schedule.beats_by_element[head])
+    assert slow_s != pytest.approx(trig_s)          # non-vacuity
+    applier.refresh(slow_s + 0.125)
+    assert scenes.items[head].scale() == pytest.approx(1.0 + 0.125 * 0.5)
+
+
+# -- the gain follows each element's own duration (2026-08-01) -----------------
+
+def _quiet_after(seconds: float, duration: float = 12.0, rate: int = 44100):
+    """A recording that is loud up to `seconds` and near-silent after —
+    so how much of it a note reads depends on how long the note is."""
+    import numpy as np
+
+    from scoreanim.core.audio import PeakCacheBuilder
+
+    samples = np.full(int(duration * rate), 0.02, dtype=np.float32)
+    samples[:int(seconds * rate)] = 1.0
+    builder = PeakCacheBuilder(rate)
+    builder.add_samples(samples)
+    return builder.snapshot()
+
+
+def _mixed_duration_trigger(scenes, schedule):
+    """A trigger carrying two noteheads of DIFFERENT notated length —
+    testscore has one at beat 6 (a quarter against a dotted quarter)."""
+    from scoreanim.core.score.identity import ElementKind
+
+    durs = schedule.duration_by_element
+    for i, trig in enumerate(schedule.triggers):
+        heads = {eid: durs[eid] for eid in trig.element_ids
+                 if eid in durs and eid in scenes.items
+                 and scenes.items[eid].identity.kind is ElementKind.NOTEHEAD}
+        if len(set(heads.values())) > 1:
+            by_length = sorted(heads.items(), key=lambda kv: kv[1])
+            return i, by_length[0], by_length[-1]
+    raise AssertionError("no trigger carries two different note lengths")
+
+
+def test_two_notes_on_one_beat_pop_by_their_own_lengths(scenes,
+                                                        schedule_nv) -> None:
+    """The feature. Two noteheads fire on the same beat, one shorter
+    than the other, over a recording that is loud at that beat and quiet
+    after. The short note reads only the loud part, the long note
+    averages the quiet in — so they pop by different amounts, which a
+    per-trigger gain could never do."""
+    i, (short, short_beats), (long, long_beats) = \
+        _mixed_duration_trigger(scenes, schedule_nv)
+    trig_s = TEMPO.seconds_at(schedule_nv.triggers[i].beats)
+    short_s = TEMPO.seconds_at(schedule_nv.triggers[i].beats + short_beats)
+    assert long_beats > short_beats                       # non-vacuity
+
+    rules = StyleRules(default_effect="pop",
+                       volume={"amount": 1.0, "quiet": 0.5, "loud": 1.5})
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
+    applier.set_audio(_quiet_after(short_s), 0.0)
+    applier.refresh(trig_s + 0.05)
+
+    short_scale = scenes.items[short].scale()
+    long_scale = scenes.items[long].scale()
+    assert short_scale > long_scale
+    # the short note read the loud part alone, so it sits at the loud end
+    assert short_scale > 1.0
+
+
+def test_gains_are_one_per_element_not_one_per_trigger(scenes,
+                                                       schedule_nv) -> None:
+    """A structural pin: the gains are shaped like the items, so a
+    future change cannot quietly go back to one number per beat."""
+    i, (_, short_beats), _ = _mixed_duration_trigger(scenes, schedule_nv)
+    short_s = TEMPO.seconds_at(schedule_nv.triggers[i].beats + short_beats)
+
+    rules = StyleRules(default_effect="pop", volume={"amount": 1.0})
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
+    applier.set_audio(_quiet_after(short_s), 0.0)
+    gains = applier._audio.gains
+    assert gains is not None
+    assert [len(row) for row in gains] \
+        == [len(items) for items in applier._items_per_trigger]
+    assert len(set(gains[i])) > 1          # they really do differ
+
+
+def test_ink_with_no_notated_length_still_reads_the_attack(scenes,
+                                                           schedule_nv,
+                                                           schedule) -> None:
+    """Dynamics, texts and rests never enter the duration map, so they
+    get exactly the reading every element used to get. Pinned against a
+    schedule carrying no durations at all — where every element takes
+    the attack reading."""
+    rules = StyleRules(default_effect="pop",
+                       volume={"amount": 1.0, "quiet": 0.5, "loud": 1.5})
+    peaks = _quiet_after(3.0)
+
+    with_durations = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
+    with_durations.set_audio(peaks, 0.0)
+    plain = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    plain.set_audio(peaks, 0.0)
+    # the two schedules differ only in the duration map, so the element
+    # rows line up and the gains can be compared position by position
+    assert with_durations._element_ids_per_trigger \
+        == plain._element_ids_per_trigger
+
+    lengthless = moved = 0
+    for row, mine, theirs in zip(with_durations._element_ids_per_trigger,
+                                 with_durations._audio.gains,
+                                 plain._audio.gains):
+        for eid, a, b in zip(row, mine, theirs):
+            if eid is not None and eid in schedule_nv.duration_by_element:
+                moved += a != pytest.approx(b)
+                continue
+            lengthless += 1
+            assert a == pytest.approx(b)
+    assert lengthless                      # non-vacuity: some ink has none
+    assert moved                           # and the notes really did move
+
+
+# --- following the recording while the note sounds -------------------------
+
+_FOLLOW_VOLUME = {"amount": 1.0, "quiet": 0.5, "loud": 1.5}
+
+
+def _loud_after(seconds: float, duration: float = 30.0, rate: int = 44100):
+    """The mirror of _quiet_after: near-silent up to `seconds`, loud
+    after — so a note's average over its whole length and how loud the
+    recording is at one moment inside it are plainly different numbers."""
+    import numpy as np
+
+    from scoreanim.core.audio import PeakCacheBuilder
+
+    samples = np.full(int(duration * rate), 1.0, dtype=np.float32)
+    samples[:int(seconds * rate)] = 0.02
+    builder = PeakCacheBuilder(rate)
+    builder.add_samples(samples)
+    return builder.snapshot()
+
+
+def _follow_rules(follower):
+    """Everything pops over its own note value; the one element handed
+    in swells and follows the recording instead."""
+    from scoreanim.core.animation import ElementStyle
+
+    return StyleRules(
+        default_effect="pop",
+        elements={follower: ElementStyle(effect="swell")},
+        effect_params={"pop": {"note_value": True},
+                       "swell": {"follow": True}},
+        volume=_FOLLOW_VOLUME)
+
+
+def _row_index(applier, i: int, eid) -> int:
+    return list(applier._element_ids_per_trigger[i]).index(eid)
+
+
+def test_a_following_element_reads_the_moment_and_its_neighbour_does_not(
+        scenes, schedule_nv) -> None:
+    """The feature, in one frame. Two noteheads on the same beat over a
+    recording that is quiet at the beat and loud a moment later. The
+    following one is modulated by how loud the recording is RIGHT THEN;
+    the plain one still carries the one average over its own note."""
+    from scoreanim.core.animation import (VolumeResponse, combined_state,
+                                          gain_for, intensity_at,
+                                          modulate_state)
+    from scoreanim.core.animation.effect import SCALE
+
+    i, (plain, plain_beats), (follower, follow_beats) = \
+        _mixed_duration_trigger(scenes, schedule_nv)
+    assert follow_beats > plain_beats                      # non-vacuity
+    trig_s = TEMPO.seconds_at(schedule_nv.triggers[i].beats)
+    short_s = TEMPO.seconds_at(
+        schedule_nv.triggers[i].beats + plain_beats) - trig_s
+    # quiet over most of the shorter note, loud from there on, and the
+    # frame taken late enough to be well inside the loud part but early
+    # enough that BOTH notes are still animating
+    peaks = _loud_after(trig_s + 0.7 * short_s)
+    t = trig_s + 0.9 * short_s
+
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO,
+                               _follow_rules(follower))
+    applier.set_audio(peaks, 0.0)
+    applier.refresh(t)
+
+    volume = VolumeResponse(**_FOLLOW_VOLUME)
+    live = gain_for(intensity_at(peaks, t), volume)
+    j_follow = _row_index(applier, i, follower)
+    j_plain = _row_index(applier, i, plain)
+    average = applier._audio.gains[i][j_follow]
+    # the two numbers really are different, or the test proves nothing
+    assert live > average + 0.1
+
+    def expected(j, gain):
+        state = combined_state(
+            trig_s,
+            tuple(zip(applier._effects_per_trigger[i][j],
+                      applier._timescales_per_trigger[i][j])),
+            t)
+        return modulate_state(state, gain)[SCALE]
+
+    assert scenes.items[follower].scale() == \
+        pytest.approx(expected(j_follow, live))
+    assert scenes.items[plain].scale() == \
+        pytest.approx(expected(j_plain, applier._audio.gains[i][j_plain]))
+    # and the follower is plainly NOT on its own average
+    assert scenes.items[follower].scale() != \
+        pytest.approx(expected(j_follow, average))
+
+
+def test_a_following_element_moves_with_the_recording(scenes,
+                                                      schedule_nv) -> None:
+    """Two frames of the same note: quiet early, loud later, and the
+    ink is bigger in the loud one. Its own average never moves, so this
+    can only come from the live reading."""
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    trig_s = TEMPO.seconds_at(schedule_nv.beats_by_element[long_head])
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO,
+                               _follow_rules(long_head))
+    applier.set_audio(_loud_after(trig_s + 0.75), 0.0)
+
+    # both times sit on the plateau (10 %..85 % of a 1.5 s window)
+    applier.refresh(trig_s + 0.4)
+    quiet_frame = scenes.items[long_head].scale()
+    applier.refresh(trig_s + 1.1)
+    loud_frame = scenes.items[long_head].scale()
+    assert loud_frame > quiet_frame + 0.1
+    # and it still lands at exactly its engraved size at the end
+    applier.refresh(trig_s + 1.5)
+    assert scenes.items[long_head].scale() == 1.0
+
+
+def test_no_audio_leaves_a_follow_swell_playing_its_plateau(
+        scenes, schedule_nv) -> None:
+    """With no recording, or the response off, there are no gains at
+    all — a follow swell simply plays the shape as authored."""
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    trig_s = TEMPO.seconds_at(schedule_nv.beats_by_element[long_head])
+    rules = _follow_rules(long_head)
+    silent = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
+    silent.refresh(trig_s + 0.75)
+    assert silent._audio.gains is None
+    assert scenes.items[long_head].scale() == pytest.approx(1.4)  # the plateau
+
+
+def test_scrubbing_a_following_element_is_stateless(qapp, engraved,
+                                                    schedule_nv,
+                                                    scenes) -> None:
+    """The live reading is a pure function of t, so walking forward to a
+    time and jumping straight to it must leave the same ink. Every other
+    volume test refreshes only; this one walks."""
+    long_head = _head_with_duration(scenes, schedule_nv, 3.0)
+    trig_s = TEMPO.seconds_at(schedule_nv.beats_by_element[long_head])
+    rules = _follow_rules(long_head)
+    peaks = _loud_after(trig_s + 0.75)
+    mid = trig_s + 1.0                        # on the plateau, in the loud part
+
+    applier = AnimationApplier(scenes.items, schedule_nv, TEMPO, rules)
+    applier.set_audio(peaks, 0.0)
+    rng = random.Random(31)
+    t = 0.0
+    for _ in range(60):
+        t = max(-2.0, t + rng.uniform(-9.0, 11.0))
+        applier.apply_at(t)
+    for step in range(20):                    # and tick up to it in small hops
+        applier.apply_at(mid - 0.4 + step * 0.02)
+    applier.apply_at(mid)
+    walked = _visual_state(scenes)
+
+    fresh_scenes = ScoreScenes(engraved.layout, default_stage_config(
+        engraved.prepared, page_content_top(engraved.layout)))
+    fresh = AnimationApplier(fresh_scenes.items, schedule_nv, TEMPO, rules)
+    fresh.set_audio(peaks, 0.0)
+    fresh.refresh(mid)
+    assert walked == _visual_state(fresh_scenes)
+    # non-vacuity: the followed note really is animating at `mid`
+    assert walked[long_head][1] != 1.0

@@ -309,6 +309,58 @@ def path_bbox(d: str) -> Rect:
     return ext.rect()
 
 
+_CURVE_STEPS = 8                  # flattening for path_outline
+
+
+Ring = tuple[tuple[float, float], ...]
+
+
+def path_outline(d: str, transform: Affine) -> tuple[Ring, ...]:
+    """The path's subpaths as rings of points in page coordinates.
+
+    Straight segments are exact; béziers are flattened into
+    `_CURVE_STEPS` chords, which is enough for the shapes this is used
+    on (Verovio draws a beam as a four-point polygon). Each subpath is
+    returned as its own closed ring, in path order, so a caller can walk
+    the edges.
+    """
+    rings: list[Ring] = []
+    ring: list[tuple[float, float]] = []
+    cx = cy = 0.0                 # current point
+    sx = sy = 0.0                 # subpath start
+
+    def close() -> None:
+        if len(ring) > 2:
+            rings.append(tuple(ring))
+        ring.clear()
+
+    for seg in path_segments(d):
+        if isinstance(seg, MoveTo):
+            close()
+            cx, cy = sx, sy = seg.x, seg.y
+            ring.append(transform.apply(cx, cy))
+        elif isinstance(seg, LineTo):
+            cx, cy = seg.x, seg.y
+            ring.append(transform.apply(cx, cy))
+        elif isinstance(seg, CubicTo):
+            for i in range(1, _CURVE_STEPS + 1):
+                t = i / _CURVE_STEPS
+                ring.append(transform.apply(
+                    _cubic_at(cx, seg.x1, seg.x2, seg.x, t),
+                    _cubic_at(cy, seg.y1, seg.y2, seg.y, t)))
+            cx, cy = seg.x, seg.y
+        elif isinstance(seg, QuadTo):
+            for i in range(1, _CURVE_STEPS + 1):
+                t = i / _CURVE_STEPS
+                ring.append(transform.apply(_quad_at(cx, seg.x1, seg.x, t),
+                                            _quad_at(cy, seg.y1, seg.y, t)))
+            cx, cy = seg.x, seg.y
+        else:                     # ClosePath
+            cx, cy = sx, sy
+    close()
+    return tuple(rings)
+
+
 _ELLIPSE_KAPPA = 0.5522847498307936
 
 

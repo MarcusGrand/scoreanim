@@ -1,6 +1,16 @@
 # ScoreAnim — Worklog
 
-**NOW:** `main` carries `beta/live-fields` (`ffd0ac8`, no tag), confirmed
+**NOW:** `beta/f-system-pulse` is where the work is. It is
+`beta/system-groups` with `beta/f-follow-volume` merged into it — the
+system group items on one side, the recording's live loudness on the
+other — and both halves are still waiting on Marcus's eyes in the
+running app. Under `beta/f-follow-volume` sit `beta/f-swell-effect`,
+`beta/f-pop-per-note`, `beta/f-volume-duration` and
+`beta/f-volume-response`; between them the two volume branches moved the
+schema to **v11**, so a project saved from any of them will not open on
+`main`.
+
+`main` carries `beta/live-fields` (`ffd0ac8`, no tag), confirmed
 in the app: every number field previews as you type. It brought
 `beta/shell-layout` with it — the openers on the toolbar, the grid
 controls under the lanes, tap tempo gone. Schema is still v10, so a
@@ -11,7 +21,7 @@ back: pinch to zoom, two-finger scroll to move.
 brought `beta/f-fade-effect` with it: the fade, drop and slide effects,
 and effects that run together ("drop+fade"). Merged on Marcus's word
 without the usual app run first — worth a look in the running app.
-`fix/bracket-hidden-staves` is the only branch still unmerged.
+`fix/bracket-hidden-staves` is the only other branch still unmerged.
 
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
@@ -22,6 +32,217 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-02 — **Every system jumps when its notes land**
+  (`beta/f-system-pulse`, UNMERGED): the system pulse's second mode, an
+  onset pop, and it needs **no recording at all** — the schedule is the
+  whole input. At every beat the system the notes appear in bumps up and
+  eases back over 0.25 s, and the more noteheads land there the harder
+  it jumps. Only HEADS count (a stem, dot or beam hangs off a head
+  already counted), and each head counts in the system it is DRAWN in,
+  not in the trigger's single min() hint — the reveal-grouping
+  precedent, which matters at a system break. Overlapping bumps take the
+  LARGEST live one, never the sum, so a fast run cannot inflate a
+  system. The two modes' DEVIATIONS add (`1 + follow + pop`), so either
+  alone is exactly what it was; both at 0 still touches no group. The
+  skip is per GROUP now, keyed like the reveal edges, since the bumps
+  differ per system. Same sparse `style.pulse` entry, three more keys,
+  **no schema bump**. **Measured on testscore** (`spikes/onset_pop.py`):
+  **the default notes_for_full of 6 is low** — a six-part score puts a
+  median of SEVEN heads on a beat, so 63 of 88 bumps (72 %) already hit
+  the ceiling and every jump is the same size; 8–16 is where the
+  strengths spread out on this fixture. The frame-to-frame jump IS the
+  amount every time (the rise is instant, by design). Gaps close about
+  half as fast as the follow half's, because only the firing system
+  grows — but 0.20 still overlaps, and the two amounts can reach 1.4
+  together. **`render/animate.py` was split first**, as its own commit
+  (421 → 363): the volume response's bookkeeping moved to
+  `render/gain_index.py`, the third half of the applier after reveal and
+  pulse. Checked end to end in the real window offscreen: 10 % in the
+  box, system 1 moving over 200 distinct sizes between 1.0 and 1.0996
+  while scrubbing, the resting systems at exactly 1.0, undo putting the
+  box and every system back. Unproven under a human's eye.
+- 2026-08-02 — **The whole page breathes with the recording**
+  (`beta/f-system-pulse`, UNMERGED): the branch is
+  `beta/system-groups` with `beta/f-follow-volume` merged in, which is
+  what the feature needed — the group items on one side, the live
+  loudness reading on the other. Every system now takes ONE size at
+  time t, `1 + Amount × how loud the recording is there`, each turning
+  around the centre of its own ink, so the page swells and shrinks as
+  one object. Deliberately not a property track: it is per FRAME, not
+  per element, so the evaluator, the compose table and the schema are
+  all untouched, and it reads the RAW loudness rather than the volume
+  response's gain — two features, one reading, a knob each. Its own
+  driver (`render/pulse_driver.py`, the reveal driver's shape), fed
+  from the recompute that already runs on both seams that can move it,
+  so live preview and export needed no wiring at all. Amount 0 means no
+  group is ever touched — the tests spy on `set_system_scale` itself,
+  so "never touched" means the call and not the change. **Measured on
+  testscore.wav** (`spikes/system_pulse.py`): at 5 % the biggest jump
+  between two frames is 2.4 % of the page, which breathes rather than
+  shakes — but two systems on page 2 close from 73.9 units to 8.7, and
+  at 10 % they OVERLAP by 57. **The 0–20 % range is too generous and
+  nothing detects a collision**; 5 % is about where a busy page runs
+  out of room, so the ceiling probably wants lowering. Checked end to
+  end in the real window offscreen: 5 % in the box, five systems at
+  1.05 with a recording loaded, exactly 1.0 without one, and undo puts
+  the box and every system back. Unproven under a human's eye.
+  No schema bump — the key rides the unreleased v11 beside
+  `style.volume` (Marcus's call). *(`render/animate.py` was split on
+  2026-08-02, above; `render/items.py` at 432 is still the next one.)*
+- 2026-08-01 — **Every system is one object now**
+  (`beta/system-groups`, UNMERGED, off `main`): a structural change with
+  no visible half. Each element whose system is known hangs off a
+  `SystemGroupItem` for its (page, system) (new `render/system_group.py`,
+  90 lines); stage texts and page furniture stay top-level. The group
+  paints nothing, is hit-transparent by the same empty `shape()` the
+  per-element parents already use, and carries NO transform until
+  something scales it — so every child keeps the scene coordinates it
+  had. The seam for the next step, with no caller: `set_system_scale`
+  turns the system around the centre of its own ink, frozen once at
+  build (a nudge must not drag that point), 1.0 exactly identity, and it
+  re-derives descendant reveal clips, because a scale springs the M3.2
+  cached-inverse trap from the other side. The one real risk was paint
+  order — synthesis appends slashes and stray ties after the systems
+  they belong to, so grouping moves that tail earlier relative to other
+  systems on the page. Measured: **21 pages over testscore, video_test
+  and complex1 render bit-identically** before and after
+  (`tools/render_page_png.py`, sha256). Goldens never moved (they pin
+  the core Layout, not the Qt scene), full suite green. Checked in the
+  real window offscreen: click-select still lands on the notehead and
+  tints it, a nudge still previews and commits 20/−10. Unproven under a
+  human's eye. **`render/items.py` is at 430 lines** — it was over the
+  ceiling before this and it is still the next split.
+- 2026-08-01 — **A swell follows the recording**
+  (`beta/f-follow-volume`, UNMERGED, off `beta/f-swell-effect`): a
+  "Follow volume" box in the Swell block, off by default. With it on a
+  note's size tracks how loud the recording is WHILE IT SOUNDS — a
+  crescendo grows it, a diminuendo shrinks it — instead of playing one
+  frozen average. The shape changes to suit: a plateau instead of a
+  hump, 10 % up / 75 % hold / 15 % back (Marcus's call), where the hold
+  is what the live volume plays on and the tail is the snap-back that
+  lands the note at exactly its engraved size as the next one arrives.
+  Follow forces the note-value stretch on — a fixed 0.8 s window cannot
+  track a whole note — and the panel shows that box checked and grayed
+  rather than lying about it (new `Check.forced_by`, five lines in the
+  shared knob module); Peak grays too, since the top is a stretch now,
+  not a point. Three layers, each one small: a third reading in
+  `intensity.py` (`intensity_at`, off the ~90 ms level of the pyramid
+  the cache already built, interpolated between bins — no new sums), one
+  more `Effect` flag beside `settle_to_note_value`, and one choice in
+  the applier between the live gain and the average. The flag comes out
+  of `derive_windows`, which already walks every effect of every item,
+  so the lookup is once per trigger per frame and the peak reference is
+  cached on the seams that move it. **`render/animate.py` went 409 →
+  367 first**, as its own commit: reveal was never trigger-driven, so
+  the index, the warning, the curves and the edge cache moved to
+  `render/reveal_driver.py`; it lands back at 398. No schema change, no
+  golden movement. Measured on testscore.wav
+  (`spikes/follow_volume.py`): across a dotted half the reading runs
+  0.40–0.71 and the biggest jump between two frames is 0.13, so it
+  breathes without flickering. Checked end to end in the real window
+  with the recording loaded — the note holds between 1.36× and 1.46×
+  and lands on exactly 1.0. Unproven under a human's eye.
+- 2026-08-01 — **A note swells over its own length**
+  (`beta/f-swell-effect`, UNMERGED, off `beta/f-pop-per-note`): a fifth
+  effect, and the first one about a note's LENGTH instead of its
+  arrival. The note is already on the page at its engraved size, grows
+  to 1.4× and eases back down to exactly where it started, timed to its
+  notated value — a whole note swells across its bar, an eighth is a
+  quick breath. Pure preset data (rule 6): one registry entry plus four
+  knobs, and nothing in the evaluator, the applier, the compose table or
+  the schema. Up on EASE_IN and down on EASE_OUT — gentle away from
+  rest, softly back to it — which puts a brief point at the top; both
+  ends land exactly on 1.0, so no note is ever left oversized.
+  `settle_to_note_value` defaults ON here, the only preset it does, and
+  the existing per-element timescale stretches the whole authored shape
+  at once, so the top keeps its place inside the note however long the
+  note is (Peak, shown as a per cent of the way through). The two
+  interactions asked about needed no code and are now pinned: pop+swell
+  multiplies into a dip-then-swell, and the volume response modulates a
+  swell like any other scale departure. Checked end to end through the
+  applier on testscore — a dotted half tops out at +0.75 s where an
+  eighth was home at +0.25 s. No schema change, no golden movement;
+  unproven under a human's eye in the running app.
+- 2026-08-01 — **Every notehead pops in its own place**
+  (`beta/f-pop-per-note`, UNMERGED, off `beta/f-volume-duration`): a
+  chord's heads used to share one pivot — the centre of the whole stack
+  — so the outer ones slid sideways as they grew. Each head now turns
+  around its OWN centre, and the ink hanging off it follows the head it
+  belongs to: a stem stands on the head at its foot, a flag and tremolo
+  strokes ride the stem, an accidental or dot takes the nearest head.
+  133 of testscore's 252 note groups are chords, so this is most of the
+  fixture. Two Marcus calls with it: **beams never scale** (they appear
+  with their note at engraved size — a beam belongs to several notes, so
+  any pivot is a compromise), and a **stem stops at its beam**. The stem
+  ceiling is a new pure module (`core/animation/stem_caps.py`), a
+  geometric stem↔beam join like the ledger dashes', carried on the item
+  as `scale_cap` and clamped in one `min()` in the applier. Measured:
+  the beam's far edge sits ~3% of a stem's length past its tip, so a
+  beamed stem thickens where a flagged one pops with its head; 101 of
+  252 stems are capped and none overshoots. The ceiling took two goes —
+  a first cut read the beam's BOX and stems grew straight through
+  tilted beams (28 of testscore's 38 beams are tilted), so it now reads
+  the beam's drawn outline at the stem's own x, across the stem's whole
+  width, through a new pure `svg_geom.path_outline`. The same pass found
+  a second one on video_test: a beam one staff up was close enough to
+  claim an unbeamed stem, so a beam is now this stem's only where the
+  tip is drawn INSIDE its ink. Checked over 8 fixtures, flat and with
+  staves hidden: 3244 capped stems, zero overshoot, zero beamed stem
+  without a ceiling. Applies to EVERY scale
+  effect, not just pop, so under drop the heads enter at 3× while the
+  beam sits still — deliberate, and it reverses the beam half of the
+  2026-07-31 ruling. Rendered rest vs peak and looked at it
+  (`spikes/pop_pivot.py`); unproven under a human's eye in the running
+  app. No schema change, no golden movement. **`render/items.py` is at
+  432 lines** — it was already over the ceiling before this, and it is
+  the next split.
+- 2026-08-01 — **The gain follows each note's own length**
+  (`beta/f-volume-duration`, UNMERGED, off `beta/f-volume-response`): the
+  volume response reads a note's whole notated duration instead of the
+  moment it starts, and the gain is per ELEMENT, not per trigger — two
+  notes on the same beat with different lengths now pop by different
+  amounts. Averaging is on ENERGY (mean of rms squared, then the square
+  root), one running total per call so each window costs a subtraction.
+  Ink with no notated length — dynamics, texts, rests — falls back to
+  the old attack reading through a zero-length window, so nothing loses
+  its gain. No schema change, no new settings, `peak_reference`
+  untouched. Split first as its own commit: the window arithmetic moved
+  to a pure `core/animation/windows.py` (`derive_windows` for the settle
+  stretches, `audio_windows` for these), which is what kept animate.py at
+  409 rather than 450 — still AT the ceiling, and the reveal-index wiring
+  in `__init__` is the next seam if it has to come down. `trigger_gains`
+  is gone; `window_gains` is the one None contract. Measured on
+  testscore.wav (`spikes/volume_response.py`, now prints both readings):
+  the average reads **0.80× the attack** over the 1159 elements with a
+  length, the spread widens at the quiet end (0.040–1.00 → 0.011–1.00),
+  and the busiest frame's largest pop goes 1.24 → 1.15 where it used to
+  go 1.24 → 1.34. So it is gentler AND leans quiet — recalibration is
+  Marcus's call after he looks at it.
+- 2026-08-01 — **Animation strength follows the recording**
+  (`beta/f-volume-response`, UNMERGED): a loud beat pops harder, a quiet
+  one more subtly. One derived scalar per trigger — the loudest rms bin
+  in a window that leans forward onto the attack (−25/+75 ms), over the
+  95th percentile of the bins that carry any sound. A percentile, not
+  the maximum, or one stray transient flattens every real note; only
+  sounding bins, or a silent tail makes quiet music read as loud
+  (`core/animation/intensity.py`). The gain scales the FINISHED state
+  about the compose table's neutral — SCALE and the two offsets only.
+  Opacity is never modulated and never will be: a quiet note still has
+  to become fully visible. Gain 1.0 returns the state by an early
+  return, not by arithmetic, so amount 0 is bit-identical to before.
+  Three settings (Amount, Quiet, Loud) in a sparse `style.volume`,
+  **schema v11** — no read gate, a missing key is the response off.
+  Live and export share one seam (`AnimationApplier.set_audio`), pinned
+  by a test that walks both. The live path reads the peaks on
+  `finished`, not `progress`: a half-decoded file's reference is wrong
+  and moves every tick. Panel first: `PresetKnobs` became `KnobGroup`
+  with a pluggable store, so the Volume response block rides the same
+  live fields instead of a second copy. Measured on testscore.wav:
+  intensity spreads 0.04–1.00 over 89 triggers, and the busiest frame's
+  largest pop goes 1.23 → 1.34 (`spikes/volume_response.py`). Checked
+  end to end in the real window offscreen; unproven under a human's eye
+  so far. **`render/animate.py` is at 415 lines** — over the ceiling,
+  and due a split before anything else lands in it.
 - 2026-08-01 — **Effects combine** (same branch): a note can drop AND
   fade, picked with a second "Combine with" dropdown. The stored intent
   stays ONE name — the parts joined by "+" — so no schema bump, and an

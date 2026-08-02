@@ -37,7 +37,8 @@ def build_scene_applier(bundle: OracleBundle,
     scenes = ScoreScenes(bundle.engraved.layout, stage,
                          ghost_opacity=style.floor_opacity)
     applier = AnimationApplier(scenes.items, bundle.schedule,
-                               bundle.tempo_map, style, bundle.tracks)
+                               bundle.tempo_map, style, bundle.tracks,
+                               scenes.system_groups.values())
     return scenes, applier
 
 

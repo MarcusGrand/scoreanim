@@ -96,8 +96,8 @@ class ElementItem(GroupItem):
     ``bbox``/``anchor`` (page == scene coordinates) and ``system`` come
     from the RenderedElement: the anchor is the element's own centre,
     the system keys the reveal edge that drives spanner clip-grow. What
-    a scale effect turns around is the separate ``scale_pivot``, which
-    a whole note shares — see `set_scale_pivot`.
+    a scale effect turns around is the separate ``scale_pivot`` — see
+    `set_scale_pivot` — and how far it may grow is ``scale_cap``.
 
     **This item is the one compositing point for how an element looks.**
     Its appearance is a function of independent INPUTS, each written by
@@ -144,11 +144,14 @@ class ElementItem(GroupItem):
         self.anchor = anchor
         self.system = system
         # Where a scale effect pivots, set by ScoreScenes from the pure
-        # policy (core/animation/scale_groups.py): a whole note scales
-        # about its noteheads' centre, so its stem, beam, accidental and
-        # dots move with it instead of coming apart. None means this ink
-        # never scales.
+        # policy (core/animation/scale_groups.py): each notehead turns
+        # around its own centre, and the ink hanging off it follows the
+        # head it belongs to. None means this ink never scales.
         self.scale_pivot: QPointF | None = None
+        # The largest scale this ink may take, from the same pure policy
+        # (core/animation/stem_caps.py): a stem stops at its beam. None
+        # means no ceiling.
+        self.scale_cap: float | None = None
         # -- composition inputs (see the class docstring) --
         self._color = QColor(DEFAULT_COLOR)      # authored, from the doc
         self._animated_opacity = 1.0             # from the evaluator
@@ -171,6 +174,11 @@ class ElementItem(GroupItem):
         if pivot is not None:
             self.setTransformOriginPoint(pivot)
 
+    def set_scale_cap(self, cap: float | None) -> None:
+        """The ceiling a scale effect is clamped to. A stem carries one
+        so it can swell without pushing through its beam."""
+        self.scale_cap = cap
+
     def add_path_child(self, item: QGraphicsPathItem,
                        fill_tracks: bool, stroke_tracks: bool,
                        ghost: bool = False) -> None:
@@ -192,6 +200,15 @@ class ElementItem(GroupItem):
         for child in self._reveal_children:
             changed |= child.set_clip_right(scene_x)
         return changed
+
+    def refresh_reveal_clip(self) -> None:
+        """Re-derive every reveal child's clip after this item's SCENE
+        transform changed — it moved, or a parent group scaled. See
+        `_recompose_pos` for why both halves are needed."""
+        for child in self._reveal_children:
+            child.invalidate_transform_cache()
+        if self._reveal_edge is not None:
+            self.set_reveal_edge(self._reveal_edge)
 
     def set_offset(self, dx: float, dy: float) -> None:
         """Apply the document's layout-override delta (M3.2). One of the
@@ -335,10 +352,7 @@ class ElementItem(GroupItem):
         if x == self.pos().x() and y == self.pos().y():
             return
         self.setPos(x, y)
-        for child in self._reveal_children:
-            child.invalidate_transform_cache()
-        if self._reveal_edge is not None:
-            self.set_reveal_edge(self._reveal_edge)
+        self.refresh_reveal_clip()
 
     def _recompose_opacity(self) -> None:
         self.setOpacity(self._paint_opacity())

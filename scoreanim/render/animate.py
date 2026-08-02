@@ -27,34 +27,48 @@ to setPos: the document's own nudge moves the item too, and the item
 adds the two. Unknown properties are skipped, so a preset from a newer
 build degrades instead of crashing.
 
+How strongly an element animates can follow the recording: ``set_audio``
+hands over the peak cache, and a gain scales the finished state away
+from rest. Which gain each element takes, and the bookkeeping behind it,
+is its own object (render/gain_index.py). Opacity is never modulated.
+With no audio, or the response off, there are no gains at all and every
+state is exactly what it was before the feature existed.
+
 Spanners (REVEALED_KINDS) are not trigger-driven at all: their clip
-edges follow the per-system reveal curves (core/animation/reveal.py).
-A revealed item whose (system, part) key matches NO reveal track can
-never receive an edge; since the FINDING-2 fix (2026-07-22) its clip
-children default to hidden (fail-safe — only the floor ghost shows)
-and construction warns loudly on stderr, one line per uncovered key
-(``uncovered_reveal_keys`` carries them for tests and callers).
+edges follow the per-system reveal curves, and that whole concern lives
+in render/reveal_driver.py.
+
+The whole page can breathe as well: one size per system at time t, each
+turning around the centre of its own ink. Two things move it — the
+recording's raw loudness (not the volume response's gain) and a bump on
+every beat, sized by how many noteheads land there. Both are per FRAME
+rather than per element, so they sit behind their own object
+(render/pulse_driver.py); the bump half needs no audio at all, and with
+both amounts at 0 no system is touched.
 
 Opacity floor overlap caveat (Phase 3, accepted): separate elements
 whose ink overlaps double-darken at floor opacity.
 """
 from __future__ import annotations
 
-import sys
 from bisect import bisect_left, bisect_right
-from collections import defaultdict
 from itertools import accumulate
-from typing import Mapping, Sequence
+from typing import Iterable, Mapping, Sequence
 
-from scoreanim.core.animation import (PRESETS, REVEALED_KINDS, Effect,
-                                      RevealCurve, StyleRules,
+from scoreanim.core.animation import (PRESETS, Effect, StyleRules,
                                       SystemRevealTrack, TriggerSchedule,
-                                      build_presets, combined_state,
-                                      effects_for, reveal_x)
+                                      build_bumps, build_presets,
+                                      combined_state, derive_windows,
+                                      effects_for, modulate_state, read_pulse)
+from scoreanim.core.audio import PeakCache
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
+from scoreanim.render.gain_index import GainIndex
 from scoreanim.render.items import ElementItem
 from scoreanim.render.properties import PROPERTY_APPLIERS
+from scoreanim.render.pulse_driver import PulseDriver
+from scoreanim.render.reveal_driver import RevealDriver
+from scoreanim.render.system_group import SystemGroupItem
 
 _BEFORE_EVERYTHING = float("-inf")
 
@@ -63,11 +77,21 @@ class AnimationApplier:
     def __init__(self, items: Mapping[ElementId, ElementItem],
                  schedule: TriggerSchedule, tempo_map: TempoMap,
                  style: StyleRules,
-                 reveal_tracks: Sequence[SystemRevealTrack] = ()) -> None:
+                 reveal_tracks: Sequence[SystemRevealTrack] = (),
+                 system_groups: Iterable[SystemGroupItem] = ()) -> None:
         self._schedule = schedule
         self._items_per_trigger: tuple[tuple[ElementItem, ...], ...] = tuple(
             tuple(items[eid] for eid in trig.element_ids if eid in items)
             for trig in schedule.triggers)
+        # The same rows as ids, for the pure timing arithmetic in core
+        # (core/animation/windows.py): it must never see a Qt item. An
+        # item with no identity contributes None, which every duration
+        # lookup treats as "no engraved duration".
+        self._element_ids_per_trigger: tuple[
+            tuple[ElementId | None, ...], ...] = tuple(
+            tuple(None if item.identity is None else item.identity.element_id
+                  for item in row)
+            for row in self._items_per_trigger)
         # Followed page/system is monotonic non-decreasing over the
         # time-ordered triggers (prefix-max): the view must never turn
         # backward while the clock advances. A per-trigger page/system is
@@ -92,39 +116,21 @@ class AnimationApplier:
         # swing-aware seam, so a bpm/swing change re-times every stretch
         self._tempo_map: TempoMap | None = None
         self._swing: tuple[SwingRegion, ...] = ()
+        # How strongly each element animates, if it follows the
+        # recording: one gain per ELEMENT and the audio state behind it,
+        # all in its own object (render/gain_index.py).
+        self._audio = GainIndex([trig.beats for trig in schedule.triggers],
+                                self._element_ids_per_trigger,
+                                schedule.duration_by_element)
 
         # Spanners reveal by clip-grow at their (system, part) reveal
         # edge — no triggers involved (REVEALED_KINDS left the
-        # schedule). Per-part edges: one part's tied group holds only
-        # that part's spanners (ruling A, 2026-07-12).
-        self._reveal_tracks = tuple(reveal_tracks)
-        track_keys = {(tr.system, tr.part) for tr in self._reveal_tracks}
-        by_key: dict[tuple, list[ElementItem]] = defaultdict(list)
-        uncovered: dict[tuple, list[ElementId]] = defaultdict(list)
-        for eid, item in items.items():
-            if (item.identity is None
-                    or item.identity.kind not in REVEALED_KINDS):
-                continue
-            key = (item.system, item.identity.part)
-            if item.system is not None and key in track_keys:
-                by_key[key].append(item)
-            else:
-                # no track can ever reach this item: its clip children
-                # stay at the hidden construction default (FINDING-2
-                # fix — fail safe, never silently visible from t=0)
-                uncovered[key].append(eid)
-        self._revealed_by_key: dict[tuple, tuple[ElementItem, ...]] = {
-            k: tuple(v) for k, v in by_key.items()}
-        self.uncovered_reveal_keys: dict[tuple, tuple[ElementId, ...]] = {
-            k: tuple(v) for k, v in uncovered.items()}
-        for (system, part), eids in sorted(
-                self.uncovered_reveal_keys.items(), key=repr):
-            print(f"reveal warning [curve-less-key]: system {system} "
-                  f"part {part} matches no reveal curve — "
-                  f"{len(eids)} spanner(s) stay hidden: "
-                  f"{', '.join(str(e) for e in eids)}", file=sys.stderr)
-        self._curves: tuple[RevealCurve, ...] = ()
-        self._last_edges: dict[tuple, float] = {}  # (system, part) → edge
+        # schedule), so the whole concern sits behind its own object.
+        self._reveal = RevealDriver(items, reveal_tracks)
+        # The page breathing with the recording: one size per frame for
+        # every system, so it has its own object too. With no groups it
+        # can never do anything (render/pulse_driver.py).
+        self._pulse = PulseDriver(system_groups)
 
         self._style = style
         self._resolve_effects()
@@ -144,9 +150,24 @@ class AnimationApplier:
         self._trigger_seconds = resolve_seconds(
             [trig.beats for trig in self._schedule.triggers],
             tempo_map, swing)
-        self._curves = tuple(track.resolve(tempo_map, swing)
-                             for track in self._reveal_tracks)
+        self._reveal.resolve(tempo_map, swing)
         self._recompute_windows()
+        self._recompute_audio()      # the triggers moved along the audio
+        self._recompute_bumps()      # and every onset bump moved with them
+        self.refresh(self._t)
+
+    def set_audio(self, peaks: PeakCache | None,
+                  offset_seconds: float) -> None:
+        """The recording the animation follows, and the audio time of
+        score beat 0. Both live playback and export come through here,
+        so an exported video pops exactly like the preview.
+
+        `None` is no audio: every element animates as authored. The
+        offset is what turns a trigger's score seconds into the audio
+        seconds the peak cache is indexed by."""
+        if not self._audio.set_audio(peaks, offset_seconds):
+            return
+        self._recompute_audio()
         self.refresh(self._t)
 
     def set_style(self, style: StyleRules) -> None:
@@ -157,6 +178,8 @@ class AnimationApplier:
             return
         self._style = style
         self._resolve_effects()
+        self._recompute_audio()      # the volume settings may have moved
+        self._recompute_bumps()      # and so may the pulse settings
         # an element whose effects no longer carry a SCALE track would
         # otherwise keep a stale mid-pop transform, and one that lost
         # its offset tracks would be left standing wherever its slide
@@ -191,71 +214,61 @@ class AnimationApplier:
             for items in self._items_per_trigger)
         self._recompute_windows()
 
+    def _recompute_audio(self) -> None:
+        """Everything the recording drives, re-read from ALL THREE seams
+        that can move it: the audio (set_audio), the settings
+        (set_style), and the seconds axis itself (set_timing) — a tempo
+        edit slides every element to a different stretch of the
+        recording.
+
+        Two consumers, one call: the per-element gains
+        (render/gain_index.py) and the page's own breathing, which reads
+        the same recording through settings of its own. That is why live
+        preview and export needed no wiring of their own — both already
+        come through these seams."""
+        self._audio.recompute(self._trigger_seconds, self._tempo_map,
+                              self._swing, self._style.volume)
+        self._pulse.configure(self._audio.peaks, self._audio.offset,
+                              self._audio.reference,
+                              read_pulse(self._style.pulse))
+
+    def _recompute_bumps(self) -> None:
+        """Where every system's onset bump sits on the seconds axis, and
+        how hard it hits. No audio in it at all — the schedule is the
+        whole input — so it is rebuilt from the two seams that can move
+        it: set_timing (a tempo edit moves every bump) and set_style (the
+        settings the strengths are measured against).
+
+        Each item's OWN system goes to core, never the trigger's single
+        system hint: around a system break one beat's ink straddles two
+        systems, and both should bump."""
+        self._pulse.set_bumps(build_bumps(
+            self._trigger_seconds,
+            [[(None if item.identity is None else item.identity.kind,
+               item.system) for item in row]
+             for row in self._items_per_trigger],
+            read_pulse(self._style.pulse)))
+
     def _recompute_windows(self) -> None:
         """Per-component timescales and per-trigger effective windows
         (M4.6), recomputed from BOTH configuration seams: set_timing
         (tempo/swing moved the seconds axis) and _resolve_effects (params
-        or effect assignments moved). A note-value effect's timescale is
-        its element's engraved duration in seconds over the effect's
-        authored duration (F7 — guarded dur > 0 both sides, absent
-        entry → 1.0); the engraved end resolves through the ONE
-        swing-aware seam in a single batched resolve_seconds call. Every
-        one of these is per COMPONENT: an element animating with two
-        effects at once may stretch one of them to its note value and
-        run the other at its authored speed. A trigger's window is
-        max(shift + duration × timescale) over every component of every
-        item; `lead` is the F3 forward bound (max positive lead of any
-        negatively shifted component). Before timing exists
-        (construction) stretches park at 1.0 — set_timing recomputes
-        immediately."""
-        triggers = self._schedule.triggers
-        durs = self._schedule.duration_by_element
-        stretch: dict[tuple[int, int, int], float] = {}
-        if self._tempo_map is not None and durs:
-            refs: list[tuple[int, int, int]] = []
-            end_beats: list[float] = []
-            for i, trig in enumerate(triggers):
-                for j, (item, effects) in enumerate(
-                        zip(self._items_per_trigger[i],
-                            self._effects_per_trigger[i])):
-                    for k, effect in enumerate(effects):
-                        if (not effect.settle_to_note_value
-                                or effect.duration <= 0.0
-                                or item.identity is None):
-                            continue
-                        dur_beats = durs.get(item.identity.element_id, 0.0)
-                        if dur_beats > 0.0:
-                            refs.append((i, j, k))
-                            end_beats.append(trig.beats + dur_beats)
-            if refs:
-                ends_s = resolve_seconds(end_beats, self._tempo_map,
-                                         self._swing)
-                for (i, j, k), end_s in zip(refs, ends_s):
-                    dur_s = end_s - self._trigger_seconds[i]
-                    if dur_s > 0.0:
-                        stretch[(i, j, k)] = dur_s
-        timescales: list[tuple[tuple[float, ...], ...]] = []
-        windows: list[float] = []
-        lead = 0.0
-        for i in range(len(triggers)):
-            row: list[tuple[float, ...]] = []
-            window = 0.0
-            for j, effects in enumerate(self._effects_per_trigger[i]):
-                scales: list[float] = []
-                for k, effect in enumerate(effects):
-                    dur_s = stretch.get((i, j, k))
-                    ts = dur_s / effect.duration if dur_s is not None else 1.0
-                    scales.append(ts)
-                    window = max(window,
-                                 effect.trigger_shift + effect.duration * ts)
-                    lead = max(lead, -effect.trigger_shift)
-                row.append(tuple(scales))
-            timescales.append(tuple(row))
-            windows.append(window)
-        self._timescales_per_trigger = tuple(timescales)
-        self._durations = tuple(windows)
-        self._d_max = max(windows, default=0.0)
-        self._lead = max(0.0, lead)
+        or effect assignments moved). The arithmetic itself is pure and
+        lives in core (core/animation/windows.py); all this does is hand
+        it element ids instead of items and unpack the answer."""
+        plan = derive_windows(
+            [trig.beats for trig in self._schedule.triggers],
+            self._trigger_seconds,
+            self._element_ids_per_trigger,
+            self._effects_per_trigger,
+            self._schedule.duration_by_element,
+            self._tempo_map,
+            self._swing)
+        self._timescales_per_trigger = plan.timescales_per_trigger
+        self._follows = plan.follows_per_trigger
+        self._durations = plan.durations
+        self._d_max = plan.d_max
+        self._lead = plan.lead
 
     # -- application ---------------------------------------------------------
 
@@ -273,7 +286,9 @@ class AnimationApplier:
         self._cursor = idx
         self._t = t_score_seconds
         changed += self._apply_window(t_score_seconds, t_prev)
-        changed += self._apply_reveal(t_score_seconds)
+        changed += self._reveal.apply(t_score_seconds,
+                                      self._style.reveal_mode)
+        changed += self._pulse.apply(t_score_seconds)
         return changed
 
     def refresh(self, t_score_seconds: float) -> None:
@@ -282,8 +297,16 @@ class AnimationApplier:
             self._apply_trigger(i, t_score_seconds)
         self._cursor = bisect_right(self._trigger_seconds, t_score_seconds)
         self._t = t_score_seconds
-        self._last_edges.clear()
-        self._apply_reveal(t_score_seconds)
+        self._reveal.invalidate()
+        self._reveal.apply(t_score_seconds, self._style.reveal_mode)
+        self._pulse.invalidate()
+        self._pulse.apply(t_score_seconds)
+
+    @property
+    def uncovered_reveal_keys(self) -> dict[tuple, tuple[ElementId, ...]]:
+        """Revealed items no curve can ever reach — they stay hidden.
+        Carried for tests and callers (reveal_driver.py)."""
+        return self._reveal.uncovered_keys
 
     def current_page(self) -> int:
         """Page of the last crossed trigger (1 before anything fires)."""
@@ -299,13 +322,30 @@ class AnimationApplier:
 
     def _apply_trigger(self, i: int, t: float) -> int:
         trigger_s = self._trigger_seconds[i]
+        gains = self._audio.row(i)
+        # How loud the recording is at THIS moment, for the elements
+        # here that follow it. One lookup per trigger, not per element:
+        # every following element in the row reads the same instant.
+        live = None
+        if gains is not None and any(self._follows[i]):
+            live = self._audio.live_gain(t)
         changed = 0
-        for item, effects, timescales in zip(
+        for j, (item, effects, timescales) in enumerate(zip(
                 self._items_per_trigger[i],
                 self._effects_per_trigger[i],
-                self._timescales_per_trigger[i]):
+                self._timescales_per_trigger[i])):
             state = combined_state(trigger_s, tuple(zip(effects, timescales)),
                                    t)
+            # The volume response scales the FINISHED state, once, so an
+            # element running two effects at a time is modulated as one
+            # thing (core/animation/compose.py). A following element
+            # takes the live reading; every other one keeps the average
+            # over its own note.
+            if gains is not None:
+                state = modulate_state(
+                    state,
+                    live if live is not None and self._follows[i][j]
+                    else gains[j])
             for prop, value in state.items():
                 applier = PROPERTY_APPLIERS.get(prop)
                 if applier is not None:
@@ -341,18 +381,4 @@ class AnimationApplier:
                               max(t, t_prev) + self._lead)
             for i in range(self._cursor, hi):
                 changed += self._apply_trigger(i, t)
-        return changed
-
-    def _apply_reveal(self, t_score_seconds: float) -> int:
-        changed = 0
-        mode = self._style.reveal_mode
-        for curve in self._curves:
-            key = (curve.system, curve.part)
-            edge = reveal_x(curve, t_score_seconds, mode)
-            if self._last_edges.get(key) == edge:
-                continue
-            self._last_edges[key] = edge
-            for item in self._revealed_by_key.get(key, ()):
-                if item.set_reveal_edge(edge):
-                    changed += 1
         return changed

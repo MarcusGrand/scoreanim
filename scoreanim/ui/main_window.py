@@ -88,6 +88,14 @@ class MainWindow(QMainWindow):
             lambda: self.app_state.set_peaks(self.peaks.cache))
         self.peaks.finished.connect(
             lambda: self.app_state.set_peaks(self.peaks.cache))
+        # The animation reads the peaks only once the whole file is
+        # decoded, unlike the waveform, which draws every partial
+        # snapshot. A half-decoded file gives a loudness reference that
+        # is simply wrong and moves on every tick, and each move would
+        # cost a full re-apply over every trigger. Decoding is fast
+        # (~0.03 s for 35 s), so nothing waits on this in practice.
+        self.peaks.finished.connect(
+            lambda: self.playback.set_peaks(self.peaks.cache))
         # file/project/export menu handlers + file-session state (M1.9
         # split); connects peaks.failed itself
         self.files = FileActions(self)

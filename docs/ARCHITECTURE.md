@@ -515,8 +515,8 @@ class Effect:
                                         # own engraved duration
 
 # Open property set; the evaluator never branches on a property.
-# Applied today: opacity (ElementItem parent), scale (around the stored
-# anchor, restricted render-side to anchored kinds). REVISED from the
+# Applied today: opacity (ElementItem parent), scale (around a pivot and
+# under a ceiling, both pure policy — see below). REVISED from the
 # original sketch (Phase 5 as built): reveal is NOT a property track —
 # it is the clip edge driven by reveal_x below — and color is static
 # tint (StyleRules), not an animated track. offset/glow remain unbuilt.
@@ -553,6 +553,33 @@ class Effect:
 # scale multiplies, the two offsets add. A part that carries no track
 # for a property contributes that property's neutral. Every operation
 # is commutative, so the order of the parts never matters.
+
+# What a SCALE turns around, and how far it may go (2026-08-01, revising
+# the 2026-07-31 "a scale moves the whole note" ruling). Both are pure
+# policy, decided once per load and carried on the item; the applier
+# only applies (render/properties.py).
+#   core/animation/scale_groups.py — the pivot. Every notehead swells
+#     about its OWN centre, so it grows where it was engraved; a chord's
+#     heads used to share one point and slid sideways as they grew. The
+#     ink hanging off a note follows the head it belongs to: a stem
+#     stands on the head at its foot, a flag and tremolo strokes ride
+#     the stem, an accidental or dot turns around the nearest head.
+#     BEAMS and LEDGER LINES never scale — a beam belongs to several
+#     notes at once, so any pivot for it is a compromise. No pivot, no
+#     scale, which is also how a cross-staff beam with no head in its
+#     group stays out of it.
+#   core/animation/stem_caps.py — the ceiling. A stem grows towards its
+#     beam, and the beam no longer moves, so an unchecked stem would
+#     push through it. Each beamed stem carries the largest scale that
+#     keeps its tip inside the beam (a geometric join, like ledger
+#     dashes finding their note). Measured on testscore, that leaves
+#     about 3% of length, so a beamed stem thickens where a flagged one
+#     pops with its head. Two traps, both paid for once (2026-08-01):
+#     a beam is measured on its drawn OUTLINE at the stem's own x, never
+#     by its box — most beams are tilted, and a tilted box reaches far
+#     above its own ink at the low end of the slant; and a beam is this
+#     stem's only where the stem's tip is drawn INSIDE its ink, because
+#     a looser test let the beam one staff up claim an unbeamed stem.
 ```
 
 ### Reveal / playhead-x unification (revised 2026-07-12, rulings A–C)
@@ -969,6 +996,59 @@ re-touching. "Clear overrides on selection" must be cheap.
   pre-rendered halo item whose opacity animates. Spike before promising
   glow on tutti textures.
 - Scale/pop transforms use the element's stored `anchor` as origin.
+- **The scene has one parent per system.** Every element whose `system`
+  is known hangs off a `SystemGroupItem` for its (page, system)
+  (`render/system_group.py`); ink that belongs to no system — stage
+  texts, page furniture — stays a direct child of the scene. The group
+  paints nothing, is hit-transparent (the same empty `shape()` that
+  keeps per-element parents out of selection's candidate list), sits at
+  the origin, and carries **no transform at all** until somebody scales
+  it, so every child keeps the scene coordinates it had before the
+  parent existed. `set_system_scale` turns the system around the centre
+  of its own ink, frozen once at build time — nudges and animation both
+  run later and must not drag that point — and 1.0 is exactly identity.
+  A scale changes every descendant's scene transform, so it re-derives
+  their reveal clips through `ElementItem.refresh_reveal_clip` (the M3.2
+  trap below, reached the other way).
+  *Paint-order caveat:* elements are mostly but not entirely contiguous
+  by system — synthesis appends slashes and stray ties at the end of
+  `layout.elements` — so grouping moves that tail earlier relative to
+  OTHER systems' ink on the same page. Order within a system is exact.
+  Measured invisible: 21 pages over testscore, video_test and complex1
+  render bit-identically (`tools/render_page_png.py`, 2026-08-01).
+- **The system pulse is the one thing that scales those groups**
+  (2026-08-02, `render/pulse_driver.py`). A size per system per FRAME,
+  and two independent things move it. Deliberately NOT a property track
+  either way: it is not per element, not per trigger, and never enters
+  `element_state`, so the evaluator and the compose table are untouched.
+  - *Follow volume*: `amount × intensity_at(recording, t + offset)`, one
+    number for the whole page, so it breathes as one object. It reads
+    the RAW loudness, not the volume response's quiet-to-loud gain —
+    two features, two knobs, one reading.
+  - *Onset pop*: at every beat the system the notes land in jumps to
+    `pop_amount × strength` and eases linearly back to nothing over
+    `settle` — the note pop's own shape, so the two read as one gesture.
+    `strength = heads / notes_for_full`, capped at 1, counting HEAD_KINDS
+    only (a stem or dot is ink hanging off a head already counted) and
+    counting each head in the system it is DRAWN in, never in the
+    trigger's single min()-aggregated system hint. Overlapping bumps take
+    the LARGEST live one, never the sum, so a fast run cannot inflate a
+    system. Evaluation is a bisect over that system's trigger times
+    bounded by `settle`. **No audio anywhere in it** — the schedule is
+    the whole input.
+  - The two DEVIATIONS add: `1 + follow + pop`. Both at 0 means no group
+    is ever touched, so the page is bit-for-bit what it was.
+  - The applier holds the driver beside the reveal driver and feeds it
+    from `_recompute_audio` (the recording half) and `_recompute_bumps`
+    (the schedule half), both of which already run on every seam that can
+    move them — which is why live preview and export need no wiring of
+    their own. The unchanged-value skip is per GROUP, keyed like the
+    reveal edges, because the bumps differ per system.
+  - Nothing checks whether two systems meet: the 0–0.2 clamps are the
+    only guard, and they are **not tight enough** — at 0.10 two systems
+    already overlap on testscore page 2 (`spikes/system_pulse.py`;
+    `spikes/onset_pop.py` for the pop half, where a gap closes from one
+    side only and 0.10 leaves 6.2 units).
 
 ## 7. UI structure
 

@@ -44,15 +44,30 @@ def test_registry_covers_every_element_and_stage_text(scenes, engraved) -> None:
     assert set(scenes.items) == layout_ids | stage_ids
 
 
-def test_per_page_top_level_item_counts(scenes, engraved) -> None:
+def test_per_page_element_and_top_level_counts(scenes, engraved) -> None:
+    """Every element on the page is in the page's scene exactly once,
+    and only the scaffold is top-level: the white page rect, one group
+    per system, and the stage texts (which belong to no system)."""
+    from scoreanim.render.items import ElementItem
+    from scoreanim.render.system_group import SystemGroupItem
+
     stage = _stage(engraved)
     for page in range(1, scenes.page_count + 1):
-        top_level = [i for i in scenes.scene_for_page(page).items()
-                     if i.parentItem() is None]
+        items = scenes.scene_for_page(page).items()
+        elements = [i for i in items if isinstance(i, ElementItem)]
         expected = (sum(1 for e in engraved.layout.elements if e.page == page)
-                    + sum(1 for t in stage.texts if t.page == page)
-                    + 1)                        # the white page rect
-        assert len(top_level) == expected
+                    + sum(1 for t in stage.texts if t.page == page))
+        assert len(elements) == expected
+
+        top_level = [i for i in items if i.parentItem() is None]
+        systems = {e.system for e in engraved.layout.elements
+                   if e.page == page and e.system is not None}
+        assert len([i for i in top_level
+                    if isinstance(i, SystemGroupItem)]) == len(systems)
+        assert len(top_level) == (len(systems)
+                                  + sum(1 for t in stage.texts
+                                        if t.page == page)
+                                  + 1)          # the white page rect
 
 
 def test_qpainter_path_bbox_matches_core_path_bbox(engraved) -> None:

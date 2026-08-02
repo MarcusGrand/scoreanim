@@ -25,6 +25,7 @@ from scoreanim.core.engraving.verovio import (  # noqa: E402
 from scoreanim.core.project.stage_config import (  # noqa: E402
     default_stage_config, page_content_top)
 from scoreanim.core.score.identity import PartId  # noqa: E402
+from scoreanim.render.items import ElementItem  # noqa: E402
 from scoreanim.render.scene import ScoreScenes  # noqa: E402
 
 TINT = QColor("#cc2222")
@@ -73,7 +74,9 @@ def main() -> None:
         painter.end()
         out = outdir / f"page-{page}.png"
         image.save(str(out))
-        n = sum(1 for i in scene.items() if i.parentItem() is None) - 1
+        # elements, not top-level items: each one now sits under its
+        # system's group parent (render/system_group.py)
+        n = sum(1 for i in scene.items() if isinstance(i, ElementItem))
         print(f"wrote {out} ({n} elements)")
 
 

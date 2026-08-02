@@ -2,8 +2,8 @@
 
 Document-wide effect controls: the Effect dropdown (enumerates the
 preset registry, sets `default_effect`), a second dropdown for an effect
-to run WITH it, each knobbed preset's own block of options, plus Reset,
-Floor opacity and Sweep. Two effects at once are stored as ONE name,
+to run WITH it, each knobbed preset's own block of options, the Volume
+response block, plus Reset, Floor opacity and Sweep. Two effects at once are stored as ONE name,
 "drop+fade" — the document is unchanged, and a build that does not know
 one of the parts still runs the other. Every control commits
 exactly ONE command per user gesture. The number fields preview as you
@@ -13,8 +13,9 @@ session still lands as one undo entry. The checkboxes and the dropdown
 have no half-typed state, so they commit outright. `sync_from_document`
 resyncs and never re-executes.
 
-A preset's knobs are DATA here — one entry in `_BLOCKS`, built and run
-by `PresetKnobs` (`ui/panels/effect_knobs.py`). This panel owns what
+A block's knobs are DATA here — one entry in `_BLOCKS`, or a list of
+its own in `ui/panels/volume_knobs.py` / `ui/panels/pulse_knobs.py`,
+built and run by `KnobGroup` (`ui/panels/effect_knobs.py`). This panel owns what
 belongs to no single preset: which effect is the default, which blocks
 are on screen, Reset, and the two document-wide controls. Every effect
 says "Duration" for how long it runs, and "Entire note value" sits on
@@ -42,7 +43,9 @@ from scoreanim.core.project import (Command, ProjectDoc, ResetEffectSettings,
                                     SetRevealMode)
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
-from scoreanim.ui.panels.effect_knobs import Check, Number, PresetKnobs
+from scoreanim.ui.panels.effect_knobs import (Check, EffectParamStore,
+                                              KnobGroup, Number)
+from scoreanim.ui.panels import pulse_knobs, volume_knobs
 
 # The "no second effect" entry in the Combine with dropdown. Not a
 # preset name, and never stored: the document holds the first effect's
@@ -117,6 +120,36 @@ _BLOCKS: tuple[tuple[str, str, tuple], ...] = (
               "A small settle as the note arrives, instead of coming "
               "straight to rest"),
     )),
+    ("swell", "Swell", (
+        Number("Amplitude", "size", 1.4, 0.1, 10.0, 0.05,
+               "How many times its engraved size the note reaches at "
+               "the top of the swell (1.0 = no growth)"),
+        # Per cent in the UI, a fraction in the document: pop's Peak
+        # offset precedent, where the box shows milliseconds and the
+        # document holds seconds.
+        Number("Peak", "peak", 0.5, 5, 95, 5,
+               "How far through the swell the top lands — 50 % is "
+               "halfway, less is an early top, more a late one. "
+               "Inactive while 'Follow volume' is on: the top is then a "
+               "stretch, not a point",
+               suffix=" %", factor=100.0, integer=True,
+               grayed_by="follow"),
+        Number("Duration", "duration", 0.8, 0.01, 5.0, 0.05,
+               "Seconds the whole swell takes — inactive while 'Entire "
+               "note value' is on (each note then swells over its own "
+               "length)",
+               suffix=" s", grayed_by="note_value"),
+        Check("Entire note value", "note_value", True,
+              "Use each note's own length as the duration — a whole "
+              "note swells across its bar, an eighth is a quick breath",
+              beside="duration", forced_by="follow"),
+        Check("Follow volume", "follow", False,
+              "While the note sounds, its size tracks how loud the "
+              "recording is: a crescendo grows it, a diminuendo shrinks "
+              "it, and it eases back to its engraved size at the end. "
+              "Needs a recording loaded and the Volume response turned "
+              "up"),
+    )),
 )
 
 
@@ -169,9 +202,9 @@ class EffectsPanel(QWidget):
         self._reset_button = QPushButton("Reset")
         self._reset_button.setToolTip(
             "Restore the effect settings to their defaults — the effect "
-            "back to appear, and every effect's own options back where "
-            "they started — in one undo step; Floor opacity and Sweep "
-            "are untouched")
+            "back to appear, every effect's own options back where they "
+            "started, and the volume response and system pulse off — in "
+            "one undo step; Floor opacity and Sweep are untouched")
         self._reset_button.clicked.connect(self._commit_reset)
 
         self._floor = LiveField(self._floor_spin, app_state, self._floor_edit,
@@ -184,9 +217,20 @@ class EffectsPanel(QWidget):
         # Each preset's block builds its own rows here, so it can be
         # shown and hidden as a unit.
         self.blocks = {
-            preset: PresetKnobs(preset, title, knobs, app_state, self._form,
-                                self._update_display)
+            preset: KnobGroup(EffectParamStore(preset), title, knobs,
+                              app_state, self._form, self._update_display)
             for preset, title, knobs in _BLOCKS}
+        # Always on screen, unlike a preset's block: it is not an effect,
+        # so "show the options of the effect you are using" says nothing
+        # about it.
+        self.volume = KnobGroup(volume_knobs.VolumeStore(), volume_knobs.TITLE,
+                                volume_knobs.KNOBS, app_state, self._form,
+                                self._update_display)
+        # Its neighbour, and always on screen for the same reason: the
+        # recording moves one note here and the whole page there.
+        self.pulse = KnobGroup(pulse_knobs.PulseStore(), pulse_knobs.TITLE,
+                               pulse_knobs.KNOBS, app_state, self._form,
+                               self._update_display)
         self._form.addRow(self._reset_button)
         self._form.addRow("Floor opacity", self._floor_spin)
         self._form.addRow(self._sweep_box)
@@ -194,7 +238,8 @@ class EffectsPanel(QWidget):
         # the tuple is what holds the fields alive, and the test scans it
         self.live_fields = tuple(field for block in self.blocks.values()
                                  for field in block.fields.values()) \
-            + (self._floor,)
+            + tuple(self.volume.fields.values()) \
+            + tuple(self.pulse.fields.values()) + (self._floor,)
         # Start on the document, so every control shows its default from
         # the first frame — a knob that defaults to ON (Bounce) has to
         # open checked, not wait for the first resync.
@@ -235,6 +280,11 @@ class EffectsPanel(QWidget):
         for preset, block in self.blocks.items():
             block.set_visible(self._form, self._in_use(doc, preset))
             block.update_display(doc)
+        # Quiet and Loud describe a range nothing is being read onto
+        # while Amount is 0, so they gray out — the same "an option
+        # another option renders obsolete" rule, from the other side.
+        self.volume.update_display(doc)
+        self.pulse.update_display(doc)
         self._reset_button.setEnabled(not self._at_defaults(doc))
 
     def _fill_combine(self, primary: str,
@@ -255,9 +305,12 @@ class EffectsPanel(QWidget):
         self._combine_combo.blockSignals(False)
 
     def _at_defaults(self, doc: ProjectDoc) -> bool:
-        """Nothing for Reset to do: no document default, and no stored
-        params for any preset with knobs here."""
+        """Nothing for Reset to do: no document default, no stored params
+        for any preset with knobs here, no volume response and no
+        system pulse."""
         return (doc.style.default_effect is None
+                and not self.volume.has_params(doc)
+                and not self.pulse.has_params(doc)
                 and not any(block.has_params(doc)
                             for block in self.blocks.values()))
 
@@ -283,6 +336,8 @@ class EffectsPanel(QWidget):
 
         for block in self.blocks.values():
             block.resync(doc)
+        self.volume.resync(doc)
+        self.pulse.resync(doc)
 
         self._floor.resync(doc.style.floor_opacity)
         self._sweep_box.blockSignals(True)

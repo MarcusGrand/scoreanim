@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsRectItem,
 
 from scoreanim.core.animation.reveal import REVEALED_KINDS
 from scoreanim.core.animation.scale_groups import scale_pivots
+from scoreanim.core.animation.stem_caps import stem_scale_caps
 from scoreanim.core.animation.style import StyleRules, takes_part_color
 from scoreanim.core.engraving.types import Layout, PathPrimitive
 from scoreanim.core.project.document import LayoutOverride
@@ -33,6 +34,7 @@ from scoreanim.render.items import (DEFAULT_COLOR, ElementItem,
                                     RevealPathItem, fill_tracks_color,
                                     svg_pen)
 from scoreanim.render.qpath import to_qpainter_path, to_qtransform
+from scoreanim.render.system_group import SystemGroupItem
 from scoreanim.render.text import add_stage_text, add_text_rows
 
 
@@ -90,6 +92,10 @@ class ScoreScenes:
         # kept by reference so export can hide the paper for
         # transparent-background frames (Phase 6, ruling R1)
         self.page_rects: list[QGraphicsRectItem] = []
+        # One parent per (page, system), so a whole system can be moved
+        # or scaled as one object. Built lazily below, in first-appearance
+        # order, and inert until something scales one.
+        self.system_groups: dict[tuple[int, int], SystemGroupItem] = {}
         for geo in layout.pages:
             scene = QGraphicsScene(0, 0, geo.width, geo.height)
             # Python-constructed (not scene.addRect): a retained wrapper
@@ -102,10 +108,13 @@ class ScoreScenes:
             self.page_rects.append(rect)
             self.scenes.append(scene)
 
-        # Where each element's scale effect pivots — a whole note turns
-        # around its noteheads' centre, so it grows and shrinks as one
-        # object (core/animation/scale_groups.py owns that policy).
+        # Where each element's scale effect pivots — every notehead turns
+        # around its own centre, and the ink hanging off it follows the
+        # head it belongs to (core/animation/scale_groups.py owns that
+        # policy) — and how far it may grow, which is what stops a stem
+        # at its beam (core/animation/stem_caps.py).
         pivots = scale_pivots(layout)
+        caps = stem_scale_caps(layout)
 
         for el in layout.elements:
             item = ElementItem(
@@ -116,6 +125,7 @@ class ScoreScenes:
             pivot = pivots.get(el.identity.element_id)
             item.set_scale_pivot(QPointF(pivot.x, pivot.y)
                                  if pivot is not None else None)
+            item.set_scale_cap(caps.get(el.identity.element_id))
             item.set_ghost_opacity(self._ghost_opacity)
             # Spanners reveal by clip-grow: each path gets a dimmed ghost
             # of the whole curve underneath the clipped full-opacity copy
@@ -127,17 +137,42 @@ class ScoreScenes:
                 self._add_path(item, prim, reveal=reveal)
             for prim in el.glyph.texts:
                 add_text_rows(item, prim)
-            self.scenes[el.page - 1].addItem(item)
+            group = self._system_group(el.page, el.system)
+            if group is None:
+                self.scenes[el.page - 1].addItem(item)
+            else:
+                item.setParentItem(group)
             if el.identity.element_id in self.items:
                 raise ValueError(f"duplicate id {el.identity.element_id}")
             item.element_key = el.identity.element_id
             self.items[el.identity.element_id] = item
+
+        for group in self.system_groups.values():
+            group.freeze_ink_rect()
 
         # Stage-text items are tracked (id, page) so set_stage_texts can
         # swap just this layer — the engraved items never rebuild short
         # of a re-engrave.
         self._stage_text_pages: dict[ElementId, int] = {}
         self._add_stage_texts(stage.texts)
+
+    def _system_group(self, page: int,
+                      system: int | None) -> SystemGroupItem | None:
+        """The parent for one system's ink, made on first use. None for
+        ink that belongs to no system — page furniture and titles stay
+        top-level, exactly where they were.
+
+        Made on first use rather than all up front so the groups enter
+        their scene in the order their systems first appear, which is as
+        close to the old flat insertion order as a tree can get."""
+        if system is None:
+            return None
+        key = (page, system)
+        group = self.system_groups.get(key)
+        if group is None:
+            group = self.system_groups[key] = SystemGroupItem(page, system)
+            self.scenes[page - 1].addItem(group)
+        return group
 
     def _add_stage_texts(self,
                          texts: tuple[StageTextElement, ...]) -> None:
