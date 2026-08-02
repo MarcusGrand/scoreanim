@@ -41,11 +41,15 @@ GLOW_SWELL = "swell"
 
 # Defaults for the document's sparse effect_params["glow"].
 GLOW_COLOR = "#ffcc66"      # a warm gold
-# Scene units. Measured 2026-08-02 (spikes/glow.py): the halo's visible
-# reach is about HALF the blur radius, so 36 puts about one notehead's
-# height of light around the ink — a staff space is 18 units on
-# testscore, and a notehead is about one staff space tall.
-GLOW_RADIUS = 36.0
+# Scene units, and about a notehead's height: one is 18 units tall on
+# testscore. Measured on that fixture (spikes/glow.py), a wider radius
+# spreads the same light thinner, so the halo goes further but dims:
+# at 18 / 24 / 36 / 60 it reaches 7 / 8 / 8 / 11 units past the ink and
+# changes the brightest pixel it touches by 74 / 66 / 49 / 28 of 255.
+# Rendered all of them on a dark page and looked: 18 is tight enough to
+# read as a bright rim on the ink rather than a halo around it, and 36
+# is noticeably foggy. 24 is the halo.
+GLOW_RADIUS = 24.0
 GLOW_STRENGTH = 1.0
 GLOW_SHAPE = GLOW_POP
 GLOW_S = 0.4

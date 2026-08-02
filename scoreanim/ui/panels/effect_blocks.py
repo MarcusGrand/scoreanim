@@ -121,8 +121,9 @@ BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (
               "The colour of the halo around a sounding note",
               title="Glow colour"),
         Number("Radius", "radius", GLOW_RADIUS, 0.0, 500.0, 4.0,
-               "How far the halo reaches, in page units — 36 is about a "
-               "notehead's height of light around the ink"),
+               "How far the halo reaches, in page units — a notehead is "
+               "about 18. A wider radius spreads the same light "
+               "thinner, so it reaches further but dims"),
         Number("Strength", "strength", 1.0, 0.0, 1.0, 0.05,
                "How brightly the halo burns at its brightest (0 = no "
                "glow at all)"),

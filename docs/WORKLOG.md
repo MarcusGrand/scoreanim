@@ -1,6 +1,7 @@
 # ScoreAnim — Worklog
 
-**NOW:** everything is on `main` (`6d89f1b`, no tag).
+**NOW:** everything is on `main` (`6d89f1b`, no tag), plus
+`beta/f-glow-effect` waiting for Marcus's eye.
 `beta/f-page-colors` merged on 2026-08-02, on top of `beta/f-system-pulse`
 earlier the same day — which itself brought five branches: the volume
 response, the swell effect, per-notehead pop pivots, the system group
@@ -21,8 +22,10 @@ size. Marcus's call on both; he has said he wants to tweak them.
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
 
-`render/items.py` was split on 2026-08-02 and is at 396 lines. The next
-one over the ceiling is `core/project/serialize.py` at 456.
+`render/items.py` was split twice on 2026-08-02 and is at 383 lines.
+The next one over the ceiling is `core/project/serialize.py` at 456;
+`ui/panels/effect_knobs.py` reached 388 with the glow knobs and is the
+one after it.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -30,6 +33,41 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-02 — **A sounding note glows**
+  (`beta/f-glow-effect`, UNMERGED): a warm halo around the ink that
+  lights at the onset and dies exactly when the note's value ends — so
+  only the notes actually playing glow. The **first new animatable
+  PROPERTY since the slide offsets**, and it cost exactly what the
+  architecture says it should: one `PropertyId`, one row in the compose
+  table, one applier entry, one preset. Glows take the BRIGHTER of two
+  (max, neutral 0) rather than stacking, and GLOW joins
+  `MODULATED_PROPERTIES`, so the volume response brightens a loud note's
+  halo the way it widens its pop; opacity stays out of both. "pop+glow"
+  and "swell+glow" needed no code and are checked in the running app.
+  No schema bump — the params ride `style.effect_params`, which
+  round-trips raw; `SetEffectParam` widened to accept a STRING (the
+  colour and the shape are words), which is what its own "type only"
+  contract already promised. **The Qt trap, measured before writing
+  anything**: a zero-offset drop shadow IS the Photoshop outer glow, but
+  Qt blurs at DEVICE resolution, so a raw `blurRadius` of 20 reached
+  16.0/10.0/5.0/2.5 scene units at view scales 0.5/1/2/4 — the glow
+  would shrink as you zoom and the stage and an export would disagree.
+  `GlowEffect` converts from the painter's own transform inside
+  `draw()`; measured again on the real page, the halo is 8.0 units at
+  every zoom. The effect is built on the first nonzero strength and
+  disabled at 0, which Qt skips entirely, so ink that never glows costs
+  nothing — 88 of 1691 items ever grew one on testscore, 64 lit at
+  once. **Default radius 24** (`spikes/glow.py`): a wider radius spreads
+  the same light thinner, so 18/24/36 reach 7/8/8 units at brightnesses
+  74/66/49 of 255 — rendered all three on a dark page and 18 reads as a
+  rim ON the ink, 36 as fog. Cost: 0.27 ms a frame to evaluate, and a
+  whole page at 1400 px goes 92 → 133 ms with 74 halos on it. Peak has
+  no knob on purpose (swell shape only). **Two splits first, each its
+  own commit**: `render/items.py` 396 → 357 (SVG paint helpers to
+  `render/svg_paint.py`) and `effects_panel.py` 379 → 277 (the knob
+  table to `ui/panels/effect_blocks.py`). A document that never touches
+  glow renders byte-identically to `main` — 21 pages over testscore,
+  video_test and complex1, sha256. Unproven under a human's eye.
 - 2026-08-02 — **Light mode or dark mode**
   (`beta/f-page-colors`, merged `6d89f1b`): the score is either black on
   white or white on a dark blue-grey (`#1d1f24` — not black, which is

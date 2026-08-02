@@ -30,6 +30,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Iterable
 
+from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QGraphicsItem
 
@@ -87,8 +88,34 @@ class GlowEffect(QGraphicsDropShadowEffect):
         self.setEnabled(True)
 
     def _set_scene_radius(self, radius: float) -> None:
+        if radius == self.scene_radius:
+            return
         self.scene_radius = radius
         self._device_radius = None      # re-derived on the next draw
+        self.updateBoundingRect()       # the halo just changed size
+
+    def boundingRectFor(self, rect: QRectF) -> QRectF:  # noqa: N802
+        """How much room the halo needs around the ink, in the ITEM's
+        own coordinates — the room the scene reserves, and outside which
+        it clips.
+
+        Qt would work this out from `blurRadius`, which is in DEVICE
+        pixels and belongs to whatever zoom happened to draw last: an
+        item drawn at one scale and then repainted at another would be
+        asking for the wrong margin. The radius in scene units is the
+        right unit for a rect in scene units, so use that.
+
+        Twice the radius plus one, which is Qt's own margin for this
+        filter. One radius is not enough — measured: at 4 device pixels
+        per unit the halo came out at 5.5 scene units where every other
+        zoom gave 10.0.
+
+        Rendering a whole page shows no difference either way (measured,
+        the same 10.0 at every zoom with Qt's own margin), because a
+        full render has no partial repaint region to clip against. This
+        is for the live stage, where there is one."""
+        pad = 2.0 * self.scene_radius + 1.0
+        return rect.adjusted(-pad, -pad, pad, pad)
 
     def draw(self, painter: QPainter) -> None:  # noqa: N802 (Qt naming)
         """Convert the radius to device pixels for this painter, then

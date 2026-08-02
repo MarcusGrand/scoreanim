@@ -1217,7 +1217,7 @@ def test_sync_reflects_glow_params(panel) -> None:
     assert depth == 5                            # resync added nothing
     widget.sync_from_document(state.doc)         # back to the defaults
     assert swatch(widget, "glow", "color").text() == "#ffcc66"
-    assert spin(widget, "glow", "radius").value() == 36.0
+    assert spin(widget, "glow", "radius").value() == 24.0
     assert combo(widget, "glow", "shape").currentData() == "pop"
     assert box(widget, "glow", "note_value").isChecked()
 
@@ -1241,4 +1241,4 @@ def test_glow_params_alone_light_the_reset_button(panel) -> None:
     assert widget._reset_button.isEnabled()
     widget._commit_reset()
     assert state.doc.style.effect_params == {}
-    assert spin(widget, "glow", "radius").value() == 36.0
+    assert spin(widget, "glow", "radius").value() == 24.0
