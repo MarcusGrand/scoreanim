@@ -1,20 +1,23 @@
 """The glow on real scene items, offscreen: a halo lit only inside its
-window, the styling reaching the items once rather than every frame, and
-a stale halo put out when the effect changes away.
+window, the styling reaching the items once rather than every frame,
+sprites cached by shape and never rebuilt while the clock runs, and a
+stale halo put out when the effect changes away.
 
 The envelopes themselves are core, and live in tests/test_glow.py.
 """
 from __future__ import annotations
 
+import math
 import os
 
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QRectF  # noqa: E402
-from PySide6.QtGui import QColor, QImage, QPainter  # noqa: E402
-from PySide6.QtWidgets import (QApplication, QGraphicsItem,  # noqa: E402
+from PySide6.QtCore import QRectF, Qt  # noqa: E402
+from PySide6.QtGui import (QBrush, QColor, QImage, QPainter,  # noqa: E402
+                           QPainterPath, QPen)
+from PySide6.QtWidgets import (QApplication, QGraphicsPathItem,  # noqa: E402
                                QGraphicsRectItem, QGraphicsScene)
 
 from scoreanim.core.animation import (GLOW_COLOR, GLOW_RADIUS,  # noqa: E402
@@ -24,9 +27,11 @@ from scoreanim.core.project.stage_config import (  # noqa: E402
     default_stage_config, page_content_top)
 from scoreanim.core.score.identity import ElementKind, PartId  # noqa: E402
 from scoreanim.core.timing import TempoEvent, TempoMap  # noqa: E402
+from scoreanim.render import glow_sprite  # noqa: E402
 from scoreanim.render.animate import AnimationApplier  # noqa: E402
-from scoreanim.render.glow_effect import (GlowEffect,  # noqa: E402
+from scoreanim.render.glow_sprite import (OVERSAMPLE,  # noqa: E402
                                           GlowSlot, push_glow_style)
+from scoreanim.render.items import ElementItem  # noqa: E402
 from scoreanim.render.scene import ScoreScenes  # noqa: E402
 
 TEMPO = TempoMap([TempoEvent(0.0, 120.0)])
@@ -91,41 +96,69 @@ def test_the_halo_lights_only_inside_the_window(scenes, schedule) -> None:
     assert item.glow_strength == pytest.approx(lit)
 
 
-def test_an_element_that_never_glows_grows_no_effect(scenes,
-                                                     schedule) -> None:
+def test_an_element_that_never_glows_builds_no_sprite(scenes,
+                                                      schedule) -> None:
     """The lazy build is what makes glow free for everything else: with
-    pop as the effect, nothing on the page carries a graphics effect."""
+    pop as the effect, no element on the page grows a halo sprite and
+    nothing is ever rendered or blurred."""
     applier = AnimationApplier(scenes.items, schedule, TEMPO,
                                StyleRules(default_effect="pop"))
+    glow_sprite.reset_cache()
     head = _a_head(scenes, schedule)
     applier.refresh(TEMPO.seconds_at(schedule.beats_by_element[head]))
-    assert all(item.graphicsEffect() is None
-               for item in scenes.items.values())
+    assert glow_sprite.build_count == 0
+    assert all(item._glow._sprite is None for item in scenes.items.values())
 
 
-def test_only_the_lit_elements_carry_an_effect(scenes, schedule) -> None:
+def test_only_the_lit_elements_carry_a_sprite(scenes, schedule) -> None:
     """And even under glow, an element outside its window costs nothing
-    — it either never grew an effect or has it switched off."""
+    — it either never grew a sprite or has it at opacity 0, which Qt
+    skips painting entirely."""
     applier = AnimationApplier(scenes.items, schedule, TEMPO, GLOW_RULES)
     head = _a_head(scenes, schedule)
     trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
     applier.refresh(trig_s)
-    assert scenes.items[head].graphicsEffect() is not None
-    assert scenes.items[head].graphicsEffect().isEnabled()
-    # every dark element is either effect-free or disabled
+    lit = scenes.items[head]._glow._sprite
+    assert lit is not None and lit.opacity() > 0.0
+    # every dark element is either sprite-free or extinguished
     for eid, item in scenes.items.items():
         if item.glow_strength <= 0.0:
-            effect = item.graphicsEffect()
-            assert effect is None or not effect.isEnabled(), eid
+            sprite = item._glow._sprite
+            assert sprite is None or sprite.opacity() == 0.0, eid
+
+
+def test_playback_never_rebuilds_after_the_first_pass(scenes,
+                                                      schedule) -> None:
+    """The whole point of the sprite: once a passage has lit, stop,
+    scrub and replay are opacity writes only — the build count stands
+    still while the brightness moves."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, GLOW_RULES)
+    head = _a_head(scenes, schedule)
+    item = scenes.items[head]
+    trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
+
+    for i in range(30):                   # first pass across the window
+        applier.apply_at(trig_s - 0.1 + i * 0.02)
+    built = glow_sprite.build_count
+    assert built > 0
+
+    applier.apply_at(trig_s - 1.0)        # scrub back before the beat
+    applier.refresh(trig_s + 0.1)         # a stop-style full refresh
+    opacities = set()
+    for i in range(30):                   # and play it again
+        applier.apply_at(trig_s - 0.1 + i * 0.02)
+        opacities.add(item._glow._sprite.opacity())
+    assert glow_sprite.build_count == built
+    assert len(opacities) >= 2            # the halo really moved
 
 
 # -- the styling half reaches the items once ------------------------------
 
 def test_colour_and_radius_reach_the_item_at_set_style_time(scenes,
                                                             schedule) -> None:
-    """The whole point of splitting the effect in two: the halo's look
-    is pushed when the document changes, and a frame only ever writes
-    the strength."""
+    """The whole point of splitting the halo in two: its look is pushed
+    when the document changes, and a frame only ever writes the
+    strength."""
     calls = {"style": 0, "strength": 0}
     for item in scenes.items.values():
         slot = item._glow
@@ -143,15 +176,21 @@ def test_colour_and_radius_reach_the_item_at_set_style_time(scenes,
     assert calls["strength"] > 0          # while the strength did move
 
 
-def test_the_document_colour_and_radius_are_what_arrive() -> None:
-    slot = GlowSlot(QGraphicsRectItem())
-    push_glow_style([_Spy(slot)], {"glow": {"color": "#00ff00",
-                                            "radius": 12.0}})
-    slot.set_strength(1.0)                # build the effect to read it
-    effect = slot._effect
-    assert effect.color().red() == 0 and effect.color().green() == 255
-    # the reach follows the strength a little, so compare at full glow
-    assert effect.scene_radius == pytest.approx(12.0)
+def test_the_document_colour_and_radius_are_what_arrive(qapp) -> None:
+    glow_sprite.reset_cache()
+    item = _element(0, 0, 20, 10)
+    push_glow_style([item], {"glow": {"color": "#00ff00", "radius": 12.0}})
+    item.set_glow(1.0)
+    sprite = item._glow._sprite
+    assert sprite is not None
+    # the radius arrived: the pad is two radii a side, at OVERSAMPLE
+    # pixels a scene unit
+    assert sprite.pixmap().width() == math.ceil((20 + 4 * 12.0) * OVERSAMPLE)
+    # and so did the colour
+    image = sprite.pixmap().toImage()
+    color = image.pixelColor(image.width() // 2, image.height() // 2)
+    assert color.green() > 200
+    assert color.green() > color.red() and color.green() > color.blue()
 
 
 def test_an_unreadable_entry_still_gives_a_visible_halo() -> None:
@@ -163,23 +202,85 @@ def test_an_unreadable_entry_still_gives_a_visible_halo() -> None:
     assert style.radius == pytest.approx(GLOW_RADIUS)
 
 
+def test_restyling_rebuilds_the_sprite_with_the_new_colour(qapp) -> None:
+    """A colour or radius edit invalidates the sprite; a LIT halo
+    rebuilds on the spot rather than waiting for its next onset."""
+    glow_sprite.reset_cache()
+    item = _element(0, 0, 20, 10)
+    item.set_glow_style(QColor("#ff0000"), 16.0)
+    item.set_glow(1.0)
+    before = item._glow._sprite.pixmap().cacheKey()
+
+    item.set_glow_style(QColor("#0000ff"), 16.0)
+    sprite = item._glow._sprite
+    assert sprite is not None and sprite.opacity() == pytest.approx(1.0)
+    assert sprite.pixmap().cacheKey() != before
+    image = sprite.pixmap().toImage()
+    color = image.pixelColor(image.width() // 2, image.height() // 2)
+    assert color.blue() > color.red() and color.blue() > color.green()
+
+
+# -- the sprites are shared and sit behind the ink ------------------------
+
+def test_identical_shapes_share_one_sprite(qapp) -> None:
+    """A page of quarter noteheads costs a handful of blurs, not one
+    per note: same ink, same radius, same colour is one pixmap."""
+    glow_sprite.reset_cache()
+    a = _element(0, 0, 20, 10)
+    b = _element(300, 120, 20, 10)        # same shape, elsewhere
+    c = _element(50, 50, 30, 10)          # a different shape
+    for item in (a, b, c):
+        item.set_glow_style(QColor("#ffcc66"), 24.0)
+        item.set_glow(1.0)
+    assert glow_sprite.build_count == 2   # a and b shared, c did not
+    assert (a._glow._sprite.pixmap().cacheKey()
+            == b._glow._sprite.pixmap().cacheKey())
+
+
+def test_the_sprite_sits_behind_the_ink_and_follows_it(qapp) -> None:
+    glow_sprite.reset_cache()
+    scene = QGraphicsScene(0, 0, 200, 200)
+    item = _element(90, 90, 20, 20)
+    scene.addItem(item)
+    item.set_glow_style(QColor("#00ff00"), 20.0)
+    item.set_glow(1.0)
+    sprite = item._glow._sprite
+    assert sprite.parentItem() is item
+    assert sprite.zValue() == -1.0        # behind the ink, which is at 0
+
+    image = _render(scene, 200)
+    center = image.pixelColor(100, 100)   # the ink paints on top
+    assert center.green() < 50 and center.alpha() == 255
+    halo = image.pixelColor(85, 100)      # just outside the ink
+    assert halo.alpha() > 8 and halo.green() > halo.red()
+
+    # a child, so it moves with the element — nudge, slide, pop and the
+    # system pulse all reach it through the parent's transform
+    was = sprite.scenePos().x()
+    item.set_offset(30.0, 0.0)
+    assert sprite.scenePos().x() == pytest.approx(was + 30.0)
+
+
 # -- the stale-state reset ------------------------------------------------
 
 def test_changing_the_effect_away_puts_the_halo_out(scenes,
                                                     schedule) -> None:
     """The scale and offset precedent: nothing writes GLOW for an
-    element whose effects no longer have it, so set_style has to."""
+    element whose effects no longer have it, so set_style has to. The
+    sprite stays — a stale halo is extinguished by opacity, never
+    rebuilt away."""
     applier = AnimationApplier(scenes.items, schedule, TEMPO, GLOW_RULES)
     head = _a_head(scenes, schedule)
     item = scenes.items[head]
     trig_s = TEMPO.seconds_at(schedule.beats_by_element[head])
     applier.apply_at(trig_s)
     assert item.glow_strength == pytest.approx(1.0)
-    assert item.graphicsEffect().isEnabled()
+    assert item._glow._sprite.opacity() == pytest.approx(1.0)
 
     applier.set_style(StyleRules(default_effect="pop"))
     assert item.glow_strength == pytest.approx(0.0)
-    assert not item.graphicsEffect().isEnabled()
+    assert item._glow._sprite is not None
+    assert item._glow._sprite.opacity() == pytest.approx(0.0)
 
 
 def test_a_part_losing_glow_leaves_the_rest_lit(scenes, schedule) -> None:
@@ -211,26 +312,32 @@ def test_a_part_losing_glow_leaves_the_rest_lit(scenes, schedule) -> None:
 # -- the radius is in scene units, at any zoom ----------------------------
 
 def test_the_halo_is_the_same_size_at_every_zoom(qapp) -> None:
-    """The device-pixel trap, pinned. Qt blurs at device resolution, so
-    a raw blurRadius shrinks as you zoom in and the stage and an export
-    would not agree; GlowEffect converts from the painter's own
-    transform instead. Measured in scene units, the reach must not
-    move."""
+    """The device-pixel trap, still pinned. The live effect had to
+    convert its radius per draw; the sprite is simply an image in scene
+    units, so the reach cannot move — and neither may the build count,
+    because a zoom must never re-render a halo. The tolerance is one
+    device pixel at the smallest zoom (2 scene units at 0.5), where the
+    alpha ramp's crossing quantizes."""
+    glow_sprite.reset_cache()
     reaches = {scale: _halo_reach(scale, radius=20.0)
                for scale in (0.5, 1.0, 2.0, 4.0)}
     values = list(reaches.values())
     assert all(v is not None for v in values), reaches
     for value in values[1:]:
-        assert value == pytest.approx(values[0], abs=0.75), reaches
+        assert value == pytest.approx(values[0], abs=1.25), reaches
+    # the reach the live effect was calibrated on: about half the
+    # radius (it measured 10.0 here) — _BLUR_MATCH keeps that true
+    assert 8.0 <= values[0] <= 12.0, reaches
+    assert glow_sprite.build_count == 1   # four zooms, one blur
     # non-vacuity: a bigger radius really does reach further
     assert _halo_reach(1.0, radius=40.0) > values[0] + 2.0
 
 
 def test_a_dark_halo_is_not_drawn_at_all(qapp) -> None:
-    """Strength 0 disables the effect, and Qt then draws the ink
-    exactly as it would with no effect on the item at all — measured
-    against that baseline, not against zero, because the ink's own
-    antialiased edge reaches about a unit either way."""
+    """Strength 0 builds nothing, and the ink renders exactly as it
+    would with no glow at all — measured against that baseline, not
+    against zero, because the ink's own antialiased edge reaches about
+    a unit either way."""
     bare = _halo_reach(1.0, radius=None)
     assert bare is not None and bare < 2.0
     assert _halo_reach(1.0, radius=20.0, strength=0.0) == pytest.approx(
@@ -238,16 +345,6 @@ def test_a_dark_halo_is_not_drawn_at_all(qapp) -> None:
 
 
 # -- helpers --------------------------------------------------------------
-
-class _Parent(QGraphicsItem):
-    """A non-painting parent, the shape ElementItem has."""
-
-    def boundingRect(self):  # noqa: N802
-        return self.childrenBoundingRect()
-
-    def paint(self, *args) -> None:  # noqa: N802
-        pass
-
 
 class _Spy:
     """Something with a glow slot but no scene, for push_glow_style."""
@@ -266,24 +363,41 @@ def _counting(func, calls: dict, key: str):
     return wrapped
 
 
+def _element(x: float, y: float, w: float, h: float) -> ElementItem:
+    """A real ElementItem with one filled rect of ink at (x, y)."""
+    item = ElementItem()
+    path = QPainterPath()
+    path.addRect(0.0, 0.0, w, h)
+    child = QGraphicsPathItem(path)
+    child.setBrush(QBrush(QColor("black")))
+    child.setPen(QPen(Qt.PenStyle.NoPen))
+    child.setPos(x, y)
+    item.add_path_child(child, True, False)
+    return item
+
+
+def _render(scene: QGraphicsScene, size: int) -> QImage:
+    image = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(0)
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    scene.render(painter, QRectF(0, 0, size, size), QRectF(0, 0, 200, 200))
+    painter.end()
+    return image
+
+
 def _halo_reach(view_scale: float, radius: float | None,
                 strength: float = 1.0) -> float | None:
     """How far anything is painted left of a 20x20 scene-unit block, in
     SCENE units, when the scene is rendered at `view_scale`. A radius of
-    None puts no effect on the item at all — the baseline. None back
-    means nothing was painted outside the block."""
+    None never styles the glow at all — the baseline. None back means
+    nothing was painted outside the block."""
     scene = QGraphicsScene(0, 0, 200, 200)
-    parent = _Parent()
-    block = QGraphicsRectItem(90, 90, 20, 20)
-    block.setBrush(QColor("black"))
-    block.setPen(QColor("black"))
-    block.setParentItem(parent)
-    scene.addItem(parent)
+    item = _element(90, 90, 20, 20)
+    scene.addItem(item)
     if radius is not None:
-        effect = GlowEffect()
-        effect.set_style(QColor(255, 0, 0), radius)
-        effect.set_strength(strength)
-        parent.setGraphicsEffect(effect)
+        item.set_glow_style(QColor(255, 0, 0), radius)
+        item.set_glow(strength)
 
     size = int(200 * view_scale)
     image = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
