@@ -18,10 +18,10 @@ The *Appearance & Effects* body is the EffectsPanel (M4.8,
 ui/panels/effects_panel.py) — Floor opacity and Sweep moved there with
 the effect controls; this dock composes it and delegates its resync.
 
-*Page colours* (2026-08-02) is the PageColorsPanel: the paper and the
-ink the whole score is drawn in. Its own section rather than two more
-rows above, because it applies whether anything animates or not — and
-because the effects panel was already at the module size ceiling.
+*Page* (2026-08-02) is the PageColorsPanel: light mode or dark mode,
+which is what the whole score is drawn in. Its own section rather than
+another row above, because it applies whether anything animates or not —
+and because the effects panel was already at the module size ceiling.
 
 The *Selection* body is the SelectionPanel (M2.5,
 ui/panels/selection_panel.py) — a third sync behavior: it reads
@@ -99,9 +99,9 @@ class Inspector(QDockWidget):
         # handlers and resync; the dock only composes and delegates.
         self.effects_panel = EffectsPanel(app_state)
 
-        # Page colours: what the page is drawn in, whether anything
-        # animates or not — so its own section rather than two more rows
-        # under Appearance & Effects.
+        # Page: light mode or dark mode. What the page is drawn in,
+        # whether anything animates or not — so its own section rather
+        # than another row under Appearance & Effects.
         self.page_colors_panel = PageColorsPanel(app_state)
 
         # Selection body (M2.5): transient-state driven, so it observes
@@ -117,7 +117,7 @@ class Inspector(QDockWidget):
         for key, title, content in (
                 ("playback", "Playback && Sync", playback_body),
                 ("appearance", "Appearance && Effects", self.effects_panel),
-                ("page_colors", "Page colours", self.page_colors_panel),
+                ("page_colors", "Page", self.page_colors_panel),
                 ("selection", "Selection", self.selection_panel)):
             section = CollapsibleSection(title)
             section.set_content(content)

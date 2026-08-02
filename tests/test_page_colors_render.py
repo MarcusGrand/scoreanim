@@ -29,7 +29,7 @@ from scoreanim.render.scene import ScoreScenes, apply_style_colors  # noqa: E402
 
 WHITE = QColor("#ffffff")
 BLACK = QColor("#000000")
-PAPER = QColor("#101014")
+PAPER = QColor("#1d1f24")     # what dark mode resolves to
 
 
 @pytest.fixture(scope="session")
@@ -132,7 +132,7 @@ def test_the_paper_changes_colour_but_never_its_visibility(scenes) -> None:
     scenes.set_page_background_visible(False)
     scenes.set_page_color(PAPER)
     for rect in scenes.page_rects:
-        assert rect.brush().color().name() == "#101014"
+        assert rect.brush().color().name() == "#1d1f24"
         assert not rect.isVisible()
     scenes.set_page_background_visible(True)
     assert all(r.isVisible() for r in scenes.page_rects)
@@ -220,18 +220,16 @@ def test_recolouring_a_selected_element_recomposes_its_tint(
 
 # -- the one-shot seam ---------------------------------------------------------
 
-def test_apply_style_colors_reads_the_document_entry(scenes) -> None:
-    apply_style_colors(scenes, StyleRules(colors={"background": "#101014",
-                                                  "ink": "#f4f4f4"}))
-    assert scenes.page_rects[0].brush().color().name() == "#101014"
-    assert next(iter(scenes.items.values())).color == QColor("#f4f4f4")
+def test_apply_style_colors_reads_the_mode(scenes) -> None:
+    apply_style_colors(scenes, StyleRules(colors={"mode": "dark"}))
+    assert scenes.page_rects[0].brush().color().name() == "#1d1f24"
+    assert next(iter(scenes.items.values())).color == WHITE
 
 
-def test_an_unreadable_entry_lands_on_the_defaults(scenes) -> None:
+def test_an_unreadable_mode_lands_on_light(scenes) -> None:
     """The whole reason validation is at consumption: a hand-edited file
     cannot produce an invisible score."""
-    apply_style_colors(scenes, StyleRules(colors={"background": "nonsense",
-                                                  "ink": "#12345"}))
+    apply_style_colors(scenes, StyleRules(colors={"mode": "midnight"}))
     assert scenes.page_rects[0].brush().color().name() == "#ffffff"
     assert next(iter(scenes.items.values())).color == BLACK
 
@@ -241,7 +239,7 @@ def test_the_page_ink_does_not_override_an_element_override(
     eid = next(el.identity.element_id for el in engraved.layout.elements
                if el.identity.kind is ElementKind.NOTEHEAD)
     apply_style_colors(scenes, StyleRules(
-        colors={"ink": "#ffffff"},
+        colors={"mode": "dark"},
         elements={eid: ElementStyle(color="#00aa00")}))
     assert scenes.items[eid].color == QColor("#00aa00")
 
@@ -290,11 +288,18 @@ def test_an_untouched_document_renders_exactly_as_it_did_before(
 
     # non-vacuity, both halves
     inked = ScoreScenes(engraved.layout, stage)
-    apply_style_colors(inked, StyleRules(colors={"ink": "#ffffff"}))
+    dark = ScoreScenes(engraved.layout, stage)
+    apply_style_colors(dark, StyleRules(colors={"mode": "dark"}))
+    assert _digest(dark) != before
+
+    # both halves of dark mode move pixels, checked apart so neither
+    # can be carrying the other
+    inked = ScoreScenes(engraved.layout, stage)
+    inked.set_ink_color(WHITE)
     assert _digest(inked) != before
 
     papered = ScoreScenes(engraved.layout, stage)
-    apply_style_colors(papered, StyleRules(colors={"background": "#000000"}))
+    papered.set_page_color(PAPER)
     assert _digest(papered) != before
 
 

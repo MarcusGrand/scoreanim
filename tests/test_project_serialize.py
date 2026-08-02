@@ -488,44 +488,40 @@ def test_v11_pulse_round_trips_raw() -> None:
     assert "pulse" not in to_dict(ProjectDoc())["style"]
 
 
-def test_v11_page_colors_round_trip_raw() -> None:
+def test_v11_color_mode_round_trips_raw() -> None:
     """The third entry of the same shape: sparse, raw, same version. A
-    key this build does not consume survives, like effect_params."""
+    key this build does not consume survives, like effect_params — which
+    is what leaves room for per-colour fine-tuning later."""
     doc = ProjectDoc(style=StyleRules(
-        colors={"background": "#101014", "ink": "#f4f4f4",
-                "staff_lines": "#888888"}))
+        colors={"mode": "dark", "background": "#101014"}))
     out = from_dict(to_dict(doc))
-    assert out.style.colors == {"background": "#101014", "ink": "#f4f4f4",
-                                "staff_lines": "#888888"}
+    assert out.style.colors == {"mode": "dark", "background": "#101014"}
     assert out == doc
 
 
 def test_an_untouched_document_writes_no_colors_key_at_all() -> None:
     """The bit-for-bit promise, from the document side: a project that
-    never touches the colours is byte-identical to one written before
-    they existed."""
+    never touches the mode is byte-identical to one written before it
+    existed."""
     assert "colors" not in to_dict(ProjectDoc())["style"]
 
 
-def test_older_files_load_with_the_default_page_colors() -> None:
+def test_older_files_load_in_light_mode() -> None:
     """No read gate: a missing key means {} for every older version,
-    which reads as white paper and black ink — exactly the look those
-    files have always had."""
+    which reads as light — exactly the look those files have always
+    had."""
     for version in range(1, 12):
         style = from_dict({"version": version}).style
         assert style.colors == {}
         assert read_colors(style.colors).is_default
 
 
-def test_one_page_color_alone_round_trips(tmp_path) -> None:
-    """Through a real file, not just the dict: setting only the ink
-    stores only the ink."""
-    path = tmp_path / "one_color.scoreanim"
-    doc = ProjectDoc(style=StyleRules(colors={"ink": "#ffffff"}))
-    save_project(doc, path)
+def test_dark_mode_round_trips_through_a_real_file(tmp_path) -> None:
+    path = tmp_path / "dark.scoreanim"
+    save_project(ProjectDoc(style=StyleRules(colors={"mode": "dark"})), path)
     out = load_project(path)
-    assert out.style.colors == {"ink": "#ffffff"}
-    assert read_colors(out.style.colors).background == "#ffffff"  # default
+    assert out.style.colors == {"mode": "dark"}
+    assert read_colors(out.style.colors).is_dark
 
 
 def test_the_pop_settings_ride_the_same_entry() -> None:

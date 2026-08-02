@@ -220,39 +220,41 @@ class SetPulseParam(Command):
 
 
 @dataclass(frozen=True)
-class SetPageColor(Command):
-    """One of the page's two colours (schema v11): sparse {key: value}
-    over "background" and "ink", None deleting the key — the
-    SetPulseParam shape, with strings instead of numbers.
+class SetColorMode(Command):
+    """Light mode or dark mode (schema v11): the "mode" key of the
+    sparse style.colors map, None deleting it — the SetPulseParam
+    shape, with a string instead of a number.
+
+    The MODE is what the document stores, not the two colours it
+    resolves to: those are derived (rule 5), so a later change to what
+    dark mode looks like reaches every project that chose it.
 
     Validation is TYPE ONLY, which is worth a word because colour has
     another precedent here: SetPartColor and SetElementStyle both check
-    `_HEX_COLOR` and refuse. These two are different. They are read
-    through `animation.page_colors.read_colors`, which falls back to the
-    default on anything it cannot read — and that fallback is only real
-    if a value can actually get past this point. A hand-edited file has
-    to land on a readable page either way; refusing here would only move
-    the failure, not prevent it.
+    `_HEX_COLOR` and refuse. This one is different. It is read through
+    `animation.page_colors.read_colors`, which falls back to light on
+    anything it cannot read — and that fallback is only real if a value
+    can actually get past this point. A hand-edited file has to land on
+    a readable page either way; refusing here would only move the
+    failure, not prevent it.
 
-    Deleting the key, rather than storing the default, is what keeps an
-    untouched document byte-identical on save."""
-    key: str
-    value: str | None
+    Deleting the key, rather than storing "light", is what keeps an
+    untouched document byte-identical on save. The rest of the map is
+    left alone, so per-colour fine-tuning can join it later."""
+    mode: str | None
 
     def apply(self, doc: ProjectDoc) -> ProjectDoc:
-        if not self.key.strip():
-            raise CommandError("empty page colour setting")
-        if self.value is not None and not isinstance(self.value, str):
-            raise CommandError(f"bad page colour {self.value!r}")
+        if self.mode is not None and not isinstance(self.mode, str):
+            raise CommandError(f"bad colour mode {self.mode!r}")
         colors = dict(doc.style.colors)
-        if self.value is None:
-            colors.pop(self.key, None)
+        if self.mode is None:
+            colors.pop("mode", None)
         else:
-            colors[self.key] = self.value
+            colors["mode"] = self.mode
         return replace(doc, style=replace(doc.style, colors=colors))
 
     def describe(self) -> str:
-        return "set page colour"
+        return "set colour mode"
 
 
 @dataclass(frozen=True)

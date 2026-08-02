@@ -1,87 +1,77 @@
-"""The document's two page colours, read from the sparse style entry.
+"""Light mode and dark mode, read from the sparse style entry.
 
 The whole point of `read_colors` is that it cannot fail: a hand-edited
 project file must never be able to produce a score nobody can see. So
-most of this file is nonsense in, defaults out — one key at a time, so a
-bad ink cannot take the background down with it.
+most of this file is nonsense in, light out.
 """
 from __future__ import annotations
 
 import pytest
 
-from scoreanim.core.animation.page_colors import (DEFAULT_BACKGROUND,
-                                                  DEFAULT_INK, PageColors,
-                                                  read_colors)
+from scoreanim.core.animation.page_colors import (DARK, DARK_BACKGROUND,
+                                                  DARK_INK, LIGHT,
+                                                  LIGHT_BACKGROUND, LIGHT_INK,
+                                                  colors_for, read_colors)
 
 
 def test_nothing_stored_is_the_look_the_app_has_always_had() -> None:
     for raw in (None, {}):
         colors = read_colors(raw)
-        assert colors.background == DEFAULT_BACKGROUND == "#ffffff"
-        assert colors.ink == DEFAULT_INK == "#000000"
+        assert colors.mode == LIGHT
+        assert colors.background == LIGHT_BACKGROUND == "#ffffff"
+        assert colors.ink == LIGHT_INK == "#000000"
         assert colors.is_default
+        assert not colors.is_dark
 
 
-def test_both_keys_are_read() -> None:
-    colors = read_colors({"background": "#101014", "ink": "#f4f4f4"})
-    assert (colors.background, colors.ink) == ("#101014", "#f4f4f4")
+def test_dark_is_white_notation_on_a_dark_blue_grey() -> None:
+    """Not on black: a white staff on pure black is harsh, and this is
+    the tone the app's own dark chrome already uses."""
+    colors = read_colors({"mode": "dark"})
+    assert colors.mode == DARK
+    assert (colors.background, colors.ink) == (DARK_BACKGROUND, DARK_INK)
+    assert colors.background == "#1d1f24" and colors.ink == "#ffffff"
+    assert colors.is_dark
     assert not colors.is_default
+    # a blue-grey, not a neutral one: more blue than red
+    r, b = int(DARK_BACKGROUND[1:3], 16), int(DARK_BACKGROUND[5:7], 16)
+    assert b > r
 
 
-def test_one_key_alone_leaves_the_other_at_its_default() -> None:
-    """Sparse means sparse: setting the ink says nothing about paper."""
-    assert read_colors({"ink": "#ffffff"}) == PageColors(
-        background=DEFAULT_BACKGROUND, ink="#ffffff")
-    assert read_colors({"background": "#000000"}) == PageColors(
-        background="#000000", ink=DEFAULT_INK)
+def test_the_two_modes_are_the_reverse_of_each_other() -> None:
+    """Each mode's ink is legible on its own paper, which is the only
+    thing a mode has to guarantee."""
+    for mode in (LIGHT, DARK):
+        colors = colors_for(mode)
+        assert colors.background != colors.ink
 
 
-@pytest.mark.parametrize("stored,expected", [
-    ("#ABC", "#aabbcc"),          # shorthand, expanded
-    ("#abc", "#aabbcc"),
-    ("#FF6A00", "#ff6a00"),       # normalized to lowercase
-    ("  #ff6a00  ", "#ff6a00"),   # stray whitespace
-])
-def test_readable_colors_come_back_normalized(stored, expected) -> None:
-    """Always lowercase "#rrggbb", so a caller can hand it straight to
-    QColor without checking anything first."""
-    assert read_colors({"ink": stored}).ink == expected
+@pytest.mark.parametrize("stored", ["dark", "DARK", " Dark "])
+def test_the_mode_is_read_case_and_space_insensitively(stored) -> None:
+    assert read_colors({"mode": stored}).mode == DARK
 
 
 @pytest.mark.parametrize("bad", [
-    "red",            # a colour NAME — not what this codebase stores
-    "",
-    "#",
-    "#12345",         # wrong length
-    "#1234567",
-    "ffffff",         # no hash
-    "#gggggg",        # not hex digits
-    "#12 456",
-    42, 1.0, None, True, ["#ffffff"], {"r": 1},
+    "midnight",       # a mode from a newer build
+    "", "  ", "#000000", "black",
+    42, 1.0, None, True, ["dark"], {"mode": "dark"},
 ])
-def test_an_unreadable_value_falls_back_to_its_own_default(bad) -> None:
-    assert read_colors({"ink": bad}).ink == DEFAULT_INK
-    assert read_colors({"background": bad}).background == DEFAULT_BACKGROUND
-
-
-def test_a_bad_value_does_not_take_the_other_colour_down_with_it() -> None:
-    """Per-field fallback: one broken key costs one colour, not the
-    page. Without this a typo in the ink would silently restore white
-    paper too, and the user would think both settings were lost."""
-    colors = read_colors({"background": "#000000", "ink": "not a colour"})
-    assert colors.background == "#000000"
-    assert colors.ink == DEFAULT_INK
+def test_anything_unreadable_is_light(bad) -> None:
+    """Light, not "the last thing that parsed": the fallback has to be
+    the look every file has always had."""
+    colors = read_colors({"mode": bad})
+    assert colors.mode == LIGHT
+    assert colors.is_default
 
 
 def test_keys_this_build_does_not_consume_are_simply_ignored() -> None:
-    """A project from a newer build must not break this one — the
-    effect_params guarantee, from the reading side."""
-    colors = read_colors({"ink": "#ffffff", "staff_lines": "#888888"})
-    assert colors.ink == "#ffffff"
-    assert colors.background == DEFAULT_BACKGROUND
+    """Per-colour fine-tuning may join this map later, and a project
+    from a build that has it must not break this one."""
+    colors = read_colors({"mode": "dark", "background": "#001122"})
+    assert colors.mode == DARK
+    assert colors.background == DARK_BACKGROUND     # the mode still rules
 
 
-def test_is_default_is_about_the_value_not_the_key() -> None:
-    """Storing the defaults explicitly still reads as default — which
-    is what lets the recolour pass skip the sweep safely."""
-    assert read_colors({"background": "#FFFFFF", "ink": "#000"}).is_default
+def test_light_stored_explicitly_still_reads_as_default() -> None:
+    """Which is what lets the recolour pass skip the sweep safely."""
+    assert read_colors({"mode": "light"}).is_default

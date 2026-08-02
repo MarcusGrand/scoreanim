@@ -117,37 +117,36 @@ def test_floor_diff_applies_once(sync) -> None:
     assert ("floor", FLOOR_OPACITY) in scenes.calls
 
 
-def test_page_color_diff_applies_once(sync) -> None:
+def test_color_mode_diff_applies_once(sync) -> None:
     ds, scenes, _ = sync
-    dark = _doc(colors={"background": "#101014", "ink": "#f4f4f4"})
+    dark = _doc(colors={"mode": "dark"})
     ds.sync_styles(dark)
     ds.sync_styles(dark)                           # cached: no second push
-    assert scenes.calls.count(("paper", "#101014")) == 1
-    assert scenes.calls.count(("ink", "#f4f4f4")) == 1
+    assert scenes.calls.count(("paper", "#1d1f24")) == 1
+    assert scenes.calls.count(("ink", "#ffffff")) == 1
 
 
-def test_going_back_to_the_default_page_colors_still_pushes(sync) -> None:
+def test_going_back_to_light_still_pushes(sync) -> None:
     """The diff is on the READ value, not on "is it the default" — undo
     from a black page has to put white and black back on the scene, and
     a cache keyed on defaultness would sit there doing nothing."""
     ds, scenes, _ = sync
-    ds.sync_styles(_doc(colors={"background": "#101014", "ink": "#f4f4f4"}))
+    ds.sync_styles(_doc(colors={"mode": "dark"}))
     ds.sync_styles(_doc())                         # undone
     assert ("paper", "#ffffff") in scenes.calls
     assert ("ink", "#000000") in scenes.calls
 
 
-def test_an_unreadable_stored_color_lands_on_the_default(sync) -> None:
+def test_an_unreadable_stored_mode_lands_on_light(sync) -> None:
     """Validation is at consumption, and this is the seam it protects:
-    a hand-edited file lands on a readable page. Starting from a white
-    ink, so "fell back to black" is a real push and not the no-op that
-    reading nonsense on a black page would be."""
+    a hand-edited file lands on a readable page. Starting from dark, so
+    "fell back to light" is a real push and not the no-op that reading
+    nonsense in light mode would be."""
     ds, scenes, _ = sync
-    ds.sync_styles(_doc(colors={"ink": "#f4f4f4"}))
-    ds.sync_styles(_doc(colors={"ink": "nonsense"}))
-    assert ("ink", "#000000") in scenes.calls
-    assert not any(c[0] == "ink" and c[1] == "nonsense"
-                   for c in scenes.calls)
+    ds.sync_styles(_doc(colors={"mode": "dark"}))
+    ds.sync_styles(_doc(colors={"mode": "midnight"}))
+    assert ("ink", "#000000") in scenes.calls      # fell back to light
+    assert ("paper", "#ffffff") in scenes.calls
 
 
 def test_a_page_recolour_does_not_disturb_the_authored_color_cache(
@@ -160,11 +159,11 @@ def test_a_page_recolour_does_not_disturb_the_authored_color_cache(
     ds.sync_styles(tinted)
     assert scenes.calls.count(("part", P1, "#112233")) == 1
     recolored = replace(tinted, style=replace(tinted.style,
-                                              colors={"ink": "#f4f4f4"}))
+                                              colors={"mode": "dark"}))
     ds.sync_styles(recolored)
     # the tint was not re-pushed and, more to the point, not forgotten
     assert scenes.calls.count(("part", P1, "#112233")) == 1
-    assert ("ink", "#f4f4f4") in scenes.calls
+    assert ("ink", "#ffffff") in scenes.calls
 
 
 def test_part_tint_diff_and_removal(sync) -> None:

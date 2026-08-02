@@ -671,7 +671,16 @@ scale-to-fit). Parked:
     the strip and tap derivation use them). Left in for now so he can
     live with the new one first.
 
-28. **Ink with a colour of its own does not follow the page ink.**
+28. **Per-colour fine-tuning of the page.** (Marcus, 2026-08-02, cutting
+    the first build back: "make it into either a light mode or a dark
+    mode… we can keep fine tuning of colors for later.") Today the
+    document stores a MODE and the two colours are derived from it. If
+    an arbitrary pair is wanted later, the sparse `style.colors` entry
+    already has room for `background`/`ink` keys beside `mode`, and
+    `read_colors` is the one place that would have to honour them —
+    nothing downstream of `PageColors` would change.
+
+29. **Ink with a colour of its own does not follow the page ink.**
     (Opened 2026-08-02 with page colours.) `fill_tracks_color`
     (`render/items.py`) asks what the SVG SOURCE said: absent or black
     means "the default, written out" and follows the page; a real colour

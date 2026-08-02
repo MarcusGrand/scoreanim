@@ -309,8 +309,7 @@ def test_the_page_ink_reaches_exported_frames_over_transparency(
     offset = tempo_setup.offset_seconds
     seconds = _trigger_seconds(schedule, tempo_map)
     end = _audio_end(schedule, tempo_map, offset)
-    white_ink = StyleRules(colors={"ink": "#ffffff",
-                                   "background": "#000000"})
+    white_ink = StyleRules(colors={"mode": "dark"})
     default = make_renderer(inputs, tempo_map, offset, end=end)
     recolored = make_renderer(inputs, tempo_map, offset, end=end,
                               style=white_ink)
