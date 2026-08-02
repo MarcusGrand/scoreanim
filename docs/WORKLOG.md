@@ -1,11 +1,15 @@
 # ScoreAnim — Worklog
 
-**NOW:** everything is on `main` (`5372ea0`, no tag).
-`beta/f-system-pulse` merged on 2026-08-02 and brought five branches with
-it: the volume response, the swell effect, per-notehead pop pivots, the
-system group items and the system pulse. **Schema is v11**, so a project
-saved from here will not open on `v0.2-beta.6` or on any older build.
+**NOW:** everything is on `main` (`6d89f1b`, no tag).
+`beta/f-page-colors` merged on 2026-08-02, on top of `beta/f-system-pulse`
+earlier the same day — which itself brought five branches: the volume
+response, the swell effect, per-notehead pop pivots, the system group
+items and the system pulse. **Schema is v11**, so a project saved from
+here will not open on `v0.2-beta.6` or on any older build.
 `fix/bracket-hidden-staves` is the only branch still unmerged.
+
+Light and dark mode are in but **unproven under a human's eye** — the
+checks so far are headless and offscreen.
 
 Two calibration questions left open on purpose, both measured (see the
 2026-08-02 lines): the pulse amounts' **0–20 % range is too generous** —
@@ -27,9 +31,9 @@ lines — history lives in git and `docs/history/`.
 ---
 
 - 2026-08-02 — **Light mode or dark mode**
-  (`beta/f-page-colors`, UNMERGED): the score is either black on white
-  or white on a dark blue-grey (`#1d1f24` — not black, which is harsh
-  under a white staff, and it is the tone the app's own lane and
+  (`beta/f-page-colors`, merged `6d89f1b`): the score is either black on
+  white or white on a dark blue-grey (`#1d1f24` — not black, which is
+  harsh under a white staff, and it is the tone the app's own lane and
   waveform chrome already use). Built first as two free colour pickers;
   **Marcus cut it back to one choice** the same session, which is also
   the better model — the document stores the MODE and the two colours
