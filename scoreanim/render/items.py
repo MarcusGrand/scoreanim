@@ -257,11 +257,12 @@ class ElementItem(GroupItem):
         self._animated_opacity = value
         self._recompose_opacity()
 
-    def set_glow_style(self, color: QColor, radius: float) -> None:
+    def set_glow_style(self, color: QColor, radius: float,
+                       passes: float = 1.0) -> None:
         """What this element's halo looks like when it is lit: document
         intent, written once when the document changes, never per
         frame."""
-        self._glow.set_style(color, radius)
+        self._glow.set_style(color, radius, passes)
 
     def set_glow(self, value: float) -> None:
         """Set how brightly the effect evaluator wants this element's

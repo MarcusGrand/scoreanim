@@ -33,6 +33,35 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-02 — **The glow goes all the way to solid**
+  (`beta/f-glow-effect`, UNMERGED): a **Density** knob, 0–100 %, for
+  Marcus's "there should be options so at the very extreme the glow is
+  basically a solid color". The halo could only ever be soft — a blur
+  fades from the ink outwards, so even at full Strength the light is
+  thin, and Strength itself is the halo's own opacity with nothing past
+  1. Density lays the same blurred sprite down over ITSELF n times, so
+  the alpha at a point goes 1 - (1 - a)ⁿ. Ordinary painting, not
+  adding: every pass is the same colour, so the alpha climbs and the
+  hue stands still (adding would wash the warm gold out towards white
+  — pinned by a test). The third STYLING number, not an animated one:
+  it rides `read_glow`/`GlowStyle` beside colour and radius, joins the
+  sprite cache key, and costs nothing per frame — the applier still
+  writes one opacity. **No schema bump** (`style.effect_params`), and 0
+  is one pass, which `_thicken` hands back untouched, so every document
+  already saved renders exactly as it did. The knob is a per cent over
+  a curve, 1 to 32 passes: an even spread would waste its top half.
+  **Measured on testscore** (`spikes/glow_density.py`): at 24 radius
+  the halo's alpha 4 units out from a notehead goes 21 → 98 → 238 of
+  255 across 0/50/100 %, and it fills the halo IN rather than spreading
+  it — the reach stops at 12 units and CANNOT go past the blur, so
+  radius is still the knob for how far and the two together are how you
+  get a big solid halo (rendered four pages and looked). 32 passes is
+  the top because past it the change is all in the tail. Cost is
+  build-time only: lighting every element of every page at once, 456
+  sprites, 780 ms at 0 % against 993 at 100 %, and a replay still
+  builds nothing. Checked end to end in the real window offscreen:
+  100 % in the box takes the halo from 21 to 238, undo puts the box and
+  the halo back. Unproven under a human's eye.
 - 2026-08-02 — **The glow is fast now** (`beta/f-glow-effect`,
   UNMERGED): the live drop-shadow effect re-blurred every halo on every
   repaint, at device resolution — playback lagged on stop, scrub and

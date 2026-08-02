@@ -8,11 +8,11 @@ and dies when it stops.
 The effect splits cleanly in two, and this module keeps both halves
 because both are data:
 
-- the **styling** half, `read_glow` — what colour the halo is and how
-  far it reaches. It changes when the document changes, never per
-  frame, so render reads it once and pushes it to the items. It lives
-  here rather than in `presets.py` so render can have the two numbers
-  without importing the preset registry.
+- the **styling** half, `read_glow` — what colour the halo is, how far
+  it reaches, and how solid the light in it is. It changes when the
+  document changes, never per frame, so render reads it once and pushes
+  it to the items. It lives here rather than in `presets.py` so render
+  can have those numbers without importing the preset registry.
 - the **animation** half, `glow_track` — one ordinary float envelope on
   the GLOW property, 0 = no glow, 1 = full glow. Nothing downstream
   knows this envelope belongs to an effect called "glow" (rule 6).
@@ -59,11 +59,23 @@ GLOW_S = 0.4
 # makes only SOUNDING notes glow.
 GLOW_NOTE_VALUE = True
 GLOW_PEAK = 0.5             # swell shape only
+GLOW_DENSITY = 0.0          # a plain blur, the soft default
 
 # Scene units, clamped where the radius is consumed (below). The far
 # end is a whole staff's height of light, which is already far more
 # than anybody wants.
 _RADIUS_RANGE = (0.0, 500.0)
+
+# How many times over the light is laid down at density 1. Each pass
+# puts the same halo over the one below it, so the alpha at a point
+# goes 1 - (1 - a)ⁿ: the light nearest the ink fills in first and the
+# faint outer tail follows. Measured on testscore
+# (spikes/glow_density.py): at 32 the halo is a solid block of colour
+# around the note with a short gradient at its edge, which is as solid
+# as anybody asked for, and going further only fills in a tail nobody
+# is looking at. It never spreads past the blur's own reach — that is
+# what the radius is for.
+_DENSITY_PASSES = 32.0
 
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -71,9 +83,19 @@ _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 @dataclass(frozen=True)
 class GlowStyle:
     """What the halo looks like: a lowercase "#rrggbb" string a caller
-    can hand straight to QColor, and a radius in SCENE units."""
+    can hand straight to QColor, a radius in SCENE units, and how solid
+    the light is (0 = the plain blur, 1 = a solid colour)."""
     color: str = GLOW_COLOR
     radius: float = GLOW_RADIUS
+    density: float = GLOW_DENSITY
+
+    @property
+    def passes(self) -> float:
+        """How many times over the light is laid down. 1 is the plain
+        blur, and the count climbs a curve rather than a line: the first
+        few passes are what fill the halo in, so an even spread of them
+        over the knob would waste its top half."""
+        return _DENSITY_PASSES ** self.density
 
 
 def read_glow(raw: Mapping[str, object] | None) -> GlowStyle:
@@ -87,14 +109,23 @@ def read_glow(raw: Mapping[str, object] | None) -> GlowStyle:
         color = GLOW_COLOR
     else:
         color = color.strip().lower()
+    radius = _number(entry.get("radius", GLOW_RADIUS), GLOW_RADIUS,
+                     *_RADIUS_RANGE)
+    density = _number(entry.get("density", GLOW_DENSITY), GLOW_DENSITY,
+                      0.0, 1.0)
+    return GlowStyle(color=color, radius=radius, density=density)
+
+
+def _number(raw: object, fallback: float, lo: float, hi: float) -> float:
+    """One stored number, made safe: anything that is not a finite
+    number falls back, and the rest is clamped into range."""
     try:
-        radius = float(entry.get("radius", GLOW_RADIUS))  # type: ignore[arg-type]
+        value = float(raw)  # type: ignore[arg-type]
     except (TypeError, ValueError):
-        radius = GLOW_RADIUS
-    if radius != radius or radius in (float("inf"), float("-inf")):
-        radius = GLOW_RADIUS
-    radius = min(_RADIUS_RANGE[1], max(_RADIUS_RANGE[0], radius))
-    return GlowStyle(color=color, radius=radius)
+        return fallback
+    if value != value or value in (float("inf"), float("-inf")):
+        return fallback
+    return min(hi, max(lo, value))
 
 
 def glow_track(shape: str, strength: float, peak: float,

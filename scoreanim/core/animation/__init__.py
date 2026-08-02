@@ -5,9 +5,9 @@ from scoreanim.core.animation.durations import resolve_durations
 from scoreanim.core.animation.effect import (GLOW, OFFSET_X, OFFSET_Y, OPACITY,
                                              SCALE, Easing, Effect, Envelope,
                                              Keyframe, PropertyId, appear)
-from scoreanim.core.animation.glow import (GLOW_COLOR, GLOW_POP, GLOW_RADIUS,
-                                           GLOW_SWELL, GlowStyle, glow_track,
-                                           read_glow)
+from scoreanim.core.animation.glow import (GLOW_COLOR, GLOW_DENSITY,
+                                           GLOW_POP, GLOW_RADIUS, GLOW_SWELL,
+                                           GlowStyle, glow_track, read_glow)
 from scoreanim.core.animation.intensity import (SMOOTHING_S, VolumeResponse,
                                                 gain_for, intensity_at,
                                                 peak_reference, read_volume,
@@ -49,7 +49,8 @@ from scoreanim.core.animation.windows import (WindowPlan, audio_windows,
 __all__ = [
     "ANCHOR_KINDS", "ANIMATED_KINDS", "COMBINE_SEP", "COMPOSE_OPS",
     "DARK", "DARK_BACKGROUND", "DARK_INK", "DEFAULT_EFFECT", "Easing",
-    "Effect", "GLOW", "GLOW_COLOR", "GLOW_POP", "GLOW_RADIUS", "GLOW_SWELL",
+    "Effect", "GLOW", "GLOW_COLOR", "GLOW_DENSITY", "GLOW_POP",
+    "GLOW_RADIUS", "GLOW_SWELL",
     "GlowStyle", "LIGHT", "LIGHT_BACKGROUND", "LIGHT_INK",
     "ElementStyle", "Envelope", "FLOOR_OPACITY", "HEAD_KINDS", "Keyframe",
     "MODULATED_PROPERTIES",

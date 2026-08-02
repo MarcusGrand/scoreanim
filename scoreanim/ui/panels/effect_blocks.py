@@ -16,8 +16,8 @@ alternative to typing one (Marcus, 2026-07-31).
 """
 from __future__ import annotations
 
-from scoreanim.core.animation import (GLOW_COLOR, GLOW_POP, GLOW_RADIUS,
-                                      GLOW_SWELL)
+from scoreanim.core.animation import (GLOW_COLOR, GLOW_DENSITY, GLOW_POP,
+                                      GLOW_RADIUS, GLOW_SWELL)
 from scoreanim.ui.panels.effect_knobs import Check, Choice, Color, Knob, Number
 
 # (preset name, block title, its knobs), in the order the blocks appear.
@@ -127,6 +127,14 @@ BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (
         Number("Strength", "strength", 1.0, 0.0, 1.0, 0.05,
                "How brightly the halo burns at its brightest (0 = no "
                "glow at all)"),
+        # Per cent in the UI, a fraction in the document — the Peak
+        # precedent. See core/animation/glow.py for the curve it drives.
+        Number("Density", "density", GLOW_DENSITY, 0, 100, 10,
+               "How solid the light is: 0 % is a soft blur that fades "
+               "away from the ink, and at 100 % the halo is a solid "
+               "block of the colour around the note. Radius still says "
+               "how far it reaches — turn both up for a big solid halo",
+               suffix=" %", factor=100.0, integer=True),
         # Peak has no knob on purpose: the swell shape's top sits
         # halfway through unless a hand-edited file says otherwise.
         Choice("Shape", "shape", GLOW_POP,

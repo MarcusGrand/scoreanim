@@ -220,6 +220,93 @@ def test_restyling_rebuilds_the_sprite_with_the_new_colour(qapp) -> None:
     assert color.blue() > color.red() and color.blue() > color.green()
 
 
+# -- density: the same halo, laid down over itself -------------------------
+
+def test_density_fills_the_halo_in_without_moving_the_colour(qapp) -> None:
+    """What the knob is for: the light between the ink and the halo's
+    edge gets solid. The colour must not drift while it does — every
+    pass is the same colour, so the alpha climbs and the hue stands
+    still (adding them would wash a warm gold out towards white)."""
+    glow_sprite.reset_cache()
+    soft = _halo_alphas(density=0.0)
+    solid = _halo_alphas(density=1.0)
+    assert all(b >= a for a, b in zip(soft, solid))
+    assert soft[0] < 200 and solid[0] > 240      # just outside the ink
+    assert soft[2] < 60 and solid[2] > 150       # and well out into it
+    # within a couple of steps of 255, which is premultiplied rounding
+    # and not a drift — a wash towards white would move green and blue
+    # tens of steps up
+    for soft_ch, solid_ch in zip(_halo_hue(0.0), _halo_hue(1.0)):
+        assert abs(solid_ch - soft_ch) <= 2
+
+
+def test_density_never_reaches_past_the_blur(qapp) -> None:
+    """The pad has room for the fullest halo: the light still arrives at
+    nothing inside the sprite rather than being cut off at its edge."""
+    glow_sprite.reset_cache()
+    assert _halo_alphas(density=1.0, out=(30.0, 40.0)) == [0, 0]
+
+
+def test_one_pass_is_the_plain_blur(qapp) -> None:
+    """Density 0 asks for one pass, and `_thicken` hands the blur back
+    untouched — so a document that never raises it renders exactly as it
+    did before the knob existed."""
+    glow_sprite.reset_cache()
+    item = _element(0, 0, 20, 10)
+    item.set_glow_style(QColor("#ffcc66"), 24.0, 1.0)
+    item.set_glow(1.0)
+    plain = item._glow._sprite.pixmap().toImage()
+
+    other = _element(0, 0, 20, 10)
+    other.set_glow_style(QColor("#ffcc66"), 24.0, 0.5)   # less than one
+    other.set_glow(1.0)
+    assert other._glow._sprite.pixmap().toImage() == plain
+
+
+def test_density_is_in_the_cache_key(qapp) -> None:
+    """Two densities are two pixmaps, and each is built once — the
+    sharing that makes a page of noteheads cheap still holds."""
+    glow_sprite.reset_cache()
+    items = [_element(0, 0, 20, 10) for _ in range(4)]
+    for item, passes in zip(items, (1.0, 1.0, 8.0, 8.0)):
+        item.set_glow_style(QColor("#ffcc66"), 24.0, passes)
+        item.set_glow(1.0)
+    keys = [item._glow._sprite.pixmap().cacheKey() for item in items]
+    assert keys[0] == keys[1] and keys[2] == keys[3]
+    assert keys[0] != keys[2]
+    assert glow_sprite.build_count == 2
+
+
+def test_the_document_density_reaches_the_item(qapp) -> None:
+    """End to end from the sparse entry: read_glow's curve is what the
+    slot is handed, so a stored density really does change the sprite."""
+    glow_sprite.reset_cache()
+    item = _element(0, 0, 20, 10)
+    style = push_glow_style([item], {"glow": {"density": 1.0}})
+    item.set_glow(1.0)
+    assert style.passes > 16.0
+    assert item._glow._passes == pytest.approx(style.passes)
+    edge = _alpha_outside(item, 6.0)
+    glow_sprite.reset_cache()
+    plain = _element(0, 0, 20, 10)
+    push_glow_style([plain], {"glow": {}})
+    plain.set_glow(1.0)
+    assert edge > _alpha_outside(plain, 6.0) + 40
+
+
+def test_a_density_edit_rebuilds_a_lit_halo(qapp) -> None:
+    """The colour-and-radius rule, on the third styling number."""
+    glow_sprite.reset_cache()
+    item = _element(0, 0, 20, 10)
+    item.set_glow_style(QColor("#ffcc66"), 24.0, 1.0)
+    item.set_glow(1.0)
+    before = item._glow._sprite.pixmap().cacheKey()
+    item.set_glow_style(QColor("#ffcc66"), 24.0, 8.0)
+    sprite = item._glow._sprite
+    assert sprite is not None and sprite.opacity() == pytest.approx(1.0)
+    assert sprite.pixmap().cacheKey() != before
+
+
 # -- the sprites are shared and sit behind the ink ------------------------
 
 def test_identical_shapes_share_one_sprite(qapp) -> None:
@@ -352,8 +439,9 @@ class _Spy:
     def __init__(self, slot: GlowSlot) -> None:
         self._slot = slot
 
-    def set_glow_style(self, color: QColor, radius: float) -> None:
-        self._slot.set_style(color, radius)
+    def set_glow_style(self, color: QColor, radius: float,
+                       passes: float = 1.0) -> None:
+        self._slot.set_style(color, radius, passes)
 
 
 def _counting(func, calls: dict, key: str):
@@ -361,6 +449,37 @@ def _counting(func, calls: dict, key: str):
         calls[key] += 1
         return func(*args, **kwargs)
     return wrapped
+
+
+def _lit(density: float) -> ElementItem:
+    """A 20x10 block of ink with its halo lit at the default radius and
+    the given density, straight through read_glow's own curve."""
+    item = _element(0, 0, 20, 10)
+    push_glow_style([item], {"glow": {"density": density}})
+    item.set_glow(1.0)
+    return item
+
+
+def _alpha_outside(item: ElementItem, units: float) -> int:
+    """The halo's alpha `units` to the left of the ink, read off the
+    sprite itself at the ink's own vertical middle."""
+    image = item._glow._sprite.pixmap().toImage()
+    pad = image.width() / OVERSAMPLE / 2 - 10.0    # half the padding
+    x = round((pad - units) * OVERSAMPLE)
+    return image.pixelColor(max(0, x), image.height() // 2).alpha()
+
+
+def _halo_alphas(density: float,
+                 out: tuple[float, ...] = (1.0, 5.0, 10.0)) -> list[int]:
+    item = _lit(density)
+    return [_alpha_outside(item, units) for units in out]
+
+
+def _halo_hue(density: float) -> tuple[int, int, int]:
+    item = _lit(density)
+    image = item._glow._sprite.pixmap().toImage()
+    color = image.pixelColor(image.width() // 2, image.height() // 2)
+    return color.red(), color.green(), color.blue()
 
 
 def _element(x: float, y: float, w: float, h: float) -> ElementItem:

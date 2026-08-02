@@ -5,15 +5,16 @@ The live drop-shadow effect this module replaces re-rendered the ink and
 re-blurred it on every repaint, at device resolution, so playback lagged
 on stop, scrub and zoom. Now a glowing element gets a pixmap child item
 behind its ink: the element's ink painted in the glow colour, padded by
-the radius, blurred ONCE when the element first lights. Per frame the
+the radius, blurred ONCE when the element first lights and laid down
+over itself as many times as the density asks for. Per frame the
 applier touches only the sprite's opacity — one cheap write, and at 0
 Qt skips painting the item entirely.
 
-Sprites are cached by shape: identical ink at the same radius and colour
-shares one pixmap, so a page of quarter noteheads costs a handful of
-blurs, not one per note. The cache key normalizes each child's position
-against the element's own ink rect, which is also where the sprite is
-placed — so sharing is exact by construction. A score that never glows
+Sprites are cached by shape: identical ink at the same radius, colour
+and density shares one pixmap, so a page of quarter noteheads costs a
+handful of blurs, not one per note. The cache key normalizes each
+child's position against the element's own ink rect, which is also
+where the sprite is placed — so sharing is exact by construction. A score that never glows
 builds nothing at all.
 
 The sprite is rendered at OVERSAMPLE times the engraved resolution so it
@@ -71,8 +72,8 @@ _PAD_RADII = 2.0
 # default of 24 was chosen for.
 _BLUR_MATCH = 0.6
 
-# One pixmap per distinct (shape, radius, colour). Module-level, so the
-# live scenes and an export's own scenes share the same builds.
+# One pixmap per distinct (shape, radius, colour, density). Module-level,
+# so the live scenes and an export's own scenes share the same builds.
 _cache: dict[tuple, QPixmap] = {}
 # Path identity memo: id(path) -> (the path, its key). Holding the path
 # reference is what pins the id against reuse after a scene dies.
@@ -115,6 +116,7 @@ class GlowSlot:
         self._owner = owner
         self._color = QColor(color) if color is not None else QColor()
         self._radius = 0.0
+        self._passes = 1.0
         self._strength = 0.0
         self._sprite: GlowSpriteItem | None = None
 
@@ -122,12 +124,15 @@ class GlowSlot:
     def strength(self) -> float:
         return self._strength
 
-    def set_style(self, color: QColor, radius: float) -> None:
+    def set_style(self, color: QColor, radius: float,
+                  passes: float = 1.0) -> None:
         color = QColor(color)
-        if color == self._color and radius == self._radius:
+        if (color == self._color and radius == self._radius
+                and passes == self._passes):
             return
         self._color = color
         self._radius = radius
+        self._passes = passes
         if self._sprite is None:
             return                      # next first light builds fresh
         self._drop_sprite()
@@ -146,7 +151,8 @@ class GlowSlot:
 
     def _show(self, value: float) -> None:
         if self._sprite is None:
-            built = sprite_for(self._owner, self._color, self._radius)
+            built = sprite_for(self._owner, self._color, self._radius,
+                               self._passes)
             if built is None:           # no ink to glow, or radius 0
                 return
             pixmap, top_left = built
@@ -175,24 +181,25 @@ class GlowSlot:
             scene.removeItem(sprite)
 
 
-def sprite_for(owner: QGraphicsItem, color: QColor,
-               radius: float) -> tuple[QPixmap, QPointF] | None:
+def sprite_for(owner: QGraphicsItem, color: QColor, radius: float,
+               passes: float = 1.0) -> tuple[QPixmap, QPointF] | None:
     """The halo pixmap for this element's ink, and where its top-left
     sits in the element's own coordinates. Cached: identical ink at the
-    same radius and colour comes back as the same pixmap."""
+    same radius, colour and pass count comes back as the same pixmap."""
     rect = _ink_rect(owner)
     if rect is None or rect.isEmpty() or radius <= 0.0:
         return None
     pad = _PAD_RADII * radius
     padded = rect.adjusted(-pad, -pad, pad, pad)
-    key = (_shape_key(owner, rect.topLeft()), round(radius, 2), color.rgba())
+    key = (_shape_key(owner, rect.topLeft()), round(radius, 2), color.rgba(),
+           round(passes, 3))
     pixmap = _cache.get(key)
     if pixmap is None:
         global build_count
         build_count += 1
         pixmap = QPixmap.fromImage(
-            _blur(_silhouette(owner, padded, color),
-                  radius * _BLUR_MATCH * OVERSAMPLE))
+            _thicken(_blur(_silhouette(owner, padded, color),
+                           radius * _BLUR_MATCH * OVERSAMPLE), passes))
         _cache[key] = pixmap
     return pixmap, padded.topLeft()
 
@@ -214,7 +221,7 @@ def push_glow_style(items: Iterable["ElementItem"],
         _last_style = style
     color = QColor(style.color)
     for item in items:
-        item.set_glow_style(color, style.radius)
+        item.set_glow_style(color, style.radius, style.passes)
     return style
 
 
@@ -335,5 +342,37 @@ def _blur(image: QImage, device_radius: float) -> QImage:
     painter = QPainter(out)
     rect = QRectF(0, 0, out.width(), out.height())
     scene.render(painter, rect, rect)
+    painter.end()
+    return out
+
+
+def _thicken(image: QImage, passes: float) -> QImage:
+    """Lay the same halo down `passes` times over itself, which is what
+    makes the light solid instead of soft.
+
+    Ordinary painting, so the alpha at a point goes 1 - (1 - a)ⁿ: it
+    climbs fast where the blur is already strong and slowly out in the
+    tail, so the halo fills in from the ink outwards and keeps a
+    gradient at its edge. The colour never moves — every pass is the
+    same colour, so the result is that colour at a higher alpha, not a
+    brighter one (adding the passes instead would wash a warm gold out
+    towards white).
+
+    A part-pass is that pass drawn at part opacity, so the knob is
+    smooth all the way up. One pass is the plain blur and returns it
+    untouched — which is what keeps a document that never raises the
+    density rendering exactly as it did."""
+    if passes <= 1.0:
+        return image
+    out = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    out.fill(0)
+    painter = QPainter(out)
+    whole = int(passes)
+    for _ in range(whole):
+        painter.drawImage(0, 0, image)
+    part = passes - whole
+    if part > 0.0:
+        painter.setOpacity(part)
+        painter.drawImage(0, 0, image)
     painter.end()
     return out

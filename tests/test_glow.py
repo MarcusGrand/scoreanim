@@ -10,7 +10,8 @@ from __future__ import annotations
 import pytest
 
 from scoreanim.core.animation import (FLOOR_OPACITY, GLOW, GLOW_COLOR,
-                                      GLOW_POP, GLOW_RADIUS, GLOW_SWELL,
+                                      GLOW_DENSITY, GLOW_POP, GLOW_RADIUS,
+                                      GLOW_SWELL,
                                       OPACITY, PRESETS, SCALE, build_presets,
                                       derive_windows, element_state,
                                       glow_track, read_glow)
@@ -90,6 +91,36 @@ def test_an_unreadable_radius_falls_back_to_the_default(bad) -> None:
 def test_the_radius_is_clamped_at_consumption() -> None:
     assert read_glow({"radius": -5.0}).radius == pytest.approx(0.0)
     assert read_glow({"radius": 99999.0}).radius == pytest.approx(500.0)
+
+
+def test_a_silent_document_asks_for_one_pass_of_light() -> None:
+    """Density is the one styling number a document already saved does
+    not carry, so its default has to be the plain blur — one pass, which
+    render returns untouched."""
+    assert read_glow(None).density == pytest.approx(GLOW_DENSITY)
+    assert read_glow(None).passes == pytest.approx(1.0)
+
+
+def test_density_climbs_to_a_solid_halo() -> None:
+    """Between the two ends the pass count only rises, and the first
+    half of the knob buys more than the second — which is the curve's
+    whole reason for being there."""
+    counts = [read_glow({"density": d}).passes
+              for d in (0.0, 0.25, 0.5, 0.75, 1.0)]
+    assert counts == sorted(counts)
+    assert counts[-1] > 16.0                  # solid, measured at 32
+    assert counts[2] - counts[0] < counts[4] - counts[2]
+
+
+@pytest.mark.parametrize("bad", ["solid", None, [], float("nan"),
+                                 float("inf")])
+def test_an_unreadable_density_falls_back_to_the_default(bad) -> None:
+    assert read_glow({"density": bad}).density == pytest.approx(GLOW_DENSITY)
+
+
+def test_the_density_is_clamped_at_consumption() -> None:
+    assert read_glow({"density": -2.0}).density == pytest.approx(0.0)
+    assert read_glow({"density": 5.0}).density == pytest.approx(1.0)
 
 
 # -- the preset -----------------------------------------------------------
