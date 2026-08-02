@@ -17,7 +17,8 @@ size. Marcus's call on both; he has said he wants to tweak them.
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
 
-The next module split is `render/items.py` at 432 lines.
+`render/items.py` was split on 2026-08-02 and is at 396 lines. The next
+one over the ceiling is `core/project/serialize.py` at 456.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -25,6 +26,43 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-02 — **The page can be any two colours**
+  (`beta/f-page-colors`, UNMERGED): a background and an ink, so the
+  score can be white on black. Appearance, not animation — one pass over
+  the items when the style changes, like the floor opacity, and nothing
+  per frame. One sparse `style.colors` entry beside `volume` and
+  `pulse`, **no schema bump** (v11 is untagged; the reasoning is written
+  into the schema log so it is not re-litigated). Validated at
+  CONSUMPTION and, unlike `read_volume`/`read_pulse`, genuinely fail-soft
+  — an unreadable value falls back per field, so a bad ink cannot take
+  the background with it. Scope is **everything**, not `TINTED_KINDS`:
+  that list is the scope of a part TINT, and a white-on-black page needs
+  white staff lines or there is no staff. Ink is its own composition
+  input on `ElementItem` beside the authored colour, which is what lets
+  the two apply in either order and stops a recolour corrupting
+  DocumentSync's authored-colour cache. **Export needed no wiring** — it
+  already calls `apply_style_colors` — and the background deliberately
+  still never reaches a frame (ruling R1 stands), so a black page
+  exports as white notation over transparency, which is what an overlay
+  wants. Marcus's call, and now pinned by a test. Two things the plan
+  had wrong, both found by testing rather than reasoning: `set_stage_texts`
+  rebuilds its items, so the scene now RETAINS the ink (without it,
+  editing the title on a black page turned it black-on-black and no
+  cache upstream could see it), and `add_stage_text` tracked on "colour
+  is None" where its sibling uses `fill_tracks_color`. Selection needed
+  no change — the tint composites over the EFFECTIVE colour and white
+  sits further from the orange than black does; there is a test saying
+  so rather than a claim. Pixel identity is pinned with two non-vacuity
+  guards. **`render/items.py` was split first** as its own commit (438 →
+  365, landing at 396 with the feature): `RevealPathItem` moved to
+  `render/reveal_item.py`, which closes the split this file has been
+  naming since 2026-08-01. Checked end to
+  end in the real window offscreen: paper `#101014`, every kind from
+  noteheads to staff lines to the title at `#f4f4f4`, the selection
+  still orange on it, two undos putting everything back and the document
+  storing `{}` again. Opened BACKLOG 28 (deliberately-coloured ink does
+  not follow the page — one light-grey credit today, so nothing is
+  broken yet). Unproven under a human's eye.
 - 2026-08-02 — **Every system jumps when its notes land**
   (`beta/f-system-pulse`, UNMERGED): the system pulse's second mode, an
   onset pop, and it needs **no recording at all** — the schedule is the

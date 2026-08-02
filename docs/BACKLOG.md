@@ -671,6 +671,21 @@ scale-to-fit). Parked:
     the strip and tap derivation use them). Left in for now so he can
     live with the new one first.
 
+28. **Ink with a colour of its own does not follow the page ink.**
+    (Opened 2026-08-02 with page colours.) `fill_tracks_color`
+    (`render/items.py`) asks what the SVG SOURCE said: absent or black
+    means "the default, written out" and follows the page; a real colour
+    is a deliberate choice and is kept. So a deliberately-coloured piece
+    of ink stays its own colour on a recoloured page. Today that is one
+    thing on one fixture — testscore's lyricist credit at `#c0c0c0`,
+    which is light grey and still perfectly readable on a dark page —
+    so nothing is actually broken. It would bite if a score authored
+    something DARK, which would then vanish against dark paper.
+    Fixing it means deciding what an authored colour means when the user
+    has recoloured the page, and that answer also governs part tints and
+    per-element overrides, so it is a real design question rather than a
+    predicate change. Left until a score actually shows the problem.
+
 ## Deferred (from docs/history/PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

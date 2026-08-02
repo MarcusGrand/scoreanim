@@ -12,8 +12,9 @@ dock: the zone composes them and delegates `sync_from_document`."""
 from scoreanim.ui.panels.break_overrides import BreakOverridesList
 from scoreanim.ui.panels.deleted_elements import DeletedElementsList
 from scoreanim.ui.panels.effects_panel import EffectsPanel
+from scoreanim.ui.panels.page_colors import PageColorsPanel
 from scoreanim.ui.panels.selection_panel import SelectionPanel
 from scoreanim.ui.panels.selection_style import SelectionStyleControls
 
 __all__ = ["BreakOverridesList", "DeletedElementsList", "EffectsPanel",
-           "SelectionPanel", "SelectionStyleControls"]
+           "PageColorsPanel", "SelectionPanel", "SelectionStyleControls"]

@@ -123,14 +123,11 @@ class ElementItem(GroupItem):
     else is currently applied. That matters concretely: DocumentSync's
     style pass is a DIFF cache, so anything that overwrote the authored
     color behind its back would leave it believing a color it can no
-    longer restore.
-
-    **Ink and authored color are two inputs, not one.** The ink is what
-    this element paints as when nothing has authored a color for it; an
-    authored color always wins. Keeping them apart is what lets the two
-    be applied in either order, and what stops a page recolor from
-    corrupting the authored-color diff cache — which is the same
-    argument the paragraph above makes, one input further down.
+    longer restore. The ink is that same argument one input further
+    down: it is what this element paints as when nothing has authored a
+    color for it, an authored color always wins, and keeping the two
+    apart is what lets a page recolor and a part tint arrive in either
+    order.
 
     **Selection composites last, and touches only what it must.** It
     replaces the color and raises an opacity floor — it never touches
@@ -276,11 +273,9 @@ class ElementItem(GroupItem):
 
     def set_ink_color(self, color: QColor) -> None:
         """Set the document's ink color — what this element paints as
-        when no part tint and no per-element override has claimed it.
-
-        Its own input, never written into `_authored`: a page recolor
-        must not look like authored intent to DocumentSync's diff cache,
-        and an authored color must survive one."""
+        when no part tint and no override has claimed it. Never written
+        into `_authored`: a page recolor must not look like authored
+        intent to DocumentSync's diff cache."""
         self._ink = QColor(color)
         self._repaint()
 
@@ -337,11 +332,9 @@ class ElementItem(GroupItem):
 
     def _paint_color(self) -> QColor:
         """Authored color over ink, then the selection tint over that.
-
-        The collision check reads the EFFECTIVE color, not the authored
-        one: on a white-ink page the thing the tint has to stay tellable
-        apart from is the white, and asking about a black nobody can see
-        would answer the wrong question."""
+        The collision check reads the EFFECTIVE color: on a white-ink
+        page what the tint must stay tellable apart from is the white,
+        not a black nobody can see."""
         effective = self.color
         if not self._selected:
             return effective
