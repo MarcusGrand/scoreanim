@@ -18,6 +18,11 @@ The *Appearance & Effects* body is the EffectsPanel (M4.8,
 ui/panels/effects_panel.py) — Floor opacity and Sweep moved there with
 the effect controls; this dock composes it and delegates its resync.
 
+*Page* (2026-08-02) is the PageColorsPanel: light mode or dark mode,
+which is what the whole score is drawn in. Its own section rather than
+another row above, because it applies whether anything animates or not —
+and because the effects panel was already at the module size ceiling.
+
 The *Selection* body is the SelectionPanel (M2.5,
 ui/panels/selection_panel.py) — a third sync behavior: it reads
 TRANSIENT selection state, so it subscribes to
@@ -35,7 +40,8 @@ from scoreanim.core.project import (PresentationMode, ProjectDoc,
                                     SetPresentationMode)
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.collapsible import CollapsibleSection
-from scoreanim.ui.panels import EffectsPanel, SelectionPanel
+from scoreanim.ui.panels import (EffectsPanel, PageColorsPanel,
+                                 SelectionPanel)
 from scoreanim.ui.playback import PlaybackController
 
 
@@ -93,6 +99,11 @@ class Inspector(QDockWidget):
         # handlers and resync; the dock only composes and delegates.
         self.effects_panel = EffectsPanel(app_state)
 
+        # Page: light mode or dark mode. What the page is drawn in,
+        # whether anything animates or not — so its own section rather
+        # than another row under Appearance & Effects.
+        self.page_colors_panel = PageColorsPanel(app_state)
+
         # Selection body (M2.5): transient-state driven, so it observes
         # app_state.selection_changed itself and takes no part in
         # sync_from_document.
@@ -106,6 +117,7 @@ class Inspector(QDockWidget):
         for key, title, content in (
                 ("playback", "Playback && Sync", playback_body),
                 ("appearance", "Appearance && Effects", self.effects_panel),
+                ("page_colors", "Page", self.page_colors_panel),
                 ("selection", "Selection", self.selection_panel)):
             section = CollapsibleSection(title)
             section.set_content(content)
@@ -136,3 +148,4 @@ class Inspector(QDockWidget):
                                      is PresentationMode.SYSTEM)
         self._systems_box.blockSignals(False)
         self.effects_panel.sync_from_document(doc)
+        self.page_colors_panel.sync_from_document(doc)

@@ -1,6 +1,7 @@
-"""Document → scene diff-sync (M1.7): part tints, per-element color
-overrides, the ghost floor, stage texts, and hidden flags, each behind
-an applied cache so every pass costs a diff, not a rebuild.
+"""Document → scene diff-sync (M1.7): the page's two colours, part
+tints, per-element color overrides, the ghost floor, stage texts, and
+hidden flags, each behind an applied cache so every pass costs a diff,
+not a rebuild.
 
 Execute, undo, and redo all arrive through the window's
 document-changed pass — apply and revert ride the same code. The
@@ -14,7 +15,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtGui import QColor
 
-from scoreanim.core.animation import FLOOR_OPACITY, takes_part_color
+from scoreanim.core.animation import (FLOOR_OPACITY, PageColors, read_colors,
+                                      takes_part_color)
 from scoreanim.core.project import ProjectDoc
 from scoreanim.core.score.identity import PartId
 
@@ -32,18 +34,21 @@ class DocumentSync:
         self._applied_colors: dict[PartId, str | None] = {}
         self._applied_overrides: dict = {}     # ElementId → applied color
         self._applied_floor = FLOOR_OPACITY    # ghost opacity on the scenes
+        self._applied_page = PageColors()      # the page's two colours
         self._applied_stage_texts: tuple = ()  # stage texts on the scenes
         self._applied_hidden: dict = {}    # ElementId → applied hidden flag
         self._applied_offsets: dict = {}   # ElementId → applied (dx, dy)
 
     def bind_scenes(self, scenes: ScoreScenes, stage_texts: tuple) -> None:
         """Adopt a load's fresh scenes: caches reset to the scene's
-        construction state — ghosts at the default floor, the load's
-        stage texts applied, nothing hidden, no tints."""
+        construction state — ghosts at the default floor, white paper
+        and black ink, the load's stage texts applied, nothing hidden,
+        no tints."""
         self._scenes = scenes
         self._applied_colors = {}
         self._applied_overrides = {}
         self._applied_floor = FLOOR_OPACITY
+        self._applied_page = PageColors()
         self._applied_stage_texts = stage_texts
         self._applied_hidden = {}
         self._applied_offsets = {}
@@ -61,6 +66,15 @@ class DocumentSync:
         if self._applied_floor != doc.style.floor_opacity:
             self._scenes.set_ghost_opacity(doc.style.floor_opacity)
             self._applied_floor = doc.style.floor_opacity
+        # The page's own two colours, before the part tints — widest
+        # first. Diffed on the READ value, not on "is it the default",
+        # because going back TO the default is a change like any other
+        # and still has to push white and black onto the scene.
+        page = read_colors(doc.style.colors)
+        if self._applied_page != page:
+            self._scenes.set_page_color(QColor(page.background))
+            self._scenes.set_ink_color(QColor(page.ink))
+            self._applied_page = page
         parts_retinted = set()
         for pid in self._parts_menu.part_ids():
             rule = doc.style.parts.get(pid)

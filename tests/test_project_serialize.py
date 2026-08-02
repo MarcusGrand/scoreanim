@@ -15,8 +15,8 @@ from scoreanim.core.project import (FileRef, LayoutOverride, PageBreak,
                                     SystemBreak, TimingConfig, check_ref,
                                     from_dict, load_project, save_project,
                                     sha256_of, to_dict)
-from scoreanim.core.animation import (ElementStyle, RevealMode, read_pulse,
-                                      read_volume)
+from scoreanim.core.animation import (ElementStyle, RevealMode, read_colors,
+                                      read_pulse, read_volume)
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.core.timing import SwingRegion, Tap, TapSession, TempoEvent
 
@@ -486,6 +486,42 @@ def test_v11_pulse_round_trips_raw() -> None:
     assert out == doc
     # sparse: nothing stored writes no key at all
     assert "pulse" not in to_dict(ProjectDoc())["style"]
+
+
+def test_v11_color_mode_round_trips_raw() -> None:
+    """The third entry of the same shape: sparse, raw, same version. A
+    key this build does not consume survives, like effect_params — which
+    is what leaves room for per-colour fine-tuning later."""
+    doc = ProjectDoc(style=StyleRules(
+        colors={"mode": "dark", "background": "#101014"}))
+    out = from_dict(to_dict(doc))
+    assert out.style.colors == {"mode": "dark", "background": "#101014"}
+    assert out == doc
+
+
+def test_an_untouched_document_writes_no_colors_key_at_all() -> None:
+    """The bit-for-bit promise, from the document side: a project that
+    never touches the mode is byte-identical to one written before it
+    existed."""
+    assert "colors" not in to_dict(ProjectDoc())["style"]
+
+
+def test_older_files_load_in_light_mode() -> None:
+    """No read gate: a missing key means {} for every older version,
+    which reads as light — exactly the look those files have always
+    had."""
+    for version in range(1, 12):
+        style = from_dict({"version": version}).style
+        assert style.colors == {}
+        assert read_colors(style.colors).is_default
+
+
+def test_dark_mode_round_trips_through_a_real_file(tmp_path) -> None:
+    path = tmp_path / "dark.scoreanim"
+    save_project(ProjectDoc(style=StyleRules(colors={"mode": "dark"})), path)
+    out = load_project(path)
+    assert out.style.colors == {"mode": "dark"}
+    assert read_colors(out.style.colors).is_dark
 
 
 def test_the_pop_settings_ride_the_same_entry() -> None:

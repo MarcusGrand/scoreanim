@@ -80,3 +80,30 @@ def test_min_opacity_is_high_enough_to_read_over_an_empty_ghost_score() -> None:
     """The floor exists because floor_opacity may be 0 (an invisible
     ghost score), where a tint would otherwise be a tint on nothing."""
     assert SELECTION_MIN_OPACITY > 0.5
+
+
+# -- on a recoloured page ------------------------------------------------------
+
+def test_the_tint_survives_a_white_ink_page() -> None:
+    """Page colours (2026-08-02) let the user make the score white on
+    black, and the selection has to stay obvious on it. `_paint_color`
+    asks about the EFFECTIVE colour, so on such a page the question is
+    whether the tint is tellable apart from white — not from a black
+    nobody can see.
+
+    It is, comfortably: white sits further from the orange than the
+    black default does. So nothing here had to change, and this test is
+    what says so rather than an assumption in a commit message."""
+    assert color_distance("#ffffff", SELECTION_COLOR) \
+        > color_distance("#000000", SELECTION_COLOR)
+    assert selection_color_for("#ffffff") == SELECTION_COLOR
+    assert selection_color_for("#000000") == SELECTION_COLOR
+
+
+@pytest.mark.parametrize("paper", ["#000000", "#101014", "#ffffff"])
+def test_both_tints_stay_visible_against_any_paper(paper: str) -> None:
+    """A tint is no use if it vanishes into the page behind it. Both
+    constants clear the same threshold the collision handler uses,
+    against black paper, near-black paper and white."""
+    for tint in (SELECTION_COLOR, SELECTION_ALT_COLOR):
+        assert color_distance(tint, paper) > 120.0, (tint, paper)

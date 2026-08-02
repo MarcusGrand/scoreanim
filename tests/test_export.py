@@ -86,12 +86,12 @@ def tempo_map(tempo_setup) -> TempoMap:
 
 
 def make_renderer(inputs, tempo_map, offset, *, start=0.0, end,
-                  fps=FPS, height=HEIGHT) -> FrameRenderer:
+                  fps=FPS, height=HEIGHT, style=None) -> FrameRenderer:
     spec = ExportSpec(fps=fps, height=height, start_seconds=start,
                       end_seconds=end, offset_seconds=offset,
                       format=ExportFormat.PNG_SEQUENCE,
                       out_path=Path("unused"))
-    return FrameRenderer(inputs, StyleRules(), tempo_map, (), spec)
+    return FrameRenderer(inputs, style or StyleRules(), tempo_map, (), spec)
 
 
 def _trigger_seconds(schedule, tempo_map) -> list[float]:
@@ -294,6 +294,61 @@ def test_frames_are_transparent_with_ghost_then_lit_ink(
     onset_frame = math.ceil((seconds[0] + offset) * FPS - 1e-6)
     lit = bbox_px(renderer.render_frame(onset_frame))
     assert lit >= 200, lit
+
+
+def test_the_page_ink_reaches_exported_frames_over_transparency(
+        qapp, inputs, schedule, tempo_map, tempo_setup) -> None:
+    """The export half of page colours, and it needed no wiring: export
+    already calls apply_style_colors, so the ink came along for free.
+
+    The BACKGROUND deliberately does not. FrameRenderer hides the paper
+    rects (ruling R1), so a black-page white-ink score exports as white
+    notation over transparency — which is what an overlay wants, and
+    what lets it sit on the performance video rather than replacing it.
+    """
+    offset = tempo_setup.offset_seconds
+    seconds = _trigger_seconds(schedule, tempo_map)
+    end = _audio_end(schedule, tempo_map, offset)
+    white_ink = StyleRules(colors={"mode": "dark"})
+    default = make_renderer(inputs, tempo_map, offset, end=end)
+    recolored = make_renderer(inputs, tempo_map, offset, end=end,
+                              style=white_ink)
+    w, h = default.size
+
+    eid = next(e for e in schedule.triggers[0].element_ids
+               if default.scenes.items[e].bbox is not None)
+    geo = inputs.layout.pages[0]
+    scale = min(w / geo.width, h / geo.height)
+    dx = (w - geo.width * scale) / 2
+    dy = (h - geo.height * scale) / 2
+
+    def ink_pixel(renderer, image):
+        """The most opaque pixel inside the note's own box, which is the
+        ink itself rather than the antialiased edge around it."""
+        b = renderer.scenes.items[eid].bbox
+        x0 = max(0, int(b.x() * scale + dx))
+        y0 = max(0, int(b.y() * scale + dy))
+        x1 = min(w, int((b.x() + b.width()) * scale + dx) + 1)
+        y1 = min(h, int((b.y() + b.height()) * scale + dy) + 1)
+        best = None
+        for x in range(x0, x1):
+            for y in range(y0, y1):
+                px = image.pixelColor(x, y)
+                if best is None or px.alpha() > best.alpha():
+                    best = px
+        return best
+
+    onset = math.ceil((seconds[0] + offset) * FPS - 1e-6)
+    was = ink_pixel(default, default.render_frame(onset))
+    now = ink_pixel(recolored, recolored.render_frame(onset))
+    assert was.alpha() >= 200 and now.alpha() >= 200      # both lit
+    assert was.red() < 40 and was.green() < 40            # was black ink
+    assert now.red() > 215 and now.green() > 215          # is white ink
+
+    # ruling R1 intact: the chosen background never reaches the frame
+    frame = recolored.render_frame(onset)
+    assert frame.pixelColor(0, 0).alpha() == 0
+    assert frame.pixelColor(w - 1, h - 1).alpha() == 0
 
 
 def test_two_walks_are_byte_identical(qapp, inputs, schedule, tempo_map,
