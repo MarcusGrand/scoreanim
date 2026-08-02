@@ -1,5 +1,10 @@
 """What the glow actually looks like, and what it costs.
 
+RETIRED SUBJECT 2026-08-02: this spike measured the live GlowEffect
+drop shadow, which pre-rendered sprites replaced the same day
+(render/glow_sprite.py). Kept for the radius calibration it recorded;
+the sprite's _BLUR_MATCH factor was chosen to preserve that look.
+
 Three questions before this goes in front of a person.
 
 1. Is the halo the same size wherever it is drawn? Qt blurs at DEVICE

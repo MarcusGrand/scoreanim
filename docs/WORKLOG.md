@@ -33,6 +33,27 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-02 — **The glow is fast now** (`beta/f-glow-effect`,
+  UNMERGED): the live drop-shadow effect re-blurred every halo on every
+  repaint, at device resolution — playback lagged on stop, scrub and
+  zoom. Replaced by pre-rendered sprites (`render/glow_sprite.py`,
+  `glow_effect.py` deleted): a glowing element gets a pixmap child
+  BEHIND its ink, the silhouette in the glow colour blurred ONCE at
+  first light, and a frame writes only the sprite's opacity. Cached by
+  shape: the whole of testscore is 900 glowing elements sharing 300
+  pixmaps, the first pass costs 495 ms in total (1.2 ms a frame,
+  builds included) and a replay builds nothing — pinned by tests, as
+  are z-order, transform inheritance, restyle-rebuild and the stale
+  extinguish. Page at 1400 px with 74 halos lit: 8 ms against 4 dark,
+  where the live effect measured 133 against 92. Qt's blur effect
+  spreads half again as far as the drop shadow's at the same radius
+  (measured, alpha profiles), so a 0.6 factor (`_BLUR_MATCH`) keeps
+  the calibrated radius-24 look; reach holds at 9–10 units for radius
+  20 at every zoom. Dropped with the old effect: the 30 % reach
+  pull-in as a glow dies (the fade is brightness-only now). Gained: a
+  mid-pop halo scales with its ink, and the one graphics-effect slot
+  per item is free again. Unproven under a human's eye — stop, scrub
+  and zoom mid-glow are the things to feel.
 - 2026-08-02 — **A sounding note glows**
   (`beta/f-glow-effect`, UNMERGED): a warm halo around the ink that
   lights at the onset and dies exactly when the note's value ends — so
