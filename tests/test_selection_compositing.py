@@ -316,7 +316,7 @@ def test_every_element_with_ink_can_show_a_selection(scenes) -> None:
 def test_an_authored_colour_is_still_never_overwritten(qapp) -> None:
     """The rule that made explicit fills untracked in the first place
     still holds for real colour choices — only black is exempt."""
-    from scoreanim.render.items import fill_tracks_color
+    from scoreanim.render.svg_paint import fill_tracks_color
 
     assert fill_tracks_color(None) is True          # SVG said nothing
     assert fill_tracks_color("#000000") is True     # the default, written out
