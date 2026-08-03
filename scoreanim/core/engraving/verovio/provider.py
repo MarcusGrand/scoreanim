@@ -31,8 +31,8 @@ from scoreanim.core.engraving.verovio import (attribution, decompose,
 from scoreanim.core.score.identity import Beats, ElementKind
 from scoreanim.core.score.musicxml_prep import (PageBreak, PartCondenseSpec,
                                                 PartGroupSpec, PartTextSpec,
-                                                PreparedScore, SystemBreak,
-                                                prepare)
+                                                PreparedScore, StemDirection,
+                                                SystemBreak, prepare)
 
 
 def _sig_change_measures(canonical_xml: str) -> dict[
@@ -81,11 +81,13 @@ class VerovioEngravingProvider(EngravingProvider):
              strict: bool = True,
              hide_first_system: bool = False,
              system_breaks: Mapping[int, SystemBreak] | None = None,
-             page_breaks: Mapping[int, PageBreak] | None = None) -> Layout:
+             page_breaks: Mapping[int, PageBreak] | None = None,
+             stem_directions: Mapping[str, StemDirection] | None = None
+             ) -> Layout:
         return self.load_detailed(score_path, params, groups, texts,
                                   hide_empty_staves, condense, strict,
                                   hide_first_system, system_breaks,
-                                  page_breaks).layout
+                                  page_breaks, stem_directions).layout
 
     def load_detailed(self, score_path: Path, params: EngravingParams,
                       groups: tuple[PartGroupSpec, ...] = (),
@@ -95,14 +97,16 @@ class VerovioEngravingProvider(EngravingProvider):
                       strict: bool = True,
                       hide_first_system: bool = False,
                       system_breaks: Mapping[int, SystemBreak] | None = None,
-                      page_breaks: Mapping[int, PageBreak] | None = None
+                      page_breaks: Mapping[int, PageBreak] | None = None,
+                      stem_directions: Mapping[str, StemDirection] | None = None
                       ) -> records.EngravedScore:
         # strict (Phase 11.4): when False (the app path) an unknown
         # drawable SVG class degrades to a static OTHER element plus a
         # "unknown-class" warning instead of raising; True (the default,
         # and pytest / the doctor's --strict) keeps coverage gaps loud.
         prep = prepare(score_path, groups, texts, condense,
-                       system_breaks=system_breaks, page_breaks=page_breaks)
+                       system_breaks=system_breaks, page_breaks=page_breaks,
+                       stem_directions=stem_directions)
         extra: list[LoadWarning] = []
         effective_hide = hide_empty_staves
         engraved, first_measure = self._engrave_prepared(
@@ -156,7 +160,8 @@ class VerovioEngravingProvider(EngravingProvider):
                 prep = prepare(score_path, groups, texts, condense,
                                page_break_measures=breaks,
                                system_breaks=system_breaks,
-                               page_breaks=page_breaks)
+                               page_breaks=page_breaks,
+                               stem_directions=stem_directions)
                 engraved, _ = self._engrave_prepared(
                     score_path, prep, params, effective_hide, strict,
                     hide_first_system=hide_first_system)
@@ -181,7 +186,8 @@ class VerovioEngravingProvider(EngravingProvider):
                 prep = prepare(score_path, groups, texts, condense,
                                page_break_measures=breaks,
                                system_breaks=system_breaks,
-                               page_breaks=page_breaks)
+                               page_breaks=page_breaks,
+                               stem_directions=stem_directions)
                 engraved, _ = self._engrave_prepared(
                     score_path, prep, params, effective_hide, strict,
                     scale=fit, hide_first_system=hide_first_system)
@@ -209,6 +215,16 @@ class VerovioEngravingProvider(EngravingProvider):
                 "break-override-inert",
                 f"{len(ordinals)} system-break override(s) had no effect "
                 f"(measure {', '.join(str(m) for m in ordinals)})"))
+        # Same contract for a stem flip whose note has gone — the score
+        # was re-exported shorter, or condensing renumbered the voice out
+        # from under the id.
+        if engraved.prepared.inert_stem_directions:
+            stale = engraved.prepared.inert_stem_directions
+            extra.append(LoadWarning(
+                "stem-flip-inert",
+                f"{len(stale)} stem flip(s) had no note to land on "
+                f"({', '.join(stale[:5])}"
+                f"{', …' if len(stale) > 5 else ''})"))
         # Authored PAGE intent has two ways of not landing, and D8 gives
         # them two codes because they want different things from the
         # user. Both are read off the FINAL layout, so no ordinal is ever
