@@ -6,7 +6,12 @@ earlier the same day — which itself brought five branches: the volume
 response, the swell effect, per-notehead pop pivots, the system group
 items and the system pulse. **Schema is v11**, so a project saved from
 here will not open on `v0.2-beta.6` or on any older build.
-`fix/bracket-hidden-staves` is the only branch still unmerged.
+`fix/bracket-hidden-staves` and `beta/f-stem-directions` are unmerged.
+
+**Every score re-engraves differently from 2026-08-03 on** — the stem
+pass is unconditional, and it moved 11 of the 12 goldens. That is the
+point of it, but it means a project saved before today will not render
+identically to how it looked.
 
 Light and dark mode are in but **unproven under a human's eye** — the
 checks so far are headless and offscreen.
@@ -21,8 +26,10 @@ size. Marcus's call on both; he has said he wants to tweak them.
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
 
-`render/items.py` was split on 2026-08-02 and is at 396 lines. The next
-one over the ceiling is `core/project/serialize.py` at 456.
+`render/items.py` was split on 2026-08-02 and is at 396 lines.
+`core/project/serialize.py` is at **485** and is the next split due —
+over the ceiling before this session and pushed further by it.
+`ui/main_window.py` is at 386 and is the one after.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -30,6 +37,46 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-03 — **Stems point the right way, and F flips one**
+  (`beta/f-stem-directions`, UNMERGED, off `main`): the wrong-way stems
+  are not random. **Dorico exports the WRITTEN score's directions and we
+  engrave concert pitch** (rule 9) — transposing moves notes across the
+  middle line and the `<stem>` does not follow. Measured over 7 fixtures
+  (`spikes/stem_dirs.py`): **6.5–34.3 %** of unbeamed single-voice stems
+  were drawn on the wrong side, and the error is about **seven times
+  denser in transposing parts** (34.5 %) than in concert-pitch ones
+  (5.1 %). `_normalize_stem_directions` drops `<stem>` wherever a staff
+  carries ONE voice in a measure and lets Verovio decide from the pitch
+  it actually draws — every fixture goes to **100 %**, and Verovio gets
+  beam groups and middle-line notes right on its own. A staff with two or
+  more voices keeps exactly what the file encodes (Marcus's call, so
+  divisi is never overruled). It runs **before `_apply_condense`**, which
+  fixes condensing for free: each source player is single-voice, so after
+  the merge Verovio applies its own v1-up/v2-down — measured, the two
+  voices stop being offset **27 units sideways** and 7 duplicate ledger
+  dashes go. **`F` on the stage** flips the selected note, cycling up ↔
+  down only. Two things made it less obvious than a nudge: the user
+  selects a NOTE but the document keys a STEM (joined through the
+  schedule's existing note group, so a chord's heads all name one stem
+  and the command needs no fan-out), and **nothing records which way a
+  stem points** — it is read off the drawn ink, so `F` flips away from
+  whatever is on the page. Bare `F` is stage-scoped, pinned
+  EMPIRICALLY rather than by a scope assertion: "flute" still types into
+  a QLineEdit anywhere in the window, including inside the stage view.
+  **No schema bump** — fourth feature to ride the untagged v11 — and the
+  automatic half stores nothing at all, so every already-saved project
+  re-engraves with corrected stems. **11 of 12 goldens re-captured with
+  Marcus's eyes on the diff**; `pickup_min` is the one fixture with no
+  `<stem>` at all, so it stays the clean control for the five
+  comparator-sensitivity tests. `note_records`, `measure_timeline` and
+  `pages` moved nowhere, which was the bisect. Watch out for one thing:
+  **`scaled-to-fit` shifted 1 %** on complex3 and tall_system_min
+  (70→71, 90→89), because stem directions change a system's height — and
+  that moved 100 % of those two fixtures' rows. A small visual change is
+  not a small golden diff. **`musicxml_rewrite.py` was split first**, its
+  own commit with no feature code (509 → 269): the break passes are now
+  `core/score/musicxml_breaks.py`. Unproven under a human's eye — the
+  thing to look at is a transposing part, which is where the 34 % lives.
 - 2026-08-02 — **Light mode or dark mode**
   (`beta/f-page-colors`, merged `6d89f1b`): the score is either black on
   white or white on a dark blue-grey (`#1d1f24` — not black, which is
