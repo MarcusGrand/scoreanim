@@ -25,7 +25,7 @@ from scoreanim.core.engraving.systems import (SystemBand, page_of_measure,
 from scoreanim.core.engraving.types import EngravingParams, Rect
 from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.score.musicxml_prep import PageBreak, SystemBreak, prepare
-from scoreanim.core.score.musicxml_rewrite import _apply_breaks
+from scoreanim.core.score.musicxml_breaks import _apply_breaks
 
 from .conftest import BIGBAND_SCORE as BIGBAND
 from .conftest import TALL_SYSTEM_SCORE, TESTSCORE

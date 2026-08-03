@@ -18,7 +18,7 @@ from scoreanim.core.engraving.systems import SystemBand, plan_page_breaks
 from scoreanim.core.engraving.types import EngravingParams, Rect
 from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.score.musicxml_prep import SystemBreak
-from scoreanim.core.score.musicxml_rewrite import (
+from scoreanim.core.score.musicxml_breaks import (
     _promote_page_breaks_to_system, _repaginate)
 
 from .conftest import TESTSCORE
