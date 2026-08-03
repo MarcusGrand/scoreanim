@@ -31,6 +31,7 @@ from scoreanim.core.project.commands.layout import (AddCondenseGroup,
                                                     SetElementsHidden,
                                                     SetLayoutOverride,
                                                     SetPartText)
+from scoreanim.core.project.commands.stems import SetStemDirection
 from scoreanim.core.project.commands.stage import (AddTempoOverlay,
                                                    EditStageText,
                                                    RemoveTempoOverlay,
@@ -80,6 +81,7 @@ __all__ = [
     "SetLayoutOverride", "SetPageBreak",
     "SetColorMode", "SetPartText", "SetPresentationMode", "SetPulseParam",
     "SetRevealMode",
-    "SetSwingRegion", "SetTempoFrom", "SetSystemBreak", "SetVolumeParam",
+    "SetStemDirection", "SetSwingRegion", "SetTempoFrom",
+    "SetSystemBreak", "SetVolumeParam",
     "UndoStack",
 ]

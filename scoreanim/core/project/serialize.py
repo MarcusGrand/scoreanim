@@ -23,8 +23,8 @@ from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.document import (CondenseGroup, FileRef,
                                              LayoutOverride, PageBreak,
                                              PartTextOverride, ProjectDoc,
-                                             StaffGroup, SystemBreak,
-                                             TimingConfig)
+                                             StaffGroup, StemDirection,
+                                             SystemBreak, TimingConfig)
 from scoreanim.core.project.stage_config import (PresentationMode,
                                                  StageConfig,
                                                  StageTextElement)
@@ -103,6 +103,17 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 #   key means the default look (white paper, black ink), which needs no
 #   read gate. Values are validated where they are consumed
 #   (animation.page_colors.read_colors), not here.
+#   Also v11 (stem directions, 2026-08-03): stem_directions — the
+#   sparse {stem ElementId: "up"|"down"} map of stems the user flipped
+#   by hand. Fourth entry to ride v11, and the same argument: v11 is
+#   still untagged, so no shipped build can be surprised, and a missing
+#   key means an empty map, which is the automatic rule alone and needs
+#   no read gate. Note the AUTOMATIC half of the feature stores nothing
+#   at all — dropping <stem> on single-voice staves is unconditional
+#   (rule 5: intent only, and there is no intent to record) — so an old
+#   project opened here re-engraves with corrected stems whether or not
+#   it carries this key. Values ARE validated on read: unlike a style
+#   number, a bad direction has no sensible fallback.
 PROJECT_VERSION = 11
 _READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
 SUFFIX = ".scoreanim"
@@ -211,6 +222,12 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
             str(ordinal): mode.value
             for ordinal, mode in sorted(doc.page_break_overrides.items())
         },
+        # v11: hand-flipped stems, keyed by minted stem ElementId and
+        # sorted so a saved file is deterministic
+        "stem_directions": {
+            str(eid): direction.value
+            for eid, direction in sorted(doc.stem_directions.items())
+        },
     }
 
 
@@ -307,6 +324,11 @@ def from_dict(data: dict[str, Any],
                 for ordinal, mode in
                 data.get("page_break_overrides", {}).items()
             },
+            # v11: missing key → {}, which is the automatic rule alone
+            stem_directions={
+                ElementId(str(eid)): _stem_direction_in(value)
+                for eid, value in data.get("stem_directions", {}).items()
+            },
         )
     except (KeyError, TypeError) as exc:
         raise ValueError(f"malformed project data: {exc!r}") from exc
@@ -342,6 +364,13 @@ def _page_break_in(value: Any) -> PageBreak:
         return PageBreak(str(value))
     except ValueError as exc:
         raise ValueError(f"unknown page break mode {value!r}") from exc
+
+
+def _stem_direction_in(value: Any) -> StemDirection:
+    try:
+        return StemDirection(str(value))
+    except ValueError as exc:
+        raise ValueError(f"unknown stem direction {value!r}") from exc
 
 
 def _text_override_out(override: PartTextOverride) -> dict[str, Any]:

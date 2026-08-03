@@ -12,7 +12,8 @@ from scoreanim.core.project import (FileRef, LayoutOverride, PageBreak,
                                     PartTextOverride, PresentationMode,
                                     ProjectDoc, StaffGroup, StageConfig,
                                     StageTextElement, StyleRules,
-                                    SystemBreak, TimingConfig, check_ref,
+                                    StemDirection, SystemBreak,
+                                    TimingConfig, check_ref,
                                     from_dict, load_project, save_project,
                                     sha256_of, to_dict)
 from scoreanim.core.animation import (ElementStyle, RevealMode, read_colors,
@@ -86,6 +87,11 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
         # v9: the page twin, both directions, same numeric-sort trap
         page_break_overrides={5: PageBreak.SUPPRESS,
                               21: PageBreak.FORCE},
+        # v11: hand-flipped stems, both directions
+        stem_directions={
+            ElementId("P1:m3:s1:v1:stem:0"): StemDirection.UP,
+            ElementId("P4:m12:s1:v2:stem:3"): StemDirection.DOWN,
+        },
     )
 
 
@@ -285,6 +291,30 @@ def test_v8_system_break_overrides() -> None:
         assert from_dict({"version": version}).system_break_overrides == {}
 
 
+def test_v11_stem_directions() -> None:
+    """v11 (2026-08-03): the sparse flip map round-trips, and every
+    older file loads with {} — which is the automatic rule alone, so no
+    read gate. The automatic half stores nothing at all, so an old
+    project re-engraves with corrected stems either way."""
+    assert ProjectDoc().stem_directions == {}
+    doc = ProjectDoc(stem_directions={
+        ElementId("P1:m3:s1:v1:stem:0"): StemDirection.UP,
+        ElementId("P4:m12:s1:v2:stem:3"): StemDirection.DOWN})
+    payload = to_dict(doc)
+    assert payload["stem_directions"] == {"P1:m3:s1:v1:stem:0": "up",
+                                          "P4:m12:s1:v2:stem:3": "down"}
+    assert from_dict(payload) == doc
+    assert from_dict(to_dict(ProjectDoc())).stem_directions == {}
+    for version in range(1, 12):
+        assert from_dict({"version": version}).stem_directions == {}
+
+
+def test_v11_rejects_unknown_stem_direction() -> None:
+    with pytest.raises(ValueError, match="stem direction"):
+        from_dict({"version": 11,
+                   "stem_directions": {"P1:m1:s1:v1:stem:0": "sideways"}})
+
+
 def test_v8_rejects_unknown_break_mode() -> None:
     with pytest.raises(ValueError, match="system break"):
         from_dict({"version": 8, "system_break_overrides": {"3": "maybe"}})
@@ -401,7 +431,7 @@ def test_never_persists_derived_data() -> None:
                             "staff_groups", "text_overrides",
                             "hide_empty_staves", "hide_first_system",
                             "condense_groups", "system_break_overrides",
-                            "page_break_overrides"}
+                            "page_break_overrides", "stem_directions"}
 
 
 def test_v10_locked_beats_round_trip_and_older_files_have_none() -> None:
