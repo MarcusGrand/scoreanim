@@ -18,13 +18,13 @@ from scoreanim.core.animation.scale_groups import (group_key, heads_by_group,
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.score.identity import ElementKind
-from scoreanim.core.score.musicxml_prep import prepare
+from scoreanim.core.score.musicxml_prep import SystemBreak, prepare
 from scoreanim.core.score.musicxml_stems import (StemDirection,
                                                  _apply_stem_directions,
                                                  _draws_a_stem, _note_events,
                                                  _normalize_stem_directions)
 
-from .conftest import CONDENSE_SCORE, TESTSCORE
+from .conftest import CONDENSE_SCORE, TALL_SYSTEM_SCORE, TESTSCORE
 
 
 def _root(xml_text: str) -> ET.Element:
@@ -349,3 +349,50 @@ def test_a_stale_flip_warns_instead_of_failing_the_load():
         stem_directions={"P1:m999:s1:v1:stem:0": StemDirection.UP})
     assert engraved.prepared.inert_stem_directions == ("P1:m999:s1:v1:stem:0",)
     assert any(w.code == "stem-flip-inert" for w in engraved.warnings)
+
+
+# --- the retries must carry the flips (the M5.2 trap) ----------------------
+
+def _flip_survives(path, **kw) -> None:
+    """Load `path` with one stem flipped and assert it came out that
+    way. `prepare()` runs up to three times per load, and a retry that
+    forgets the map loses the user's edits exactly on the hardest
+    scores — which is what happened to the break maps in M5.2."""
+    provider = VerovioEngravingProvider()
+    before = _drawn_directions(provider.load_detailed(path, EngravingParams(),
+                                                      **kw))
+    target, was = next(iter(sorted(before.items())))
+    want = "down" if was == "up" else "up"
+    after = provider.load_detailed(path, EngravingParams(),
+                                   stem_directions={target:
+                                                    StemDirection(want)},
+                                   **kw)
+    assert after.prepared.inert_stem_directions == ()
+    assert _drawn_directions(after)[target] == want
+
+
+def test_the_repagination_retry_carries_the_flips():
+    """Forcing a break at 19 overflows the final system, so never-clip
+    re-prepares — and that re-prepare has to pass the flips on."""
+    forced = {19: SystemBreak.FORCE}
+    engraved = VerovioEngravingProvider().load_detailed(
+        TESTSCORE, EngravingParams(), system_breaks=forced)
+    assert "repaginated" in {w.code for w in engraved.warnings}
+    _flip_survives(TESTSCORE, system_breaks=forced)
+
+
+def test_the_scale_to_fit_retry_carries_the_flips():
+    """The deepest retry — tall_system_min re-prepares under a scale."""
+    engraved = VerovioEngravingProvider().load_detailed(
+        TALL_SYSTEM_SCORE, EngravingParams(), strict=False)
+    assert "scaled-to-fit" in {w.code for w in engraved.warnings}
+    _flip_survives(TALL_SYSTEM_SCORE, strict=False)
+
+
+def test_the_hide_unavailable_retry_carries_the_flips():
+    """This retry re-uses the same prep rather than re-preparing, so the
+    flips ride for free — pinned so it stays that way."""
+    engraved = VerovioEngravingProvider().load_detailed(
+        TESTSCORE, EngravingParams(), hide_empty_staves=True)
+    assert "hide-unavailable" in {w.code for w in engraved.warnings}
+    _flip_survives(TESTSCORE, hide_empty_staves=True)

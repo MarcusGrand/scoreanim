@@ -278,7 +278,8 @@ class MainWindow(QMainWindow):
                                   hide_empty_staves, condense_groups,
                                   hide_first_system,
                                   self.app_state.doc.system_break_overrides,
-                                  self.app_state.doc.page_break_overrides)
+                                  self.app_state.doc.page_break_overrides,
+                                  self.app_state.doc.stem_directions)
         self._install(loaded)
         self.router.reset()
         return loaded.stage
@@ -318,7 +319,8 @@ class MainWindow(QMainWindow):
                                   doc.text_overrides, doc.hide_empty_staves,
                                   doc.condense_groups, doc.hide_first_system,
                                   doc.system_break_overrides,
-                                  doc.page_break_overrides)
+                                  doc.page_break_overrides,
+                                  doc.stem_directions)
         self._install(loaded)
         # a break edit re-anchors to the measure it touched, so the stage
         # stays where you were working (D8); everything else re-shows the

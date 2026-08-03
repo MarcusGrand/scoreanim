@@ -68,6 +68,7 @@ class ScoreLoader:
         self._applied_condense: tuple = ()   # condense groups ditto
         self._applied_breaks: dict = {}    # system-break overrides ditto
         self._applied_page_breaks: dict = {}   # page-break overrides ditto
+        self._applied_stem_directions: dict = {}   # hand-flipped stems ditto
 
     @property
     def applied_breaks(self) -> dict:
@@ -86,7 +87,8 @@ class ScoreLoader:
     def needs_reengrave(self, doc: ProjectDoc) -> bool:
         """Staff groups, part-label overrides, hide-empty-staves (and
         its first-system extension), condense groups, and system-break
-        overrides are engraving inputs: a change (execute, undo, OR redo)
+        overrides -- and a hand-flipped stem, which Verovio draws --
+        are engraving inputs: a change (execute, undo, OR redo)
         re-derives the engraved world. The diff keeps every other command
         at its current cost."""
         return (doc.staff_groups != self._applied_groups
@@ -96,7 +98,8 @@ class ScoreLoader:
                 or doc.condense_groups != self._applied_condense
                 or dict(doc.system_break_overrides) != self._applied_breaks
                 or dict(doc.page_break_overrides)
-                != self._applied_page_breaks)
+                != self._applied_page_breaks
+                or dict(doc.stem_directions) != self._applied_stem_directions)
 
     def load(self, path: Path, params: EngravingParams,
              stage: StageConfig | None,
@@ -107,7 +110,8 @@ class ScoreLoader:
              condense_groups: tuple = (),
              hide_first_system: bool = False,
              system_breaks: dict[int, SystemBreak] | None = None,
-             page_breaks: dict[int, PageBreak] | None = None
+             page_breaks: dict[int, PageBreak] | None = None,
+             stem_directions: dict | None = None
              ) -> LoadedScore:
         """Engrave + decompose + join + wire the animation. `groups` is
         doc.staff_groups — injected as <part-group> at the prep seam;
@@ -117,7 +121,10 @@ class ScoreLoader:
         `system_breaks` is doc.system_break_overrides — the sparse
         force/suppress delta rewriting <print new-system> there (M5), and
         `page_breaks` its <print new-page> twin (M6), the two written by
-        one combined pass;
+        one combined pass; `stem_directions` is doc.stem_directions --
+        the stems the user flipped by hand, written as <stem> there
+        (2026-08-03), on top of the unconditional pass that drops the
+        encoded direction on every single-voice staff;
         geometry re-derives, musical ids survive (rule 5, Phases
         8/9/12). `style` is the CURRENT document style — the applier is
         built with it and set_style'd after any later change."""
@@ -134,6 +141,7 @@ class ScoreLoader:
             for g in condense_groups)
         system_breaks = dict(system_breaks or {})
         page_breaks = dict(page_breaks or {})
+        stem_directions = dict(stem_directions or {})
         t0 = time.perf_counter()
         # strict=False (app path, Phase 11.4): an unknown drawable SVG
         # class degrades to a warned static element instead of failing the
@@ -142,7 +150,8 @@ class ScoreLoader:
             path, params, specs, text_specs, hide_empty_staves,
             condense_specs, strict=False,
             hide_first_system=hide_first_system,
-            system_breaks=system_breaks, page_breaks=page_breaks)
+            system_breaks=system_breaks, page_breaks=page_breaks,
+            stem_directions=stem_directions)
         t1 = time.perf_counter()
         if stage is None:
             stage = default_stage_config(engraved.prepared,
@@ -200,6 +209,7 @@ class ScoreLoader:
         self._applied_condense = condense_groups
         self._applied_breaks = system_breaks
         self._applied_page_breaks = page_breaks
+        self._applied_stem_directions = stem_directions
 
         return LoadedScore(
             scenes=scenes, stage=stage,
