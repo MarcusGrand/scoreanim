@@ -14,9 +14,9 @@ import math
 from scoreanim.core.animation.effect import (GLOW, OFFSET_X, OFFSET_Y, OPACITY,
                                              SCALE, Easing, Effect, Envelope,
                                              Keyframe, appear)
-from scoreanim.core.animation.glow import (GLOW_NOTE_VALUE, GLOW_PEAK,
-                                           GLOW_S, GLOW_SHAPE, GLOW_STRENGTH,
-                                           glow_track)
+from scoreanim.core.animation.glow import (GLOW_NOTE_VALUE, GLOW_S,
+                                           GLOW_STRENGTH, glow_track,
+                                           read_glow_shape)
 
 from typing import Mapping
 
@@ -177,8 +177,9 @@ def build_presets(floor: float,
     duration / bounce from ``params["drop"]``, slide's direction /
     distance / duration / bounce from ``params["slide"]``, swell's
     size / peak / duration / note-value / follow from ``params["swell"]``
-    and glow's shape / strength / peak / duration / note-value from
-    ``params["glow"]`` (all merged over defaults, clamped). The glow's
+    and glow's strength / duration / note-value plus its envelope shape
+    from ``params["glow"]`` (all merged over defaults, clamped). The
+    glow's
     colour and radius are NOT read here: they never reach an envelope,
     so render reads them straight from `glow.read_glow`. Follow is the
     one param that
@@ -227,10 +228,11 @@ def build_presets(floor: float,
     swell_note_value = swell_follow or bool(
         swell.get("note_value", _SWELL_NOTE_VALUE))
     glow = dict(params.get("glow", {})) if params else {}
-    glow_shape = str(glow.get("shape", GLOW_SHAPE))
     glow_strength = _clamp(float(glow.get("strength", GLOW_STRENGTH)),
                            *_STRENGTH_RANGE)
-    glow_peak = _clamp(float(glow.get("peak", GLOW_PEAK)), *_PEAK_RANGE)
+    # The shape's own six params read and clamp next door, where the
+    # ordering the Envelope demands is enforced with them.
+    glow_shape = read_glow_shape(glow)
     glow_s = max(_SETTLE_MIN, float(glow.get("duration", GLOW_S)))
     glow_note_value = bool(glow.get("note_value", GLOW_NOTE_VALUE))
     return {
@@ -310,7 +312,7 @@ def build_presets(floor: float,
         "glow": Effect("glow", {
             OPACITY: Envelope(initial=floor,
                               keyframes=(Keyframe(0.0, 1.0, Easing.STEP),)),
-            GLOW: glow_track(glow_shape, glow_strength, glow_peak, glow_s),
+            GLOW: glow_track(glow_shape, glow_strength, glow_s),
         }, settle_to_note_value=glow_note_value),
     }
 

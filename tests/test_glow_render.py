@@ -36,10 +36,15 @@ from scoreanim.render.scene import ScoreScenes  # noqa: E402
 
 TEMPO = TempoMap([TempoEvent(0.0, 120.0)])
 # glow alone, on every element, with a fixed window rather than the
-# note-value stretch — so the expectations below are plain arithmetic
+# note-value stretch, and the simplest envelope there is — lit at the
+# onset, one fall over the whole window — so the expectations below are
+# plain arithmetic. This file is about the applier and the sprite, not
+# about the shape of the light.
 GLOW_RULES = StyleRules(default_effect="glow",
                         effect_params={"glow": {"duration": 0.4,
-                                                "note_value": False}})
+                                                "note_value": False,
+                                                "attack": 0.0,
+                                                "release": 1.0}})
 
 
 @pytest.fixture(scope="session")

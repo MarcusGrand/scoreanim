@@ -16,9 +16,18 @@ alternative to typing one (Marcus, 2026-07-31).
 """
 from __future__ import annotations
 
-from scoreanim.core.animation import (GLOW_COLOR, GLOW_DENSITY, GLOW_POP,
-                                      GLOW_RADIUS, GLOW_SWELL)
-from scoreanim.ui.panels.effect_knobs import Check, Choice, Color, Knob, Number
+from dataclasses import dataclass
+
+from typing import Mapping
+
+from scoreanim.core.animation import (GLOW_ATTACK, GLOW_COLOR, GLOW_DENSITY,
+                                      GLOW_RADIUS, GLOW_RELEASE, GLOW_STRENGTH,
+                                      GLOW_SUSTAIN, GLOW_SWELL_LEVEL,
+                                      GLOW_SWELL_ON, GLOW_SWELL_POS,
+                                      glow_defaults)
+from scoreanim.core.project import ProjectDoc
+from scoreanim.ui.panels.effect_knobs import (Check, Color, EffectParamStore,
+                                              Knob, KnobStore, Number)
 
 # (preset name, block title, its knobs), in the order the blocks appear.
 BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (
@@ -124,7 +133,7 @@ BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (
                "How far the halo reaches, in page units — a notehead is "
                "about 18. A wider radius spreads the same light "
                "thinner, so it reaches further but dims"),
-        Number("Strength", "strength", 1.0, 0.0, 1.0, 0.05,
+        Number("Strength", "strength", GLOW_STRENGTH, 0.0, 1.0, 0.05,
                "How brightly the halo burns at its brightest (0 = no "
                "glow at all)"),
         # Per cent in the UI, a fraction in the document — the Peak
@@ -135,13 +144,38 @@ BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (
                "block of the colour around the note. Radius still says "
                "how far it reaches — turn both up for a big solid halo",
                suffix=" %", factor=100.0, integer=True),
-        # Peak has no knob on purpose: the swell shape's top sits
-        # halfway through unless a hand-edited file says otherwise.
-        Choice("Shape", "shape", GLOW_POP,
-               ((GLOW_POP, "Pop"), (GLOW_SWELL, "Swell")),
-               "Pop lights the note fully at the onset and fades out; "
-               "Swell grows the light to a peak partway through and back "
-               "down again"),
+        # The envelope, in per cent of the span the light has to play
+        # with — the note's own length while "Entire note value" is on,
+        # the Duration below while it is off. Plain boxes for now; the
+        # editor canvas that draws this curve is the next step.
+        Number("Attack", "attack", GLOW_ATTACK, 0, 100, 5,
+               "How much of the note the light spends coming up, as a "
+               "per cent of it — 0 % is lit the instant the note starts",
+               suffix=" %", factor=100.0, integer=True),
+        Number("Sustain", "sustain", GLOW_SUSTAIN, 0, 100, 5,
+               "How brightly the light holds once it is up, as a per "
+               "cent of Strength",
+               suffix=" %", factor=100.0, integer=True),
+        Number("Release", "release", GLOW_RELEASE, 0, 100, 5,
+               "How much of the note the light spends dying away at the "
+               "end, as a per cent of it. The light always reaches "
+               "nothing exactly as the note stops",
+               suffix=" %", factor=100.0, integer=True),
+        Check("Swell", "swell_on", GLOW_SWELL_ON,
+              "One extra rise and fall riding on the held part: the "
+              "light eases up from Sustain and back down again while "
+              "the note is still sounding"),
+        Number("Swell at", "swell_pos", GLOW_SWELL_POS, 0, 100, 5,
+               "Where the swell's top sits, as a per cent of the note. "
+               "It is always kept inside the held part, between the "
+               "attack and the release",
+               suffix=" %", factor=100.0, integer=True,
+               enabled_by="swell_on"),
+        Number("Swell level", "swell_level", GLOW_SWELL_LEVEL, 0, 100, 5,
+               "How bright the swell's top is, on the same scale as "
+               "Sustain — below it the swell is a dip instead",
+               suffix=" %", factor=100.0, integer=True,
+               enabled_by="swell_on"),
         Number("Duration", "duration", 0.4, 0.01, 5.0, 0.05,
                "Seconds the glow takes to die away — inactive while "
                "'Entire note value' is on (the light then lasts exactly "
@@ -154,3 +188,24 @@ BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (
               beside="duration"),
     )),
 )
+
+
+@dataclass(frozen=True)
+class GlowParamStore(EffectParamStore):
+    """The glow's knobs, with the superseded shape words folded in.
+
+    A project saved before the envelope existed carries `shape` and
+    `peak` and none of the six envelope keys. Core maps those onto the
+    envelope when it reads them, so the halo still looks as it did —
+    and the boxes have to say the same thing, or the panel would show
+    the plain defaults while the note glowed in the old shape. Same
+    argument as `Check.forced_by`: what the panel shows is what the
+    effect is actually doing, and core stays the one authority for it."""
+
+    def stored(self, doc: ProjectDoc) -> Mapping[str, object]:
+        raw = super().stored(doc)
+        return {**glow_defaults(raw), **raw}
+
+
+# The presets whose knobs need something other than the plain store.
+STORES: Mapping[str, type[KnobStore]] = {"glow": GlowParamStore}

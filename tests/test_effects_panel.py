@@ -1112,16 +1112,15 @@ def swatch(widget, preset, key):
     return widget.blocks[preset].swatches[key]
 
 
-def combo(widget, preset, key):
-    return widget.blocks[preset].combos[key]
-
-
 def test_glow_options_hide_until_glow_is_in_use(panel) -> None:
     widget, state = panel
     knobs = (swatch(widget, "glow", "color"),
              spin(widget, "glow", "radius"),
              spin(widget, "glow", "strength"),
-             combo(widget, "glow", "shape"),
+             spin(widget, "glow", "attack"),
+             spin(widget, "glow", "sustain"),
+             spin(widget, "glow", "release"),
+             box(widget, "glow", "swell_on"),
              spin(widget, "glow", "duration"),
              box(widget, "glow", "note_value"))
     assert not _shown(widget, *knobs)
@@ -1157,22 +1156,61 @@ def test_glow_knobs_commit_glow_params(panel) -> None:
     assert not state.can_undo                    # four gestures, four steps
 
 
-def test_the_shape_choice_commits_one_command(panel) -> None:
+def test_the_envelope_knobs_hold_per_cent_and_store_fractions(panel) -> None:
+    """The swell Peak precedent: the box counts in per cent of the note
+    and the document keeps a fraction."""
     widget, state = panel
-    shape = combo(widget, "glow", "shape")
-    assert shape.currentData() == "pop"          # the default
-    assert [shape.itemText(i) for i in range(shape.count())] == ["Pop",
-                                                                "Swell"]
-    shape.setCurrentIndex(1)
-    widget.blocks["glow"]._commit_choice(
-        widget.blocks["glow"]._by_key["shape"])
-    assert state.doc.style.effect_params["glow"]["shape"] == "swell"
-    assert state.undo_text() == "set effect parameter"
-    # choosing it again changes nothing and is not a second undo step
-    widget.blocks["glow"]._commit_choice(
-        widget.blocks["glow"]._by_key["shape"])
-    state.undo()
-    assert not state.can_undo
+    assert spin(widget, "glow", "attack").value() == 10     # the defaults
+    assert spin(widget, "glow", "sustain").value() == 100
+    assert spin(widget, "glow", "release").value() == 20
+    for key, shown, stored in (("attack", 30, 0.3), ("sustain", 60, 0.6),
+                               ("release", 45, 0.45), ("swell_pos", 25, 0.25),
+                               ("swell_level", 80, 0.8)):
+        spin(widget, "glow", key).setValue(shown)
+        field(widget, "glow", key).commit()
+        assert state.committed.style.effect_params["glow"][key] == \
+            pytest.approx(stored)
+    # the checkbox is a flag, not a number
+    box(widget, "glow", "swell_on").setChecked(True)
+    assert state.doc.style.effect_params["glow"]["swell_on"] is True
+    for _ in range(6):
+        assert state.can_undo
+        state.undo()
+    assert not state.can_undo                    # six gestures, six steps
+
+
+def test_the_swell_knobs_gray_until_the_swell_is_on(panel) -> None:
+    widget, state = panel
+    widget._effect_combo.setCurrentText("glow")
+    widget._commit_effect()
+    assert not spin(widget, "glow", "swell_pos").isEnabled()
+    assert not spin(widget, "glow", "swell_level").isEnabled()
+    box(widget, "glow", "swell_on").setChecked(True)
+    assert spin(widget, "glow", "swell_pos").isEnabled()
+    assert spin(widget, "glow", "swell_level").isEnabled()
+
+
+def test_an_old_shape_word_shows_as_the_envelope_it_maps_to(panel) -> None:
+    """A project saved before the envelope existed still glows in its
+    old shape, so the boxes have to describe that shape rather than the
+    plain defaults — the panel never says something the effect is not
+    doing."""
+    widget, state = panel
+    state.execute(SetEffectParam("glow", "shape", "swell"))
+    state.execute(SetEffectParam("glow", "peak", 0.25))
+    widget.sync_from_document(state.doc)
+    assert spin(widget, "glow", "attack").value() == 0
+    assert spin(widget, "glow", "sustain").value() == 0
+    assert spin(widget, "glow", "release").value() == 0
+    assert box(widget, "glow", "swell_on").isChecked()
+    assert spin(widget, "glow", "swell_pos").value() == 25
+    # and an old "pop" is the other shape it maps to
+    state.execute(SetEffectParam("glow", "shape", "pop"))
+    widget.sync_from_document(state.doc)
+    assert spin(widget, "glow", "attack").value() == 0
+    assert spin(widget, "glow", "sustain").value() == 100
+    assert spin(widget, "glow", "release").value() == 100
+    assert not box(widget, "glow", "swell_on").isChecked()
 
 
 def test_the_colour_swatch_commits_one_command(panel, monkeypatch) -> None:
@@ -1201,14 +1239,14 @@ def test_sync_reflects_glow_params(panel) -> None:
     for cmd in (SetEffectParam("glow", "color", "#123456"),
                 SetEffectParam("glow", "radius", 12.0),
                 SetEffectParam("glow", "strength", 0.25),
-                SetEffectParam("glow", "shape", "swell"),
+                SetEffectParam("glow", "attack", 0.35),
                 SetEffectParam("glow", "note_value", False)):
         state.execute(cmd)
     widget.sync_from_document(state.doc)
     assert swatch(widget, "glow", "color").text() == "#123456"
     assert spin(widget, "glow", "radius").value() == 12.0
     assert spin(widget, "glow", "strength").value() == 0.25
-    assert combo(widget, "glow", "shape").currentData() == "swell"
+    assert spin(widget, "glow", "attack").value() == 35
     assert not box(widget, "glow", "note_value").isChecked()
     depth = 0
     while state.can_undo:
@@ -1218,17 +1256,18 @@ def test_sync_reflects_glow_params(panel) -> None:
     widget.sync_from_document(state.doc)         # back to the defaults
     assert swatch(widget, "glow", "color").text() == "#ffcc66"
     assert spin(widget, "glow", "radius").value() == 24.0
-    assert combo(widget, "glow", "shape").currentData() == "pop"
+    assert spin(widget, "glow", "attack").value() == 10
     assert box(widget, "glow", "note_value").isChecked()
 
 
-def test_a_shape_this_build_does_not_know_shows_the_first_option(
-        panel) -> None:
-    """A hand-edited word must not make the box lie about a match."""
+def test_an_unknown_old_shape_word_shows_the_pop_envelope(panel) -> None:
+    """A hand-edited word fell soft to a pop before and still does, so
+    that is what the boxes describe."""
     widget, state = panel
     state.execute(SetEffectParam("glow", "shape", "shimmer"))
     widget.sync_from_document(state.doc)
-    assert combo(widget, "glow", "shape").currentIndex() == 0
+    assert spin(widget, "glow", "attack").value() == 0
+    assert spin(widget, "glow", "release").value() == 100
     # and the document is untouched by the resync
     assert state.doc.style.effect_params["glow"]["shape"] == "shimmer"
 

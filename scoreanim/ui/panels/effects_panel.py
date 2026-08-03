@@ -41,7 +41,7 @@ from scoreanim.core.project import (Command, ProjectDoc, ResetEffectSettings,
                                     SetRevealMode)
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
-from scoreanim.ui.panels.effect_blocks import BLOCKS
+from scoreanim.ui.panels.effect_blocks import BLOCKS, STORES
 from scoreanim.ui.panels.effect_knobs import EffectParamStore, KnobGroup
 from scoreanim.ui.panels import pulse_knobs, volume_knobs
 
@@ -115,7 +115,8 @@ class EffectsPanel(QWidget):
         # Each preset's block builds its own rows here, so it can be
         # shown and hidden as a unit.
         self.blocks = {
-            preset: KnobGroup(EffectParamStore(preset), title, knobs,
+            preset: KnobGroup(STORES.get(preset, EffectParamStore)(preset),
+                              title, knobs,
                               app_state, self._form, self._update_display)
             for preset, title, knobs in BLOCKS}
         # Always on screen, unlike a preset's block: it is not an effect,

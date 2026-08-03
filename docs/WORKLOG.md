@@ -41,6 +41,41 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-04 — **The glow's shape is user data now**
+  (`beta/f-glow-effect`, UNMERGED): the pop/swell switch is gone and the
+  halo runs a synthesizer envelope — attack, sustain, an optional swell
+  hump on the hold, release — every one of them a FRACTION of the span,
+  so the shape keeps its proportions whether the span is the note's own
+  value (the default) or a typed duration. The swell Peak precedent, and
+  it costs nothing at the windows seam: the last keyframe still sits at
+  1.0 × the authored duration, so `Effect.duration` and the timescale
+  arithmetic never moved. **The envelope ends at exactly 0 when the span
+  does, by construction**, which is what keeps a glow to the sounding
+  notes. Easings are Marcus's call: attack EASE_OUT (curls gently into
+  the hold), release EASE_OUT (leaves at once, lands soft, the way a
+  note rings out), the hump EASE_IN up / EASE_OUT down. That pair is
+  also what makes **both old shapes reproduce byte-for-byte** — old pop
+  IS attack 0 + a full-span release, old swell IS the hump with nothing
+  held — so `shape`/`peak` are read as per-key DEFAULTS for the six new
+  ones (the v1 `part_colors` fold's rule, an explicit new key always
+  wins) and never written again. The ordering is enforced where the
+  params are consumed, because `Envelope` refuses keyframes that do not
+  strictly increase: attack + release that overflow scale down together
+  keeping their balance, and the hump is clamped strictly inside the
+  hold or dropped when there is no room — 13 degenerate combinations
+  pinned to degrade instead of raising. The panel needed its own store
+  (`GlowParamStore`) so an old project's boxes describe the shape it is
+  actually glowing in rather than the new defaults — the `forced_by`
+  argument, on a second setting. **No schema bump** (`style.effect_params`
+  round-trips raw), no golden movement. Watch out for one thing: the new
+  default is NOT lit at the onset, so three test files that assumed
+  "full light at t=0" now pin the instant-on shape explicitly
+  (`attack: 0, release: 1`). Checked end to end in the real window
+  offscreen: the light rises over the attack, holds at 1.000, dips to
+  0.500 where a swell at 50 % says, and reads exactly 0.000 at the span
+  end. The `Choice` knob type has no user left now that the Shape
+  dropdown is gone — kept, not deleted. Unproven under a human's eye.
+  *(The envelope EDITOR canvas is the next step.)*
 - 2026-08-03 — **Stems point the right way, and F flips one**
   (`beta/f-stem-directions`, UNMERGED, off `main`): the wrong-way stems
   are not random. **Dorico exports the WRITTEN score's directions and we

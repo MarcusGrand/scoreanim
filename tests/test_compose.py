@@ -191,7 +191,10 @@ def test_pop_and_glow_leave_scale_and_glow_each_correct() -> None:
     light, and neither knows the other is running."""
     reg = build_presets(FLOOR_OPACITY,
                         {"pop": {"scale": 1.25, "settle": 0.25},
-                         "glow": {"strength": 1.0, "duration": 0.4,
+                         # lit at the onset, one fall — the shape this
+                         # file's arithmetic is written against
+                         "glow": {"attack": 0.0, "release": 1.0,
+                                  "strength": 1.0, "duration": 0.4,
                                   "note_value": False}})
     combo = ((reg["pop"], 1.0), (reg["glow"], 1.0))
     at_onset = combined_state(10.0, combo, 10.0)
@@ -218,7 +221,10 @@ def test_swell_and_glow_leave_scale_and_glow_each_correct() -> None:
     reg = build_presets(FLOOR_OPACITY,
                         {"swell": {"size": 1.4, "duration": 0.8,
                                    "note_value": False},
-                         "glow": {"strength": 1.0, "duration": 0.4,
+                         # lit at the onset, one fall — the shape this
+                         # file's arithmetic is written against
+                         "glow": {"attack": 0.0, "release": 1.0,
+                                  "strength": 1.0, "duration": 0.4,
                                   "note_value": False}})
     combo = ((reg["swell"], 1.0), (reg["glow"], 1.0))
     # 0.1 s in: the swell is on its way up, the glow on its way down
