@@ -3,7 +3,7 @@
 The document holds two sparse maps keyed the same way — the system-break
 delta (M5) and the page-break delta (M6) — and they can disagree, because
 a page break implies a system break. `_wanted_break_attrs` in
-`core/score/musicxml_rewrite.py` states what the PREP SEAM does when they
+`core/score/musicxml_breaks.py` states what the PREP SEAM does when they
 do; this module states what the DOCUMENT should hold, which is the other
 half of the same ruling and the reason the seam's precedence is almost
 never exercised.

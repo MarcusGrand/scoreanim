@@ -34,15 +34,18 @@ from pathlib import Path
 from typing import Mapping
 
 from scoreanim.core.score.identity import PartId
-# The tree-rewriting passes live in their own module (M5.0); they are
-# re-exported here so `prepare`'s callers and the tests that reach for a
-# single pass keep importing from one place.
+# The tree-rewriting passes live in their own modules (M5.0, split again
+# 2026-08-03); they are re-exported here so `prepare`'s callers and the
+# tests that reach for a single pass keep importing from one place.
+from scoreanim.core.score.musicxml_breaks import (  # noqa: F401
+    PageBreak, SystemBreak, _apply_breaks, _promote_page_breaks_to_system,
+    _repaginate, _system_only, _wanted_break_attrs)
 from scoreanim.core.score.musicxml_rewrite import (  # noqa: F401
-    PageBreak, SystemBreak, _apply_breaks, _apply_condense,
-    _apply_text_overrides, _drop_redundant_trailing_forwards,
-    _inject_part_groups, _neutralize_octave_only_transposes,
-    _promote_page_breaks_to_system, _repaginate, _set_part_text,
-    _voice_cursor, _wanted_break_attrs)
+    _apply_condense, _apply_text_overrides,
+    _drop_redundant_trailing_forwards, _inject_part_groups,
+    _neutralize_octave_only_transposes, _set_part_text, _voice_cursor)
+from scoreanim.core.score.musicxml_stems import (  # noqa: F401
+    StemDirection, _apply_stem_directions, _normalize_stem_directions)
 
 # <slash-type> note value → quarter-note units
 _SLASH_UNIT_QUARTERS = {
@@ -163,6 +166,11 @@ class PreparedScore:
     # provider subtracts what the planner acted on before warning (M6.3).
     inert_system_breaks: tuple[int, ...] = ()
     inert_page_breaks: tuple[int, ...] = ()
+    # Stem flips this prep could not place (2026-08-03): a minted id
+    # whose note is no longer there, because the score changed or
+    # condensing renumbered the voice under it. Same contract as the two
+    # above — derived here, warned by the provider, never stored.
+    inert_stem_directions: tuple[str, ...] = ()
 
     def part_for_staff(self, staff_n: int) -> PartInfo:
         for p in self.parts:
@@ -306,7 +314,8 @@ def prepare(score_path: Path,
             condense: tuple[PartCondenseSpec, ...] = (),
             page_break_measures: tuple[int, ...] = (),
             system_breaks: Mapping[int, SystemBreak] | None = None,
-            page_breaks: Mapping[int, PageBreak] | None = None
+            page_breaks: Mapping[int, PageBreak] | None = None,
+            stem_directions: Mapping[str, StemDirection] | None = None
             ) -> PreparedScore:
     root = ET.fromstring(score_path.read_bytes())
     if root.tag != "score-partwise":
@@ -314,9 +323,19 @@ def prepare(score_path: Path,
 
     _drop_redundant_trailing_forwards(root)  # BEFORE condense:
                                              # _voice_cursor counts forwards
+    # BEFORE condense too, and for a sharper reason: each source player
+    # is single-voice, so stripping here lets Verovio apply its own
+    # voice-1-up / voice-2-down to the merged staff. After condense it
+    # would see two voices and leave every condensed staff alone.
+    _normalize_stem_directions(root)
     _apply_condense(root, condense)      # FIRST: rewrite the part-list so
                                          # every downstream pass sees the
                                          # condensed structure (Phase 12.3)
+    # AFTER condense: the flips are keyed by engraved ids, and condensing
+    # renumbers voices. Writes an explicit <stem> over what the strip
+    # above left, which is the stated precedence — a flip is the last
+    # word on the note it names.
+    inert_stems = _apply_stem_directions(root, stem_directions or {})
     _apply_text_overrides(root, texts)   # before _parts: PartInfo carries
                                          # the EFFECTIVE names (Phase 9.3)
     parts = _parts(root)
@@ -352,4 +371,5 @@ def prepare(score_path: Path,
         units_per_tenth=units_per_tenth,
         inert_system_breaks=inert_breaks,
         inert_page_breaks=inert_pages,
+        inert_stem_directions=inert_stems,
     )

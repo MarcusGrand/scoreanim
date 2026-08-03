@@ -42,9 +42,14 @@ def test_page_number_credits_are_skipped(stage) -> None:
 
 def test_block_fits_above_the_top_staff(stage, content_top) -> None:
     # with the header suppressed, Verovio pulls the fixture's top staff
-    # to ~138 units: the block must scale down (floored at _MIN_SCALE),
+    # to ~162 units: the block must scale down (floored at _MIN_SCALE),
     # preserving relative sizes (title 28pt : subtitle 14pt)
-    assert content_top == pytest.approx(138, abs=5)
+    #
+    # Was ~138 until the stem pass landed (2026-08-03). Stems on the top
+    # staff that now point UP need headroom, so Verovio pushes the first
+    # system down to make room. A measurement of the fixture, not an
+    # invariant — the assertions that follow are the invariant.
+    assert content_top == pytest.approx(162, abs=5)
     title = _one(stage, "stage:title")
     subtitle = _one(stage, "stage:subtitle")
     assert title.font_size < 28 * PT_TO_PAGE_UNITS

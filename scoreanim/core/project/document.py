@@ -20,7 +20,8 @@ from scoreanim.core.animation.style import StyleRules
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.stage_config import StageConfig
 from scoreanim.core.score.identity import Beats, ElementId, PartId
-from scoreanim.core.score.musicxml_prep import PageBreak, SystemBreak
+from scoreanim.core.score.musicxml_prep import (PageBreak, StemDirection,
+                                                SystemBreak)
 from scoreanim.core.timing.swing import SwingRegion
 from scoreanim.core.timing.taps import TapSession
 from scoreanim.core.timing.tempo_map import TempoEvent
@@ -153,8 +154,19 @@ class ProjectDoc:
     # clipping ink (warned, D8). The page count stays owned (rule 7).
     page_break_overrides: Mapping[int, PageBreak] = \
         field(default_factory=dict)
+    # Stems the user has pinned by hand (2026-08-03), keyed by minted
+    # stem ElementId. An ENGRAVING INPUT like the two maps above, not a
+    # layout delta like `layout_overrides`: Verovio draws the stem, so a
+    # flip is applied at the prep seam and re-engraved. Sparse — a note
+    # nobody touched is simply absent, and the automatic rule (drop
+    # `<stem>` on single-voice staves) needs no storage at all because it
+    # is unconditional. An id whose note has gone is inert and warned at
+    # load, never repaired here (rule 5's staleness trade).
+    stem_directions: Mapping[ElementId, StemDirection] = \
+        field(default_factory=dict)
 
 
 __all__ = ["DEFAULT_BPM", "FileRef", "HIDE_EMPTY_STAVES_DEFAULT",
            "LayoutOverride", "PageBreak", "PartTextOverride", "ProjectDoc",
-           "StaffGroup", "StyleRules", "SystemBreak", "TimingConfig", "Beats"]
+           "StaffGroup", "StemDirection", "StyleRules", "SystemBreak",
+           "TimingConfig", "Beats"]

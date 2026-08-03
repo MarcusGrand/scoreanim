@@ -57,7 +57,7 @@ def test_file_and_edit_contents(window) -> None:
         == ["Open Project…", "Save Project", "Save Project As…",
             "Export Video…"]
     assert _texts(window.menus.edit_menu) == ["Undo", "Redo", "Delete",
-                                              "Texts…"]
+                                              "Flip Stem", "Texts…"]
     assert not window.menus.export_action.isEnabled()   # needs a score
     assert not window.menus.texts_action.isEnabled()
 

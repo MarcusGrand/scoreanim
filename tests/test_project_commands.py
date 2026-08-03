@@ -1389,3 +1389,42 @@ def test_restore_all_is_one_undo_entry(doc) -> None:
     assert back.layout_overrides == {}
     assert stack.undo_text() == "restore elements"
     assert stack.undo() == deleted
+
+
+# --- stem directions (2026-08-03) ------------------------------------------
+
+def test_set_stem_direction_is_a_sparse_map(doc) -> None:
+    """An engraving input keyed by minted stem id: it re-engraves, so it
+    goes through execute(), never preview()."""
+    from scoreanim.core.project import SetStemDirection, StemDirection
+    eid = "P1:m3:s1:v1:stem:0"
+
+    assert doc.stem_directions == {}
+    up = SetStemDirection(eid, StemDirection.UP).apply(doc)
+    assert dict(up.stem_directions) == {eid: StemDirection.UP}
+    assert doc.stem_directions == {}                 # the input is untouched
+
+    # flipping the other way replaces rather than accumulates
+    down = SetStemDirection(eid, StemDirection.DOWN).apply(up)
+    assert dict(down.stem_directions) == {eid: StemDirection.DOWN}
+
+    # None hands the note back to the automatic rule, and the entry goes
+    assert SetStemDirection(eid, None).apply(down).stem_directions == {}
+
+
+def test_set_stem_direction_rejects_a_bad_direction(doc) -> None:
+    from scoreanim.core.project import SetStemDirection
+    with pytest.raises(CommandError, match="stem direction"):
+        SetStemDirection("P1:m3:s1:v1:stem:0", "up").apply(doc)
+    with pytest.raises(CommandError, match="no element"):
+        SetStemDirection("", None).apply(doc)
+
+
+def test_flipping_a_stem_is_one_undo_entry(doc) -> None:
+    from scoreanim.core.project import SetStemDirection, StemDirection
+    eid = "P1:m3:s1:v1:stem:0"
+    stack = UndoStack()
+    flipped = stack.execute(SetStemDirection(eid, StemDirection.UP), doc)
+    assert stack.undo_text() == "flip stem"
+    assert stack.undo() == doc
+    assert flipped.stem_directions != doc.stem_directions

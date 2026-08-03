@@ -16,7 +16,8 @@ patch. `musicxml_prep.prepare()` orchestrates the pass order (reasons
 commented); `musicxml_rewrite.py` holds the passes. New intent = a new
 pass: sparse delta keyed by stable identity, never stripping encoded
 data (`_repaginate` is the one deliberate exception, page attrs only).
-Precedent: groups (P8), part texts (P9), condense (P12), breaks (M5/M6).
+Precedent: groups (P8), part texts (P9), condense (P12), breaks (M5/M6),
+stem flips (2026-08-03).
 
 **The `_applied_*` diff re-engrave** — `ScoreLoader` caches every
 engrave input; `needs_reengrave(doc)` diffs; `_on_document_changed`
@@ -247,6 +248,22 @@ measure/part). Do not merge the paths.
   loads and still moved two goldens (hidden/flat variants repaginate).
 - **Zero-area authored rects exist** (a stem's Rect has w = 0), so any
   area/size heuristic needs an exactness tier first.
+- **Dorico exports the WRITTEN score's stem directions** while we
+  engrave concert pitch (rule 9). Transposing moves notes across the
+  middle line and `<stem>` does not follow, so 6.5-34.3 % of unbeamed
+  single-voice stems arrived on the wrong side — about seven times
+  denser in transposing parts. `_normalize_stem_directions` drops the
+  element and lets Verovio decide. Expect the same class of bug from any
+  other engraving attribute Dorico writes as an absolute.
+- **A note event's index is not its notehead's index.** A chord is one
+  event sharing one stem, and a whole note draws no stem at all — so a
+  stemless event must consume no `seq` or every key past it points one
+  note too far. `spikes/stem_dirs.py` measures the correspondence
+  (991/991 scopes).
+- **Changing what is drawn can move `scaled-to-fit`.** Stem directions
+  change a system's height, which changed the fitted scale by one per
+  cent on two fixtures and moved 100 % of their golden rows. A one-line
+  visual change is not a small golden diff.
 - **Dorico encodes page breaks page-only**: `new-page="yes"` with no
   `new-system`. new-page IMPLIES a system break — clearing or stripping
   it destroys the system break too unless promoted/asserted.
