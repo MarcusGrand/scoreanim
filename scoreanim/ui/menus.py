@@ -130,6 +130,7 @@ class MainMenus:
         # the key cannot disagree about when it may fire (the shared
         # QAction idiom)
         self.edit_menu.addAction(window.delete_action.action)
+        self.edit_menu.addAction(window.stem_flip_action.action)
         self.edit_menu.addSeparator()
         self.edit_menu.addAction(self.texts_action)
 

@@ -35,6 +35,7 @@ from scoreanim.render.scene import ScoreScenes
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.break_action import BreakActionController
 from scoreanim.ui.delete_action import DeleteActionController
+from scoreanim.ui.stem_flip_action import StemFlipActionController
 from scoreanim.ui.document_sync import DocumentSync
 from scoreanim.ui.file_actions import FileActions
 from scoreanim.ui.inspector import Inspector
@@ -149,6 +150,11 @@ class MainWindow(QMainWindow):
         # window-level shortcut would eat them (see delete_action.py)
         self.delete_action = DeleteActionController(self.app_state, self)
         self.view.addAction(self.delete_action.action)
+        # F flips the selected note's stem. Stage-scoped for the same
+        # reason and one more: F is a BARE LETTER, so window-level it
+        # would eat the "f" out of every text field in the app.
+        self.stem_flip_action = StemFlipActionController(self.app_state, self)
+        self.view.addAction(self.stem_flip_action.action)
         self.layout_zone = LayoutZone(self.app_state,
                                       self.break_action.actions, self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea,
@@ -244,6 +250,7 @@ class MainWindow(QMainWindow):
         self.parts_menu.sync_from_document(doc)
         self.break_action.sync()      # overrides move the action's label
         self.delete_action.sync()     # a delete disables its own action
+        self.stem_flip_action.sync()  # a flip re-engraves under its own tip
         self.router.sync_presentation_mode(doc.stage.mode)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
@@ -339,6 +346,8 @@ class MainWindow(QMainWindow):
         self.doc_sync.bind_scenes(loaded.scenes, loaded.stage.texts)
         self.selection.bind_scenes(loaded.scenes)   # also clears selection
         self.delete_action.bind_scenes(loaded.scenes)   # the :seg registry
+        # the drawn geometry a stem's CURRENT direction is read from
+        self.stem_flip_action.bind_layout(loaded.animation_inputs.layout)
         self.router.bind(loaded.scenes, loaded.band_by_system,
                          loaded.applier, loaded.system_of_measure)
         self.break_action.bind(loaded.system_of_measure,
