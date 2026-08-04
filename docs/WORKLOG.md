@@ -1,23 +1,28 @@
 # ScoreAnim — Worklog
 
-**NOW:** everything is on `main` (`6d89f1b`, no tag), plus
-`beta/f-glow-effect` waiting for Marcus's eye — which now carries the
-stem work too: `beta/f-stem-directions` was merged into it on
-2026-08-03, so ONE branch holds both and both are unproven.
-`beta/f-page-colors` merged on 2026-08-02, on top of `beta/f-system-pulse`
-earlier the same day — which itself brought five branches: the volume
-response, the swell effect, per-notehead pop pivots, the system group
-items and the system pulse. **Schema is v11**, so a project saved from
-here will not open on `v0.2-beta.6` or on any older build.
-`fix/bracket-hidden-staves` is the only other branch unmerged.
+**NOW:** everything is on `main` (`c5c05e6`, no tag).
+`beta/f-glow-effect` merged on 2026-08-04 on Marcus's instruction, and
+it carried TWO features: the glow (halo, sprites, density, the envelope
+and its editor) and the stem pass, which had been merged into it on
+2026-08-03. `beta/f-page-colors` merged on 2026-08-02, on top of
+`beta/f-system-pulse` earlier the same day — which itself brought five
+branches: the volume response, the swell effect, per-notehead pop
+pivots, the system group items and the system pulse. **Schema is v11**,
+so a project saved from here will not open on `v0.2-beta.6` or on any
+older build. `fix/bracket-hidden-staves` is the only branch unmerged.
+`main` is **38 commits ahead of `origin/main`** and has been since
+before the glow work — nothing here is pushed.
 
 **Every score re-engraves differently from 2026-08-03 on** — the stem
 pass is unconditional, and it moved 11 of the 12 goldens. That is the
-point of it, but it means a project saved before today will not render
-identically to how it looked.
+point of it, but it means a project saved before 2026-08-03 will not
+render identically to how it looked.
 
-Light and dark mode are in but **unproven under a human's eye** — the
-checks so far are headless and offscreen.
+Light and dark mode, the glow (with its envelope editor) and the stem
+pass are all on `main` but **unproven under a human's eye** — every
+check so far is headless or offscreen. The things to look at are a
+transposing part, where 34 % of the wrong stems lived, and the feel of
+dragging the envelope's handles.
 
 Two calibration questions left open on purpose, both measured (see the
 2026-08-02 lines): the pulse amounts' **0–20 % range is too generous** —
