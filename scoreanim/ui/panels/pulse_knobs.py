@@ -18,7 +18,7 @@ from scoreanim.core.animation.pulse import (DEFAULT_AMOUNT,
                                             DEFAULT_POP_AMOUNT,
                                             DEFAULT_SETTLE_S)
 from scoreanim.core.project import Command, ProjectDoc, SetPulseParam
-from scoreanim.ui.panels.effect_knobs import Number
+from scoreanim.ui.panels.knob_types import Number
 
 TITLE = "System pulse"
 

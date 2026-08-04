@@ -18,7 +18,7 @@ from typing import Mapping
 from scoreanim.core.animation.intensity import (DEFAULT_AMOUNT, DEFAULT_LOUD,
                                                 DEFAULT_QUIET)
 from scoreanim.core.project import Command, ProjectDoc, SetVolumeParam
-from scoreanim.ui.panels.effect_knobs import Number
+from scoreanim.ui.panels.knob_types import Number
 
 TITLE = "Volume response"
 

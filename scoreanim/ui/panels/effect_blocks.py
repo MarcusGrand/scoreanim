@@ -26,8 +26,8 @@ from scoreanim.core.animation import (GLOW_ATTACK, GLOW_COLOR, GLOW_DENSITY,
                                       GLOW_SWELL_ON, GLOW_SWELL_POS,
                                       glow_defaults)
 from scoreanim.core.project import ProjectDoc
-from scoreanim.ui.panels.effect_knobs import (Check, Color, EffectParamStore,
-                                              Knob, KnobStore, Number)
+from scoreanim.ui.panels.knob_types import (Check, Color, EffectParamStore,
+                                            Knob, KnobStore, Number)
 
 # (preset name, block title, its knobs), in the order the blocks appear.
 BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (

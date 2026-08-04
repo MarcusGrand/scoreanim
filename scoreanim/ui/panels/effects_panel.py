@@ -42,7 +42,8 @@ from scoreanim.core.project import (Command, ProjectDoc, ResetEffectSettings,
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
 from scoreanim.ui.panels.effect_blocks import BLOCKS, STORES
-from scoreanim.ui.panels.effect_knobs import EffectParamStore, KnobGroup
+from scoreanim.ui.panels.effect_knobs import KnobGroup
+from scoreanim.ui.panels.knob_types import EffectParamStore
 from scoreanim.ui.panels import pulse_knobs, volume_knobs
 
 # The "no second effect" entry in the Combine with dropdown. Not a
