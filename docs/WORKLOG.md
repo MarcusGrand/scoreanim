@@ -1,12 +1,20 @@
 # ScoreAnim — Worklog
 
-**NOW:** everything is on `main` (`6d89f1b`, no tag).
+**NOW:** everything is on `main` (`6d89f1b`, no tag), plus
+`beta/f-glow-effect` waiting for Marcus's eye — which now carries the
+stem work too: `beta/f-stem-directions` was merged into it on
+2026-08-03, so ONE branch holds both and both are unproven.
 `beta/f-page-colors` merged on 2026-08-02, on top of `beta/f-system-pulse`
 earlier the same day — which itself brought five branches: the volume
 response, the swell effect, per-notehead pop pivots, the system group
 items and the system pulse. **Schema is v11**, so a project saved from
 here will not open on `v0.2-beta.6` or on any older build.
-`fix/bracket-hidden-staves` is the only branch still unmerged.
+`fix/bracket-hidden-staves` is the only other branch unmerged.
+
+**Every score re-engraves differently from 2026-08-03 on** — the stem
+pass is unconditional, and it moved 11 of the 12 goldens. That is the
+point of it, but it means a project saved before today will not render
+identically to how it looked.
 
 Light and dark mode are in but **unproven under a human's eye** — the
 checks so far are headless and offscreen.
@@ -21,8 +29,11 @@ size. Marcus's call on both; he has said he wants to tweak them.
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
 
-`render/items.py` was split on 2026-08-02 and is at 396 lines. The next
-one over the ceiling is `core/project/serialize.py` at 456.
+`render/items.py` was split twice on 2026-08-02 and is at 384 lines.
+`core/project/serialize.py` is at **485** and is the next split due —
+over the ceiling before either branch and pushed further by the stem
+work; `ui/main_window.py` is at 386 with the F key, so it follows.
+`ui/panels/effect_knobs.py` was split twice on 2026-08-04 and is at 305.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -30,6 +41,198 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-04 — **You can draw the glow's shape now**
+  (`beta/f-glow-effect`, UNMERGED): an "Envelope" header in the Glow
+  block opens the classic synthesizer picture — time across the note,
+  level up the side — and the four handles drag the same six values the
+  boxes hold. **The curve is SAMPLED from the envelope that plays**
+  (`spec_envelope`, one point per pixel), so the eased segments on
+  screen are the ones the score runs rather than a drawing of them. A
+  drag is the live field's contract with a mouse: every move previews,
+  the release is one undo entry, and the canvas refuses a resync
+  mid-gesture — a picture cannot be focused, so nothing else would stop
+  the preview redrawing under the hand. **Handles stop at their
+  neighbours live** (`core/editing/envelope_drag.py`, pure): the clamp
+  is the consumer's own, so an invalid envelope is unreachable rather
+  than corrected after the fact, pinned by a fuzz over the whole canvas
+  on five starting shapes. The swell point moves two params at once, so
+  `SetEffectParam` grew an `also` — the fat-apply idiom, not a compound
+  command — and says "change effect options" when it carries more than
+  one key. No schema bump, no golden movement. Marcus's two calls: the
+  fill is the palette's highlight, not the glow colour (the widget will
+  host other effects), and the block opens CLOSED. **Two split-first
+  commits**: `knob_types.py` out of `effect_knobs.py` (388 → 276), and
+  the generic `EnvelopeSpec`/`clamp_spec`/`spec_envelope` out of
+  `glow.py` into `core/animation/envelope_shape.py` so nothing in the
+  editor says "glow"; the envelope's own gesture then went to
+  `ui/panels/envelope_row.py` when the wiring took `effect_knobs.py`
+  back to 383 (now 305). Checked end to end in the real window
+  offscreen: dragging the attack to 50 % takes the light at 5 % of the
+  note from 0.875 to 0.271, the box follows the handle, and undo puts
+  the document, the box and the picture back. Rendered eight shapes and
+  looked at them — the labels of a full release and a zero attack meet
+  at the same x, so they go to opposite ends rather than over each
+  other. Unproven under a human's eye.
+- 2026-08-04 — **The glow's shape is user data now**
+  (`beta/f-glow-effect`, UNMERGED): the pop/swell switch is gone and the
+  halo runs a synthesizer envelope — attack, sustain, an optional swell
+  hump on the hold, release — every one of them a FRACTION of the span,
+  so the shape keeps its proportions whether the span is the note's own
+  value (the default) or a typed duration. The swell Peak precedent, and
+  it costs nothing at the windows seam: the last keyframe still sits at
+  1.0 × the authored duration, so `Effect.duration` and the timescale
+  arithmetic never moved. **The envelope ends at exactly 0 when the span
+  does, by construction**, which is what keeps a glow to the sounding
+  notes. Easings are Marcus's call: attack EASE_OUT (curls gently into
+  the hold), release EASE_OUT (leaves at once, lands soft, the way a
+  note rings out), the hump EASE_IN up / EASE_OUT down. That pair is
+  also what makes **both old shapes reproduce byte-for-byte** — old pop
+  IS attack 0 + a full-span release, old swell IS the hump with nothing
+  held — so `shape`/`peak` are read as per-key DEFAULTS for the six new
+  ones (the v1 `part_colors` fold's rule, an explicit new key always
+  wins) and never written again. The ordering is enforced where the
+  params are consumed, because `Envelope` refuses keyframes that do not
+  strictly increase: attack + release that overflow scale down together
+  keeping their balance, and the hump is clamped strictly inside the
+  hold or dropped when there is no room — 13 degenerate combinations
+  pinned to degrade instead of raising. The panel needed its own store
+  (`GlowParamStore`) so an old project's boxes describe the shape it is
+  actually glowing in rather than the new defaults — the `forced_by`
+  argument, on a second setting. **No schema bump** (`style.effect_params`
+  round-trips raw), no golden movement. Watch out for one thing: the new
+  default is NOT lit at the onset, so three test files that assumed
+  "full light at t=0" now pin the instant-on shape explicitly
+  (`attack: 0, release: 1`). Checked end to end in the real window
+  offscreen: the light rises over the attack, holds at 1.000, dips to
+  0.500 where a swell at 50 % says, and reads exactly 0.000 at the span
+  end. The `Choice` knob type has no user left now that the Shape
+  dropdown is gone — kept, not deleted. Unproven under a human's eye.
+  *(The envelope EDITOR canvas is the next step.)*
+- 2026-08-03 — **Stems point the right way, and F flips one**
+  (`beta/f-stem-directions`, UNMERGED, off `main`): the wrong-way stems
+  are not random. **Dorico exports the WRITTEN score's directions and we
+  engrave concert pitch** (rule 9) — transposing moves notes across the
+  middle line and the `<stem>` does not follow. Measured over 7 fixtures
+  (`spikes/stem_dirs.py`): **6.5–34.3 %** of unbeamed single-voice stems
+  were drawn on the wrong side, and the error is about **seven times
+  denser in transposing parts** (34.5 %) than in concert-pitch ones
+  (5.1 %). `_normalize_stem_directions` drops `<stem>` wherever a staff
+  carries ONE voice in a measure and lets Verovio decide from the pitch
+  it actually draws — every fixture goes to **100 %**, and Verovio gets
+  beam groups and middle-line notes right on its own. A staff with two or
+  more voices keeps exactly what the file encodes (Marcus's call, so
+  divisi is never overruled). It runs **before `_apply_condense`**, which
+  fixes condensing for free: each source player is single-voice, so after
+  the merge Verovio applies its own v1-up/v2-down — measured, the two
+  voices stop being offset **27 units sideways** and 7 duplicate ledger
+  dashes go. **`F` on the stage** flips the selected note, cycling up ↔
+  down only. Two things made it less obvious than a nudge: the user
+  selects a NOTE but the document keys a STEM (joined through the
+  schedule's existing note group, so a chord's heads all name one stem
+  and the command needs no fan-out), and **nothing records which way a
+  stem points** — it is read off the drawn ink, so `F` flips away from
+  whatever is on the page. Bare `F` is stage-scoped, pinned
+  EMPIRICALLY rather than by a scope assertion: "flute" still types into
+  a QLineEdit anywhere in the window, including inside the stage view.
+  **No schema bump** — fourth feature to ride the untagged v11 — and the
+  automatic half stores nothing at all, so every already-saved project
+  re-engraves with corrected stems. **11 of 12 goldens re-captured with
+  Marcus's eyes on the diff**; `pickup_min` is the one fixture with no
+  `<stem>` at all, so it stays the clean control for the five
+  comparator-sensitivity tests. `note_records`, `measure_timeline` and
+  `pages` moved nowhere, which was the bisect. Watch out for one thing:
+  **`scaled-to-fit` shifted 1 %** on complex3 and tall_system_min
+  (70→71, 90→89), because stem directions change a system's height — and
+  that moved 100 % of those two fixtures' rows. A small visual change is
+  not a small golden diff. **`musicxml_rewrite.py` was split first**, its
+  own commit with no feature code (509 → 269): the break passes are now
+  `core/score/musicxml_breaks.py`. Unproven under a human's eye — the
+  thing to look at is a transposing part, which is where the 34 % lives.
+- 2026-08-02 — **The glow goes all the way to solid**
+  (`beta/f-glow-effect`, UNMERGED): a **Density** knob, 0–100 %, for
+  Marcus's "there should be options so at the very extreme the glow is
+  basically a solid color". The halo could only ever be soft — a blur
+  fades from the ink outwards, so even at full Strength the light is
+  thin, and Strength itself is the halo's own opacity with nothing past
+  1. Density lays the same blurred sprite down over ITSELF n times, so
+  the alpha at a point goes 1 - (1 - a)ⁿ. Ordinary painting, not
+  adding: every pass is the same colour, so the alpha climbs and the
+  hue stands still (adding would wash the warm gold out towards white
+  — pinned by a test). The third STYLING number, not an animated one:
+  it rides `read_glow`/`GlowStyle` beside colour and radius, joins the
+  sprite cache key, and costs nothing per frame — the applier still
+  writes one opacity. **No schema bump** (`style.effect_params`), and 0
+  is one pass, which `_thicken` hands back untouched, so every document
+  already saved renders exactly as it did. The knob is a per cent over
+  a curve, 1 to 32 passes: an even spread would waste its top half.
+  **Measured on testscore** (`spikes/glow_density.py`): at 24 radius
+  the halo's alpha 4 units out from a notehead goes 21 → 98 → 238 of
+  255 across 0/50/100 %, and it fills the halo IN rather than spreading
+  it — the reach stops at 12 units and CANNOT go past the blur, so
+  radius is still the knob for how far and the two together are how you
+  get a big solid halo (rendered four pages and looked). 32 passes is
+  the top because past it the change is all in the tail. Cost is
+  build-time only: lighting every element of every page at once, 456
+  sprites, 780 ms at 0 % against 993 at 100 %, and a replay still
+  builds nothing. Checked end to end in the real window offscreen:
+  100 % in the box takes the halo from 21 to 238, undo puts the box and
+  the halo back. Unproven under a human's eye.
+- 2026-08-02 — **The glow is fast now** (`beta/f-glow-effect`,
+  UNMERGED): the live drop-shadow effect re-blurred every halo on every
+  repaint, at device resolution — playback lagged on stop, scrub and
+  zoom. Replaced by pre-rendered sprites (`render/glow_sprite.py`,
+  `glow_effect.py` deleted): a glowing element gets a pixmap child
+  BEHIND its ink, the silhouette in the glow colour blurred ONCE at
+  first light, and a frame writes only the sprite's opacity. Cached by
+  shape: the whole of testscore is 900 glowing elements sharing 300
+  pixmaps, the first pass costs 495 ms in total (1.2 ms a frame,
+  builds included) and a replay builds nothing — pinned by tests, as
+  are z-order, transform inheritance, restyle-rebuild and the stale
+  extinguish. Page at 1400 px with 74 halos lit: 8 ms against 4 dark,
+  where the live effect measured 133 against 92. Qt's blur effect
+  spreads half again as far as the drop shadow's at the same radius
+  (measured, alpha profiles), so a 0.6 factor (`_BLUR_MATCH`) keeps
+  the calibrated radius-24 look; reach holds at 9–10 units for radius
+  20 at every zoom. Dropped with the old effect: the 30 % reach
+  pull-in as a glow dies (the fade is brightness-only now). Gained: a
+  mid-pop halo scales with its ink, and the one graphics-effect slot
+  per item is free again. Unproven under a human's eye — stop, scrub
+  and zoom mid-glow are the things to feel.
+- 2026-08-02 — **A sounding note glows**
+  (`beta/f-glow-effect`, UNMERGED): a warm halo around the ink that
+  lights at the onset and dies exactly when the note's value ends — so
+  only the notes actually playing glow. The **first new animatable
+  PROPERTY since the slide offsets**, and it cost exactly what the
+  architecture says it should: one `PropertyId`, one row in the compose
+  table, one applier entry, one preset. Glows take the BRIGHTER of two
+  (max, neutral 0) rather than stacking, and GLOW joins
+  `MODULATED_PROPERTIES`, so the volume response brightens a loud note's
+  halo the way it widens its pop; opacity stays out of both. "pop+glow"
+  and "swell+glow" needed no code and are checked in the running app.
+  No schema bump — the params ride `style.effect_params`, which
+  round-trips raw; `SetEffectParam` widened to accept a STRING (the
+  colour and the shape are words), which is what its own "type only"
+  contract already promised. **The Qt trap, measured before writing
+  anything**: a zero-offset drop shadow IS the Photoshop outer glow, but
+  Qt blurs at DEVICE resolution, so a raw `blurRadius` of 20 reached
+  16.0/10.0/5.0/2.5 scene units at view scales 0.5/1/2/4 — the glow
+  would shrink as you zoom and the stage and an export would disagree.
+  `GlowEffect` converts from the painter's own transform inside
+  `draw()`; measured again on the real page, the halo is 8.0 units at
+  every zoom. The effect is built on the first nonzero strength and
+  disabled at 0, which Qt skips entirely, so ink that never glows costs
+  nothing — 88 of 1691 items ever grew one on testscore, 64 lit at
+  once. **Default radius 24** (`spikes/glow.py`): a wider radius spreads
+  the same light thinner, so 18/24/36 reach 7/8/8 units at brightnesses
+  74/66/49 of 255 — rendered all three on a dark page and 18 reads as a
+  rim ON the ink, 36 as fog. Cost: 0.27 ms a frame to evaluate, and a
+  whole page at 1400 px goes 92 → 133 ms with 74 halos on it. Peak has
+  no knob on purpose (swell shape only). **Two splits first, each its
+  own commit**: `render/items.py` 396 → 357 (SVG paint helpers to
+  `render/svg_paint.py`) and `effects_panel.py` 379 → 277 (the knob
+  table to `ui/panels/effect_blocks.py`). A document that never touches
+  glow renders byte-identically to `main` — 21 pages over testscore,
+  video_test and complex1, sha256. Unproven under a human's eye.
 - 2026-08-02 — **Light mode or dark mode**
   (`beta/f-page-colors`, merged `6d89f1b`): the score is either black on
   white or white on a dark blue-grey (`#1d1f24` — not black, which is

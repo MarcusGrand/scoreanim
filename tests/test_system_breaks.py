@@ -20,7 +20,7 @@ from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.score.identity import ElementKind
 from scoreanim.core.score.musicxml_prep import SystemBreak, prepare
-from scoreanim.core.score.musicxml_rewrite import _apply_breaks
+from scoreanim.core.score.musicxml_breaks import _apply_breaks
 
 from .conftest import BIGBAND_SCORE, TALL_SYSTEM_SCORE, TESTSCORE
 

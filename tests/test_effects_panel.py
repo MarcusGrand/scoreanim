@@ -1104,3 +1104,321 @@ def test_reset_clears_the_pop_settings_too(panel) -> None:
     assert state.doc.style.pulse == {}
     assert widget.pulse.spins["pop_amount"].value() == 0
     assert widget.pulse.spins["notes_for_full"].value() == 6
+
+
+# -- the glow block -------------------------------------------------------
+
+def swatch(widget, preset, key):
+    return widget.blocks[preset].swatches[key]
+
+
+def test_glow_options_hide_until_glow_is_in_use(panel) -> None:
+    widget, state = panel
+    knobs = (swatch(widget, "glow", "color"),
+             spin(widget, "glow", "radius"),
+             spin(widget, "glow", "strength"),
+             spin(widget, "glow", "attack"),
+             spin(widget, "glow", "sustain"),
+             spin(widget, "glow", "release"),
+             box(widget, "glow", "swell_on"),
+             spin(widget, "glow", "duration"),
+             box(widget, "glow", "note_value"))
+    assert not _shown(widget, *knobs)
+    widget._effect_combo.setCurrentText("glow")
+    widget._commit_effect()
+    assert _shown(widget, *knobs)
+    assert not _shown(widget, spin(widget, "swell", "size"))
+    # the duration opens GRAYED: the note value is on by default here
+    assert box(widget, "glow", "note_value").isChecked()
+    assert not spin(widget, "glow", "duration").isEnabled()
+    box(widget, "glow", "note_value").setChecked(False)
+    assert spin(widget, "glow", "duration").isEnabled()
+
+
+def test_glow_knobs_commit_glow_params(panel) -> None:
+    widget, state = panel
+    spin(widget, "glow", "radius").setValue(60.0)
+    field(widget, "glow", "radius").commit()
+    assert state.committed.style.effect_params["glow"]["radius"] == 60.0
+    spin(widget, "glow", "strength").setValue(0.5)
+    field(widget, "glow", "strength").commit()
+    assert state.doc.style.effect_params["glow"]["strength"] == 0.5
+    spin(widget, "glow", "duration").setValue(1.2)
+    field(widget, "glow", "duration").commit()
+    assert state.doc.style.effect_params["glow"]["duration"] == 1.2
+    # note_value starts ON, so UNchecking it is what writes a param
+    box(widget, "glow", "note_value").setChecked(False)
+    assert state.doc.style.effect_params["glow"]["note_value"] is False
+    assert set(state.doc.style.effect_params) == {"glow"}
+    for _ in range(4):
+        assert state.can_undo
+        state.undo()
+    assert not state.can_undo                    # four gestures, four steps
+
+
+def test_the_envelope_knobs_hold_per_cent_and_store_fractions(panel) -> None:
+    """The swell Peak precedent: the box counts in per cent of the note
+    and the document keeps a fraction."""
+    widget, state = panel
+    assert spin(widget, "glow", "attack").value() == 10     # the defaults
+    assert spin(widget, "glow", "sustain").value() == 100
+    assert spin(widget, "glow", "release").value() == 20
+    for key, shown, stored in (("attack", 30, 0.3), ("sustain", 60, 0.6),
+                               ("release", 45, 0.45), ("swell_pos", 25, 0.25),
+                               ("swell_level", 80, 0.8)):
+        spin(widget, "glow", key).setValue(shown)
+        field(widget, "glow", key).commit()
+        assert state.committed.style.effect_params["glow"][key] == \
+            pytest.approx(stored)
+    # the checkbox is a flag, not a number
+    box(widget, "glow", "swell_on").setChecked(True)
+    assert state.doc.style.effect_params["glow"]["swell_on"] is True
+    for _ in range(6):
+        assert state.can_undo
+        state.undo()
+    assert not state.can_undo                    # six gestures, six steps
+
+
+def test_the_swell_knobs_gray_until_the_swell_is_on(panel) -> None:
+    widget, state = panel
+    widget._effect_combo.setCurrentText("glow")
+    widget._commit_effect()
+    assert not spin(widget, "glow", "swell_pos").isEnabled()
+    assert not spin(widget, "glow", "swell_level").isEnabled()
+    box(widget, "glow", "swell_on").setChecked(True)
+    assert spin(widget, "glow", "swell_pos").isEnabled()
+    assert spin(widget, "glow", "swell_level").isEnabled()
+
+
+def test_an_old_shape_word_shows_as_the_envelope_it_maps_to(panel) -> None:
+    """A project saved before the envelope existed still glows in its
+    old shape, so the boxes have to describe that shape rather than the
+    plain defaults — the panel never says something the effect is not
+    doing."""
+    widget, state = panel
+    state.execute(SetEffectParam("glow", "shape", "swell"))
+    state.execute(SetEffectParam("glow", "peak", 0.25))
+    widget.sync_from_document(state.doc)
+    assert spin(widget, "glow", "attack").value() == 0
+    assert spin(widget, "glow", "sustain").value() == 0
+    assert spin(widget, "glow", "release").value() == 0
+    assert box(widget, "glow", "swell_on").isChecked()
+    assert spin(widget, "glow", "swell_pos").value() == 25
+    # and an old "pop" is the other shape it maps to
+    state.execute(SetEffectParam("glow", "shape", "pop"))
+    widget.sync_from_document(state.doc)
+    assert spin(widget, "glow", "attack").value() == 0
+    assert spin(widget, "glow", "sustain").value() == 100
+    assert spin(widget, "glow", "release").value() == 100
+    assert not box(widget, "glow", "swell_on").isChecked()
+
+
+def test_the_colour_swatch_commits_one_command(panel, monkeypatch) -> None:
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QColorDialog
+
+    widget, state = panel
+    monkeypatch.setattr(QColorDialog, "getColor",
+                        staticmethod(lambda *a, **k: QColor("#00ff88")))
+    widget.blocks["glow"]._pick_color(widget.blocks["glow"]._by_key["color"])
+    assert state.doc.style.effect_params["glow"]["color"] == "#00ff88"
+    assert state.undo_text() == "set effect parameter"
+    # the swatch shows what the document says
+    widget.sync_from_document(state.doc)
+    assert swatch(widget, "glow", "color").text() == "#00ff88"
+    # cancelling (an invalid colour) commits nothing
+    monkeypatch.setattr(QColorDialog, "getColor",
+                        staticmethod(lambda *a, **k: QColor()))
+    widget.blocks["glow"]._pick_color(widget.blocks["glow"]._by_key["color"])
+    state.undo()
+    assert not state.can_undo
+
+
+def test_sync_reflects_glow_params(panel) -> None:
+    widget, state = panel
+    for cmd in (SetEffectParam("glow", "color", "#123456"),
+                SetEffectParam("glow", "radius", 12.0),
+                SetEffectParam("glow", "strength", 0.25),
+                SetEffectParam("glow", "attack", 0.35),
+                SetEffectParam("glow", "note_value", False)):
+        state.execute(cmd)
+    widget.sync_from_document(state.doc)
+    assert swatch(widget, "glow", "color").text() == "#123456"
+    assert spin(widget, "glow", "radius").value() == 12.0
+    assert spin(widget, "glow", "strength").value() == 0.25
+    assert spin(widget, "glow", "attack").value() == 35
+    assert not box(widget, "glow", "note_value").isChecked()
+    depth = 0
+    while state.can_undo:
+        state.undo()
+        depth += 1
+    assert depth == 5                            # resync added nothing
+    widget.sync_from_document(state.doc)         # back to the defaults
+    assert swatch(widget, "glow", "color").text() == "#ffcc66"
+    assert spin(widget, "glow", "radius").value() == 24.0
+    assert spin(widget, "glow", "attack").value() == 10
+    assert box(widget, "glow", "note_value").isChecked()
+
+
+def test_an_unknown_old_shape_word_shows_the_pop_envelope(panel) -> None:
+    """A hand-edited word fell soft to a pop before and still does, so
+    that is what the boxes describe."""
+    widget, state = panel
+    state.execute(SetEffectParam("glow", "shape", "shimmer"))
+    widget.sync_from_document(state.doc)
+    assert spin(widget, "glow", "attack").value() == 0
+    assert spin(widget, "glow", "release").value() == 100
+    # and the document is untouched by the resync
+    assert state.doc.style.effect_params["glow"]["shape"] == "shimmer"
+
+
+def test_glow_params_alone_light_the_reset_button(panel) -> None:
+    widget, state = panel
+    assert not widget._reset_button.isEnabled()
+    state.execute(SetEffectParam("glow", "radius", 12.0))
+    widget.sync_from_document(state.doc)
+    assert widget._reset_button.isEnabled()
+    widget._commit_reset()
+    assert state.doc.style.effect_params == {}
+    assert spin(widget, "glow", "radius").value() == 24.0
+
+
+# -- the envelope canvas ----------------------------------------------------
+#
+# The picture of the six shape params, and the other way to author them.
+# The widget's own behaviour is tests/test_envelope_editor.py; what these
+# pin is the wiring: one undo entry per drag, the boxes and the canvas
+# showing the same thing, and the block hiding as a unit.
+
+def canvas(widget, preset):
+    return widget.blocks[preset].envelopes["envelope"].canvas
+
+
+def drag_to(widget, canvas_widget, handle, to_x, to_y, state, steps=4):
+    """A whole gesture, with the window's resync wired up the way
+    MainWindow wires it — every document change comes back to the panel,
+    which is what keeps the boxes on the handle."""
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from scoreanim.core.editing import handle_points
+
+    def event(kind, x, y):
+        return QMouseEvent(kind, QPointF(x, y), Qt.MouseButton.LeftButton,
+                           Qt.MouseButton.LeftButton,
+                           Qt.KeyboardModifier.NoModifier)
+
+    state.document_changed.connect(
+        lambda: widget.sync_from_document(state.doc))
+    x, y = handle_points(canvas_widget.spec, canvas_widget.box())[handle]
+    canvas_widget.mousePressEvent(
+        event(QMouseEvent.Type.MouseButtonPress, x, y))
+    for step in range(1, steps + 1):
+        canvas_widget.mouseMoveEvent(event(
+            QMouseEvent.Type.MouseMove, x + (to_x - x) * step / steps,
+            y + (to_y - y) * step / steps))
+    canvas_widget.mouseReleaseEvent(
+        event(QMouseEvent.Type.MouseButtonRelease, to_x, to_y))
+
+
+@pytest.fixture
+def glow_canvas(panel):
+    """A panel with glow in use and its canvas sized like the panel."""
+    widget, state = panel
+    state.execute(SetDefaultEffect("glow"))
+    widget.sync_from_document(state.doc)
+    shown = canvas(widget, "glow")
+    shown.resize(250, 130)
+    return widget, state, shown
+
+
+def test_the_envelope_canvas_hides_with_its_block(panel) -> None:
+    widget, state = panel
+    section = widget.blocks["glow"].envelopes["envelope"].section
+    assert not section.isVisible()               # glow is not in use
+    assert not section.expanded                  # and it opens closed
+    state.execute(SetDefaultEffect("glow"))
+    widget.sync_from_document(state.doc)
+    widget.show()
+    assert section.isVisible()
+
+
+def test_a_drag_previews_and_lands_as_one_undo_entry(glow_canvas) -> None:
+    from scoreanim.core.editing import Handle, x_of
+
+    widget, state, shown = glow_canvas
+    depth_before = 1                             # the SetDefaultEffect
+    seen = []
+    state.document_changed.connect(
+        lambda: seen.append(state.doc.style.effect_params
+                            .get("glow", {}).get("attack")))
+    drag_to(widget, shown, Handle.ATTACK, x_of(0.4, shown.box()),
+            shown.box().y, state)
+    # the score saw every step of the drag, not just the end of it
+    previews = [value for value in seen if value is not None]
+    assert len(set(previews)) > 1
+    assert state.committed.style.effect_params["glow"]["attack"] == \
+        pytest.approx(0.4, abs=0.01)
+    assert state.undo_text() == "set effect parameter"
+    state.undo()
+    assert "attack" not in state.doc.style.effect_params.get("glow", {})
+    depth = 0
+    while state.can_undo:
+        state.undo()
+        depth += 1
+    assert depth == depth_before                 # one entry for the drag
+
+
+def test_the_swell_point_moves_two_params_in_one_entry(glow_canvas) -> None:
+    from scoreanim.core.editing import Handle, x_of
+
+    widget, state, shown = glow_canvas
+    state.execute(SetEffectParam("glow", "swell_on", True))
+    widget.sync_from_document(state.doc)
+    box_ = shown.box()
+    drag_to(widget, shown, Handle.SWELL, x_of(0.62, box_),
+            box_.y + 0.5 * box_.h, state)
+    params = state.committed.style.effect_params["glow"]
+    assert params["swell_pos"] == pytest.approx(0.62, abs=0.01)
+    assert params["swell_level"] == pytest.approx(0.5, abs=0.02)
+    assert state.undo_text() == "change effect options"
+    state.undo()                                 # both go together
+    assert "swell_pos" not in state.doc.style.effect_params["glow"]
+    assert "swell_level" not in state.doc.style.effect_params["glow"]
+
+
+def test_the_boxes_follow_the_handle(glow_canvas) -> None:
+    """Two views of one set of values: dragging the canvas moves the
+    numbers, and typing a number redraws the canvas."""
+    from scoreanim.core.editing import Handle, x_of
+
+    widget, state, shown = glow_canvas
+    drag_to(widget, shown, Handle.ATTACK, x_of(0.3, shown.box()),
+            shown.box().y, state)
+    assert spin(widget, "glow", "attack").value() == \
+        pytest.approx(30, abs=1)
+    spin(widget, "glow", "release").setValue(45)
+    field(widget, "glow", "release").commit()
+    widget.sync_from_document(state.doc)
+    assert shown.spec.release == pytest.approx(0.45)
+
+
+def test_a_press_that_goes_nowhere_is_not_an_edit(glow_canvas) -> None:
+    from scoreanim.core.editing import Handle, handle_points
+
+    widget, state, shown = glow_canvas
+    x, y = handle_points(shown.spec, shown.box())[Handle.SUSTAIN]
+    drag_to(widget, shown, Handle.SUSTAIN, x, y, state)
+    assert "glow" not in state.committed.style.effect_params
+    assert state.undo_text() == "set default effect"
+
+
+def test_reset_clears_a_dragged_envelope(glow_canvas) -> None:
+    from scoreanim.core.editing import Handle, x_of
+
+    widget, state, shown = glow_canvas
+    drag_to(widget, shown, Handle.ATTACK, x_of(0.3, shown.box()),
+            shown.box().y, state)
+    assert widget._reset_button.isEnabled()
+    widget._commit_reset()
+    assert state.doc.style.effect_params == {}
+    assert shown.spec.attack == pytest.approx(0.10)     # back to the default

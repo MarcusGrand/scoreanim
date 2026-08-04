@@ -26,6 +26,11 @@ SCALE = PropertyId("scale")     # factor around the element's stored anchor
 # note still animates to the place the user moved it to.
 OFFSET_X = PropertyId("offset_x")
 OFFSET_Y = PropertyId("offset_y")
+# How brightly the element's halo burns: 0 is no glow at all, 1 is full
+# glow. An ordinary float track like any other — what the halo is
+# COLOURED and how far it reaches are styling, not animation, and live
+# in core/animation/glow.py.
+GLOW = PropertyId("glow")
 
 
 class Easing(enum.Enum):

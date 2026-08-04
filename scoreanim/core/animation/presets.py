@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import math
 
-from scoreanim.core.animation.effect import (OFFSET_X, OFFSET_Y, OPACITY,
+from scoreanim.core.animation.effect import (GLOW, OFFSET_X, OFFSET_Y, OPACITY,
                                              SCALE, Easing, Effect, Envelope,
                                              Keyframe, appear)
+from scoreanim.core.animation.glow import (GLOW_NOTE_VALUE, GLOW_S,
+                                           GLOW_STRENGTH, glow_track,
+                                           read_glow_shape)
 
 from typing import Mapping
 
@@ -89,6 +92,13 @@ _SWELL_FOLLOW = False
 _FOLLOW_RISE = 0.10
 _FOLLOW_FALL = 0.15
 
+# glow: the note carries a soft coloured halo while it sounds. The
+# shape of the light over time, and the colour and size of the halo,
+# are both in core/animation/glow.py — the colour and radius because
+# they are styling rather than animation, and render has to read them
+# without the preset registry. The defaults are that module's
+# GLOW_* constants.
+
 # Consumption clamps (M4, brief F7 ranges). The command layer validates
 # only type/finiteness, so a future preset reuses it unchanged; ranges
 # are enforced here, where the params are consumed.
@@ -99,6 +109,9 @@ _SHIFT_RANGE = (-0.5, 0.5)
 # through. Never at either end: the shape needs a rise AND a fall, and
 # a keyframe exactly on top of another one is not an envelope.
 _PEAK_RANGE = (0.05, 0.95)
+# How bright a glow may burn. 1 is full glow, and there is nothing past
+# it: the applier reads this as the halo's own opacity.
+_STRENGTH_RANGE = (0.0, 1.0)
 # Scene units. The far end is about a page wide: past that the note
 # starts from somewhere nobody is looking.
 _DISTANCE_RANGE = (0.0, 2000.0)
@@ -162,9 +175,14 @@ def build_presets(floor: float,
     peak-offset / note-value read from ``params["pop"]``, fade's
     duration / note-value from ``params["fade"]``, drop's start size /
     duration / bounce from ``params["drop"]``, slide's direction /
-    distance / duration / bounce from ``params["slide"]`` and swell's
+    distance / duration / bounce from ``params["slide"]``, swell's
     size / peak / duration / note-value / follow from ``params["swell"]``
-    (all merged over defaults, clamped). Follow is the one param that
+    and glow's strength / duration / note-value plus its envelope shape
+    from ``params["glow"]`` (all merged over defaults, clamped). The
+    glow's
+    colour and radius are NOT read here: they never reach an envelope,
+    so render reads them straight from `glow.read_glow`. Follow is the
+    one param that
     reaches past its own knob: it forces swell's note-value stretch on,
     because a fixed window cannot track a whole note. Unknown presets
     and unknown keys are ignored here — they round-trip through the
@@ -209,6 +227,14 @@ def build_presets(floor: float,
     # shows that box checked and grayed to match.
     swell_note_value = swell_follow or bool(
         swell.get("note_value", _SWELL_NOTE_VALUE))
+    glow = dict(params.get("glow", {})) if params else {}
+    glow_strength = _clamp(float(glow.get("strength", GLOW_STRENGTH)),
+                           *_STRENGTH_RANGE)
+    # The shape's own six params read and clamp next door, where the
+    # ordering the Envelope demands is enforced with them.
+    glow_shape = read_glow_shape(glow)
+    glow_s = max(_SETTLE_MIN, float(glow.get("duration", GLOW_S)))
+    glow_note_value = bool(glow.get("note_value", GLOW_NOTE_VALUE))
     return {
         "appear": appear(floor),
         "pop": Effect("pop", {
@@ -276,6 +302,18 @@ def build_presets(floor: float,
             SCALE: swell_scale(swell_size, swell_peak, swell_s, swell_follow),
         }, settle_to_note_value=swell_note_value,
             follow_volume=swell_follow),
+        # The note appears at the trigger the way appear's does — so
+        # "glow" on its own still reveals it — and lights a halo that
+        # dies again on the same clock. The note value is ON by default:
+        # a glow that goes out exactly when the note's value ends is
+        # what makes only the SOUNDING notes glow, which is the point of
+        # the effect. Scale is untouched, so glow combines with pop and
+        # with swell without either of them noticing.
+        "glow": Effect("glow", {
+            OPACITY: Envelope(initial=floor,
+                              keyframes=(Keyframe(0.0, 1.0, Easing.STEP),)),
+            GLOW: glow_track(glow_shape, glow_strength, glow_s),
+        }, settle_to_note_value=glow_note_value),
     }
 
 

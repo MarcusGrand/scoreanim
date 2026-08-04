@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Callable, Mapping
 
-from scoreanim.core.animation import OFFSET_X, OFFSET_Y, OPACITY, SCALE
+from scoreanim.core.animation import GLOW, OFFSET_X, OFFSET_Y, OPACITY, SCALE
 from scoreanim.render.items import ElementItem
 
 
@@ -44,9 +44,18 @@ def _apply_offset_y(item: ElementItem, value: float) -> None:
     item.set_animated_offset_y(value)
 
 
+def _apply_glow(item: ElementItem, value: float) -> None:
+    # Unlike scale this needs no pivot and has no ceiling, so it reaches
+    # every piece of an element's ink. What colour the halo is and how
+    # far it reaches were pushed to the item when the document last
+    # changed; only the strength moves per frame.
+    item.set_glow(value)
+
+
 PROPERTY_APPLIERS: Mapping[str, Callable[[ElementItem, float], None]] = {
     OPACITY: _apply_opacity,
     SCALE: _apply_scale,
     OFFSET_X: _apply_offset_x,
     OFFSET_Y: _apply_offset_y,
+    GLOW: _apply_glow,
 }

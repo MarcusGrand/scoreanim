@@ -431,7 +431,7 @@ def test_set_effect_param_sparse_semantics(doc) -> None:
 
 
 def test_set_effect_param_validates_type_and_finiteness_only(doc) -> None:
-    for bad in (float("nan"), float("inf"), "big", (1, 2)):
+    for bad in (float("nan"), float("inf"), (1, 2), {"a": 1}):
         with pytest.raises(CommandError):
             SetEffectParam("pop", "scale", bad).apply(doc)  # type: ignore
     with pytest.raises(CommandError):
@@ -441,6 +441,55 @@ def test_set_effect_param_validates_type_and_finiteness_only(doc) -> None:
     # no range policy here — clamps live at consumption (build_presets)
     assert SetEffectParam("pop", "scale", 99.0).apply(doc) \
         .style.effect_params["pop"]["scale"] == 99.0
+
+
+def test_set_effect_param_takes_a_word_as_well_as_a_number(doc) -> None:
+    """The glow's colour and its shape are both words. Legality is the
+    consumer's business (read_glow falls back on anything it cannot
+    read), so this layer only asks that it is a string."""
+    d2 = SetEffectParam("glow", "color", "#ffcc66").apply(doc)
+    assert d2.style.effect_params["glow"] == {"color": "#ffcc66"}
+    d3 = SetEffectParam("glow", "shape", "swell").apply(d2)
+    assert d3.style.effect_params["glow"]["shape"] == "swell"
+    # nonsense a hand edit could write gets through here and is caught
+    # at consumption, exactly like an unknown colour mode
+    assert SetEffectParam("glow", "color", "banana").apply(doc) \
+        .style.effect_params["glow"]["color"] == "banana"
+    # and None still deletes the key
+    assert SetEffectParam("glow", "color", None).apply(d2) \
+        .style.effect_params == {}
+
+
+def test_set_effect_param_writes_several_keys_at_once(doc) -> None:
+    """One gesture is one undo entry (rule 8), and dragging the swell
+    point on the envelope canvas moves two values — so the command
+    carries the rest of them rather than a compound existing."""
+    d2 = SetEffectParam("glow", "swell_pos", 0.6,
+                        also=(("swell_level", 0.8),
+                              ("swell_on", True))).apply(doc)
+    assert d2.style.effect_params["glow"] == {"swell_pos": 0.6,
+                                              "swell_level": 0.8,
+                                              "swell_on": True}
+    assert SetEffectParam("glow", "swell_pos", 0.6).describe() \
+        == "set effect parameter"
+    assert SetEffectParam("glow", "swell_pos", 0.6,
+                          also=(("swell_level", 0.8),)).describe() \
+        == "change effect options"
+    # None still deletes, in the extra keys too — and an emptied entry
+    # drops, the sparse idiom unchanged
+    assert SetEffectParam("glow", "swell_pos", None,
+                          also=(("swell_level", None),
+                                ("swell_on", None))).apply(d2) \
+        .style.effect_params == {}
+    # a bad value anywhere refuses the whole edit, so half of a drag can
+    # never land
+    with pytest.raises(CommandError):
+        SetEffectParam("glow", "swell_pos", 0.6,
+                       also=(("swell_level", float("nan")),)).apply(doc)
+    with pytest.raises(CommandError):
+        SetEffectParam("glow", "swell_pos", 0.6,
+                       also=(("", 0.8),)).apply(doc)
+    assert doc.style.effect_params == {}
 
 
 def test_set_volume_param_sparse_semantics(doc) -> None:
@@ -1372,3 +1421,42 @@ def test_restore_all_is_one_undo_entry(doc) -> None:
     assert back.layout_overrides == {}
     assert stack.undo_text() == "restore elements"
     assert stack.undo() == deleted
+
+
+# --- stem directions (2026-08-03) ------------------------------------------
+
+def test_set_stem_direction_is_a_sparse_map(doc) -> None:
+    """An engraving input keyed by minted stem id: it re-engraves, so it
+    goes through execute(), never preview()."""
+    from scoreanim.core.project import SetStemDirection, StemDirection
+    eid = "P1:m3:s1:v1:stem:0"
+
+    assert doc.stem_directions == {}
+    up = SetStemDirection(eid, StemDirection.UP).apply(doc)
+    assert dict(up.stem_directions) == {eid: StemDirection.UP}
+    assert doc.stem_directions == {}                 # the input is untouched
+
+    # flipping the other way replaces rather than accumulates
+    down = SetStemDirection(eid, StemDirection.DOWN).apply(up)
+    assert dict(down.stem_directions) == {eid: StemDirection.DOWN}
+
+    # None hands the note back to the automatic rule, and the entry goes
+    assert SetStemDirection(eid, None).apply(down).stem_directions == {}
+
+
+def test_set_stem_direction_rejects_a_bad_direction(doc) -> None:
+    from scoreanim.core.project import SetStemDirection
+    with pytest.raises(CommandError, match="stem direction"):
+        SetStemDirection("P1:m3:s1:v1:stem:0", "up").apply(doc)
+    with pytest.raises(CommandError, match="no element"):
+        SetStemDirection("", None).apply(doc)
+
+
+def test_flipping_a_stem_is_one_undo_entry(doc) -> None:
+    from scoreanim.core.project import SetStemDirection, StemDirection
+    eid = "P1:m3:s1:v1:stem:0"
+    stack = UndoStack()
+    flipped = stack.execute(SetStemDirection(eid, StemDirection.UP), doc)
+    assert stack.undo_text() == "flip stem"
+    assert stack.undo() == doc
+    assert flipped.stem_directions != doc.stem_directions

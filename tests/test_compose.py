@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from scoreanim.core.animation import (COMPOSE_OPS, FLOOR_OPACITY,
+from scoreanim.core.animation import (COMPOSE_OPS, FLOOR_OPACITY, GLOW,
                                       MODULATED_PROPERTIES, OFFSET_X,
                                       OFFSET_Y, OPACITY, PRESETS, SCALE,
                                       Easing, Effect, Envelope, Keyframe,
@@ -42,7 +42,7 @@ def test_the_table_covers_every_property_there_is() -> None:
     # scanning, so a new one added without a rule fails here
     declared = {value for name, value in vars(effect_module).items()
                 if name.isupper() and isinstance(value, str)}
-    assert declared == {OPACITY, SCALE, OFFSET_X, OFFSET_Y}
+    assert declared == {OPACITY, SCALE, OFFSET_X, OFFSET_Y, GLOW}
     assert set(COMPOSE_OPS) == declared
 
 
@@ -178,6 +178,64 @@ def test_a_gain_scales_the_swell_like_any_other_departure() -> None:
         FLOOR_OPACITY)
 
 
+def test_two_glows_take_the_brighter_one() -> None:
+    """max, not add: light that added would blow past full glow."""
+    assert compose_states([{GLOW: 0.4}, {GLOW: 0.9}])[GLOW] == 0.9
+    assert compose_states([{GLOW: 0.9}, {GLOW: 0.4}])[GLOW] == 0.9
+    # an effect that does not glow contributes 0, which changes nothing
+    assert compose_states([{GLOW: 0.6}, {SCALE: 2.0}])[GLOW] == 0.6
+
+
+def test_pop_and_glow_leave_scale_and_glow_each_correct() -> None:
+    """The two effects share nothing: pop owns the size, glow owns the
+    light, and neither knows the other is running."""
+    reg = build_presets(FLOOR_OPACITY,
+                        {"pop": {"scale": 1.25, "settle": 0.25},
+                         # lit at the onset, one fall — the shape this
+                         # file's arithmetic is written against
+                         "glow": {"attack": 0.0, "release": 1.0,
+                                  "strength": 1.0, "duration": 0.4,
+                                  "note_value": False}})
+    combo = ((reg["pop"], 1.0), (reg["glow"], 1.0))
+    at_onset = combined_state(10.0, combo, 10.0)
+    assert at_onset[SCALE] == pytest.approx(1.25)
+    assert at_onset[GLOW] == pytest.approx(1.0)
+    assert at_onset[OPACITY] == pytest.approx(1.0)
+    # each property is exactly what its own effect alone would give
+    inside = combined_state(10.0, combo, 10.1)
+    assert inside[SCALE] == pytest.approx(
+        element_state(10.0, reg["pop"], 10.1)[SCALE])
+    assert inside[GLOW] == pytest.approx(
+        element_state(10.0, reg["glow"], 10.1)[GLOW])
+    # and the pop is past its dip while the glow is still lit, so this
+    # is not passing on a flat state
+    assert inside[SCALE] < 1.25
+    assert 0.0 < inside[GLOW] < 1.0
+    # both home: engraved size, no light left
+    landed = combined_state(10.0, combo, 10.5)
+    assert landed[SCALE] == pytest.approx(1.0)
+    assert landed[GLOW] == pytest.approx(0.0)
+
+
+def test_swell_and_glow_leave_scale_and_glow_each_correct() -> None:
+    reg = build_presets(FLOOR_OPACITY,
+                        {"swell": {"size": 1.4, "duration": 0.8,
+                                   "note_value": False},
+                         # lit at the onset, one fall — the shape this
+                         # file's arithmetic is written against
+                         "glow": {"attack": 0.0, "release": 1.0,
+                                  "strength": 1.0, "duration": 0.4,
+                                  "note_value": False}})
+    combo = ((reg["swell"], 1.0), (reg["glow"], 1.0))
+    # 0.1 s in: the swell is on its way up, the glow on its way down
+    mid = combined_state(10.0, combo, 10.1)
+    assert mid[SCALE] == pytest.approx(
+        element_state(10.0, reg["swell"], 10.1)[SCALE])
+    assert mid[GLOW] == pytest.approx(
+        element_state(10.0, reg["glow"], 10.1)[GLOW])
+    assert mid[SCALE] > 1.0 and 0.0 < mid[GLOW] < 1.0
+
+
 def test_two_movers_add_their_travel() -> None:
     out = combined_state(0.0, ((_mover("a", 10.0, -20.0), 1.0),
                                (_mover("b", 5.0, 4.0), 1.0)), 0.0)
@@ -200,6 +258,19 @@ def test_a_gain_scales_the_offsets_about_zero() -> None:
     out = modulate_state({OFFSET_X: 100.0, OFFSET_Y: -40.0}, 0.5)
     assert out[OFFSET_X] == pytest.approx(50.0)
     assert out[OFFSET_Y] == pytest.approx(-20.0)
+
+
+def test_a_gain_scales_the_glow_about_darkness() -> None:
+    """Rest for GLOW is 0, so the gain simply scales the light: a loud
+    note burns brighter and a quiet one barely lights — and a note with
+    no glow at all stays dark whatever the gain."""
+    assert modulate_state({GLOW: 0.8}, 0.5)[GLOW] == pytest.approx(0.4)
+    assert modulate_state({GLOW: 0.5}, 2.0)[GLOW] == pytest.approx(1.0)
+    assert modulate_state({GLOW: 0.0}, 4.0)[GLOW] == pytest.approx(0.0)
+    # opacity rides along untouched, as ever
+    out = modulate_state({GLOW: 0.8, OPACITY: 0.3}, 0.25)
+    assert out[OPACITY] == 0.3
+    assert out[GLOW] == pytest.approx(0.2)
 
 
 def test_opacity_is_never_modulated() -> None:

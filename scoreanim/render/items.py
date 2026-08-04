@@ -1,7 +1,8 @@
 """Scene item classes: one ElementItem per RenderedElement.
 
 The path child a spanner reveals by clip-grow lives next door, in
-`render/reveal_item.py`.
+`render/reveal_item.py`, and the SVG paint translation the scene
+builder shares with these items is in `render/svg_paint.py`.
 
 A plain QGraphicsItem parent (empty paint) rather than QGraphicsItemGroup
 — groups grab child events, which we don't want once click-to-select
@@ -14,56 +15,17 @@ paints.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen
+from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtGui import QBrush, QColor, QPainterPath
 from PySide6.QtWidgets import (QGraphicsItem, QGraphicsPathItem,
                                QGraphicsSimpleTextItem)
 
 from scoreanim.core.score.identity import ElementIdentity
 from scoreanim.core.selection.highlight import (SELECTION_MIN_OPACITY,
                                                 selection_color_for)
+from scoreanim.render.glow_sprite import GlowSlot
 from scoreanim.render.reveal_item import RevealPathItem
-
-DEFAULT_COLOR = QColor(Qt.GlobalColor.black)   # SVG initial 'color'/fill
-
-
-def fill_tracks_color(fill: str | None) -> bool:
-    """Does ink painted with this SVG fill follow the element's color?
-
-    No fill at all means the SVG said nothing, so the ink is the default
-    and it tracks. `fill="none"` means there is no fill to track.
-
-    An explicit fill is normally a deliberate color choice and must not
-    be overwritten — but **black is not a choice, it is the default
-    written out**, and ink left untracked can never take the selection
-    tint. Verovio does exactly that on `<dir>` texts: a census of four
-    fixtures (testscore, broken_hairpin_and_slur_test, complex1,
-    bigband1) found `fill="#000000"` on the expression direction and
-    NOWHERE else — every other fill was absent or "none". So selecting
-    "bucket mute" used to go from dimmed to black instead of orange,
-    while every other text tinted correctly.
-    """
-    if fill is None:
-        return True
-    if fill == "none":
-        return False
-    return QColor(fill) == DEFAULT_COLOR
-
-# SVG stroke defaults differ from QPen's: butt caps (Qt default is
-# square, which would lengthen every staff line and stem by half a
-# width), miter joins, miter limit 4.
-_SVG_CAP = Qt.PenCapStyle.FlatCap
-_SVG_JOIN = Qt.PenJoinStyle.MiterJoin
-_SVG_MITER_LIMIT = 4.0
-
-
-def svg_pen(color: QColor, width: float) -> QPen:
-    pen = QPen(color)
-    pen.setWidthF(width)
-    pen.setCapStyle(_SVG_CAP)
-    pen.setJoinStyle(_SVG_JOIN)
-    pen.setMiterLimit(_SVG_MITER_LIMIT)
-    return pen
+from scoreanim.render.svg_paint import DEFAULT_COLOR
 
 
 class GroupItem(QGraphicsItem):
@@ -113,9 +75,12 @@ class ElementItem(GroupItem):
                                                 tint, element override)
       layout nudge     `set_offset`             document intent (dx/dy)
       ghost floor      `set_ghost_opacity`      the document's floor
+      glow style       `set_glow_style`       — document intent (the
+                                                halo's colour and size)
       animation state  `set_animated_opacity` — the effect evaluator
                        `set_animated_offset`
                        `setScale`
+                       `set_glow`
       selection        `set_selected`         — transient UI state
 
     Each setter stores its own input and re-derives the painted result,
@@ -170,6 +135,11 @@ class ElementItem(GroupItem):
         self._animated_offset = (0.0, 0.0)       # from the evaluator
         self._ghost_opacity = 1.0                # document floor, ghosts
         self._selected = False                   # transient UI state
+        # The outer glow: the halo's colour and size are document
+        # intent, how brightly it burns comes from the evaluator, and
+        # the pre-rendered pixmap child behind both is its own small
+        # object (render/glow_sprite.py).
+        self._glow = GlowSlot(self, DEFAULT_COLOR)
         # (item, fill tracks element color, stroke tracks element color)
         self._tracked: list[tuple[QGraphicsItem, bool, bool]] = []
         self._reveal_children: list[RevealPathItem] = []
@@ -286,6 +256,24 @@ class ElementItem(GroupItem):
         this input without owning the painted result."""
         self._animated_opacity = value
         self._recompose_opacity()
+
+    def set_glow_style(self, color: QColor, radius: float,
+                       passes: float = 1.0) -> None:
+        """What this element's halo looks like when it is lit: document
+        intent, written once when the document changes, never per
+        frame."""
+        self._glow.set_style(color, radius, passes)
+
+    def set_glow(self, value: float) -> None:
+        """Set how brightly the effect evaluator wants this element's
+        halo to burn at the current t."""
+        self._glow.set_strength(value)
+
+    @property
+    def glow_strength(self) -> float:
+        """The evaluator's glow for the current t, readable back so a
+        caller can tell the animation input apart from the halo."""
+        return self._glow.strength
 
     def set_ghost_opacity(self, value: float) -> None:
         """Set the document's ghost floor for this element's spanner

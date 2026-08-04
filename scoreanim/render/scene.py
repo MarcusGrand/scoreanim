@@ -31,8 +31,9 @@ from scoreanim.core.engraving.types import Layout, PathPrimitive
 from scoreanim.core.project.document import LayoutOverride
 from scoreanim.core.project.stage_config import StageConfig, StageTextElement
 from scoreanim.core.score.identity import ElementId, PartId
-from scoreanim.render.items import (DEFAULT_COLOR, ElementItem,
-                                    fill_tracks_color, svg_pen)
+from scoreanim.render.items import ElementItem
+from scoreanim.render.svg_paint import (DEFAULT_COLOR, fill_tracks_color,
+                                        svg_pen)
 from scoreanim.render.qpath import to_qpainter_path, to_qtransform
 from scoreanim.render.reveal_item import RevealPathItem
 from scoreanim.render.system_group import SystemGroupItem

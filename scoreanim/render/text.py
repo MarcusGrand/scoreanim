@@ -15,8 +15,8 @@ from PySide6.QtWidgets import QGraphicsSimpleTextItem
 
 from scoreanim.core.engraving.types import TextPrimitive, TextRun
 from scoreanim.core.project.stage_config import StageTextElement
-from scoreanim.render.items import (DEFAULT_COLOR, ElementItem,
-                                    fill_tracks_color)
+from scoreanim.render.items import ElementItem
+from scoreanim.render.svg_paint import DEFAULT_COLOR, fill_tracks_color
 from scoreanim.render.qpath import to_qtransform
 
 _FALLBACK_FAMILIES = ["Times New Roman", "Times", "Georgia"]
