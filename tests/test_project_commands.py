@@ -460,6 +460,38 @@ def test_set_effect_param_takes_a_word_as_well_as_a_number(doc) -> None:
         .style.effect_params == {}
 
 
+def test_set_effect_param_writes_several_keys_at_once(doc) -> None:
+    """One gesture is one undo entry (rule 8), and dragging the swell
+    point on the envelope canvas moves two values — so the command
+    carries the rest of them rather than a compound existing."""
+    d2 = SetEffectParam("glow", "swell_pos", 0.6,
+                        also=(("swell_level", 0.8),
+                              ("swell_on", True))).apply(doc)
+    assert d2.style.effect_params["glow"] == {"swell_pos": 0.6,
+                                              "swell_level": 0.8,
+                                              "swell_on": True}
+    assert SetEffectParam("glow", "swell_pos", 0.6).describe() \
+        == "set effect parameter"
+    assert SetEffectParam("glow", "swell_pos", 0.6,
+                          also=(("swell_level", 0.8),)).describe() \
+        == "change effect options"
+    # None still deletes, in the extra keys too — and an emptied entry
+    # drops, the sparse idiom unchanged
+    assert SetEffectParam("glow", "swell_pos", None,
+                          also=(("swell_level", None),
+                                ("swell_on", None))).apply(d2) \
+        .style.effect_params == {}
+    # a bad value anywhere refuses the whole edit, so half of a drag can
+    # never land
+    with pytest.raises(CommandError):
+        SetEffectParam("glow", "swell_pos", 0.6,
+                       also=(("swell_level", float("nan")),)).apply(doc)
+    with pytest.raises(CommandError):
+        SetEffectParam("glow", "swell_pos", 0.6,
+                       also=(("", 0.8),)).apply(doc)
+    assert doc.style.effect_params == {}
+
+
 def test_set_volume_param_sparse_semantics(doc) -> None:
     from scoreanim.core.project import SetVolumeParam
 

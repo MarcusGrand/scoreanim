@@ -130,30 +130,38 @@ class SetEffectParam(Command):
     anything it cannot read, the `SetColorMode` argument — so refusing
     here would only move the failure. Strings round-trip through
     serialization raw like every other param value, so no schema
-    change."""
+    change.
+
+    `also` carries FURTHER keys of the same preset, written in the same
+    entry and undone together: one gesture is one undo entry (rule 8),
+    and dragging the swell point on the envelope canvas moves two values
+    at once. The fat-apply idiom (`SetPageBreak.also_system`) — a
+    compound command does not exist and should not."""
     preset: str
     key: str
     value: float | int | bool | str | None
+    also: tuple[tuple[str, float | int | bool | str | None], ...] = ()
 
     def apply(self, doc: ProjectDoc) -> ProjectDoc:
         if not self.preset.strip():
             raise CommandError("empty preset name")
-        if not self.key.strip():
-            raise CommandError("empty parameter key")
-        if self.value is not None:
-            if not isinstance(self.value, (bool, int, float, str)):
-                raise CommandError(f"bad parameter value {self.value!r}")
-            if (not isinstance(self.value, (bool, str))
-                    and not math.isfinite(self.value)):
-                raise CommandError(f"parameter value {self.value!r} "
-                                   f"is not finite")
         params = {name: dict(entry)
                   for name, entry in doc.style.effect_params.items()}
         entry = params.get(self.preset, {})
-        if self.value is None:
-            entry.pop(self.key, None)
-        else:
-            entry[self.key] = self.value
+        for key, value in ((self.key, self.value), *self.also):
+            if not key.strip():
+                raise CommandError("empty parameter key")
+            if value is not None:
+                if not isinstance(value, (bool, int, float, str)):
+                    raise CommandError(f"bad parameter value {value!r}")
+                if (not isinstance(value, (bool, str))
+                        and not math.isfinite(value)):
+                    raise CommandError(f"parameter value {value!r} "
+                                       f"is not finite")
+            if value is None:
+                entry.pop(key, None)
+            else:
+                entry[key] = value
         if entry:
             params[self.preset] = entry
         else:
@@ -161,7 +169,9 @@ class SetEffectParam(Command):
         return replace(doc, style=replace(doc.style, effect_params=params))
 
     def describe(self) -> str:
-        return "set effect parameter"
+        """One key names itself; several say what they were part of."""
+        return ("set effect parameter" if not self.also
+                else "change effect options")
 
 
 @dataclass(frozen=True)

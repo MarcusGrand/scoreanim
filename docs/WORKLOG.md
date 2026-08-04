@@ -32,8 +32,8 @@ earns its place now that the Tempo field aims at the selected line.
 `render/items.py` was split twice on 2026-08-02 and is at 384 lines.
 `core/project/serialize.py` is at **485** and is the next split due —
 over the ceiling before either branch and pushed further by the stem
-work; `ui/panels/effect_knobs.py` reached 388 with the glow knobs and
-`ui/main_window.py` 386 with the F key, so those two follow.
+work; `ui/main_window.py` is at 386 with the F key, so it follows.
+`ui/panels/effect_knobs.py` was split twice on 2026-08-04 and is at 305.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -41,6 +41,38 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-04 — **You can draw the glow's shape now**
+  (`beta/f-glow-effect`, UNMERGED): an "Envelope" header in the Glow
+  block opens the classic synthesizer picture — time across the note,
+  level up the side — and the four handles drag the same six values the
+  boxes hold. **The curve is SAMPLED from the envelope that plays**
+  (`spec_envelope`, one point per pixel), so the eased segments on
+  screen are the ones the score runs rather than a drawing of them. A
+  drag is the live field's contract with a mouse: every move previews,
+  the release is one undo entry, and the canvas refuses a resync
+  mid-gesture — a picture cannot be focused, so nothing else would stop
+  the preview redrawing under the hand. **Handles stop at their
+  neighbours live** (`core/editing/envelope_drag.py`, pure): the clamp
+  is the consumer's own, so an invalid envelope is unreachable rather
+  than corrected after the fact, pinned by a fuzz over the whole canvas
+  on five starting shapes. The swell point moves two params at once, so
+  `SetEffectParam` grew an `also` — the fat-apply idiom, not a compound
+  command — and says "change effect options" when it carries more than
+  one key. No schema bump, no golden movement. Marcus's two calls: the
+  fill is the palette's highlight, not the glow colour (the widget will
+  host other effects), and the block opens CLOSED. **Two split-first
+  commits**: `knob_types.py` out of `effect_knobs.py` (388 → 276), and
+  the generic `EnvelopeSpec`/`clamp_spec`/`spec_envelope` out of
+  `glow.py` into `core/animation/envelope_shape.py` so nothing in the
+  editor says "glow"; the envelope's own gesture then went to
+  `ui/panels/envelope_row.py` when the wiring took `effect_knobs.py`
+  back to 383 (now 305). Checked end to end in the real window
+  offscreen: dragging the attack to 50 % takes the light at 5 % of the
+  note from 0.875 to 0.271, the box follows the handle, and undo puts
+  the document, the box and the picture back. Rendered eight shapes and
+  looked at them — the labels of a full release and a zero attack meet
+  at the same x, so they go to opposite ends rather than over each
+  other. Unproven under a human's eye.
 - 2026-08-04 — **The glow's shape is user data now**
   (`beta/f-glow-effect`, UNMERGED): the pop/swell switch is gone and the
   halo runs a synthesizer envelope — attack, sustain, an optional swell

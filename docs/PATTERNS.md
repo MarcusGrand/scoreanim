@@ -175,6 +175,18 @@ spinbox moves focus, and focus-out ends the first edit. A shortcut does
 not move focus, so Cmd-S writes `committed`, and an undo mid-edit takes
 the unfinished edit with it.
 
+**A drag on a canvas is that same contract with a mouse**
+(`ui/envelope_editor.py`, 2026-08-04). Press, then every mouse-move
+previews and the release commits ONE undo entry — same reasons, same
+four costs, same one `edit()` behind both halves. Two things a canvas
+adds. It is the widget that has to refuse a resync mid-gesture (a
+picture cannot be "focused", so nothing else stops the preview coming
+back and redrawing under the hand). And a handle CLAMPS LIVE against
+its neighbours, so what the user sees stop is what the document gets:
+the pure half (`core/editing/envelope_drag.py`) runs every result
+through the same clamp the consumer uses, which makes an illegal value
+unreachable rather than corrected afterwards.
+
 Three exclusions, and only three. An engraving input never previews —
 anything `ScoreLoader.needs_reengrave` diffs runs through `execute()`
 only (0.25–1.3 s per re-engrave). A modal dialog's fields never preview:

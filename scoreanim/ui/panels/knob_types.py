@@ -6,7 +6,7 @@ is a list of the types below plus one entry in the panel's table — never
 a second code path. `ui/panels/effect_knobs.py` is the other half: the
 widgets those types build and the commands they commit.
 
-Four kinds cover everything the presets ask for so far:
+Five kinds cover everything the presets ask for so far:
 
 - `Number` — a spinbox that previews as you type (`ui/live_field.py`).
   `factor` is UI units per document unit, which is how Peak offset
@@ -19,6 +19,9 @@ Four kinds cover everything the presets ask for so far:
   half-chosen state: the dialog either returns a colour or it does not.
 - `Choice` — a dropdown over a few named options, storing the chosen
   option's own word — the glow's two shapes.
+- `Envelope` — a canvas behind a collapsible header, drawing a shape the
+  user drags by its corners. The one knob that edits SEVERAL keys at
+  once, so the group holding it needs a `MultiKnobStore`.
 - `grayed_by` on a Number names the key that renders it obsolete: a
   duration grays out while its "Entire note value" is on (Marcus,
   2026-07-25). `enabled_by` is its mirror — the knob is live only while
@@ -32,7 +35,9 @@ Four kinds cover everything the presets ask for so far:
 Every knob carries its own default — the value the consumer falls back
 to when the document is sparse. That default is what the panel shows,
 what a no-op guard compares against, and what tells Reset whether there
-is anything to clear.
+is anything to clear. `Envelope` is the exception: it stores nothing of
+its own and draws the values of the Number knobs sitting beside it, so
+their defaults are its defaults.
 
 WHERE a group's values live is the group's `store`. A preset's knobs
 read `style.effect_params[preset]` and commit `SetEffectParam`; the
@@ -46,6 +51,8 @@ from dataclasses import dataclass
 from typing import Mapping, Protocol
 
 from scoreanim.core.project import Command, ProjectDoc, SetEffectParam
+
+Value = float | int | bool | str | None
 
 
 @dataclass(frozen=True)
@@ -101,7 +108,35 @@ class Choice:
     tooltip: str
 
 
-Knob = Number | Check | Color | Choice
+@dataclass(frozen=True)
+class Envelope:
+    """An envelope's picture, behind a collapsible header the user
+    opens.
+
+    It draws the shape the six named keys describe and edits them by
+    dragging, so it is the one knob that owns SEVERAL keys — which is
+    why its group needs a store that can write them in one command.
+    `key` is for the panel's own row bookkeeping and is never a document
+    key: this knob stores nothing of its own."""
+    title: str                      # the collapsible header's text
+    key: str                        # row bookkeeping only, never stored
+    attack: str
+    sustain: str
+    swell_on: str
+    swell_pos: str
+    swell_level: str
+    release: str
+    tooltip: str
+
+    @property
+    def keys(self) -> tuple[str, ...]:
+        """The document keys this canvas reads and writes, in the order
+        the shape names them."""
+        return (self.attack, self.sustain, self.swell_on, self.swell_pos,
+                self.swell_level, self.release)
+
+
+Knob = Number | Check | Color | Choice | Envelope
 
 
 class KnobStore(Protocol):
@@ -114,8 +149,18 @@ class KnobStore(Protocol):
     def has_values(self, doc: ProjectDoc) -> bool:
         """Anything stored at all — what lights Reset up."""
 
-    def command(self, key: str, value: float | int | bool | None) -> Command:
+    def command(self, key: str, value: Value) -> Command:
         """The ONE command a gesture on this group commits."""
+
+
+class MultiKnobStore(KnobStore, Protocol):
+    """A store that can also write SEVERAL keys in one command — what an
+    `Envelope` knob needs, since dragging its swell point moves two
+    values and a gesture is one undo entry (rule 8). Narrow on purpose:
+    only a group that hosts an envelope has to answer for it."""
+
+    def command_many(self, values: Mapping[str, Value]) -> Command:
+        """One command for several keys of this group at once."""
 
 
 @dataclass(frozen=True)
@@ -129,6 +174,12 @@ class EffectParamStore:
     def has_values(self, doc: ProjectDoc) -> bool:
         return self.preset in doc.style.effect_params
 
-    def command(self, key: str,
-                value: float | int | bool | None) -> Command:
+    def command(self, key: str, value: Value) -> Command:
         return SetEffectParam(self.preset, key, value)
+
+    def command_many(self, values: Mapping[str, Value]) -> Command:
+        """Several keys of this preset in ONE undo entry, through the
+        same command widened to carry them (the fat-apply idiom — a
+        compound command does not exist and should not)."""
+        (first, value), *rest = values.items()
+        return SetEffectParam(self.preset, first, value, also=tuple(rest))

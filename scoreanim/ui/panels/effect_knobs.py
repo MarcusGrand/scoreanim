@@ -1,7 +1,7 @@
 """One group of knobs: its heading, its rows, and the commands they
 commit.
 
-The widget half. What a knob IS — the four types, their defaults, and
+The widget half. What a knob IS — the five types, their defaults, and
 the store that says where a group's values live — is
 `ui/panels/knob_types.py`; this builds the widgets those types ask for,
 keeps them showing what the document says, and turns a gesture on one
@@ -10,6 +10,12 @@ of them into exactly one command.
 Every knob carries its own default (see `knob_types`), and that default
 is what the panel shows, what a no-op guard compares against, and what
 tells Reset whether there is anything to clear.
+
+An `Envelope` knob is a canvas rather than a widget with a value, and a
+drag on it edits six document keys at once, so the whole of that one
+lives in `ui/panels/envelope_row.py`. Here it is built and then
+delegated to, like any other row: it resyncs with the rest and hides
+with the block.
 """
 from __future__ import annotations
 
@@ -23,8 +29,9 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox,
 from scoreanim.core.project import Command, ProjectDoc
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
-from scoreanim.ui.panels.knob_types import (Check, Choice, Color, Knob,
-                                            KnobStore, Number)
+from scoreanim.ui.panels.envelope_row import EnvelopeRow
+from scoreanim.ui.panels.knob_types import (Check, Choice, Color, Envelope,
+                                            Knob, KnobStore, Number)
 
 
 class KnobGroup:
@@ -42,12 +49,16 @@ class KnobGroup:
         self._state = state
         self._on_change = on_change
         self._by_key = {knob.key: knob for knob in self._knobs}
-        self.defaults = {knob.key: knob.default for knob in self._knobs}
+        # An envelope stores nothing of its own, so it has no default to
+        # fall back to and never reaches `param`.
+        self.defaults = {knob.key: knob.default for knob in self._knobs
+                         if not isinstance(knob, Envelope)}
         self.spins: dict[str, QDoubleSpinBox | QSpinBox] = {}
         self.boxes: dict[str, QCheckBox] = {}
         self.fields: dict[str, LiveField] = {}
         self.swatches: dict[str, QPushButton] = {}
         self.combos: dict[str, QComboBox] = {}
+        self.envelopes: dict[str, EnvelopeRow] = {}
         for knob in self._knobs:
             if isinstance(knob, Number):
                 self._build_number(knob)
@@ -55,6 +66,8 @@ class KnobGroup:
                 self._build_check(knob)
             elif isinstance(knob, Color):
                 self._build_color(knob)
+            elif isinstance(knob, Envelope):
+                self._build_envelope(knob)
             else:
                 self._build_choice(knob)
         self.rows = self._add_rows(form)
@@ -92,6 +105,15 @@ class KnobGroup:
         button.clicked.connect(lambda _=False, k=knob: self._pick_color(k))
         self.swatches[knob.key] = button
 
+    def _build_envelope(self, knob: Envelope) -> None:
+        """The canvas and everything it commits, which is a module of
+        its own. It reads through THIS group's `param`, so a defaulted
+        or forced value reads the same on the picture as in the boxes.
+        A group holding one has to be a `MultiKnobStore` (knob_types)."""
+        self.envelopes[knob.key] = EnvelopeRow(
+            knob, self.store, self._state,   # type: ignore[arg-type]
+            self.param, self._on_change)
+
     def _build_choice(self, knob: Choice) -> None:
         combo = QComboBox()
         for stored, shown in knob.options:
@@ -118,6 +140,9 @@ class KnobGroup:
                 continue                       # drawn on its knob's row
             if isinstance(knob, Check):
                 form.addRow(self.boxes[knob.key])
+            elif isinstance(knob, Envelope):
+                # its own full width, under the header that opens it
+                form.addRow(self.envelopes[knob.key].section)
             else:
                 companion = beside.get(knob.key)
                 widget: QWidget = self._widget_for(knob)
@@ -158,8 +183,10 @@ class KnobGroup:
         return self.store.has_values(doc)
 
     def previewing(self) -> bool:
-        """A knob here is mid-edit, so the block must not be hidden."""
-        return any(field.previewing() for field in self.fields.values())
+        """A knob here is mid-edit, so the block must not be hidden — a
+        typed number, or a handle being held on a canvas."""
+        return (any(field.previewing() for field in self.fields.values())
+                or any(row.dragging() for row in self.envelopes.values()))
 
     def set_visible(self, form: QFormLayout, visible: bool) -> None:
         """Show or hide the whole block. Never hides a field being typed
@@ -178,10 +205,10 @@ class KnobGroup:
         cursor. A checkbox has no such trap — there is nothing
         half-typed in it — so a forced one is disabled outright.
 
-        A colour or a choice has nothing to gray out: neither is ever
-        made obsolete by another knob today."""
+        A colour, a choice or an envelope has nothing to gray out: none
+        of them is ever made obsolete by another knob today."""
         for knob in self._knobs:
-            if isinstance(knob, (Color, Choice)):
+            if isinstance(knob, (Color, Choice, Envelope)):
                 continue
             if isinstance(knob, Check):
                 if knob.forced_by is not None:
@@ -215,6 +242,8 @@ class KnobGroup:
             # the first option rather than lying about a match
             combo.setCurrentIndex(max(0, index))
             combo.blockSignals(False)
+        for row in self.envelopes.values():
+            row.resync(doc)
 
     # -- what a value means (one command per gesture) ---------------------------
 

@@ -1281,3 +1281,144 @@ def test_glow_params_alone_light_the_reset_button(panel) -> None:
     widget._commit_reset()
     assert state.doc.style.effect_params == {}
     assert spin(widget, "glow", "radius").value() == 24.0
+
+
+# -- the envelope canvas ----------------------------------------------------
+#
+# The picture of the six shape params, and the other way to author them.
+# The widget's own behaviour is tests/test_envelope_editor.py; what these
+# pin is the wiring: one undo entry per drag, the boxes and the canvas
+# showing the same thing, and the block hiding as a unit.
+
+def canvas(widget, preset):
+    return widget.blocks[preset].envelopes["envelope"].canvas
+
+
+def drag_to(widget, canvas_widget, handle, to_x, to_y, state, steps=4):
+    """A whole gesture, with the window's resync wired up the way
+    MainWindow wires it — every document change comes back to the panel,
+    which is what keeps the boxes on the handle."""
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from scoreanim.core.editing import handle_points
+
+    def event(kind, x, y):
+        return QMouseEvent(kind, QPointF(x, y), Qt.MouseButton.LeftButton,
+                           Qt.MouseButton.LeftButton,
+                           Qt.KeyboardModifier.NoModifier)
+
+    state.document_changed.connect(
+        lambda: widget.sync_from_document(state.doc))
+    x, y = handle_points(canvas_widget.spec, canvas_widget.box())[handle]
+    canvas_widget.mousePressEvent(
+        event(QMouseEvent.Type.MouseButtonPress, x, y))
+    for step in range(1, steps + 1):
+        canvas_widget.mouseMoveEvent(event(
+            QMouseEvent.Type.MouseMove, x + (to_x - x) * step / steps,
+            y + (to_y - y) * step / steps))
+    canvas_widget.mouseReleaseEvent(
+        event(QMouseEvent.Type.MouseButtonRelease, to_x, to_y))
+
+
+@pytest.fixture
+def glow_canvas(panel):
+    """A panel with glow in use and its canvas sized like the panel."""
+    widget, state = panel
+    state.execute(SetDefaultEffect("glow"))
+    widget.sync_from_document(state.doc)
+    shown = canvas(widget, "glow")
+    shown.resize(250, 130)
+    return widget, state, shown
+
+
+def test_the_envelope_canvas_hides_with_its_block(panel) -> None:
+    widget, state = panel
+    section = widget.blocks["glow"].envelopes["envelope"].section
+    assert not section.isVisible()               # glow is not in use
+    assert not section.expanded                  # and it opens closed
+    state.execute(SetDefaultEffect("glow"))
+    widget.sync_from_document(state.doc)
+    widget.show()
+    assert section.isVisible()
+
+
+def test_a_drag_previews_and_lands_as_one_undo_entry(glow_canvas) -> None:
+    from scoreanim.core.editing import Handle, x_of
+
+    widget, state, shown = glow_canvas
+    depth_before = 1                             # the SetDefaultEffect
+    seen = []
+    state.document_changed.connect(
+        lambda: seen.append(state.doc.style.effect_params
+                            .get("glow", {}).get("attack")))
+    drag_to(widget, shown, Handle.ATTACK, x_of(0.4, shown.box()),
+            shown.box().y, state)
+    # the score saw every step of the drag, not just the end of it
+    previews = [value for value in seen if value is not None]
+    assert len(set(previews)) > 1
+    assert state.committed.style.effect_params["glow"]["attack"] == \
+        pytest.approx(0.4, abs=0.01)
+    assert state.undo_text() == "set effect parameter"
+    state.undo()
+    assert "attack" not in state.doc.style.effect_params.get("glow", {})
+    depth = 0
+    while state.can_undo:
+        state.undo()
+        depth += 1
+    assert depth == depth_before                 # one entry for the drag
+
+
+def test_the_swell_point_moves_two_params_in_one_entry(glow_canvas) -> None:
+    from scoreanim.core.editing import Handle, x_of
+
+    widget, state, shown = glow_canvas
+    state.execute(SetEffectParam("glow", "swell_on", True))
+    widget.sync_from_document(state.doc)
+    box_ = shown.box()
+    drag_to(widget, shown, Handle.SWELL, x_of(0.62, box_),
+            box_.y + 0.5 * box_.h, state)
+    params = state.committed.style.effect_params["glow"]
+    assert params["swell_pos"] == pytest.approx(0.62, abs=0.01)
+    assert params["swell_level"] == pytest.approx(0.5, abs=0.02)
+    assert state.undo_text() == "change effect options"
+    state.undo()                                 # both go together
+    assert "swell_pos" not in state.doc.style.effect_params["glow"]
+    assert "swell_level" not in state.doc.style.effect_params["glow"]
+
+
+def test_the_boxes_follow_the_handle(glow_canvas) -> None:
+    """Two views of one set of values: dragging the canvas moves the
+    numbers, and typing a number redraws the canvas."""
+    from scoreanim.core.editing import Handle, x_of
+
+    widget, state, shown = glow_canvas
+    drag_to(widget, shown, Handle.ATTACK, x_of(0.3, shown.box()),
+            shown.box().y, state)
+    assert spin(widget, "glow", "attack").value() == \
+        pytest.approx(30, abs=1)
+    spin(widget, "glow", "release").setValue(45)
+    field(widget, "glow", "release").commit()
+    widget.sync_from_document(state.doc)
+    assert shown.spec.release == pytest.approx(0.45)
+
+
+def test_a_press_that_goes_nowhere_is_not_an_edit(glow_canvas) -> None:
+    from scoreanim.core.editing import Handle, handle_points
+
+    widget, state, shown = glow_canvas
+    x, y = handle_points(shown.spec, shown.box())[Handle.SUSTAIN]
+    drag_to(widget, shown, Handle.SUSTAIN, x, y, state)
+    assert "glow" not in state.committed.style.effect_params
+    assert state.undo_text() == "set default effect"
+
+
+def test_reset_clears_a_dragged_envelope(glow_canvas) -> None:
+    from scoreanim.core.editing import Handle, x_of
+
+    widget, state, shown = glow_canvas
+    drag_to(widget, shown, Handle.ATTACK, x_of(0.3, shown.box()),
+            shown.box().y, state)
+    assert widget._reset_button.isEnabled()
+    widget._commit_reset()
+    assert state.doc.style.effect_params == {}
+    assert shown.spec.attack == pytest.approx(0.10)     # back to the default

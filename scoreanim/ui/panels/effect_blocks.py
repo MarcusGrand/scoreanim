@@ -27,7 +27,7 @@ from scoreanim.core.animation import (GLOW_ATTACK, GLOW_COLOR, GLOW_DENSITY,
                                       glow_defaults)
 from scoreanim.core.project import ProjectDoc
 from scoreanim.ui.panels.knob_types import (Check, Color, EffectParamStore,
-                                            Knob, KnobStore, Number)
+                                            Envelope, Knob, KnobStore, Number)
 
 # (preset name, block title, its knobs), in the order the blocks appear.
 BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (
@@ -144,10 +144,21 @@ BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (
                "block of the colour around the note. Radius still says "
                "how far it reaches — turn both up for a big solid halo",
                suffix=" %", factor=100.0, integer=True),
+        # The picture of the six numbers below, and the other way to
+        # author them: drag the corners instead of typing per cents.
+        # Closed until asked for (Marcus, 2026-08-04) — the numbers are
+        # what the block opens with.
+        Envelope("Envelope", "envelope", attack="attack", sustain="sustain",
+                 swell_on="swell_on", swell_pos="swell_pos",
+                 swell_level="swell_level", release="release",
+                 tooltip="Drag the corners to shape the light: the rise, "
+                         "the held level, the swell's top, and where the "
+                         "fall begins. Time runs across the note, level "
+                         "up the side"),
         # The envelope, in per cent of the span the light has to play
         # with — the note's own length while "Entire note value" is on,
-        # the Duration below while it is off. Plain boxes for now; the
-        # editor canvas that draws this curve is the next step.
+        # the Duration below while it is off. The same six values the
+        # canvas above draws: edit either, and both follow.
         Number("Attack", "attack", GLOW_ATTACK, 0, 100, 5,
                "How much of the note the light spends coming up, as a "
                "per cent of it — 0 % is lit the instant the note starts",
