@@ -75,7 +75,7 @@ from scoreanim.core.score.identity import ElementKind             # noqa: E402
 from scoreanim.core.score.join import join_notes                  # noqa: E402
 from scoreanim.core.score.model import build_score_model          # noqa: E402
 from scoreanim.core.timing import TempoMap, parse_tempo_file      # noqa: E402
-from scoreanim.render import glow_sprite                          # noqa: E402
+from scoreanim.render import glow_build, glow_sprite               # noqa: E402
 from scoreanim.render.animate import AnimationApplier             # noqa: E402
 from scoreanim.render.scene import ScoreScenes, apply_style_colors  # noqa: E402
 
@@ -120,18 +120,18 @@ def profile(item) -> tuple[list[int], float]:
     built at OVERSAMPLE pixels to one."""
     sprite = item._glow._sprite
     image = sprite.pixmap().toImage()
-    ink = glow_sprite._ink_rect(item)       # the sprite is a child too
+    ink = glow_build.ink_rect(item)       # the sprite is a child too
     # the sprite is placed at the padded rect's top-left, in the item's
     # own coordinates, so the ink's left edge sits this far into it
-    left = (ink.left() - sprite.pos().x()) * glow_sprite.OVERSAMPLE
+    left = (ink.left() - sprite.pos().x()) * glow_build.OVERSAMPLE
     row = image.height() // 2
-    alphas = [image.pixelColor(max(0, round(left - u * glow_sprite.OVERSAMPLE)),
+    alphas = [image.pixelColor(max(0, round(left - u * glow_build.OVERSAMPLE)),
                                row).alpha()
               for u in OUT_UNITS]
     reach = 0.0                             # scanned from the outside in
     for px in range(round(left) + 1):
         if image.pixelColor(px, row).alpha() > 8:
-            reach = (left - px) / glow_sprite.OVERSAMPLE
+            reach = (left - px) / glow_build.OVERSAMPLE
             break
     return alphas, reach
 
