@@ -21,15 +21,21 @@ child's position against the element's own ink rect, which is also
 where the sprite is placed — so sharing is exact by construction. A
 score that never glows builds nothing at all.
 
-Three deliberate differences from the live effect, all small:
+Two deliberate differences from the live effect, both small:
 - The dying glow fades by brightness only. The old effect also pulled
   its reach in 30% as it died; a fixed sprite cannot, and the fade
   reads the same.
 - A mid-pop element's halo now scales WITH the ink — the sprite is a
   child, so pop and the system pulse reach it for free. The old effect
   held the halo at constant scene size through a pop.
-- The reveal clip does not cut the sprite. Moot today: spanners, the
-  only clipped ink, never receive triggers and so never glow.
+
+The reveal clip DOES cut the sprite, as of 2026-08-06. It stopped being
+moot the moment ties began to glow: a tie is clip-revealed, so without
+the cut a held note's light would stand a whole bar ahead of the ink the
+playhead has actually uncovered. The edge arrives through
+`ElementItem.set_reveal_edge`, which pushes it to the halo beside the
+ink; it is kept here as well as on the sprite, because the sprite is
+built late and rebuilt on a restyle.
 
 Where a chord's head and stem halos overlap, the patch still burns
 brighter — each element carries its own sprite, same as it carried its
@@ -88,10 +94,28 @@ class GlowSlot:
         self._passes = 1.0
         self._strength = 0.0
         self._sprite: GlowSpriteItem | None = None
+        # The clip-reveal edge, kept here rather than only on the sprite
+        # because the sprite is built late and rebuilt on a restyle — a
+        # tie whose halo lit mid-reveal must not come back unclipped.
+        self._reveal_edge: float | None = None
 
     @property
     def strength(self) -> float:
         return self._strength
+
+    def set_reveal_edge(self, scene_x: float) -> bool:
+        """Cut this halo at the scene x its element's ink is cut at. Only
+        clip-revealed ink is ever given one — a tie, which glows."""
+        self._reveal_edge = scene_x
+        if self._sprite is None:
+            return False
+        return self._sprite.set_clip_right(scene_x)
+
+    def invalidate_transform_cache(self) -> None:
+        """The element moved or a parent scaled, so the sprite's cached
+        inverse transform is stale (the RevealPathItem contract)."""
+        if self._sprite is not None:
+            self._sprite.invalidate_transform_cache()
 
     def set_style(self, color: QColor, radius: float,
                   passes: float = 1.0) -> None:
@@ -136,6 +160,10 @@ class GlowSlot:
             self._owner.prepareGeometryChange()
             sprite.setParentItem(self._owner)
             self._sprite = sprite
+            if self._reveal_edge is not None:
+                # parented at last: only now does it have a scene
+                # transform to map the edge through
+                sprite.set_clip_right(self._reveal_edge)
         self._sprite.setOpacity(min(1.0, max(0.0, value)))
 
     def _drop_sprite(self) -> None:

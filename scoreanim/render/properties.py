@@ -45,10 +45,15 @@ def _apply_offset_y(item: ElementItem, value: float) -> None:
 
 
 def _apply_glow(item: ElementItem, value: float) -> None:
-    # Unlike scale this needs no pivot and has no ceiling, so it reaches
-    # every piece of an element's ink. What colour the halo is and how
-    # far it reaches were pushed to the item when the document last
-    # changed; only the strength moves per frame.
+    # No halo, no glow. A halo says "this note is sounding", so only note
+    # ink carries one, and ink that shares a neighbouring note's halo is
+    # written by the glow driver instead of here — both decided in core
+    # (core/animation/glow_scope.py) and carried on the item, the
+    # scale_pivot precedent. What colour the halo is and how far it
+    # reaches were pushed to the item when the document last changed;
+    # only the strength moves per frame.
+    if not item.can_glow:
+        return
     item.set_glow(value)
 
 

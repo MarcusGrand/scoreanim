@@ -20,7 +20,7 @@ from pathlib import Path
 
 from scoreanim.core.animation import (FLOOR_OPACITY, StyleRules,
                                       build_reveal_tracks,
-                                      build_trigger_schedule,
+                                      build_trigger_schedule, glow_scope,
                                       resolve_durations)
 from scoreanim.core.engraving.systems import page_of_measure, system_bands
 from scoreanim.core.engraving.types import EngravingParams
@@ -190,12 +190,15 @@ class ScoreLoader:
                                             score_end)
         # retained for export: the private export scenes+applier build
         # from the SAME inputs as the live ones (render/export.py)
+        # who glows, whose halo they share, and how long a tied chain
+        # burns: derived here so live and export read one seam
+        glow = glow_scope(engraved.layout, report.mapping, durations)
         animation_inputs = AnimationInputs(
-            engraved.layout, stage, schedule, tuple(reveal_tracks))
+            engraved.layout, stage, schedule, tuple(reveal_tracks), glow)
         applier = AnimationApplier(scenes.items, schedule,
                                    TempoMap([TempoEvent(0.0, DEFAULT_BPM)]),
                                    style, reveal_tracks,
-                                   scenes.system_groups.values())
+                                   scenes.system_groups.values(), glow)
         # per-system band rects for system-at-a-time framing (Phase 7.4)
         # — derived from the Layout, never persisted (rule 5)
         bands = system_bands(engraved.layout)

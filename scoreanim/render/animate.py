@@ -20,14 +20,20 @@ core (core/animation/compose.py). Properties apply through a fixed map
 opacity on the ElementItem parent (composites over children), scale
 around the item's scale pivot — a whole note (head, stem, flag, beam,
 accidental, dots) turns around its noteheads' centre, so it grows and
-shrinks as one object. The glow is the one property with a styling half:
-what the halo looks like goes to the items once per document change
-(render/glow_sprite.py), and only how brightly it burns moves per frame. Which ink scales and where it pivots is core
-policy (core/animation/scale_groups.py); ink with no pivot never
-scales. The two offsets (the slide effect) go to the item as well, not
-to setPos: the document's own nudge moves the item too, and the item
-adds the two. Unknown properties are skipped, so a preset from a newer
-build degrades instead of crashing.
+shrinks as one object. Which ink scales and where it pivots is core
+policy (core/animation/scale_groups.py); ink with no pivot never scales.
+The two offsets (the slide effect) go to the item as well, not to
+setPos: the document's own nudge moves the item too, and the item adds
+the two. Unknown properties are skipped, so a preset from a newer build
+degrades instead of crashing.
+
+The glow is the fussiest of the five, and it has its own object
+(render/glow_driver.py). Only note ink glows at all; an accidental, a
+lyric and a tie share the halo of the note beside them; and a tied chain
+glows as the one note it is, which needs a second evaluation stretched
+to the whole chain. What the halo LOOKS like is document intent and goes
+to the items once per document change (render/glow_sprite.py) — only how
+brightly it burns moves per frame.
 
 How strongly an element animates can follow the recording: ``set_audio``
 hands over the peak cache, and a gain scales the finished state away
@@ -56,15 +62,17 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 from typing import Iterable, Mapping, Sequence
 
-from scoreanim.core.animation import (PRESETS, Effect, StyleRules,
-                                      SystemRevealTrack, TriggerSchedule,
-                                      build_bumps, build_presets,
-                                      combined_state, derive_windows,
-                                      effects_for, modulate_state, read_pulse)
+from scoreanim.core.animation import (GLOW, PRESETS, Effect, GlowScope,
+                                      StyleRules, SystemRevealTrack,
+                                      TriggerSchedule, build_bumps,
+                                      build_presets, combined_state,
+                                      derive_windows, effects_for,
+                                      modulate_state, read_pulse)
 from scoreanim.core.audio import PeakCache
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
 from scoreanim.render.gain_index import GainIndex
+from scoreanim.render.glow_driver import GlowDriver
 from scoreanim.render.glow_sprite import push_glow_style
 from scoreanim.render.items import ElementItem
 from scoreanim.render.properties import PROPERTY_APPLIERS
@@ -81,7 +89,8 @@ class AnimationApplier:
                  schedule: TriggerSchedule, tempo_map: TempoMap,
                  style: StyleRules,
                  reveal_tracks: Sequence[SystemRevealTrack] = (),
-                 system_groups: Iterable[SystemGroupItem] = ()) -> None:
+                 system_groups: Iterable[SystemGroupItem] = (),
+                 glow: GlowScope | None = None) -> None:
         self._schedule = schedule
         # The schedule's rows against this scene — items, ids, and the
         # followed page/system (render/trigger_index.py).
@@ -109,6 +118,9 @@ class AnimationApplier:
         # every system, so it has its own object too. With no groups it
         # can never do anything (render/pulse_driver.py).
         self._pulse = PulseDriver(system_groups)
+        # Which ink may glow at all, which of it shares another note's
+        # halo, and how long a tied chain burns (render/glow_driver.py).
+        self._glow = GlowDriver(items, self._index, glow)
 
         self._style = style
         self._resolve_effects()
@@ -171,8 +183,9 @@ class AnimationApplier:
                     item.setScale(1.0)
                 if item.animated_offset != (0.0, 0.0):
                     item.set_animated_offset(0.0, 0.0)
-                if item.glow_strength != 0.0:
-                    item.set_glow(0.0)
+        # Ties glow but never receive a trigger, so putting the halos
+        # out is the driver's job, not this loop's.
+        self._glow.extinguish()
         self.refresh(self._t)
 
     def _resolve_effects(self) -> None:
@@ -188,8 +201,7 @@ class AnimationApplier:
         # The glow's colour and radius never reach an envelope — they
         # are what the halo LOOKS like, not what it does over time — so
         # they go to the items here, once, rather than every frame.
-        push_glow_style((item for items in self._index.items
-                         for item in items), rules.effect_params)
+        push_glow_style(self._glow.items, rules.effect_params)
         # One element may animate with SEVERAL effects at once
         # ("drop+fade"), so each item holds a tuple. A plain name gives
         # a tuple of one and behaves exactly as it always did.
@@ -252,9 +264,17 @@ class AnimationApplier:
             self._swing)
         self._timescales_per_trigger = plan.timescales_per_trigger
         self._follows = plan.follows_per_trigger
-        self._durations = plan.durations
-        self._d_max = plan.d_max
         self._lead = plan.lead
+        # A tied chain's halo outlasts its first notehead, so its
+        # trigger has to keep being re-evaluated after that notehead's
+        # own window has closed — or every follower would freeze
+        # mid-glow.
+        self._glow.resolve([trig.beats for trig in self._schedule.triggers],
+                           self._trigger_seconds, self._effects_per_trigger,
+                           self._tempo_map, self._swing)
+        self._durations = tuple(max(d, self._glow.window(i))
+                                for i, d in enumerate(plan.durations))
+        self._d_max = max(self._durations, default=0.0)
 
     # -- application ---------------------------------------------------------
 
@@ -321,6 +341,13 @@ class AnimationApplier:
                 self._timescales_per_trigger[i])):
             state = combined_state(trigger_s, tuple(zip(effects, timescales)),
                                    t)
+            # A tied chain glows as the one note it is: the same light
+            # over the whole chain, from a second evaluation stretched
+            # to the chain's own length. Everything else stays on this
+            # notehead's own window.
+            chain = self._glow.chain_glow(i, j, trigger_s, effects, t)
+            if chain is not None:
+                state = {**state, GLOW: chain}
             # The volume response scales the FINISHED state, once, so an
             # element running two effects at a time is modulated as one
             # thing (core/animation/compose.py). A following element
@@ -335,7 +362,10 @@ class AnimationApplier:
                 applier = PROPERTY_APPLIERS.get(prop)
                 if applier is not None:
                     applier(item, value)
-            changed += 1
+            # Whatever this note's halo ended up at goes to the ink that
+            # shares it — its accidental, its lyric, its ties, and the
+            # rest of its tied chain.
+            changed += 1 + self._glow.spread(i, j, state.get(GLOW))
         return changed
 
     def _apply_window(self, t: float, t_prev: float) -> int:

@@ -20,7 +20,7 @@ identical to live follow mode (ruling R2).
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -28,7 +28,8 @@ from typing import Mapping, Sequence
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
 
-from scoreanim.core.animation import (StyleRules, SystemRevealTrack,
+from scoreanim.core.animation import (GlowScope, StyleRules,
+                                      SystemRevealTrack,
                                       TriggerSchedule)
 from scoreanim.core.audio import PeakCache
 from scoreanim.core.engraving.systems import centered_fit, system_bands
@@ -59,6 +60,10 @@ class AnimationInputs:
     stage: StageConfig
     schedule: TriggerSchedule
     reveal_tracks: tuple[SystemRevealTrack, ...]
+    # Which ink glows and whose halo it shares — derived from the layout
+    # and the join, like everything else here (core/animation/
+    # glow_scope.py). Defaulted so a synthetic caller can leave it out.
+    glow: GlowScope = field(default_factory=GlowScope)
 
 
 @dataclass(frozen=True)
@@ -155,7 +160,8 @@ class FrameRenderer:
         self._applier = AnimationApplier(self._scenes.items, inputs.schedule,
                                          tempo_map, style,
                                          inputs.reveal_tracks,
-                                         self._scenes.system_groups.values())
+                                         self._scenes.system_groups.values(),
+                                         inputs.glow)
         self._applier.set_timing(tempo_map, swing)
         # the recording the volume response and the system pulse read, on
         # the same seam the stage uses — an exported video pops and

@@ -9,7 +9,9 @@ and its editor) and the stem pass, which had been merged into it on
 branches: the volume response, the swell effect, per-notehead pop
 pivots, the system group items and the system pulse. **Schema is v11**,
 so a project saved from here will not open on `v0.2-beta.6` or on any
-older build. `fix/bracket-hidden-staves` is the only branch unmerged.
+older build. `beta/f-glow-orthogonal` carries two unmerged sessions now
+(the one-knob-one-change pass and the glow's scope);
+`fix/bracket-hidden-staves` is the other branch unmerged.
 `main` is **38 commits ahead of `origin/main`** and has been since
 before the glow work — nothing here is pushed.
 
@@ -34,7 +36,11 @@ size. Marcus's call on both; he has said he wants to tweak them.
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
 
-`render/items.py` was split twice on 2026-08-02 and is at 384 lines.
+`render/items.py` is at **402** — over the ceiling as of 2026-08-06,
+though its own class docstring argues it is one job (it is the single
+compositing point for how an element looks), so the split wants a real
+seam rather than a line count. `render/animate.py` is back at **399**
+after being split on 2026-08-06.
 `core/project/serialize.py` is at **503** and is the next split due —
 over the ceiling before any of these branches, pushed further by the
 stem work and by three lines of the glow fold (Marcus's call, 2026-08-05:
@@ -48,6 +54,60 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-06 — **Only notes glow, and a tied note is one note**
+  (`beta/f-glow-orthogonal`, UNMERGED): the glow ran on the animation
+  denylist, so a meter, a key signature, a rest and a dynamic all lit up
+  with the notes. It runs on its own **allowlist** now
+  (`GLOWING_KINDS`, new pure `core/animation/glow_scope.py`): noteheads,
+  the slash and bar-repeat signs that stand in for one, the accidental
+  in front of one, the syllable under one, and the tie between two.
+  Marcus's call on the width — **head and accidental only**, so a stem,
+  a flag, a beam, a dot, an articulation and a ledger line stay dark
+  even on a glowing note. **A slur is dark where a tie glows**, which is
+  the one place the two spanners part company. That is a THIRD scope
+  list beside `STATIC_KINDS` and `TINTED_KINDS`, and deliberately not
+  merged with either: the denylist is right for "does this animate",
+  where a new kind should join for free, and wrong for the glow, where a
+  new kind should be dark until somebody decides it is a note. It also
+  made the glow **three times cheaper** — 76 sprites built where the
+  same fixture used to build 452, 713 elements carrying one where 1418
+  did, 0.21 ms a frame on the first pass against 0.70.
+  **A tied chain glows as the one note it is**: every head plus the tie
+  ink lights together at the chain start and dies together when the last
+  of it stops. Marcus's second call: that is a GLOW rule only —
+  **appearance is untouched**, so a continuation head still fills in as
+  the playhead reaches its own barline and schedule.py rule 1 stands
+  (with it the complex3 phantom fix). The chain's first head owns the
+  halo, everything else copies it, and the halo is stretched to the
+  chain by a SECOND evaluation with a chain timescale, so a pop or a
+  swell on the same note still runs on the notehead the user can see.
+  That second evaluation also widens the trigger's window, or every
+  follower would freeze mid-glow when the leader's own note ended.
+  Chains are pitch-matched inside one (part, staff, voice) — a chord
+  holding one note while the others move ties only that one. Attached
+  ink joins through the nearest head, the pop-pivot idiom, so
+  `scale_groups._nearest_head` is public. Measured
+  (`spikes/tie_glow.py`, `spikes/glow_scope.py`): 58 chains on
+  testscore, 234 on video_test, each running 2.3–3.9x its first
+  notehead's own duration; every tie on five fixtures finds its note
+  through the existing rule-3 key, `:seg` halves included.
+  **The reveal clip now cuts the sprite too.** It was moot while nothing
+  clipped ever glowed; a tie is clip-revealed, so without it a held
+  note's light stood a bar ahead of the ink. Watch out for one thing
+  when comparing the two: a clip is clamped to each item's OWN bounds
+  and the halo's box is the ink's plus the blur margin, so the two
+  report different local edges for one scene x. **`animate.py` was split
+  first**, its own commit (395 → 369): the schedule's rows against a
+  scene are now `render/trigger_index.py`. No schema bump, no golden
+  movement, full suite green. **`items.py` is at 402 and `animate.py`
+  back at 399** — both over the ceiling, and `items.py` is the next
+  split, though its class docstring argues it is genuinely one job.
+  Checked end to end in the real window offscreen: over a whole
+  playthrough exactly NOTEHEAD, ACCIDENTAL, TIE and SLASH ever light,
+  nothing outside the list does, and undo puts every halo out. Rendered
+  a frame mid-chain on a dark page and looked at it — head, tie, head
+  read as one held object. Unproven under a human's eye; the thing to
+  feel is whether a dark stem under a glowing head reads right.
 - 2026-08-05 — **Each glow knob changes one thing**
   (`beta/f-glow-orthogonal`, UNMERGED): the block had two knobs on one
   axis and one knob doing two jobs. **Strength is retired** — it reached

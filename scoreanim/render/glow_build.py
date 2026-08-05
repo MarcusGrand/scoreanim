@@ -74,10 +74,62 @@ class GlowSpriteItem(QGraphicsPixmapItem):
     """The halo pixmap behind an element's ink.
 
     Hit-transparent the same way GroupItem is: a blurred halo covers a
-    lot of page, and a click on it must fall through to real ink."""
+    lot of page, and a click on it must fall through to real ink.
+
+    It also takes the same growing right edge its element's ink does, so
+    a clip-revealed spanner's halo stops where the spanner does. Ties
+    are the only ink this reaches (they glow; slurs and hairpins do
+    not), and without it a held note's light would run a bar ahead of
+    the playhead. `None` is unclipped, which is what an ordinary
+    notehead's halo stays at forever — the edge is only ever pushed to
+    an item that has reveal children."""
+
+    def __init__(self, *args) -> None:
+        super().__init__(*args)
+        self._clip_right: float | None = None
+        self._inverse = None                 # lazily inverted transform
 
     def shape(self) -> QPainterPath:  # noqa: N802 (Qt naming)
         return QPainterPath()
+
+    def invalidate_transform_cache(self) -> None:
+        """Drop the cached inverse scene transform — the item moved, or
+        a parent group scaled (the RevealPathItem contract)."""
+        self._inverse = None
+
+    def set_clip_right(self, scene_x: float) -> bool:
+        """Cut the halo at this scene x. Returns whether the painted
+        result actually moved."""
+        if self._inverse is None:
+            inv, ok = self.sceneTransform().inverted()
+            if not ok:                       # degenerate transform
+                return False
+            self._inverse = inv
+        local_x = self._inverse.map(QPointF(scene_x, 0.0)).x()
+        br = super().boundingRect()
+        clip: float | None = min(max(local_x, br.left()), br.right())
+        if clip >= br.right():
+            clip = None                      # fully revealed
+        if clip == self._clip_right:
+            return False
+        self._clip_right = clip
+        self.update()
+        return True
+
+    def paint(self, painter, option, widget=None) -> None:  # noqa: N802
+        if self._clip_right is None:
+            super().paint(painter, option, widget)
+            return
+        br = super().boundingRect()
+        if self._clip_right <= br.left():
+            return                           # fully hidden
+        painter.save()
+        painter.setClipRect(QRectF(br.left(), br.top(),
+                                   self._clip_right - br.left(),
+                                   br.height()),
+                            Qt.ClipOperation.IntersectClip)
+        super().paint(painter, option, widget)
+        painter.restore()
 
 
 def clear_path_keys() -> None:

@@ -71,9 +71,13 @@ def _a_head(scenes, schedule):
 
 
 def _parts(scenes, trigger) -> set:
+    """The parts with a NOTEHEAD on this beat. Noteheads rather than any
+    ink, because only note ink glows (core/animation/glow_scope.py) — a
+    beat of clefs and signatures lights nothing at all."""
     return {scenes.items[eid].identity.part for eid in trigger.element_ids
             if eid in scenes.items
-            and scenes.items[eid].identity.part is not None}
+            and scenes.items[eid].identity.part is not None
+            and scenes.items[eid].identity.kind is ElementKind.NOTEHEAD}
 
 
 # -- the applier lights the halo, and only inside the window --------------

@@ -127,6 +127,12 @@ class ElementItem(GroupItem):
         # (core/animation/stem_caps.py): a stem stops at its beam. None
         # means no ceiling.
         self.scale_cap: float | None = None
+        # Whether this ink may ever carry a halo, set by the glow driver
+        # from the pure policy (core/animation/glow_scope.py): only note
+        # ink glows, and ink that shares another note's halo does not
+        # light itself. False until something says otherwise, so nothing
+        # glows by accident.
+        self.can_glow = False
         # -- composition inputs (see the class docstring) --
         self._authored: QColor | None = None     # a tint or an override
         self._ink = QColor(DEFAULT_COLOR)        # the document's ink
@@ -160,6 +166,12 @@ class ElementItem(GroupItem):
         so it can swell without pushing through its beam."""
         self.scale_cap = cap
 
+    def set_can_glow(self, value: bool) -> None:
+        """Whether the evaluator's glow reaches this element at all. A
+        rest, a clef, a dynamic and a slur are all False, and so is ink
+        whose halo belongs to the note next to it."""
+        self.can_glow = value
+
     def add_path_child(self, item: QGraphicsPathItem,
                        fill_tracks: bool, stroke_tracks: bool,
                        ghost: bool = False) -> None:
@@ -180,6 +192,11 @@ class ElementItem(GroupItem):
         changed = False
         for child in self._reveal_children:
             changed |= child.set_clip_right(scene_x)
+        # The halo is cut at the same edge as the ink it belongs to. A
+        # tie glows now (2026-08-06), and a tie is clip-revealed: without
+        # this its light would hang a whole held note ahead of the
+        # playhead while the tie itself was still growing.
+        changed |= self._glow.set_reveal_edge(scene_x)
         return changed
 
     def refresh_reveal_clip(self) -> None:
@@ -188,6 +205,7 @@ class ElementItem(GroupItem):
         `_recompose_pos` for why both halves are needed."""
         for child in self._reveal_children:
             child.invalidate_transform_cache()
+        self._glow.invalidate_transform_cache()
         if self._reveal_edge is not None:
             self.set_reveal_edge(self._reveal_edge)
 
