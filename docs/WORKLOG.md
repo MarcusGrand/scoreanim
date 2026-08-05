@@ -35,10 +35,12 @@ Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
 
 `render/items.py` was split twice on 2026-08-02 and is at 384 lines.
-`core/project/serialize.py` is at **485** and is the next split due —
-over the ceiling before either branch and pushed further by the stem
-work; `ui/main_window.py` is at 386 with the F key, so it follows.
-`ui/panels/effect_knobs.py` was split twice on 2026-08-04 and is at 305.
+`core/project/serialize.py` is at **503** and is the next split due —
+over the ceiling before any of these branches, pushed further by the
+stem work and by three lines of the glow fold (Marcus's call, 2026-08-05:
+add them, split separately); `ui/main_window.py` is at 386 with the F
+key, so it follows. `ui/panels/effect_knobs.py` was split twice on
+2026-08-04 and is at 305.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -46,6 +48,42 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-05 — **Each glow knob changes one thing**
+  (`beta/f-glow-orthogonal`, UNMERGED): the block had two knobs on one
+  axis and one knob doing two jobs. **Strength is retired** — it reached
+  the envelope as `spec_envelope`'s amount, which multiplies the sustain
+  and the swell's level and nothing else, so it was Sustain a second
+  time. An old project's value folds into those two levels **on read**
+  and the key goes (`fold_strength`, three lines in `_style_rules_in`
+  beside the v1 `part_colors` fold). The fold WRITES, unlike the
+  `shape`/`peak` fold next to it, and that is the whole design: at
+  consumption it would multiply again the moment the user edited
+  Sustain, because the panel would write an explicit level under a
+  `strength` still on disk. Checked end to end: a file carrying
+  `strength 0.6` opens as sustain/swell_level 0.6, glows at the same
+  0.600 the old two-knob path did, and the panel says 60 % with no
+  Strength row. **Radius is size only** — a blur spreads the same light
+  thinner as it widens, so the halo used to dim as it grew (74 → 28 of
+  255 from radius 18 to 60). Each sprite is now scaled after the blur so
+  its brightest point matches what the SAME ink reaches at radius 24
+  (`_normalize`, `render/glow_build.py`): per shape, so a thin stem
+  still glows fainter than a fat notehead, and **the gain at 24 is
+  exactly 1.0**, so no second blur runs and every saved project renders
+  as it did. The scaling is `_thicken`'s shape with
+  CompositionMode_Plus, which ADDS — a true linear scale, and the only
+  way past Qt's opacity ceiling of 1 for the radii that need brightening.
+  It runs BEFORE the density pass, which is what keeps those two knobs
+  independent too. Measured on testscore: peak alpha flat at
+  163/163/164/164/164 across radius 12–60 where reach goes 4 → 22 units.
+  **`glow_sprite.py` was split first**, its own commit (378 → 191): how
+  a pixmap is drawn is now `render/glow_build.py`. Watch out for one
+  thing: **`spikes/glow.py` had been printing zeroes since 2026-08-04**
+  — it measured at the trigger, where the default envelope is dark now —
+  **and reading the halo as the ink since 2026-08-02**, because an
+  item's bounds include its sprite child. Both repaired, both worth
+  remembering: a spike can rot silently. No schema bump, no golden
+  movement, full suite green. Unproven under a human's eye — the thing
+  to feel is whether radius 36+ is usable now that it stays bright.
 - 2026-08-04 — **You can draw the glow's shape now**
   (`beta/f-glow-effect`, UNMERGED): an "Envelope" header in the Glow
   block opens the classic synthesizer picture — time across the note,

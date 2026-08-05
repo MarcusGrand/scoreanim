@@ -15,8 +15,7 @@ from scoreanim.core.animation.effect import (GLOW, OFFSET_X, OFFSET_Y, OPACITY,
                                              SCALE, Easing, Effect, Envelope,
                                              Keyframe, appear)
 from scoreanim.core.animation.glow import (GLOW_NOTE_VALUE, GLOW_S,
-                                           GLOW_STRENGTH, glow_track,
-                                           read_glow_shape)
+                                           glow_track, read_glow_shape)
 
 from typing import Mapping
 
@@ -109,9 +108,6 @@ _SHIFT_RANGE = (-0.5, 0.5)
 # through. Never at either end: the shape needs a rise AND a fall, and
 # a keyframe exactly on top of another one is not an envelope.
 _PEAK_RANGE = (0.05, 0.95)
-# How bright a glow may burn. 1 is full glow, and there is nothing past
-# it: the applier reads this as the halo's own opacity.
-_STRENGTH_RANGE = (0.0, 1.0)
 # Scene units. The far end is about a page wide: past that the note
 # starts from somewhere nobody is looking.
 _DISTANCE_RANGE = (0.0, 2000.0)
@@ -177,12 +173,11 @@ def build_presets(floor: float,
     duration / bounce from ``params["drop"]``, slide's direction /
     distance / duration / bounce from ``params["slide"]``, swell's
     size / peak / duration / note-value / follow from ``params["swell"]``
-    and glow's strength / duration / note-value plus its envelope shape
-    from ``params["glow"]`` (all merged over defaults, clamped). The
-    glow's
-    colour and radius are NOT read here: they never reach an envelope,
-    so render reads them straight from `glow.read_glow`. Follow is the
-    one param that
+    and glow's duration / note-value plus its envelope shape from
+    ``params["glow"]`` (all merged over defaults, clamped). The glow's
+    colour, radius and density are NOT read here: they never reach an
+    envelope, so render reads them straight from `glow.read_glow`.
+    Follow is the one param that
     reaches past its own knob: it forces swell's note-value stretch on,
     because a fixed window cannot track a whole note. Unknown presets
     and unknown keys are ignored here — they round-trip through the
@@ -228,8 +223,6 @@ def build_presets(floor: float,
     swell_note_value = swell_follow or bool(
         swell.get("note_value", _SWELL_NOTE_VALUE))
     glow = dict(params.get("glow", {})) if params else {}
-    glow_strength = _clamp(float(glow.get("strength", GLOW_STRENGTH)),
-                           *_STRENGTH_RANGE)
     # The shape's own six params read and clamp next door, where the
     # ordering the Envelope demands is enforced with them.
     glow_shape = read_glow_shape(glow)
@@ -312,7 +305,9 @@ def build_presets(floor: float,
         "glow": Effect("glow", {
             OPACITY: Envelope(initial=floor,
                               keyframes=(Keyframe(0.0, 1.0, Easing.STEP),)),
-            GLOW: glow_track(glow_shape, glow_strength, glow_s),
+            # Amount 1.0: the envelope's own levels ARE the brightness
+            # now, and the halo's opacity is its value and nothing else.
+            GLOW: glow_track(glow_shape, 1.0, glow_s),
         }, settle_to_note_value=glow_note_value),
     }
 

@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (QGraphicsBlurEffect, QGraphicsItem,
                                QGraphicsScene, QGraphicsSimpleTextItem,
                                QStyleOptionGraphicsItem)
 
+from scoreanim.core.animation import GLOW_RADIUS
 from scoreanim.render.reveal_item import RevealPathItem
 
 # Sprite pixels per scene unit. Headroom for zooming in; see the module
@@ -49,6 +50,20 @@ _PAD_RADII = 2.0
 # closest match, so the document's radius keeps the calibrated look the
 # default of 24 was chosen for.
 _BLUR_MATCH = 0.6
+
+# The radius a halo's brightness is calibrated at, and the whole reason
+# `_normalize` exists. A blur spreads the same light over more page as
+# it widens, so without this a wider halo is also a fainter one and
+# Radius is two knobs at once (measured before this: the brightest pixel
+# of a notehead's halo fell 74 → 28 of 255 as the radius went 18 → 60).
+# Every sprite is scaled so its brightest point matches what the SAME
+# ink reaches blurred at this radius. Radius then buys reach and nothing
+# else, density decides how solid the light is, and the envelope decides
+# how brightly it runs.
+#
+# It is GLOW_RADIUS on purpose: at the default the gain is exactly 1.0,
+# no second blur runs, and every project already saved renders as it did.
+_REFERENCE_RADIUS = GLOW_RADIUS
 
 # Path identity memo: id(path) -> (the path, its key). Holding the path
 # reference is what pins the id against reuse after a scene dies.
@@ -79,11 +94,18 @@ def padded_rect(rect: QRectF, radius: float) -> QRectF:
 
 def build_sprite(owner: QGraphicsItem, padded: QRectF, color: QColor,
                  radius: float, passes: float) -> QPixmap:
-    """One halo, drawn: the ink in the glow colour, blurred once, and
-    laid down `passes` times over itself."""
+    """One halo, drawn: the ink in the glow colour, blurred once,
+    normalized so the radius bought size and not brightness, and laid
+    down `passes` times over itself.
+
+    The normalization goes BEFORE the density pass on purpose. Density
+    climbs 1 - (1 - a)ⁿ, which only ever preserves an ordering, so two
+    radii that go in at the same peak come out at the same peak however
+    solid the light is — the two knobs stay independent."""
+    silhouette = _silhouette(owner, padded, color)
+    blurred = _blur(silhouette, radius * _BLUR_MATCH * OVERSAMPLE)
     return QPixmap.fromImage(
-        _thicken(_blur(_silhouette(owner, padded, color),
-                       radius * _BLUR_MATCH * OVERSAMPLE), passes))
+        _thicken(_normalize(blurred, silhouette, radius), passes))
 
 
 def ink_children(owner: QGraphicsItem) -> Iterator[QGraphicsItem]:
@@ -201,6 +223,67 @@ def _blur(image: QImage, device_radius: float) -> QImage:
     painter = QPainter(out)
     rect = QRectF(0, 0, out.width(), out.height())
     scene.render(painter, rect, rect)
+    painter.end()
+    return out
+
+
+def _normalize(image: QImage, silhouette: QImage, radius: float) -> QImage:
+    """The blurred halo, scaled so its brightest point is the one the
+    same ink reaches at `_REFERENCE_RADIUS`.
+
+    The reference is the same silhouette blurred a second time, not a
+    fixed number, so an element keeps the brightness its own shape asks
+    for — a thin stem still glows more faintly than a fat notehead, the
+    way it always has. Only the radius stops mattering.
+
+    Nothing to do at the reference radius itself, which is the common
+    case and costs the second blur nothing. Nothing to do either when
+    the light is too faint to measure — a hairline blurred over a whole
+    staff can round to no alpha at all, and there is nothing there to
+    scale up."""
+    if radius == _REFERENCE_RADIUS:
+        return image
+    peak = _peak_alpha(image)
+    if peak <= 0:
+        return image
+    target = _peak_alpha(_blur(silhouette,
+                               _REFERENCE_RADIUS * _BLUR_MATCH * OVERSAMPLE))
+    if target <= 0 or target == peak:
+        return image
+    return _scale_alpha(image, target / peak)
+
+
+def _peak_alpha(image: QImage) -> int:
+    """The brightest alpha anywhere in the sprite. Read off the raw
+    buffer — a 32-bit image packs one pixel per four bytes with alpha
+    last, so this is a C-speed scan rather than half a million
+    pixelColor calls."""
+    return max(bytes(image.constBits())[3::4], default=0)
+
+
+def _scale_alpha(image: QImage, gain: float) -> QImage:
+    """The same halo at `gain` times the alpha, everywhere.
+
+    `_thicken`'s shape with one difference that changes everything:
+    CompositionMode_Plus ADDS what it draws instead of compositing it,
+    so n passes come out at n times the alpha rather than
+    1 - (1 - a)ⁿ. That is a true linear scale, and it works above 1 as
+    well as below — which the plain opacity a painter offers does not,
+    since Qt clamps that at 1.
+
+    It cannot clip: the gain aims at a peak some real image already
+    reached, so `a * gain` never passes 255."""
+    out = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    out.fill(0)
+    painter = QPainter(out)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+    whole = int(gain)
+    for _ in range(whole):
+        painter.drawImage(0, 0, image)
+    part = gain - whole
+    if part > 0.0:
+        painter.setOpacity(part)
+        painter.drawImage(0, 0, image)
     painter.end()
     return out
 

@@ -5,6 +5,18 @@ drop shadow, which pre-rendered sprites replaced the same day
 (render/glow_sprite.py). Kept for the radius calibration it recorded;
 the sprite's _BLUR_MATCH factor was chosen to preserve that look.
 
+RE-RUN 2026-08-05, and it needed two repairs first — both of them
+things that had quietly stopped being true, and both worth knowing:
+
+- it measured at the trigger, where the DEFAULT glow has been dark
+  since the envelope landed (attack 10 %). Every number it printed was
+  0. STYLE now asks for the instant-on shape outright.
+- it read the element's `sceneBoundingRect` as "the ink". An item's
+  bounds include its children and the halo IS a child now, so that rect
+  was the padded sprite: the notehead measured 117 units across instead
+  of 21, and "how far the light reaches outside the ink" came out as 0
+  every time. `_ink_in_scene` reads the ink itself.
+
 Three questions before this goes in front of a person.
 
 1. Is the halo the same size wherever it is drawn? Qt blurs at DEVICE
@@ -38,24 +50,54 @@ point of GlowEffect converting the radius itself:
 A raw QGraphicsDropShadowEffect would have HALVED the reach at each
 step instead.
 
-A wider radius spreads the same light thinner, so it reaches further
-and dims:
+HISTORICAL, and the reason the radius changed on 2026-08-05. A blur
+spreads the same light over more page as it widens, so the halo used to
+reach further and dim as it went — Radius was two knobs at once:
 
-    radius    reach (units)    peak change
+    radius    reach (units)    peak change      <- BEFORE normalization
         12              5.0             87
         18              7.0             74
         24              8.0             66
         36              8.0             49
         60             11.0             28
 
-Rendered 18, 24 and 36 on a dark page and looked: 18 reads as a bright
-rim ON the ink rather than a halo around it, 36 is noticeably foggy.
-24 is the halo, and it is the default.
+Rendered 18, 24 and 36 on a dark page and looked: 18 read as a bright
+rim ON the ink rather than a halo around it, 36 as fog. 24 is the halo,
+and it is the default — and it is now also the radius every other one
+is normalized against (render/glow_build.py).
+
+Measured again 2026-08-05, with the sprite scaled so its brightest
+point matches what the same ink reaches at radius 24:
+
+    radius    reach (units)    peak change      <- AFTER normalization
+        12              4.0             47
+        18              6.0             58
+        24              8.0             62
+        36             13.0             62
+        60             22.0             62
+
+The radius now buys reach and nothing else, and it buys much more of it
+than the old table showed — that column was under-reading, being the
+same measurement the second repair above fixed.
+
+Two footnotes on the peak column, since it is not flat all the way
+down. Read off the SPRITE itself the peak alpha is flat at every
+radius, 163/163/164/164/164 of 255 for 12/18/24/36/60 — that is the
+normalization, exactly. What the page shows is lower at 12 and 18 for
+two ordinary reasons: a tight halo keeps most of its bright core BEHIND
+the ink that covers it, and a sharp peak loses a little to the page's
+own sampling (the same effect the zoom table's 0.25 row shows, 52
+against 62 for one unchanged sprite). At 4 device px per unit the two
+climb to 51 and 60.
 
 The cost is contained. 74 of 1691 items are lit at once at the busiest
-moment, evaluation runs at 0.27 ms a frame, and rendering a whole page
-at 1400 px goes from 92 ms to 133 ms with those 74 halos on it — half
-as long again, and only while notes are sounding.
+moment, and rendering a whole page at 1400 px goes 96 → 112 ms with
+those 74 halos on it (2026-08-05; it was 92 → 133 under the live
+effect), only while notes are sounding. Normalizing costs a second blur
+per distinct sprite at any radius other than 24, which is build-time
+only and nothing per frame: one sprite for a notehead takes 1.8 ms at
+radius 24, 2.9 at 18 and 18.0 at 60 — and most of that last number is
+the bigger image, not the extra blur.
 """
 from __future__ import annotations
 
@@ -85,6 +127,7 @@ from scoreanim.core.score.identity import ElementKind             # noqa: E402
 from scoreanim.core.score.join import join_notes                  # noqa: E402
 from scoreanim.core.score.model import build_score_model          # noqa: E402
 from scoreanim.core.timing import TempoMap, parse_tempo_file      # noqa: E402
+from scoreanim.render import glow_build                           # noqa: E402
 from scoreanim.render.animate import AnimationApplier             # noqa: E402
 from scoreanim.render.scene import ScoreScenes, apply_style_colors  # noqa: E402
 
@@ -97,10 +140,16 @@ FPS = 30
 PIXELS_WIDE = 1400
 # glow alone, on a dark page, with a fixed window so the lit moment is
 # easy to find
+# The instant-on shape, stated outright: since the envelope landed
+# (2026-08-04) the DEFAULT glow spends its first 10 % rising, so a
+# measurement taken at the trigger reads a dark note. Lit at once and
+# one fall over the whole window, which is what the numbers below assume.
 STYLE = StyleRules(default_effect="glow",
                    colors={"mode": DARK},
                    effect_params={"glow": {"duration": 0.4,
-                                           "note_value": False}})
+                                           "note_value": False,
+                                           "attack": 0.0,
+                                           "release": 1.0}})
 
 
 def render_page(scenes: ScoreScenes, page: int, path: Path) -> None:
@@ -142,7 +191,7 @@ def halo(scenes: ScoreScenes, applier, page: int, item,
     The whole box is scanned rather than one row, because a notehead
     has a stem and an accidental beside it and any single row runs into
     them."""
-    ink = item.sceneBoundingRect()
+    ink = _ink_in_scene(item)
     pad = 3 * GLOW_RADIUS
     box = QRectF(ink.left() - pad, ink.top() - pad,
                  ink.width() + 2 * pad, ink.height() + 2 * pad)
@@ -165,6 +214,14 @@ def halo(scenes: ScoreScenes, applier, page: int, item,
                       ink.top() - y, y - ink.bottom())
             reach = max(reach, out)
     return reach, peak
+
+
+def _ink_in_scene(item) -> QRectF:
+    """The element's INK, in scene units. Not `sceneBoundingRect`: an
+    item's bounds include its children, and since 2026-08-02 the halo IS
+    a child — so that rect is the padded sprite and "how far the light
+    reaches outside the ink" would come out as 0 every time."""
+    return item.mapRectToScene(glow_build.ink_rect(item))
 
 
 def _difference(a: QColor, b: QColor) -> int:
@@ -212,7 +269,7 @@ def main() -> None:
     lone = replace(STYLE, default_effect="appear",
                    elements={head_id: ElementStyle(effect="glow")})
     dark = replace(STYLE, default_effect="appear", elements={})
-    ink = head.sceneBoundingRect()
+    ink = _ink_in_scene(head)
     print(f"default radius {GLOW_RADIUS:.0f} scene units, "
           f"strength {head.glow_strength:.2f}, on a notehead "
           f"{ink.width():.1f} x {ink.height():.1f} units")

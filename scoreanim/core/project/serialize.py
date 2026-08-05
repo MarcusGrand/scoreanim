@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from scoreanim.core.animation.glow import fold_strength
 from scoreanim.core.animation.reveal import RevealMode
 from scoreanim.core.animation.style import ElementStyle, StyleRules
 from scoreanim.core.engraving.types import EngravingParams
@@ -114,6 +115,16 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 #   project opened here re-engraves with corrected stems whether or not
 #   it carries this key. Values ARE validated on read: unlike a style
 #   number, a bad direction has no sensible fallback.
+#   Also v11 (glow strength retired, 2026-08-05): NO new key — one goes
+#   away. effect_params["glow"]["strength"] was a second multiplier on
+#   the brightness the glow's envelope already sets, so it folds into
+#   that envelope's two levels on read and is never written again. No
+#   bump, for the reason the shape/peak fold needed none: the entry is
+#   sparse and round-trips raw, an older build reading a folded file
+#   just sees a strength of 1 with the levels already turned down, and
+#   the look is the same either way. This is the ONE key we consume
+#   rather than round-trip, and it is the second legacy fold in this
+#   file after v1's part_colors.
 PROJECT_VERSION = 11
 _READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
 SUFFIX = ".scoreanim"
@@ -402,6 +413,14 @@ def _style_rules_in(style: dict[str, Any]) -> StyleRules:
     # rules (explicit "parts" entries win if both are present)
     for p, c in style.get("part_colors", {}).items():
         parts.setdefault(PartId(p), ElementStyle(color=c))
+    params = {str(name): dict(entry) for name, entry
+              in style.get("effect_params", {}).items()}
+    # v11 legacy: the glow's Strength was a second knob on the axis its
+    # envelope already owns, so it folds into the two levels it
+    # multiplied and the key goes. Once, here — see
+    # core/animation/glow.py for why not at consumption.
+    if "glow" in params:
+        params["glow"] = fold_strength(params["glow"])
     return StyleRules(
         reveal_mode=_reveal_mode_in(style.get("reveal_mode")),
         # .get, never `or`: a saved floor of 0.0 is falsy and must load
@@ -411,8 +430,7 @@ def _style_rules_in(style: dict[str, Any]) -> StyleRules:
                   for e, s in style.get("elements", {}).items()},
         # v7 keys; absent in v<=6 files → None / {} (unchanged look)
         default_effect=style.get("default_effect"),
-        effect_params={str(name): dict(entry) for name, entry
-                       in style.get("effect_params", {}).items()},
+        effect_params=params,
         # v11 keys; absent in v<=10 files → {} → both off, which is the
         # look those files have always had
         volume=dict(style.get("volume", {})),
