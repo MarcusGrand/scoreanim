@@ -105,8 +105,12 @@ def stem_foot(stem: RenderedElement, heads: list[RenderedElement]) -> float:
     return stem.bbox.y2 if stem_is_up(stem, heads) else stem.bbox.y
 
 
-def _nearest_head(point: Point,
-                  heads: list[RenderedElement]) -> RenderedElement:
+def nearest_head(point: Point,
+                 heads: list[RenderedElement]) -> RenderedElement:
+    """The head this ink was drawn for: the closest one in its own
+    group. Public because the glow makes the same join — an
+    accidental, a lyric and a tie all take their halo from the head
+    beside them (core/animation/glow_scope.py)."""
     def distance(head: RenderedElement) -> float:
         centre = head.bbox.center
         return (centre.x - point.x) ** 2 + (centre.y - point.y) ** 2
@@ -116,7 +120,7 @@ def _nearest_head(point: Point,
 def _foot_head(stem: RenderedElement,
                heads: list[RenderedElement]) -> RenderedElement:
     """The head a stem stands on: the one nearest its foot."""
-    return _nearest_head(Point(stem.bbox.center.x, stem_foot(stem, heads)),
+    return nearest_head(Point(stem.bbox.center.x, stem_foot(stem, heads)),
                          heads)
 
 
@@ -156,8 +160,8 @@ def scale_pivots(layout: Layout) -> dict[ElementId, Point]:
             pivots[ident.element_id] = _foot_head(el, group_heads).bbox.center
         elif ident.kind in _STEM_RIDERS:
             pivots[ident.element_id] = stem_pivot.get(
-                key, _nearest_head(el.bbox.center, group_heads).bbox.center)
+                key, nearest_head(el.bbox.center, group_heads).bbox.center)
         else:
-            pivots[ident.element_id] = _nearest_head(
+            pivots[ident.element_id] = nearest_head(
                 el.bbox.center, group_heads).bbox.center
     return pivots
