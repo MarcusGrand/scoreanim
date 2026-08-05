@@ -1229,7 +1229,7 @@ def test_gains_are_one_per_element_not_one_per_trigger(scenes,
     gains = applier._audio.gains
     assert gains is not None
     assert [len(row) for row in gains] \
-        == [len(items) for items in applier._items_per_trigger]
+        == [len(items) for items in applier._index.items]
     assert len(set(gains[i])) > 1          # they really do differ
 
 
@@ -1250,11 +1250,11 @@ def test_ink_with_no_notated_length_still_reads_the_attack(scenes,
     plain.set_audio(peaks, 0.0)
     # the two schedules differ only in the duration map, so the element
     # rows line up and the gains can be compared position by position
-    assert with_durations._element_ids_per_trigger \
-        == plain._element_ids_per_trigger
+    assert with_durations._index.ids \
+        == plain._index.ids
 
     lengthless = moved = 0
-    for row, mine, theirs in zip(with_durations._element_ids_per_trigger,
+    for row, mine, theirs in zip(with_durations._index.ids,
                                  with_durations._audio.gains,
                                  plain._audio.gains):
         for eid, a, b in zip(row, mine, theirs):
@@ -1301,7 +1301,7 @@ def _follow_rules(follower):
 
 
 def _row_index(applier, i: int, eid) -> int:
-    return list(applier._element_ids_per_trigger[i]).index(eid)
+    return list(applier._index.ids[i]).index(eid)
 
 
 def test_a_following_element_reads_the_moment_and_its_neighbour_does_not(
