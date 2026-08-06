@@ -60,6 +60,34 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-06 (round 3) — **The box is solid, Scale is live, lyrics get
+  a knob** (`beta/f-video-canvas`, UNMERGED): Marcus's second review.
+  (1) "The canvas still moves" was the LIT AREA, not the edge: in
+  system mode the visible region was band∩frame, so the box reshaped
+  with every system. The frame now fills WHOLE — preview color, or
+  the page's own background (forwarded from light/dark mode) — and a
+  neighbor system's in-frame ink masks with that same fill; letterbox
+  exists only outside the frame. One still rectangle whose content
+  changes, pinned by a pixel test. (2) **Scale previews in real time**:
+  `LiveField` gained `delay_ms` — a debounced preview, once per typing
+  pause, which is what makes a ~0.6 s re-engrave livable. The preview
+  re-engraves into the running playback BEFORE the commit; the commit
+  is still one undo entry and costs no second engrave (pinned on a
+  real window). The one-day-old `reengrave_fields` exemption is gone
+  again — a re-engraving field is just a delayed live field now, and
+  the LiveField doctrine text says so. (3) **Lyrics size**
+  (`EngravingParams.lyric_size`, rides v12 sparse): a factor of
+  Verovio's `lyricSize`, because lyrics crowd first when the score
+  grows. Measured (`spikes/lyric_size.py`, complex2's 588 syllables):
+  lyric heights linear in the factor, noteheads and page untouched,
+  saturation outside ~45–175 % (the command range). Same debounced
+  panel field, row "Lyrics" under Scale. Watch out for one thing: the
+  end-to-end lyrics pin engraves complex2 twice and costs ~65 s —
+  complex2 is the ONE fixture whose lyrics reach the layout
+  (grieg_short's four never draw). Full suite green (2017), goldens
+  untouched. Unproven under a human's eye — the things to feel are
+  the solid box through a playthrough, the ~0.4 s + engrave latency
+  on a Scale spin, and whether 70 % lyrics read on a real chart.
 - 2026-08-06 (later) — **Scale sizes the score, and the canvas holds
   still** (`beta/f-video-canvas`, UNMERGED): Marcus's three corrections
   to the morning's feature. (1) **The canvas moved during playback** —
