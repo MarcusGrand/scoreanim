@@ -147,7 +147,7 @@ def test_click_outside_the_band_deselects_in_system_mode(window) -> None:
     gates on the band; the controller stays mode-blind."""
     note = _select_a_notehead(window)
     window.router.show_system(1)
-    band = window.view._band
+    band = window.view._framing.band
     assert band is not None
     outside = QPointF(band.center().x(), band.bottom() + 500.0)
     assert not window.view.in_band(outside)

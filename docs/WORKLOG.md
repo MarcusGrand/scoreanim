@@ -12,6 +12,9 @@ so a project saved from here will not open on `v0.2-beta.6` or on any
 older build. `beta/f-glow-orthogonal` carries two unmerged sessions now
 (the one-knob-one-change pass and the glow's scope);
 `fix/bracket-hidden-staves` is the other branch unmerged.
+`beta/f-video-canvas` (off `beta/f-glow-orthogonal`, UNMERGED) carries
+the video canvas and **schema v12** — a project saved from it will not
+open on any v11 build, including `main`.
 `main` is **38 commits ahead of `origin/main`** and has been since
 before the glow work — nothing here is pushed.
 
@@ -41,12 +44,14 @@ though its own class docstring argues it is one job (it is the single
 compositing point for how an element looks), so the split wants a real
 seam rather than a line count. `render/animate.py` is back at **399**
 after being split on 2026-08-06.
-`core/project/serialize.py` is at **503** and is the next split due —
-over the ceiling before any of these branches, pushed further by the
-stem work and by three lines of the glow fold (Marcus's call, 2026-08-05:
-add them, split separately); `ui/main_window.py` is at 386 with the F
-key, so it follows. `ui/panels/effect_knobs.py` was split twice on
-2026-08-04 and is at 305.
+Three of the standing split debts were paid on the canvas branch
+(2026-08-06): `export_dialog.py` 425 → 386 (`ui/export_run.py`),
+`serialize.py` 503 → 441 (`serialize_style.py` — still over, but what
+remains is mostly the version-history comment block, which belongs
+with the envelope), `main_window.py` 412 → 326 (`ui/score_install.py`).
+`ui/stage_view.py` is at **410** after the canvas framing — the real
+seam left in it is the selection-gesture handlers. `render/items.py`
+still wants its seam.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -54,6 +59,40 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-06 — **The video is framed in the app now**
+  (`beta/f-video-canvas`, off `beta/f-glow-orthogonal`, UNMERGED):
+  Marcus asked for an export aspect he can SEE (1080×1920 etc.), a
+  score scale inside it, and a way to judge the overlay on black.
+  **Schema v12** (his approval, same session): `VideoCanvas(width,
+  height, scale)` on `StageConfig`, None meaning the page-aspect frame
+  every project has had — no read gate, sparse key, a v11 reader
+  refuses a v12 file. This REVERSES half of Phase 10R: the free-form
+  canvas that phase removed is back as document intent, and 10R's
+  constancy survives narrower — one user shape for both modes, every
+  frame. ONE pure function is the whole seam
+  (`core/engraving/canvas.py::canvas_view_rect`, the inverse of
+  `centered_fit`): the stage fits its view to that rect
+  (`ui/stage_frame.py`, letterbox mask + 1 px edge; clicks stop at the
+  crop) and export renders exactly it, so the composite matches by
+  construction — pinned from both sides (viewport pixels offscreen; a
+  notehead's ink at the predicted pixel in a real 1080×1920 PNG
+  export, both modes, corners transparent). Scale > 100 % crops at the
+  frame edge — user FRAMING, not engraving clipping; RULES rule 7 got
+  the one-line clarification (in this diff for Marcus's eyes; CLAUDE.md
+  untouched). Inspector grew a "Video canvas" block (presets, W/H,
+  Scale — all LiveFields) plus **"Preview on video"**: black default +
+  picker, painted view-side behind the ink with the paper hidden —
+  QSettings, never the document, never a frame (R1 stands, pinned).
+  The export dialog shows a document canvas READ-ONLY (the size has one
+  home); no-canvas docs keep the height spinbox verbatim, and the whole
+  pre-canvas export suite passes unmodified. BACKLOG 11 partially
+  resolved (size left R3; fps/format/alpha/range/path stay session).
+  **Three split-first commits** paid standing debts: `ui/export_run.py`
+  out of the dialog, `core/project/serialize_style.py` out of
+  serialize, `ui/score_install.py` out of the window (412 → 326).
+  Full suite green (2019). Unproven under a human's eye — the things
+  to feel are the frame edge at odd zooms, typing in the W/H fields,
+  and whether the crop at high Scale reads as intended framing.
 - 2026-08-06 — **The glow going solid in Premiere was an ALPHA reading,
   not an animation bug** (`beta/f-glow-orthogonal`, UNMERGED): measured
   the export end to end first — the exported

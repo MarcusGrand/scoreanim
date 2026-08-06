@@ -995,7 +995,9 @@ re-touching. "Clear overrides on selection" must be cheap.
   the machine's endianness. ProRes 4444 .mov (ffmpeg stdin stream,
   runtime-discovered) is the default; PNG sequence (pure Qt) is the
   no-ffmpeg fallback. Export settings are session memory only (ruling
-  R3) — nothing enters the project document.
+  R3) — nothing enters the project document. Amendment (2026-08-06):
+  the frame SIZE left R3 — a video canvas is document intent (below);
+  fps, format, alpha, range and path stay session memory.
 - **Alpha mode** (2026-08-06, `render/encode.py::AlphaMode`): that same
   convert also decides how the file writes colour beside alpha, and it
   is the user's choice with **premultiplied ("matted with black") the
@@ -1012,16 +1014,37 @@ re-touching. "Clear overrides on selection" must be cheap.
   the two modes are the same picture (premultiplied == straight x its
   own alpha), and a premultiplied clip's colour channel decodes to the
   app's own over-black composite within 2/255.
+- **The video canvas** (2026-08-06, reversing half of Phase 10R): the
+  frame's SHAPE is user intent now. `VideoCanvas(width, height, scale)`
+  on `StageConfig` (schema v12, `SetVideoCanvas`/`SetScoreScale`
+  commands): the export frame is exactly those pixels, and `scale` is
+  the score's size inside it — 1.0 fits the page, more crops at the
+  frame edge (user framing, not engraving clipping). The one seam is
+  the pure `core/engraving/canvas.py::canvas_view_rect`, the inverse of
+  `centered_fit`: it returns the page-unit rect the frame covers, the
+  live stage fits its view to that rect (`ui/stage_frame.py`) and
+  export renders exactly it, so preview and frames agree by
+  construction. Phase 10R's constancy survives in a narrower form: one
+  shape for BOTH presentation modes and every frame — a system band
+  centers vertically in the same user-chosen frame. Phase 10R's
+  page-aspect-from-height rule is now the `canvas=None` default, which
+  every pre-v12 project keeps, and that legacy path runs verbatim
+  behind the guard (the whole pre-canvas export suite passes
+  unmodified). The dialog shows a document canvas READ-ONLY — the size
+  has one home, the inspector's Video canvas panel. The stage can also
+  paint a preview color behind the overlay inside the frame
+  ("Preview on video", black default + picker) — VIEW state in
+  QSettings, applied by hiding the live paper rects; export still never
+  sees a background (R1 stands, pinned).
 - **System-mode export** (Phase 7.5): when the document's presentation
-  mode is SYSTEM, the canvas is user-chosen (W×H, default 1920×1080,
-  dialog-editable, still session memory — R3 stands) and each frame
-  composites the current system's band — cropped from its page scene
-  — CENTERED both axes, scaled to fit preserving the band's aspect,
-  under an explicit clip rect (the bleed guarantee). Cuts land on the
-  frame `current_system()` changes — the same applier walk as live
-  follow (R2 extended to systems; `current_system()` is the
-  `current_page()` bisect idiom over `Trigger.system`, stamped by the
-  schedule with the same min-fresh rule as page). Band geometry is
+  mode is SYSTEM, each frame composites the current system's band —
+  cropped from its page scene — CENTERED both axes, scaled to fit
+  preserving the band's aspect, under an explicit clip rect (the bleed
+  guarantee). Cuts land on the frame `current_system()` changes — the
+  same applier walk as live follow (R2 extended to systems;
+  `current_system()` is the `current_page()` bisect idiom over
+  `Trigger.system`, stamped by the schedule with the same min-fresh
+  rule as page). Band geometry is
   `core/engraving/systems.py::system_bands` — pure, derived from the
   Layout on demand, never persisted. The paged path runs verbatim
   behind a guard: a paged export is byte-identical to Phase 6, pinned
