@@ -1015,27 +1015,42 @@ re-touching. "Clear overrides on selection" must be cheap.
   own alpha), and a premultiplied clip's colour channel decodes to the
   app's own over-black composite within 2/255.
 - **The video canvas** (2026-08-06, reversing half of Phase 10R): the
-  frame's SHAPE is user intent now. `VideoCanvas(width, height, scale)`
-  on `StageConfig` (schema v12, `SetVideoCanvas`/`SetScoreScale`
-  commands): the export frame is exactly those pixels, and `scale` is
-  the score's size inside it — 1.0 fits the page, more crops at the
-  frame edge (user framing, not engraving clipping). The one seam is
+  frame's SHAPE is user intent now. `VideoCanvas(width, height)` on
+  `StageConfig` (schema v12, `SetVideoCanvas`): the export frame is
+  exactly those pixels, letterboxing the whole page. The one seam is
   the pure `core/engraving/canvas.py::canvas_view_rect`, the inverse of
   `centered_fit`: it returns the page-unit rect the frame covers, the
   live stage fits its view to that rect (`ui/stage_frame.py`) and
   export renders exactly it, so preview and frames agree by
   construction. Phase 10R's constancy survives in a narrower form: one
   shape for BOTH presentation modes and every frame — a system band
-  centers vertically in the same user-chosen frame. Phase 10R's
-  page-aspect-from-height rule is now the `canvas=None` default, which
-  every pre-v12 project keeps, and that legacy path runs verbatim
-  behind the guard (the whole pre-canvas export suite passes
+  centers vertically in the same user-chosen frame — and the canvas
+  NEVER moves on screen during playback: it has its own fit
+  (`StageView._fit_canvas` — direct zoom, a constant overscan scroll
+  rect, a quarter-device-pixel snap) because fitInView's integer
+  scrollbar rounding wobbled the edge 1–4 px between systems. Phase
+  10R's page-aspect-from-height rule is now the `canvas=None` default,
+  which every pre-v12 project keeps, and that legacy path runs
+  verbatim behind the guard (the whole pre-canvas export suite passes
   unmodified). The dialog shows a document canvas READ-ONLY — the size
   has one home, the inspector's Video canvas panel. The stage can also
   paint a preview color behind the overlay inside the frame
   ("Preview on video", black default + picker) — VIEW state in
   QSettings, applied by hiding the live paper rects; export still never
   sees a background (R1 stands, pinned).
+- **The score scale** (2026-08-06, corrected the same day it was born a
+  crop): how big the NOTATION is drawn — `EngravingParams.scale`
+  (schema v12, `SetScoreScale`), an engraving input consumed at the
+  Verovio seam as `scale` percent with `scaleToPageSize` (rastral
+  size: page constant, ink linear — `spikes/score_scale.py`). Systems
+  that then overflow repaginate through the rule-7 never-clip
+  machinery, scale-to-fit still has the last word (its fit percent now
+  derives from the user's base), and a crowded system is the user's to
+  solve with system breaks. Because a change re-engraves (~0.6 s), the
+  panel field commits on the finished edit only — the live-field rule's
+  one exemption (`reengrave_fields`), enforced by the same test. 1.0
+  multiplies out to Verovio's own 100 and sets nothing, which is the
+  goldens' byte-identity guarantee.
 - **System-mode export** (Phase 7.5): when the document's presentation
   mode is SYSTEM, each frame composites the current system's band —
   cropped from its page scene — CENTERED both axes, scaled to fit

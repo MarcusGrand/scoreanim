@@ -49,9 +49,10 @@ Three of the standing split debts were paid on the canvas branch
 `serialize.py` 503 → 441 (`serialize_style.py` — still over, but what
 remains is mostly the version-history comment block, which belongs
 with the envelope), `main_window.py` 412 → 326 (`ui/score_install.py`).
-`ui/stage_view.py` is at **410** after the canvas framing — the real
-seam left in it is the selection-gesture handlers. `render/items.py`
-still wants its seam.
+`ui/stage_view.py` is at **443** after the canvas framing and its
+stability fit — the real seam in it is the selection-gesture handlers,
+and it is now the most overdue split. `render/items.py` still wants
+its seam.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -59,6 +60,40 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-06 (later) — **Scale sizes the score, and the canvas holds
+  still** (`beta/f-video-canvas`, UNMERGED): Marcus's three corrections
+  to the morning's feature. (1) **The canvas moved during playback** —
+  measured: 4 px between systems (fitInView clamped against the
+  frame∪page union's uneven scroll slack), and 1 px left after fixing
+  that (position-dependent integer scrollbar rounding). The canvas has
+  its own fit now (`_fit_canvas`): direct zoom with no fitInView
+  margin, one constant overscan scroll rect per page, and the frame
+  snapped a quarter device pixel off the integer grid so every
+  rounding lands the same side. Probed and pinned: identical viewport
+  corners across all pages, systems and modes. The snap costs a
+  sub-device-pixel sliver at the page's exact corner (unclickable —
+  a real click lands on a whole pixel; the test insets by one). (2) A
+  system band still centers vertically in the canvas — that was
+  already true; the movement was the fit, not the centering. (3)
+  **Scale was born a crop and is now a rastral size**: Marcus wants
+  bigger NOTES, not a magnified window. `EngravingParams.scale`
+  (rides v12), consumed at the Verovio seam as `scale` percent with
+  the `scaleToPageSize` it already sets — measured first
+  (`spikes/score_scale.py`): page constant, ink linear, testscore
+  overflows at 130 % and the rule-7 never-clip repagination absorbs
+  it (scale-to-fit's percent now derives from the user's base, so it
+  keeps the last word). Crowding within a system is the user's to
+  solve with system breaks, per Marcus. `VideoCanvas` is width+height
+  only; the frame always shows the whole page; a pre-release
+  stage.canvas.scale on disk is IGNORED on read (crop and size are
+  different meanings — noted in the schema log). Because Scale
+  re-engraves, the panel commits it on the finished edit — the
+  live-field rule gained its ONE exemption (`reengrave_fields`,
+  enforced by the same scan), and `needs_reengrave` now diffs
+  `doc.engraving`. Full suite green (2011), goldens untouched (1.0
+  sets nothing). Unproven under a human's eye — the things to feel
+  are the canvas holding still through a whole playthrough and
+  whether 130 % reads as "bigger notes" on a real score.
 - 2026-08-06 — **The video is framed in the app now**
   (`beta/f-video-canvas`, off `beta/f-glow-orthogonal`, UNMERGED):
   Marcus asked for an export aspect he can SEE (1080×1920 etc.), a

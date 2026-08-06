@@ -184,11 +184,12 @@ first) and update the matching section here.
    the score shifts to fit — a re-engrave with changed inputs is not
    window reflow; title/tempo texts edit as stage overlay and never
    re-engrave. See docs/BACKLOG.md item 5, resolved as split.)
-   Clarification (video canvas, 2026-08-06): a score Scale past 100 %
-   crops the page at the canvas's frame edge, live and in export. That
-   is the user framing the video — like pointing a camera — not the
-   engraving being clipped; never-clip governs the page layout, and
-   the whole page is still there at Scale 100 %.
+   Clarification (score scale, 2026-08-06): the user's score Scale is
+   a rastral-size change — an engraving input like a part rename, so
+   raising it is not window reflow, and the never-clip machinery
+   (repagination, then scale-to-fit as the last word) applies to the
+   scaled engraving exactly as to any other. The video canvas always
+   shows the whole page; nothing is ever cropped at its edge.
 
 8. **Every document mutation is an undoable command** (command pattern)
    from the first mutation implemented onward.
