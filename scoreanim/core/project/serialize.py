@@ -26,7 +26,8 @@ from scoreanim.core.project.document import (CondenseGroup, FileRef,
 from scoreanim.core.project.serialize_style import style_out, style_rules_in
 from scoreanim.core.project.stage_config import (PresentationMode,
                                                  StageConfig,
-                                                 StageTextElement)
+                                                 StageTextElement,
+                                                 VideoCanvas)
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.core.timing.swing import SwingRegion
 from scoreanim.core.timing.taps import Tap, TapSession
@@ -123,8 +124,15 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 #   the look is the same either way. This is the ONE key we consume
 #   rather than round-trip, and it is the second legacy fold in this
 #   file after v1's part_colors.
-PROJECT_VERSION = 11
-_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+# 12 (video canvas, 2026-08-06): stage.canvas — {width, height, scale},
+# the user's video frame and the score's size inside it, previewed live
+# and used verbatim as the export size. Omitted when unset. No read
+# gate: a missing key means no canvas, the page-aspect frame every
+# older file has always had. The bump keeps a v11 reader refusing
+# loudly instead of silently dropping the user's framing on a resave —
+# the v2 rationale. (Marcus approved this bump 2026-08-06.)
+PROJECT_VERSION = 12
+_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 SUFFIX = ".scoreanim"
 
 
@@ -168,6 +176,12 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
         "style": style_out(doc.style),
         "stage": {
             "mode": doc.stage.mode.name.lower(),
+            # v12: the video canvas, omitted when unset (sparse — a
+            # canvas-free document is byte-identical to v11's shape)
+            **({"canvas": {"width": doc.stage.canvas.width,
+                           "height": doc.stage.canvas.height,
+                           "scale": doc.stage.canvas.scale}}
+               if doc.stage.canvas is not None else {}),
             "texts": [
                 {"element_id": t.element_id, "content": t.content,
                  "page": t.page, "x": t.x, "y": t.y, "anchor": t.anchor,
@@ -259,6 +273,9 @@ def from_dict(data: dict[str, Any],
             stage=StageConfig(
                 mode=_presentation_mode_in(
                     data.get("stage", {}).get("mode")),
+                # v12: missing key → None → the page-aspect frame,
+                # which is the look every older file has always had
+                canvas=_canvas_in(data.get("stage", {}).get("canvas")),
                 texts=tuple(
                     StageTextElement(
                         element_id=t["element_id"], content=t["content"],
@@ -314,6 +331,13 @@ def from_dict(data: dict[str, Any],
         )
     except (KeyError, TypeError) as exc:
         raise ValueError(f"malformed project data: {exc!r}") from exc
+
+
+def _canvas_in(data: dict[str, Any] | None) -> VideoCanvas | None:
+    if data is None:
+        return None
+    return VideoCanvas(width=int(data["width"]), height=int(data["height"]),
+                       scale=float(data.get("scale", 1.0)))
 
 
 def _presentation_mode_in(value: Any) -> PresentationMode:

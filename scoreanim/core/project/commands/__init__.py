@@ -37,7 +37,9 @@ from scoreanim.core.project.commands.stage import (AddTempoOverlay,
                                                    RemoveTempoOverlay,
                                                    SetHideEmptyStaves,
                                                    SetHideFirstSystem,
-                                                   SetPresentationMode)
+                                                   SetPresentationMode,
+                                                   SetScoreScale,
+                                                   SetVideoCanvas)
 from scoreanim.core.project.commands.style import (ResetEffectSettings,
                                                    SetDefaultEffect,
                                                    SetEffectParam,
@@ -80,8 +82,8 @@ __all__ = [
     "SetHideFirstSystem", "SetOffset", "SetPartColor", "SetPartEffect",
     "SetLayoutOverride", "SetPageBreak",
     "SetColorMode", "SetPartText", "SetPresentationMode", "SetPulseParam",
-    "SetRevealMode",
+    "SetRevealMode", "SetScoreScale",
     "SetStemDirection", "SetSwingRegion", "SetTempoFrom",
-    "SetSystemBreak", "SetVolumeParam",
+    "SetSystemBreak", "SetVideoCanvas", "SetVolumeParam",
     "UndoStack",
 ]

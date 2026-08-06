@@ -77,9 +77,22 @@ class PresentationMode(enum.Enum):
 
 
 @dataclass(frozen=True)
+class VideoCanvas:
+    """The user's video frame (2026-08-06): export pixels, previewed
+    live as the stage's own frame. scale is the score's size inside it —
+    1.0 fits the page, larger crops at the frame edge (user framing).
+    One shape for both presentation modes. None on StageConfig means no
+    canvas: the page-aspect frame, the pre-canvas behavior."""
+    width: int                   # export pixels, even
+    height: int                  # export pixels, even
+    scale: float = 1.0
+
+
+@dataclass(frozen=True)
 class StageConfig:
     texts: tuple[StageTextElement, ...] = ()
     mode: PresentationMode = PresentationMode.PAGED
+    canvas: VideoCanvas | None = None
 
 
 def page_content_top(layout: Layout, page: int = 1) -> float:

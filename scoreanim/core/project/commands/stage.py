@@ -10,8 +10,8 @@ from scoreanim.core.project.commands.base import (_HEX_COLOR, Command,
 from scoreanim.core.project.document import LayoutOverride, ProjectDoc
 from scoreanim.core.project.stage_config import (OVERLAY_PREFIX,
                                                  PresentationMode,
-                                                 StageTextElement, fit_texts,
-                                                 is_header_text)
+                                                 StageTextElement, VideoCanvas,
+                                                 fit_texts, is_header_text)
 from scoreanim.core.score.identity import ElementId
 
 
@@ -61,6 +61,66 @@ class SetHideFirstSystem(Command):
     def describe(self) -> str:
         return ("hide empty staves on first system" if self.value
                 else "show staves on first system")
+
+
+# Encoder floor/ceiling for a canvas side: below 16 nothing is a video,
+# above 8192 nothing plays it; even because yuva subsampling needs it.
+_CANVAS_SIDE = range(16, 8193)
+_SCALE_RANGE = (0.1, 8.0)
+
+
+def _validated_canvas(canvas: VideoCanvas) -> VideoCanvas:
+    for side in (canvas.width, canvas.height):
+        if not isinstance(side, int) or side not in _CANVAS_SIDE \
+                or side % 2:
+            raise CommandError(f"bad canvas side {side!r} "
+                               f"(want an even 16–8192)")
+    _validated_scale(canvas.scale)
+    return canvas
+
+
+def _validated_scale(scale: float) -> float:
+    lo, hi = _SCALE_RANGE
+    if not isinstance(scale, (int, float)) or not math.isfinite(scale) \
+            or not lo <= scale <= hi:
+        raise CommandError(f"bad score scale {scale!r} (want {lo}–{hi})")
+    return float(scale)
+
+
+@dataclass(frozen=True)
+class SetVideoCanvas(Command):
+    """The user's video frame (2026-08-06), or None for the page-aspect
+    default. Fat apply: a preset click carries width and height (and
+    keeps the current scale) in one undo entry. Stage intent only —
+    never re-engraves."""
+    canvas: VideoCanvas | None
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if self.canvas is not None:
+            _validated_canvas(self.canvas)
+        return replace(doc, stage=replace(doc.stage, canvas=self.canvas))
+
+    def describe(self) -> str:
+        return "set video canvas" if self.canvas is not None \
+            else "clear video canvas"
+
+
+@dataclass(frozen=True)
+class SetScoreScale(Command):
+    """The score's size inside the canvas: 1.0 fits the page, larger
+    crops at the frame edge (user framing, not engraving clipping).
+    Meaningless without a canvas, so that is an error, not a no-op."""
+    scale: float
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if doc.stage.canvas is None:
+            raise CommandError("no video canvas to scale the score in")
+        scale = _validated_scale(self.scale)
+        return replace(doc, stage=replace(
+            doc.stage, canvas=replace(doc.stage.canvas, scale=scale)))
+
+    def describe(self) -> str:
+        return "set score scale"
 
 
 _TEXT_ANCHORS = frozenset({"start", "middle", "end"})
