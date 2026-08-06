@@ -41,7 +41,7 @@ from scoreanim.core.project import (PresentationMode, ProjectDoc,
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.collapsible import CollapsibleSection
 from scoreanim.ui.panels import (EffectsPanel, PageColorsPanel,
-                                 SelectionPanel)
+                                 SelectionPanel, VideoCanvasPanel)
 from scoreanim.ui.playback import PlaybackController
 
 
@@ -104,6 +104,11 @@ class Inspector(QDockWidget):
         # than another row under Appearance & Effects.
         self.page_colors_panel = PageColorsPanel(app_state)
 
+        # Video canvas (2026-08-06): the export frame previewed live —
+        # preset/size/scale are document intent; the preview background
+        # is view state the window subscribes to.
+        self.video_canvas_panel = VideoCanvasPanel(app_state)
+
         # Selection body (M2.5): transient-state driven, so it observes
         # app_state.selection_changed itself and takes no part in
         # sync_from_document.
@@ -118,6 +123,7 @@ class Inspector(QDockWidget):
                 ("playback", "Playback && Sync", playback_body),
                 ("appearance", "Appearance && Effects", self.effects_panel),
                 ("page_colors", "Page", self.page_colors_panel),
+                ("video_canvas", "Video canvas", self.video_canvas_panel),
                 ("selection", "Selection", self.selection_panel)):
             section = CollapsibleSection(title)
             section.set_content(content)
@@ -149,3 +155,4 @@ class Inspector(QDockWidget):
         self._systems_box.blockSignals(False)
         self.effects_panel.sync_from_document(doc)
         self.page_colors_panel.sync_from_document(doc)
+        self.video_canvas_panel.sync_from_document(doc)
