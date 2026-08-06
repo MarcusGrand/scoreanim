@@ -34,6 +34,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 
 from scoreanim.core.editing import COARSE_NUDGE, NUDGE_STEP
+from scoreanim.ui.stage_frame import StageFraming
 from scoreanim.ui.stage_scrollbars import TransientScrollbars
 
 _LETTERBOX = QColor("#3a3a3a")
@@ -118,8 +119,7 @@ class StageView(QGraphicsView):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scrollbars = TransientScrollbars(self)
         self._fit_mode = True
-        self._band: QRectF | None = None     # masked region (the system)
-        self._frame: QRectF | None = None    # fitted region (page-sized)
+        self._framing = StageFraming()       # frame/band/mask geometry
         self._press_pos = None               # viewport px, for click detect
         self.nudge_probe = None              # set by the window (M3.2)
         self._drag_origin: QPointF | None = None   # scene pos of the press
@@ -140,24 +140,16 @@ class StageView(QGraphicsView):
         outside the band letterboxes. A hard cut, exactly like a page
         flip (ruling R2)."""
         self.setScene(scene)
-        self._band = QRectF(band)
         page = scene.sceneRect()
-        self._frame = QRectF(page.left(),
-                             band.center().y() - page.height() / 2,
-                             page.width(), page.height())
-        # the frame may extend past the page for systems near its top or
-        # bottom; widening the VIEW's scene rect lets fitInView center
-        # there instead of clamping to the page (the overhang renders as
-        # view background = letterbox, exactly right)
-        self.setSceneRect(self._frame.united(page))
+        self._framing.set_system_band(page, band)
+        self.setSceneRect(self._framing.scene_rect(page))
         if self._fit_mode:
             self._fit()
         self.viewport().update()
 
     def clear_band(self) -> None:
         """Back to paged framing (mask off)."""
-        self._band = None
-        self._frame = None
+        self._framing.set_page()
         if self.scene() is not None:
             self.setSceneRect(self.scene().sceneRect())
         if self._fit_mode:
@@ -172,33 +164,15 @@ class StageView(QGraphicsView):
     def _fit(self) -> None:
         if self.scene() is None:
             return
-        target = self._frame if self._frame is not None \
-            else self.scene().sceneRect()
+        target = self._framing.fit_target(self.scene().sceneRect())
         self.fitInView(target, Qt.AspectRatioMode.KeepAspectRatio)
 
     def drawForeground(self, painter, rect) -> None:  # noqa: N802
         """Letterbox masking for system mode: fill the exposed scene
-        area outside the band (four edge strips; corner overlap is
-        harmless — same opaque color as the view background)."""
+        area outside the band (geometry in stage_frame.py)."""
         super().drawForeground(painter, rect)
-        band = self._band
-        if band is None:
-            return
-        if rect.top() < band.top():
-            painter.fillRect(QRectF(rect.left(), rect.top(), rect.width(),
-                                    band.top() - rect.top()), _LETTERBOX)
-        if rect.bottom() > band.bottom():
-            painter.fillRect(QRectF(rect.left(), band.bottom(), rect.width(),
-                                    rect.bottom() - band.bottom()),
-                             _LETTERBOX)
-        if rect.left() < band.left():
-            painter.fillRect(QRectF(rect.left(), rect.top(),
-                                    band.left() - rect.left(),
-                                    rect.height()), _LETTERBOX)
-        if rect.right() > band.right():
-            painter.fillRect(QRectF(band.right(), rect.top(),
-                                    rect.right() - band.right(),
-                                    rect.height()), _LETTERBOX)
+        for strip in self._framing.mask_strips(rect):
+            painter.fillRect(strip, _LETTERBOX)
 
     # -- selection gesture -------------------------------------------------
 
@@ -210,7 +184,7 @@ class StageView(QGraphicsView):
         system is invisible but fully hittable. The view is the only
         object that knows the band, so it gates here and the selection
         controller stays mode-blind. Paged mode: everything is visible."""
-        return self._band is None or self._band.contains(scene_pos)
+        return self._framing.contains(scene_pos)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
