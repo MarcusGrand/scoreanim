@@ -11,51 +11,92 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF
 
+from scoreanim.core.engraving.canvas import canvas_view_rect
+from scoreanim.core.project.stage_config import VideoCanvas
+
 
 class StageFraming:
     """The view's frame (what fitInView targets) and band (what is
     visible).
 
-    Paged mode: both None — the scene rect is the frame and everything
-    is visible. System mode: a page-sized frame centered vertically on
-    the band, everything outside the band masked."""
+    Paged mode, no canvas: both None — the scene rect is the frame and
+    everything is visible. System mode: a frame centered vertically on
+    the band, everything outside the band masked. A video canvas
+    (2026-08-06) replaces the frame's shape in BOTH modes with the
+    user's own, computed by the same pure rect export renders, and
+    masks outside it — what shows inside the frame is what the video
+    frame will carry."""
 
     def __init__(self) -> None:
         self.band: QRectF | None = None
         self.frame: QRectF | None = None
+        self.canvas: VideoCanvas | None = None
 
-    def set_page(self) -> None:
+    def set_canvas(self, canvas: VideoCanvas | None) -> None:
+        """Store the document's canvas; the caller re-runs set_page or
+        set_system_band to recompute the frame."""
+        self.canvas = canvas
+
+    def set_page(self, page: QRectF) -> None:
         self.band = None
-        self.frame = None
+        self.frame = self._canvas_frame(page)
 
     def set_system_band(self, page: QRectF, band: QRectF) -> None:
         self.band = QRectF(band)
-        self.frame = QRectF(page.left(),
-                            band.center().y() - page.height() / 2,
-                            page.width(), page.height())
+        if self.canvas is None:
+            self.frame = QRectF(page.left(),
+                                band.center().y() - page.height() / 2,
+                                page.width(), page.height())
+        else:
+            self.frame = self._canvas_frame(page,
+                                            center_y=band.center().y())
+
+    def _canvas_frame(self, page: QRectF,
+                      center_y: float | None = None) -> QRectF | None:
+        if self.canvas is None:
+            return None
+        c = self.canvas
+        r = canvas_view_rect(page.width(), page.height(),
+                             c.width, c.height, c.scale, center_y)
+        return QRectF(r.x, r.y, r.w, r.h)
 
     def fit_target(self, scene_rect: QRectF) -> QRectF:
         return self.frame if self.frame is not None else scene_rect
 
     def scene_rect(self, page: QRectF) -> QRectF:
         """What the view's scene rect should be. The frame may extend
-        past the page (a system near the page's top or bottom); widening
-        the view's scene rect lets fitInView center there instead of
-        clamping to the page — the overhang renders as view background,
-        which is the letterbox, exactly right."""
+        past the page (a system near the page's top or bottom, or a
+        canvas with letterbox slack); widening the view's scene rect
+        lets fitInView center there instead of clamping to the page —
+        the overhang renders as view background, which is the
+        letterbox, exactly right."""
         if self.frame is None:
             return page
         return self.frame.united(page)
 
+    def visible_rect(self) -> QRectF | None:
+        """The scene region actually on show, or None for everything.
+        A canvas crops to its frame; a band crops to the system; with
+        both, what shows is their intersection."""
+        if self.canvas is None:
+            return self.band
+        if self.band is None:
+            return self.frame
+        return self.band.intersected(self.frame)
+
     def contains(self, scene_pos: QPointF) -> bool:
-        """Is this scene point inside the visible region?"""
-        return self.band is None or self.band.contains(scene_pos)
+        """Is this scene point inside the visible region? Ink cropped
+        away by the canvas (or masked outside the band) is invisible
+        but fully hittable, so the view gates clicks here."""
+        visible = self.visible_rect()
+        return visible is None or visible.contains(scene_pos)
 
     def mask_strips(self, rect: QRectF) -> list[QRectF]:
         """Letterbox strips covering the part of the exposed region
-        `rect` outside the band (four edges; corner overlap is harmless
-        — the mask is the same opaque color as the view background)."""
-        band = self.band
+        `rect` outside the visible region (four edges; corner overlap
+        is harmless — the mask is the same opaque color as the view
+        background)."""
+        band = self.visible_rect()
         if band is None:
             return []
         strips: list[QRectF] = []

@@ -30,7 +30,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 
 from scoreanim.core.editing import COARSE_NUDGE, NUDGE_STEP
@@ -38,6 +38,9 @@ from scoreanim.ui.stage_frame import StageFraming
 from scoreanim.ui.stage_scrollbars import TransientScrollbars
 
 _LETTERBOX = QColor("#3a3a3a")
+# The canvas frame's own edge: light enough to read on the letterbox,
+# quiet enough not to read as part of the score.
+_FRAME_EDGE = QColor("#7a7a7a")
 # Arrow key → unit direction (M3.2). Page y grows downward, as in SVG.
 _ARROW_KEYS = {Qt.Key.Key_Left: (-1.0, 0.0), Qt.Key.Key_Right: (1.0, 0.0),
                Qt.Key.Key_Up: (0.0, -1.0), Qt.Key.Key_Down: (0.0, 1.0)}
@@ -120,17 +123,44 @@ class StageView(QGraphicsView):
         self._scrollbars = TransientScrollbars(self)
         self._fit_mode = True
         self._framing = StageFraming()       # frame/band/mask geometry
+        self._preview_fill: QColor | None = None   # overlay preview
         self._press_pos = None               # viewport px, for click detect
         self.nudge_probe = None              # set by the window (M3.2)
         self._drag_origin: QPointF | None = None   # scene pos of the press
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)   # Esc needs focus
 
+    def set_canvas(self, canvas) -> None:
+        """The document's video canvas (or None): reframe in place,
+        keeping whatever page or band is showing."""
+        self._framing.set_canvas(canvas)
+        scene = self.scene()
+        if scene is not None:
+            page = scene.sceneRect()
+            if self._framing.band is not None:
+                self._framing.set_system_band(page, self._framing.band)
+            else:
+                self._framing.set_page(page)
+            self.setSceneRect(self._framing.scene_rect(page))
+            if self._fit_mode:
+                self._fit()
+        self.viewport().update()
+
+    def set_overlay_preview(self, active: bool, color: QColor) -> None:
+        """View-only composite preview: fill the frame with `color`
+        (the video the overlay will sit on) behind the ink. Never
+        reaches export — ruling R1 keeps frames transparent."""
+        self._preview_fill = QColor(color) if active else None
+        self.viewport().update()
+
     def show_scene(self, scene: QGraphicsScene) -> None:
         """Page flip: swap scenes, keep the current fit/zoom behavior."""
         self.setScene(scene)
-        self.setSceneRect(scene.sceneRect())
+        page = scene.sceneRect()
+        self._framing.set_page(page)
+        self.setSceneRect(self._framing.scene_rect(page))
         if self._fit_mode:
             self._fit()
+        self.viewport().update()
 
     def show_system_band(self, scene: QGraphicsScene, band: QRectF) -> None:
         """System flip (Phase 7.4; framing revised Phase 10R): swap to
@@ -148,10 +178,13 @@ class StageView(QGraphicsView):
         self.viewport().update()
 
     def clear_band(self) -> None:
-        """Back to paged framing (mask off)."""
-        self._framing.set_page()
+        """Back to paged framing (band mask off; the canvas stays)."""
         if self.scene() is not None:
-            self.setSceneRect(self.scene().sceneRect())
+            page = self.scene().sceneRect()
+            self._framing.set_page(page)
+            self.setSceneRect(self._framing.scene_rect(page))
+        else:
+            self._framing.band = None
         if self._fit_mode:
             self._fit()
         self.viewport().update()
@@ -167,12 +200,35 @@ class StageView(QGraphicsView):
         target = self._framing.fit_target(self.scene().sceneRect())
         self.fitInView(target, Qt.AspectRatioMode.KeepAspectRatio)
 
+    def drawBackground(self, painter, rect) -> None:  # noqa: N802
+        """The overlay preview: the chosen video color inside the
+        frame, behind the ink. The paper rect is hidden by the window
+        while the preview is on, so the ink composites over this the
+        way the exported overlay will over footage."""
+        super().drawBackground(painter, rect)
+        fill = self._preview_fill
+        if fill is None or self.scene() is None:
+            return
+        target = self._framing.frame
+        if target is None:
+            target = self.scene().sceneRect()
+        painter.fillRect(target.intersected(rect), fill)
+
     def drawForeground(self, painter, rect) -> None:  # noqa: N802
-        """Letterbox masking for system mode: fill the exposed scene
-        area outside the band (geometry in stage_frame.py)."""
+        """Letterbox masking outside the visible region (geometry in
+        stage_frame.py), then the canvas frame's edge — a thin line so
+        the video's boundary reads even where page and letterbox meet
+        flush."""
         super().drawForeground(painter, rect)
         for strip in self._framing.mask_strips(rect):
             painter.fillRect(strip, _LETTERBOX)
+        if self._framing.canvas is not None \
+                and self._framing.frame is not None:
+            pen = QPen(_FRAME_EDGE)
+            pen.setCosmetic(True)           # 1 device px at every zoom
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(self._framing.frame)
 
     # -- selection gesture -------------------------------------------------
 
