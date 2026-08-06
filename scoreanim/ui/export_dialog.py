@@ -1,13 +1,10 @@
-"""Export dialog: settings → chunked frame walk → encoder sink.
+"""Export dialog: the settings form, and the UI around a run.
 
-The long-running walk stays on the GUI thread, chunked: each batch
-renders frames until a ~40 ms wall budget is spent, then re-arms with
-QTimer.singleShot(0, …) so the event loop breathes between batches (the
-modal dialog repaints, Cancel arrives) and a batch can never re-enter a
-running batch. This matches the codebase's deliberate no-QThread style
-(PeakExtractor is event-loop-driven the same way). Rendering and
-encoding live in render/export.py and render/encode.py; core is
-untouched.
+The long-running walk itself lives in ui/export_run.py (ExportRun): the
+dialog builds the renderer and the sink from its form, hands them to a
+run, and reflects the run's progress callbacks in its own widgets.
+Rendering and encoding live in render/export.py and render/encode.py;
+core is untouched.
 
 Settings are session memory only (ruling R3): remembered() hands back a
 dict the window passes into the next dialog. Nothing enters the project
@@ -15,11 +12,8 @@ document.
 """
 from __future__ import annotations
 
-import time
-from collections import deque
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog,
                                QFormLayout, QHBoxLayout, QLabel,
                                QLineEdit, QProgressBar, QPushButton,
@@ -30,14 +24,13 @@ from scoreanim.core.audio import PeakCache
 from scoreanim.core.project.stage_config import PresentationMode
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.timing import SwingRegion, TempoMap
-from scoreanim.render.encode import (AlphaMode, EncodeError, FrameSink,
-                                     PngSequenceSink, ProResFfmpegSink,
-                                     find_ffmpeg)
+from scoreanim.render.encode import (AlphaMode, PngSequenceSink,
+                                     ProResFfmpegSink, find_ffmpeg)
 from scoreanim.render.export import (AnimationInputs, ExportFormat,
                                      ExportSpec, FrameRenderer, even_size,
                                      frame_count, measure_span_seconds)
+from scoreanim.ui.export_run import ExportRun
 
-_BATCH_BUDGET_S = 0.040
 _FPS_CHOICES = (24, 25, 30, 50, 60)
 
 
@@ -74,12 +67,7 @@ class ExportDialog(QDialog):
         self._duration = duration_seconds
         self._stem = Path(score_name).stem or "score"
 
-        self._running = False
-        self._cancel_requested = False
-        self._renderer: FrameRenderer | None = None
-        self._sink: FrameSink | None = None
-        self._frame = 0
-        self._recent: deque[tuple[int, float]] = deque(maxlen=50)
+        self._run: ExportRun | None = None
 
         self._build_ui()
         if settings:
@@ -289,7 +277,11 @@ class ExportDialog(QDialog):
                 "path": self._path.text() if self._path.isModified() else "",
                 "height": self._height.value()}
 
-    # -- the run ----------------------------------------------------------------
+    # -- the run (ui/export_run.py owns the walk) --------------------------------
+
+    @property
+    def _running(self) -> bool:
+        return self._run is not None
 
     def _start(self) -> None:
         start, end = self._range()
@@ -305,95 +297,47 @@ class ExportDialog(QDialog):
                           format=self._chosen_format(), out_path=out)
         self._status.setText("building scene…")
         self.repaint()
-        self._renderer = FrameRenderer(self._inputs, self._style,
-                                       self._tempo_map, self._swing, spec,
-                                       overrides=self._overrides,
-                                       peaks=self._peaks)
-        w, h = self._renderer.size
+        renderer = FrameRenderer(self._inputs, self._style,
+                                 self._tempo_map, self._swing, spec,
+                                 overrides=self._overrides,
+                                 peaks=self._peaks)
+        w, h = renderer.size
         try:
             alpha = self._alpha.currentData()
             if spec.format is ExportFormat.PRORES_4444:
                 out.parent.mkdir(parents=True, exist_ok=True)
-                self._sink = ProResFfmpegSink(out, w, h, fps, find_ffmpeg(),
-                                              alpha)
+                sink = ProResFfmpegSink(out, w, h, fps, find_ffmpeg(),
+                                        alpha)
             else:
-                self._sink = PngSequenceSink(out, self._stem, alpha)
+                sink = PngSequenceSink(out, self._stem, alpha)
         except OSError as exc:
-            self._fail(str(exc))
+            self._status.setText(f"export failed: {exc}")
             return
 
-        self._running = True
-        self._cancel_requested = False
-        self._frame = 0
-        self._recent.clear()
-        self._progress.setRange(0, self._renderer.frame_count)
+        self._run = ExportRun(renderer, sink,
+                              on_progress=self._on_run_progress,
+                              on_done=self._on_run_done)
+        self._progress.setRange(0, self._run.frame_count)
         self._progress.setValue(0)
         self._set_inputs_enabled(False)
         self._export_btn.setEnabled(False)
         self._cancel_btn.setText("Cancel")
         self._status.setText("exporting…")
-        QTimer.singleShot(0, self._render_batch)
+        self._run.start()
 
-    def _render_batch(self) -> None:
-        if not self._running:
-            return
-        assert self._renderer is not None and self._sink is not None
-        if self._cancel_requested:
-            self._sink.abort()
-            self._finish_ui("export cancelled — partial output removed")
-            return
-        t0 = time.perf_counter()
-        total = self._renderer.frame_count
-        try:
-            while (self._frame < total
-                   and time.perf_counter() - t0 < _BATCH_BUDGET_S):
-                image = self._renderer.render_frame(self._frame)
-                self._sink.write(self._frame, image)
-                self._frame += 1
-        except EncodeError as exc:
-            self._sink.abort()
-            self._fail(str(exc))
-            return
-        self._recent.append((self._frame, time.perf_counter()))
-        self._progress.setValue(self._frame)
-        self._status.setText(self._eta_text(total))
-        if self._frame >= total:
-            try:
-                self._sink.finish()
-            except EncodeError as exc:
-                self._fail(str(exc))
-                return
-            self._progress.setValue(total)
-            self._finish_ui(f"wrote {self._out_display()}")
-            self.accept()                     # success closes the dialog
-            return
-        QTimer.singleShot(0, self._render_batch)
+    def _on_run_progress(self, frame: int, total: int, text: str) -> None:
+        self._progress.setValue(frame)
+        self._status.setText(text)
 
-    def _eta_text(self, total: int) -> str:
-        if len(self._recent) < 2:
-            return "exporting…"
-        (f0, t0), (f1, t1) = self._recent[0], self._recent[-1]
-        if t1 <= t0 or f1 <= f0:
-            return "exporting…"
-        rate = (f1 - f0) / (t1 - t0)
-        remaining = (total - self._frame) / rate
-        return (f"frame {self._frame}/{total} · {rate:.0f} fps · "
-                f"~{remaining:.0f} s left")
-
-    def _out_display(self) -> str:
-        return self._path.text()
-
-    def _fail(self, message: str) -> None:
-        self._finish_ui(f"export failed: {message}")
-
-    def _finish_ui(self, message: str) -> None:
-        self._running = False
-        self._renderer = None
-        self._sink = None
-        self._status.setText(message)
+    def _on_run_done(self, ok: bool, message: str) -> None:
+        self._run = None
+        self._status.setText(message if not ok
+                             else f"wrote {self._path.text()}")
         self._set_inputs_enabled(True)
         self._export_btn.setEnabled(True)
         self._cancel_btn.setText("Close")
+        if ok:
+            self.accept()                     # success closes the dialog
 
     def _set_inputs_enabled(self, enabled: bool) -> None:
         for widget in (self._fps, self._format, self._whole,
@@ -406,20 +350,20 @@ class ExportDialog(QDialog):
     # -- cancel / close routing ---------------------------------------------------
 
     def _cancel_or_close(self) -> None:
-        if self._running:
-            self._cancel_requested = True
+        if self._run is not None:
+            self._run.cancel()
         else:
             self.reject()
 
     def reject(self) -> None:                        # Esc while running
-        if self._running:
-            self._cancel_requested = True
+        if self._run is not None:
+            self._run.cancel()
             return
         super().reject()
 
     def closeEvent(self, event) -> None:             # noqa: N802 (Qt naming)
-        if self._running:
-            self._cancel_requested = True
+        if self._run is not None:
+            self._run.cancel()
             event.ignore()
             return
         super().closeEvent(event)
