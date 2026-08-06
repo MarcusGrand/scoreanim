@@ -1259,3 +1259,27 @@ def test_system_canvas_frames_are_all_one_size_and_band_clipped(
         if strip_top > 2:
             assert _max_alpha_in(image, 0, 0, canvas.width,
                                  strip_top - 2) == 0
+
+
+def test_dialog_reflects_the_documents_canvas(qapp, inputs, tempo_map,
+                                              score_model) -> None:
+    """With a canvas the Size row is a read-only reflection (the value
+    has one home, the Video canvas panel) and the summary reports the
+    canvas pixels; without one, the height spinbox behaves as always."""
+    from scoreanim.core.project import VideoCanvas
+    from scoreanim.ui.export_dialog import ExportDialog
+
+    def dialog(canvas=None):
+        return ExportDialog(inputs, StyleRules(), tempo_map, (),
+                            score_model.measures, 0.0, 10.0, "score",
+                            canvas=canvas)
+
+    with_canvas = dialog(VideoCanvas(1080, 1920))
+    assert with_canvas._output_size() == (1080, 1920)
+    assert "1080×1920" in with_canvas._summary.text()
+    assert with_canvas._size_widgets() == ()          # nothing to edit
+
+    legacy = dialog()
+    assert legacy._output_size() == even_size(
+        *legacy._page_aspect, legacy._height.value())
+    assert legacy._size_widgets() == (legacy._height,)

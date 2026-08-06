@@ -21,7 +21,8 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog,
 
 from scoreanim.core.animation import StyleRules
 from scoreanim.core.audio import PeakCache
-from scoreanim.core.project.stage_config import PresentationMode
+from scoreanim.core.project.stage_config import (PresentationMode,
+                                                 VideoCanvas)
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.timing import SwingRegion, TempoMap
 from scoreanim.render.encode import (AlphaMode, PngSequenceSink,
@@ -42,6 +43,7 @@ class ExportDialog(QDialog):
                  score_name: str,
                  mode: PresentationMode = PresentationMode.PAGED,
                  overrides: dict | None = None,
+                 canvas: VideoCanvas | None = None,
                  settings: dict | None = None,
                  peaks: PeakCache | None = None,
                  parent=None) -> None:
@@ -56,6 +58,11 @@ class ExportDialog(QDialog):
         # doc.layout_overrides, same live-at-open reasoning (Phase 9.2:
         # hidden tempo marks stay hidden in the export)
         self._overrides = dict(overrides or {})
+        # the document's video canvas, live at open like `mode`. Shown
+        # read-only: the size has ONE home (the Video canvas panel), so
+        # the dialog reflects it rather than growing a second,
+        # undo-less author of the same intent (rule 5's spirit)
+        self._canvas = canvas
         self._tempo_map = tempo_map
         self._swing = swing
         # the decoded audio, live at open like `style` and `overrides`:
@@ -112,23 +119,30 @@ class ExportDialog(QDialog):
 
         geo = self._inputs.layout.pages[0]
         self._page_aspect = (geo.width, geo.height)
-        # both modes share the page-aspect canvas (Phase 10R ruling:
-        # the frame never changes shape; system mode centers the single
-        # system vertically inside it)
+        # with no canvas both modes share the page-aspect frame (Phase
+        # 10R ruling: the frame never changes shape; system mode centers
+        # the single system vertically inside it). The spinbox exists
+        # either way so session memory round-trips; a canvas hides it.
         self._height = QSpinBox()
         self._height.setRange(240, 4320)
         self._height.setSingleStep(2)
         self._height.setValue(2160)
         self._height.setSuffix(" px high")
-        # aspect is the page's own and stays locked: width follows
-        # the height, the 🔗 makes the coupling visible
         self._width_label = QLabel()
-        size_row = QHBoxLayout()
-        size_row.addWidget(self._height)
-        size_row.addWidget(QLabel("🔗"))
-        size_row.addWidget(self._width_label)
-        size_row.addStretch(1)
-        form.addRow("Size:", size_row)
+        if self._canvas is not None:
+            c = self._canvas
+            form.addRow("Size:", QLabel(
+                f"{c.width} × {c.height} px — set in the Video canvas "
+                f"panel"))
+        else:
+            # aspect is the page's own and stays locked: width follows
+            # the height, the 🔗 makes the coupling visible
+            size_row = QHBoxLayout()
+            size_row.addWidget(self._height)
+            size_row.addWidget(QLabel("🔗"))
+            size_row.addWidget(self._width_label)
+            size_row.addStretch(1)
+            form.addRow("Size:", size_row)
 
         self._whole = QRadioButton(
             f"Whole recording ({self._duration:.2f} s)")
@@ -189,11 +203,14 @@ class ExportDialog(QDialog):
         self._on_format_changed()
 
     def _size_widgets(self) -> tuple[QSpinBox, ...]:
-        return (self._height,)
+        return () if self._canvas is not None else (self._height,)
 
     def _output_size(self) -> tuple[int, int]:
-        """Pixel size the current settings produce (evened, like the
-        renderer will) — page aspect in both modes (Phase 10R)."""
+        """Pixel size the current settings produce: the document's
+        canvas verbatim, else page aspect from the height (evened, like
+        the renderer will)."""
+        if self._canvas is not None:
+            return self._canvas.width, self._canvas.height
         return even_size(*self._page_aspect, self._height.value())
 
     def _on_span_toggled(self, span: bool) -> None:
@@ -291,7 +308,7 @@ class ExportDialog(QDialog):
             self._status.setText("choose an output path")
             return
         spec = ExportSpec(fps=fps, height=self._height.value(),
-                          mode=self._mode,
+                          mode=self._mode, canvas=self._canvas,
                           start_seconds=start, end_seconds=end,
                           offset_seconds=self._offset,
                           format=self._chosen_format(), out_path=out)
