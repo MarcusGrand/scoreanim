@@ -252,6 +252,7 @@ class MainWindow(QMainWindow):
         self.delete_action.sync()     # a delete disables its own action
         self.stem_flip_action.sync()  # a flip re-engraves under its own tip
         self.router.sync_presentation_mode(doc.stage.mode)
+        self.router.sync_canvas(doc.stage.canvas)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
         undo = self.menus.undo_action
