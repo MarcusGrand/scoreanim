@@ -317,6 +317,11 @@ class VerovioEngravingProvider(EngravingProvider):
         base = scale if scale is not None else _user_scale(params)
         if base != kinds._DEFAULT_SCALE:
             tk.setOptions({"scale": base})
+        # The lyrics' own size (2026-08-06): a factor of Verovio's
+        # default, clamped to its hard range. 1.0 sets nothing.
+        if params.lyric_size != 1.0:
+            tk.setOptions({"lyricSize": max(2.0, min(8.0,
+                          kinds._DEFAULT_LYRIC_SIZE * params.lyric_size))})
         # Hide-first-system (2026-07-24): Verovio keeps the first system
         # full under optimize (the engraving convention) unless told to
         # condense the first page too. Set only when the option is on —

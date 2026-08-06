@@ -122,6 +122,10 @@ _STATIC_TEXT_CLASSES = {"label", "labelAbbr", "pgHead", "pgFoot", "mNum"}
 _DEFAULT_SCALE = 100
 _FIT_MARGIN = 0.96
 
+# Verovio's own lyricSize default (MEI units); the user's lyric-size
+# factor multiplies it (2026-08-06, spikes/lyric_size.py).
+_DEFAULT_LYRIC_SIZE = 4.5
+
 # SVG classes whose Verovio id is genuinely a timemap key (notes and
 # rests). Note-owned fragments (stems, flags, accidentals, beams, …)
 # derive their onset from their owner, NOT their own id — and MUST NOT

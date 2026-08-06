@@ -1504,3 +1504,16 @@ def test_set_score_scale(doc) -> None:
     d1 = stack.execute(SetScoreScale(2.0), doc)
     assert stack.undo() == doc
     assert stack.redo() == d1
+
+
+def test_set_lyrics_size(doc) -> None:
+    from scoreanim.core.project import SetLyricsSize
+
+    assert doc.engraving.lyric_size == 1.0
+    out = SetLyricsSize(0.7).apply(doc)
+    assert out.engraving.lyric_size == 0.7
+    assert out.engraving.scale == doc.engraving.scale   # its own knob
+    assert doc.engraving.lyric_size == 1.0              # source untouched
+    for bad in (0.0, 0.4, 1.8, float("nan"), float("inf")):
+        with pytest.raises(CommandError):
+            SetLyricsSize(bad).apply(doc)

@@ -21,8 +21,9 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox,
                                QDoubleSpinBox, QFormLayout, QHBoxLayout,
                                QPushButton, QSpinBox, QWidget)
 
-from scoreanim.core.project import (Command, ProjectDoc, SetScoreScale,
-                                    SetVideoCanvas, VideoCanvas)
+from scoreanim.core.project import (Command, ProjectDoc, SetLyricsSize,
+                                    SetScoreScale, SetVideoCanvas,
+                                    VideoCanvas)
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
 from scoreanim.ui.window_state import default_settings
@@ -92,12 +93,26 @@ class VideoCanvasPanel(QWidget):
                                "repaginate, and a crowded system is "
                                "yours to break")
 
+        # Lyrics get their own size — the first thing to crowd when
+        # the score grows (Marcus, 2026-08-06). Same debounced
+        # re-engraving field as Scale; the engraver saturates outside
+        # roughly 45–175 %, which is what the range brackets.
+        self._lyrics = QDoubleSpinBox()
+        self._lyrics.setRange(50.0, 175.0)
+        self._lyrics.setDecimals(0)
+        self._lyrics.setSingleStep(5.0)
+        self._lyrics.setSuffix(" %")
+        self._lyrics.setToolTip("The lyrics' own size — shrink them "
+                                "when a bigger score crowds the verses")
+
         self.live_fields = (
             LiveField(self._width, app_state,
                       lambda v: self._edit_side(width=int(v))),
             LiveField(self._height, app_state,
                       lambda v: self._edit_side(height=int(v))),
             LiveField(self._scale, app_state, self._edit_scale,
+                      delay_ms=_REENGRAVE_DELAY_MS),
+            LiveField(self._lyrics, app_state, self._edit_lyrics,
                       delay_ms=_REENGRAVE_DELAY_MS),
         )
 
@@ -122,6 +137,7 @@ class VideoCanvasPanel(QWidget):
         form.addRow("Frame", self._preset)
         form.addRow("Size", size_box)
         form.addRow("Scale", self._scale)
+        form.addRow("Lyrics", self._lyrics)
         form.addRow("", preview_box)
 
         self._preview_box.toggled.connect(self._on_preview_toggled)
@@ -143,6 +159,11 @@ class VideoCanvasPanel(QWidget):
         scale = float(percent) / 100.0
         committed = self._state.committed.engraving.scale
         return None if scale == committed else SetScoreScale(scale)
+
+    def _edit_lyrics(self, percent: float) -> Command | None:
+        factor = float(percent) / 100.0
+        committed = self._state.committed.engraving.lyric_size
+        return None if factor == committed else SetLyricsSize(factor)
 
     def _on_preset(self, index: int) -> None:
         chosen = self._preset.itemData(index)
@@ -179,15 +200,16 @@ class VideoCanvasPanel(QWidget):
             self._preset.setCurrentIndex(
                 index if index >= 0 else self._preset_index(_CUSTOM))
         self._preset.blockSignals(False)
-        width, height, scale = self.live_fields
+        width, height, scale, lyrics = self.live_fields
         if canvas is not None:
             width.resync(canvas.width)
             height.resync(canvas.height)
-        # W/H need a canvas; scale is canvas-independent (it sizes the
-        # notation on the page) and stays enabled
+        # W/H need a canvas; the two engraving sizes are
+        # canvas-independent and stay enabled
         width.set_enabled(canvas is not None)
         height.set_enabled(canvas is not None)
         scale.resync(doc.engraving.scale * 100.0)
+        lyrics.resync(doc.engraving.lyric_size * 100.0)
 
     # -- preview background (view state) -----------------------------------
 

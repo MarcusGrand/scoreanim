@@ -259,3 +259,9 @@ class EngravingParams:
     # when a single system cannot fit; crowding within a system is the
     # user's to solve with system breaks.
     scale: float = 1.0
+    # The lyrics' own size (2026-08-06), as a factor of the default —
+    # lyrics are the first thing to crowd when the score grows, so
+    # they get their own knob. Verovio's `lyricSize` (default 4.5 MEI
+    # units, hard range 2–8, so the factor saturates near 0.44 and
+    # 1.78). 1.0 sets nothing (spikes/lyric_size.py).
+    lyric_size: float = 1.0

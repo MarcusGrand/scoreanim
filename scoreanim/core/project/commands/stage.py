@@ -67,6 +67,9 @@ class SetHideFirstSystem(Command):
 # above 8192 nothing plays it; even because yuva subsampling needs it.
 _CANVAS_SIDE = range(16, 8193)
 _SCALE_RANGE = (0.5, 3.0)
+# Verovio's lyricSize saturates at 2.0–8.0 around a 4.5 default, so
+# the UI range brackets what actually changes anything.
+_LYRICS_RANGE = (0.5, 1.75)
 
 
 def _validated_canvas(canvas: VideoCanvas) -> VideoCanvas:
@@ -118,6 +121,30 @@ class SetScoreScale(Command):
 
     def describe(self) -> str:
         return "set score scale"
+
+
+@dataclass(frozen=True)
+class SetLyricsSize(Command):
+    """The lyrics' own size, a factor of the engraver's default —
+    lyrics crowd first when the score grows, so they get their own
+    knob (2026-08-06). An engraving input like the score scale: same
+    re-engrave diff, same debounced-preview panel field. Verovio
+    clamps the underlying size to its own hard range, so factors past
+    ~1.78 (or under ~0.44) saturate rather than raise."""
+    factor: float
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        lo, hi = _LYRICS_RANGE
+        if not isinstance(self.factor, (int, float)) \
+                or not math.isfinite(self.factor) \
+                or not lo <= self.factor <= hi:
+            raise CommandError(f"bad lyrics size {self.factor!r} "
+                               f"(want {lo}–{hi})")
+        return replace(doc, engraving=replace(doc.engraving,
+                                              lyric_size=float(self.factor)))
+
+    def describe(self) -> str:
+        return "set lyrics size"
 
 
 _TEXT_ANCHORS = frozenset({"start", "middle", "end"})

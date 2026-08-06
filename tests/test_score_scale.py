@@ -110,3 +110,30 @@ def qapp_window(tmp_path):
     win = MainWindow(settings=settings)
     win.files.open_score(TESTSCORE)
     return win
+
+
+COMPLEX2 = Path(__file__).parent.parent / "testdata" / "complex2.musicxml"
+
+
+def test_lyrics_size_scales_only_the_lyrics() -> None:
+    """The lyrics knob (spiked in spikes/lyric_size.py) on the one
+    fixture whose lyrics reach the layout: syllables grow with the
+    factor, noteheads do not, the page never moves. strict=False —
+    complex2 is an app-path fixture with known dropped spanners."""
+    plain = VerovioEngravingProvider().load_detailed(
+        COMPLEX2, EngravingParams(), strict=False)
+    sized = VerovioEngravingProvider().load_detailed(
+        COMPLEX2, EngravingParams(lyric_size=1.6), strict=False)
+
+    def mean(layout, kind, dim):
+        els = [e for e in layout.elements if e.identity.kind is kind]
+        assert els
+        return sum(getattr(e.bbox, dim) for e in els) / len(els)
+
+    lyric_ratio = mean(sized.layout, ElementKind.LYRIC, "h") \
+        / mean(plain.layout, ElementKind.LYRIC, "h")
+    head_ratio = mean(sized.layout, ElementKind.NOTEHEAD, "w") \
+        / mean(plain.layout, ElementKind.NOTEHEAD, "w")
+    assert lyric_ratio == pytest.approx(1.6, abs=0.1)
+    assert head_ratio == pytest.approx(1.0, abs=0.02)
+    assert sized.layout.pages[0].width == plain.layout.pages[0].width

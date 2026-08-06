@@ -676,3 +676,13 @@ def test_a_v11_reader_refuses_a_v12_file() -> None:
             ser.from_dict(payload)
     finally:
         ser._READABLE_VERSIONS = original
+
+
+def test_v12_lyrics_size_round_trips_and_is_sparse() -> None:
+    sized = ProjectDoc(engraving=EngravingParams(lyric_size=0.7))
+    payload = to_dict(sized)
+    assert payload["engraving"]["lyric_size"] == 0.7
+    assert from_dict(payload).engraving.lyric_size == 0.7
+    assert "lyric_size" not in to_dict(ProjectDoc())["engraving"]
+    for version in (1, 7, 11):
+        assert from_dict({"version": version}).engraving.lyric_size == 1.0

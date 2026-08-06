@@ -136,3 +136,21 @@ def test_restore_preview_reflects_settings(panel, qapp, tmp_path) -> None:
     p.restore_preview()
     assert heard == [(True, "#123456")]
     assert p.overlay_preview() == (True, QColor("#123456"))
+
+
+def test_lyrics_size_is_a_debounced_engraving_field(panel) -> None:
+    """Same contract as Scale: armed on change, live on the pause,
+    one undo entry on commit."""
+    p, state = panel
+    lyrics_field = p.live_fields[3]
+    assert lyrics_field.spin is p._lyrics
+    p._lyrics.setValue(70.0)
+    assert state.doc.engraving.lyric_size == 1.0
+    lyrics_field.flush_preview()
+    assert state.doc.engraving.lyric_size == 0.7
+    assert not state.can_undo
+    lyrics_field.commit()
+    assert state.undo_text() == "set lyrics size"
+    state.undo()
+    assert state.doc.engraving.lyric_size == 1.0
+    assert p._lyrics.value() == 100.0
