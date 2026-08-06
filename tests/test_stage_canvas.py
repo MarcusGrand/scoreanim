@@ -79,8 +79,10 @@ def test_the_frame_takes_the_canvas_shape(qapp, scenes) -> None:
 def test_the_frame_always_holds_the_whole_page(qapp, scenes) -> None:
     """Fitting means containing: whatever the canvas shape, the frame
     covers the full page (the score is never cropped — its SIZE is the
-    engraving scale's job), so every point on the page stays clickable
-    and the slack beside it is letterbox."""
+    engraving scale's job), so every point on the page stays clickable.
+    The slack beside the page belongs to the BOX: it fills with the
+    page's own background, so the canvas reads as one solid rectangle,
+    while outside the frame stays letterbox."""
     scene = scenes.scene_for_page(1)
     page = scene.sceneRect()
     for canvas in (VideoCanvas(1920, 1080), VideoCanvas(1080, 1920)):
@@ -96,13 +98,43 @@ def test_the_frame_always_holds_the_whole_page(qapp, scenes) -> None:
                                     page.top() + inset))
         assert view.in_band(QPointF(page.right() - inset,
                                     page.bottom() - inset))
-        # slack beside the page (landscape canvas: left of it) reads
-        # letterbox, not paper
-        if frame.left() < page.left():
+        if frame.left() < page.left():         # landscape: side slack
             slack_x = (frame.left() + page.left()) / 2
             color = _pixel(view, slack_x, page.center().y())
             if color is not None:
-                assert color.name() == _LETTERBOX.name()
+                assert color.name() == "#ffffff"   # part of the box
+        # past the frame: letterbox
+        outside_x = frame.left() - frame.width() * 0.05
+        color = _pixel(view, outside_x, frame.center().y())
+        if color is not None:
+            assert color.name() == _LETTERBOX.name()
+
+
+def test_the_box_is_solid_across_systems(qapp, engraved, scenes) -> None:
+    """The report (round 3): in system mode the lit area was band∩frame
+    and reshaped with every system. Now a point inside the frame but
+    OUTSIDE the band reads the frame's fill — the page background, or
+    the preview color when the preview is on — never letterbox, so the
+    box is one still rectangle whose content changes."""
+    bands = {b.system: b for b in system_bands(engraved.layout)}
+    canvas = VideoCanvas(1080, 1920)
+    view = StageView()
+    view.resize(500, 880)
+    view.viewport().grab()
+    view.set_canvas(canvas)
+    band = bands[2]
+    scene = scenes.scene_for_page(band.page)
+    view.show_system_band(scene, QRectF(band.rect.x, band.rect.y,
+                                        band.rect.w, band.rect.h))
+    frame = view._framing.frame
+    # inside the frame, well above the band: the box, not letterbox
+    probe_y = (frame.top() + band.rect.y) / 2
+    probe = (frame.center().x(), probe_y)
+    assert _pixel(view, *probe).name() == "#ffffff"
+
+    view.set_overlay_preview(True, QColor("#000000"))
+    assert _pixel(view, *probe).name() == "#000000"
+    view.set_overlay_preview(False, QColor("#000000"))
 
 
 def test_no_canvas_is_todays_behavior(qapp, scenes) -> None:

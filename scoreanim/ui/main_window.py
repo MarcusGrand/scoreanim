@@ -24,8 +24,10 @@ from dataclasses import replace as _dc_replace
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
+from scoreanim.core.animation import read_colors
 from scoreanim.core.project import ProjectDoc, StageConfig
 from scoreanim.core.timing import TempoMap
 from scoreanim.render.export import AnimationInputs
@@ -247,6 +249,10 @@ class MainWindow(QMainWindow):
                 self.app_state.status.emit(f"re-engrave failed: {exc}")
         self.playback.set_timing_config(*self.timing_config(doc))
         self.doc_sync.sync_styles(doc)
+        # the canvas frame fills with the page's own background when
+        # the overlay preview is off, so the view needs the mode too
+        self.view.set_page_fill(
+            QColor(read_colors(doc.style.colors).background))
         if self.doc_sync.sync_stage(doc) \
                 and self.animation_inputs is not None:
             # a stage-text edit must reach export too — inputs.stage is

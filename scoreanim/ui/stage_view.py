@@ -124,6 +124,7 @@ class StageView(QGraphicsView):
         self._fit_mode = True
         self._framing = StageFraming()       # frame/band/mask geometry
         self._preview_fill: QColor | None = None   # overlay preview
+        self._page_fill = QColor(Qt.GlobalColor.white)   # doc page color
         self._press_pos = None               # viewport px, for click detect
         self.nudge_probe = None              # set by the window (M3.2)
         self._drag_origin: QPointF | None = None   # scene pos of the press
@@ -151,6 +152,17 @@ class StageView(QGraphicsView):
         reaches export — ruling R1 keeps frames transparent."""
         self._preview_fill = QColor(color) if active else None
         self.viewport().update()
+
+    def set_page_fill(self, color: QColor) -> None:
+        """The document's page background (light or dark mode) — the
+        canvas frame fills with it when the overlay preview is off, so
+        the box reads as one solid rectangle whatever mode shows."""
+        self._page_fill = QColor(color)
+        self.viewport().update()
+
+    def _frame_fill(self) -> QColor:
+        return self._preview_fill if self._preview_fill is not None \
+            else self._page_fill
 
     def show_scene(self, scene: QGraphicsScene) -> None:
         """Page flip: swap scenes, keep the current fit/zoom behavior."""
@@ -234,34 +246,52 @@ class StageView(QGraphicsView):
         self.centerOn(frame.center())
 
     def drawBackground(self, painter, rect) -> None:  # noqa: N802
-        """The overlay preview: the chosen video color inside the
-        frame, behind the ink. The paper rect is hidden by the window
-        while the preview is on, so the ink composites over this the
-        way the exported overlay will over footage."""
+        """The frame's own fill, behind the ink.
+
+        With a canvas the whole frame fills — the overlay-preview color
+        when the preview is on (paper hidden, so the ink composites the
+        way the exported overlay will over footage), else the page
+        background, so the letterbox slack beside the page belongs to
+        the box instead of reading as a hole in it. Without a canvas
+        only the preview fills, over the page."""
         super().drawBackground(painter, rect)
-        fill = self._preview_fill
-        if fill is None or self.scene() is None:
+        if self.scene() is None:
             return
-        target = self._framing.frame
-        if target is None:
-            target = self.scene().sceneRect()
-        painter.fillRect(target.intersected(rect), fill)
+        frame = self._framing.frame
+        if self._framing.canvas is not None and frame is not None:
+            painter.fillRect(frame.intersected(rect), self._frame_fill())
+        elif self._preview_fill is not None:
+            target = frame if frame is not None \
+                else self.scene().sceneRect()
+            painter.fillRect(target.intersected(rect), self._preview_fill)
 
     def drawForeground(self, painter, rect) -> None:  # noqa: N802
-        """Letterbox masking outside the visible region (geometry in
-        stage_frame.py), then the canvas frame's edge — a thin line so
-        the video's boundary reads even where page and letterbox meet
-        flush."""
+        """The masking, then the canvas frame's edge.
+
+        No canvas: letterbox over everything outside the visible band
+        (geometry in stage_frame.py). Canvas: letterbox only OUTSIDE
+        the frame; inside it, a neighbor system's ink is covered with
+        the frame's own fill — so the box is one still rectangle whose
+        content changes, never a box that reshapes per system."""
         super().drawForeground(painter, rect)
-        for strip in self._framing.mask_strips(rect):
+        framing = self._framing
+        if framing.canvas is None:
+            for strip in framing.mask_strips(rect):
+                painter.fillRect(strip, _LETTERBOX)
+            return
+        if framing.frame is None:
+            return
+        inside, outside = framing.canvas_mask(rect)
+        fill = self._frame_fill()
+        for strip in inside:
+            painter.fillRect(strip, fill)
+        for strip in outside:
             painter.fillRect(strip, _LETTERBOX)
-        if self._framing.canvas is not None \
-                and self._framing.frame is not None:
-            pen = QPen(_FRAME_EDGE)
-            pen.setCosmetic(True)           # 1 device px at every zoom
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(self._framing.frame)
+        pen = QPen(_FRAME_EDGE)
+        pen.setCosmetic(True)               # 1 device px at every zoom
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(framing.frame)
 
     # -- selection gesture -------------------------------------------------
 

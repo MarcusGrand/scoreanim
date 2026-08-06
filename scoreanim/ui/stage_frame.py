@@ -93,24 +93,46 @@ class StageFraming:
         return visible is None or visible.contains(scene_pos)
 
     def mask_strips(self, rect: QRectF) -> list[QRectF]:
-        """Letterbox strips covering the part of the exposed region
-        `rect` outside the visible region (four edges; corner overlap
-        is harmless — the mask is the same opaque color as the view
-        background)."""
+        """No-canvas masking: letterbox strips covering the part of the
+        exposed region `rect` outside the visible region."""
         band = self.visible_rect()
         if band is None:
             return []
-        strips: list[QRectF] = []
-        if rect.top() < band.top():
-            strips.append(QRectF(rect.left(), rect.top(), rect.width(),
-                                 band.top() - rect.top()))
-        if rect.bottom() > band.bottom():
-            strips.append(QRectF(rect.left(), band.bottom(), rect.width(),
-                                 rect.bottom() - band.bottom()))
-        if rect.left() < band.left():
-            strips.append(QRectF(rect.left(), rect.top(),
-                                 band.left() - rect.left(), rect.height()))
-        if rect.right() > band.right():
-            strips.append(QRectF(band.right(), rect.top(),
-                                 rect.right() - band.right(), rect.height()))
-        return strips
+        return strips_outside(rect, band)
+
+    def canvas_mask(self, rect: QRectF) -> tuple[list[QRectF],
+                                                 list[QRectF]]:
+        """Canvas masking, two colors: (inside, outside).
+
+        `outside` is everything in `rect` past the frame — letterbox.
+        `inside` is the part of the frame holding a NEIGHBOR system's
+        ink (frame minus band, system mode only) — painted in the
+        frame's own fill, so the canvas reads as ONE still rectangle
+        whose content changes, never a box that reshapes per system."""
+        assert self.frame is not None
+        outside = strips_outside(rect, self.frame)
+        exposed_frame = self.frame.intersected(rect)
+        if self.band is None or exposed_frame.isEmpty():
+            return [], outside
+        inside = strips_outside(exposed_frame,
+                                self.band.intersected(self.frame))
+        return inside, outside
+
+
+def strips_outside(rect: QRectF, inner: QRectF) -> list[QRectF]:
+    """The part of `rect` outside `inner`, as four edge strips (corner
+    overlap is harmless — every caller fills them one opaque color)."""
+    strips: list[QRectF] = []
+    if rect.top() < inner.top():
+        strips.append(QRectF(rect.left(), rect.top(), rect.width(),
+                             inner.top() - rect.top()))
+    if rect.bottom() > inner.bottom():
+        strips.append(QRectF(rect.left(), inner.bottom(), rect.width(),
+                             rect.bottom() - inner.bottom()))
+    if rect.left() < inner.left():
+        strips.append(QRectF(rect.left(), rect.top(),
+                             inner.left() - rect.left(), rect.height()))
+    if rect.right() > inner.right():
+        strips.append(QRectF(inner.right(), rect.top(),
+                             rect.right() - inner.right(), rect.height()))
+    return strips
