@@ -158,10 +158,15 @@ def test_moving_focus_ends_the_edit(qapp) -> None:
 def test_every_spinbox_is_a_live_field(build) -> None:
     """The standing rule, enforced: a number field that edits the
     document previews as you type. A spinbox added without a LiveField
-    fails here (see docs/PATTERNS.md)."""
+    fails here (see docs/PATTERNS.md). The ONE exemption is a field
+    whose command re-engraves (LiveField's own contract: re-engraving
+    commands go through execute, never preview) — a host declares those
+    in `reengrave_fields`, and they must not be live."""
     state = AppState()
     state.set_measures((MeasureInfo(number=1, start=0.0,
                                     quarter_length=4.0),))
     host = build(state)
+    exempt = set(getattr(host, "reengrave_fields", ()))
     assert {f.spin for f in host.live_fields} == \
-        set(host.findChildren(QAbstractSpinBox))
+        set(host.findChildren(QAbstractSpinBox)) - exempt
+    assert not exempt & {f.spin for f in host.live_fields}

@@ -43,27 +43,40 @@ def test_opens_on_page_aspect_with_nothing_stored(panel) -> None:
     assert state.doc.stage.canvas is None
     assert p._preset.currentData() is None
     assert not p._width.isEnabled()
-    assert not p._scale.isEnabled()
+    # score scale is canvas-independent (it sizes the notation itself)
+    assert p._scale.isEnabled()
+    assert p._scale.value() == 100.0
 
 
 def test_a_preset_click_is_one_command(panel) -> None:
     p, state = panel
     _pick(p, (1080, 1920))
-    assert state.doc.stage.canvas == VideoCanvas(1080, 1920, 1.0)
+    assert state.doc.stage.canvas == VideoCanvas(1080, 1920)
     assert state.undo_text() == "set video canvas"
     assert p._width.value() == 1080 and p._height.value() == 1920
-    assert p._width.isEnabled() and p._scale.isEnabled()
+    assert p._width.isEnabled()
     state.undo()
     assert state.doc.stage.canvas is None
     assert not state.can_undo               # one entry for the gesture
     assert not p._width.isEnabled()         # display re-derived
 
 
-def test_a_preset_keeps_the_scale(panel) -> None:
+def test_scale_commits_one_engraving_command(panel) -> None:
+    """Scale re-engraves, so it is NOT a live field: nothing happens
+    per keystroke, one SetScoreScale on the finished edit, no-op
+    guarded on focus-out."""
     p, state = panel
-    state.execute(SetVideoCanvas(VideoCanvas(1920, 1080, 1.5)))
-    _pick(p, (1080, 1920))
-    assert state.doc.stage.canvas == VideoCanvas(1080, 1920, 1.5)
+    assert p.reengrave_fields == (p._scale,)
+    p._scale.setValue(130.0)                # programmatic: no signal-commit
+    assert state.doc.engraving.scale == 1.0  # nothing until the edit ends
+    p._commit_scale()
+    assert state.doc.engraving.scale == 1.3
+    assert state.undo_text() == "set score scale"
+    p._commit_scale()                       # same value: no second entry
+    state.undo()
+    assert state.doc.engraving.scale == 1.0
+    assert not state.can_undo
+    assert p._scale.value() == 100.0        # display re-derived
 
 
 def test_page_aspect_clears_the_canvas(panel) -> None:
@@ -85,9 +98,8 @@ def test_custom_seeds_a_canvas_only_when_none(panel) -> None:
 
 def test_the_display_rederives_on_load_and_undo(panel) -> None:
     p, state = panel
-    state.execute(SetVideoCanvas(VideoCanvas(2160, 3840, 2.0)))
+    state.execute(SetVideoCanvas(VideoCanvas(2160, 3840)))
     assert p._preset.currentData() == (2160, 3840)
-    assert p._scale.value() == 200.0
     state.execute(SetVideoCanvas(VideoCanvas(1000, 600)))  # off-preset
     assert p._preset.currentData() == "custom"
     state.undo()

@@ -1,5 +1,7 @@
 """canvas_view_rect: the pure seam between the live canvas preview and
-the canvas export. Headless — no Qt anywhere near this."""
+the canvas export. Headless — no Qt anywhere near this. (The score's
+SIZE is not here: that is EngravingParams.scale, an engraving input —
+the frame always shows the whole page.)"""
 import pytest
 
 from scoreanim.core.engraving.canvas import canvas_view_rect
@@ -13,9 +15,9 @@ def test_rect_has_the_canvas_aspect() -> None:
     assert rect.w / rect.h == pytest.approx(1080 / 1920)
 
 
-def test_scale_one_contains_the_whole_page() -> None:
-    """At scale 1 the page fits the frame, so the view rect covers the
-    page with letterbox slack on the short axis only."""
+def test_the_whole_page_is_in_frame() -> None:
+    """The page fits the frame, so the view rect covers the page with
+    letterbox slack on the short axis only."""
     rect = canvas_view_rect(*PAGE, 1080, 1920)
     page_w, page_h = PAGE
     assert rect.x <= 0 and rect.x + rect.w >= page_w
@@ -54,32 +56,11 @@ def test_center_y_moves_only_the_vertical_center() -> None:
     assert (banded.w, banded.h) == (plain.w, plain.h)
 
 
-def test_scale_two_halves_the_rect() -> None:
-    """Twice the score size means the frame covers half the page each
-    way, still centered."""
-    one = canvas_view_rect(*PAGE, 1080, 1920, scale=1.0)
-    two = canvas_view_rect(*PAGE, 1080, 1920, scale=2.0)
-    assert two.w == pytest.approx(one.w / 2)
-    assert two.h == pytest.approx(one.h / 2)
-    assert two.center == one.center
-
-
-def test_scale_above_fit_crops_the_page() -> None:
-    """The deliberate crop: past fit, the rect no longer contains the
-    page on the limiting axis."""
-    page_w, page_h = PAGE
-    rect = canvas_view_rect(*PAGE, 1080, 1920, scale=1.5)
-    assert rect.x > 0 or rect.y > 0 \
-        or rect.x + rect.w < page_w or rect.y + rect.h < page_h
-
-
 @pytest.mark.parametrize("args", [
-    (0, 2970, 1080, 1920, 1.0),
-    (2100, 0, 1080, 1920, 1.0),
-    (2100, 2970, 0, 1920, 1.0),
-    (2100, 2970, 1080, -1, 1.0),
-    (2100, 2970, 1080, 1920, 0.0),
-    (2100, 2970, 1080, 1920, -0.5),
+    (0, 2970, 1080, 1920),
+    (2100, 0, 1080, 1920),
+    (2100, 2970, 0, 1920),
+    (2100, 2970, 1080, -1),
 ])
 def test_bad_inputs_raise(args) -> None:
     with pytest.raises(ValueError):

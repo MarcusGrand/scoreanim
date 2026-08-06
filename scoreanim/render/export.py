@@ -253,7 +253,7 @@ class FrameRenderer:
     def _canvas_src(self, center_y: float | None = None) -> QRectF:
         page, c = self._page_geo, self._canvas
         r = canvas_view_rect(page.width, page.height, c.width, c.height,
-                             c.scale, center_y)
+                             center_y)
         return QRectF(r.x, r.y, r.w, r.h)
 
     def _render_system_frame(self) -> QImage:

@@ -1467,7 +1467,7 @@ def test_set_video_canvas(doc) -> None:
 
     assert doc.stage.canvas is None              # new-doc default
     out = SetVideoCanvas(VideoCanvas(1080, 1920)).apply(doc)
-    assert out.stage.canvas == VideoCanvas(1080, 1920, 1.0)
+    assert out.stage.canvas == VideoCanvas(1080, 1920)
     assert out.stage.mode is doc.stage.mode      # mode untouched
     assert doc.stage.canvas is None              # source doc untouched
     # clearing is the same command with None, and it reads that way
@@ -1477,8 +1477,7 @@ def test_set_video_canvas(doc) -> None:
                 VideoCanvas(1080, 0),            # zero
                 VideoCanvas(1080, 10000),        # past any encoder
                 VideoCanvas(14, 1920),           # below the floor
-                VideoCanvas(1080.0, 1920),       # not an int
-                VideoCanvas(1080, 1920, 0.0)):   # bad scale rides along
+                VideoCanvas(1080.0, 1920)):      # not an int
         with pytest.raises(CommandError):
             SetVideoCanvas(bad).apply(doc)
     stack = UndoStack()
@@ -1488,15 +1487,20 @@ def test_set_video_canvas(doc) -> None:
 
 
 def test_set_score_scale(doc) -> None:
-    from scoreanim.core.project import (SetScoreScale, SetVideoCanvas,
-                                        VideoCanvas)
+    """The score's SIZE: an engraving input (rastral size), canvas or
+    no canvas — the notation is drawn bigger on the same page."""
+    from scoreanim.core.project import SetScoreScale
 
-    with pytest.raises(CommandError):            # meaningless without one
-        SetScoreScale(1.5).apply(doc)
-    with_canvas = SetVideoCanvas(VideoCanvas(1080, 1920)).apply(doc)
-    out = SetScoreScale(1.5).apply(with_canvas)
-    assert out.stage.canvas == VideoCanvas(1080, 1920, 1.5)
-    assert with_canvas.stage.canvas.scale == 1.0  # source untouched
-    for bad in (0.0, -1.0, 0.05, 8.1, float("nan"), float("inf")):
+    assert doc.engraving.scale == 1.0            # new-doc default
+    out = SetScoreScale(1.5).apply(doc)
+    assert out.engraving.scale == 1.5
+    assert out.engraving.xml_id_seed == doc.engraving.xml_id_seed
+    assert out.stage == doc.stage                # stage untouched
+    assert doc.engraving.scale == 1.0            # source untouched
+    for bad in (0.0, -1.0, 0.4, 3.1, float("nan"), float("inf")):
         with pytest.raises(CommandError):
-            SetScoreScale(bad).apply(with_canvas)
+            SetScoreScale(bad).apply(doc)
+    stack = UndoStack()
+    d1 = stack.execute(SetScoreScale(2.0), doc)
+    assert stack.undo() == doc
+    assert stack.redo() == d1

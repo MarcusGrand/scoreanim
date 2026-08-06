@@ -124,13 +124,23 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 #   the look is the same either way. This is the ONE key we consume
 #   rather than round-trip, and it is the second legacy fold in this
 #   file after v1's part_colors.
-# 12 (video canvas, 2026-08-06): stage.canvas — {width, height, scale},
-# the user's video frame and the score's size inside it, previewed live
-# and used verbatim as the export size. Omitted when unset. No read
-# gate: a missing key means no canvas, the page-aspect frame every
-# older file has always had. The bump keeps a v11 reader refusing
-# loudly instead of silently dropping the user's framing on a resave —
-# the v2 rationale. (Marcus approved this bump 2026-08-06.)
+# 12 (video canvas, 2026-08-06): stage.canvas — {width, height}, the
+# user's video frame, previewed live and used verbatim as the export
+# size. Omitted when unset. No read gate: a missing key means no
+# canvas, the page-aspect frame every older file has always had. The
+# bump keeps a v11 reader refusing loudly instead of silently dropping
+# the user's framing on a resave — the v2 rationale. (Marcus approved
+# this bump 2026-08-06.)
+#   Also v12 (score scale, same day): engraving.scale — the score's
+#   size on the page (rastral size; notation bigger, page constant),
+#   an ENGRAVING input consumed at the Verovio seam. Omitted at the
+#   default 1.0; a missing key is the default look, no read gate. It
+#   rides v12 by the v3/v11 precedent: no build has shipped reading
+#   v12, so a second number would protect nothing. The first cut of
+#   this feature (same day, never released) briefly stored a `scale`
+#   inside stage.canvas meaning a crop — Marcus corrected the meaning;
+#   a canvas-key scale from that build is deliberately IGNORED on
+#   read, never folded, because the two numbers mean different things.
 PROJECT_VERSION = 12
 _READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 SUFFIX = ".scoreanim"
@@ -148,6 +158,10 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
         "engraving": {
             "xml_id_seed": doc.engraving.xml_id_seed,
             "suppress_header": doc.engraving.suppress_header,
+            # v12: the score's size, omitted at the default so an
+            # untouched document keeps its byte shape
+            **({"scale": doc.engraving.scale}
+               if doc.engraving.scale != 1.0 else {}),
         },
         "layout_overrides": [
             {"element_id": str(eid), "dx": o.dx, "dy": o.dy,
@@ -179,8 +193,7 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
             # v12: the video canvas, omitted when unset (sparse — a
             # canvas-free document is byte-identical to v11's shape)
             **({"canvas": {"width": doc.stage.canvas.width,
-                           "height": doc.stage.canvas.height,
-                           "scale": doc.stage.canvas.scale}}
+                           "height": doc.stage.canvas.height}}
                if doc.stage.canvas is not None else {}),
             "texts": [
                 {"element_id": t.element_id, "content": t.content,
@@ -244,6 +257,8 @@ def from_dict(data: dict[str, Any],
                 xml_id_seed=data.get("engraving", {}).get("xml_id_seed", 42),
                 suppress_header=data.get("engraving", {})
                 .get("suppress_header", True),
+                # v12: missing key → 1.0, the look every file has had
+                scale=float(data.get("engraving", {}).get("scale", 1.0)),
             ),
             layout_overrides={
                 ElementId(o["element_id"]): LayoutOverride(
@@ -336,8 +351,9 @@ def from_dict(data: dict[str, Any],
 def _canvas_in(data: dict[str, Any] | None) -> VideoCanvas | None:
     if data is None:
         return None
-    return VideoCanvas(width=int(data["width"]), height=int(data["height"]),
-                       scale=float(data.get("scale", 1.0)))
+    # a same-day pre-release build wrote a "scale" here meaning a crop;
+    # deliberately ignored (see the v12 note above)
+    return VideoCanvas(width=int(data["width"]), height=int(data["height"]))
 
 
 def _presentation_mode_in(value: Any) -> PresentationMode:

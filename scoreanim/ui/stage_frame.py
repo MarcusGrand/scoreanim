@@ -55,9 +55,9 @@ class StageFraming:
                       center_y: float | None = None) -> QRectF | None:
         if self.canvas is None:
             return None
-        c = self.canvas
         r = canvas_view_rect(page.width(), page.height(),
-                             c.width, c.height, c.scale, center_y)
+                             self.canvas.width, self.canvas.height,
+                             center_y)
         return QRectF(r.x, r.y, r.w, r.h)
 
     def fit_target(self, scene_rect: QRectF) -> QRectF:

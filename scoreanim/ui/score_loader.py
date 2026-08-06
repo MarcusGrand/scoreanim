@@ -62,6 +62,7 @@ class ScoreLoader:
 
     def __init__(self) -> None:
         self._applied_groups: tuple = ()   # staff groups the engrave used
+        self._applied_params = None        # EngravingParams ditto
         self._applied_text_overrides: dict = {}   # label overrides ditto
         self._applied_hide_empty = False   # hide-empty-staves ditto
         self._applied_hide_first = False   # hide-first-system ditto
@@ -85,13 +86,15 @@ class ScoreLoader:
         return dict(self._applied_page_breaks)
 
     def needs_reengrave(self, doc: ProjectDoc) -> bool:
-        """Staff groups, part-label overrides, hide-empty-staves (and
-        its first-system extension), condense groups, and system-break
+        """Staff groups, the engraving params (the score scale lives
+        there), part-label overrides, hide-empty-staves (and its
+        first-system extension), condense groups, and system-break
         overrides -- and a hand-flipped stem, which Verovio draws --
         are engraving inputs: a change (execute, undo, OR redo)
         re-derives the engraved world. The diff keeps every other command
         at its current cost."""
         return (doc.staff_groups != self._applied_groups
+                or doc.engraving != self._applied_params
                 or dict(doc.text_overrides) != self._applied_text_overrides
                 or doc.hide_empty_staves != self._applied_hide_empty
                 or doc.hide_first_system != self._applied_hide_first
@@ -206,6 +209,7 @@ class ScoreLoader:
         t3 = time.perf_counter()
 
         self._applied_groups = groups
+        self._applied_params = params
         self._applied_text_overrides = text_overrides
         self._applied_hide_empty = hide_empty_staves
         self._applied_hide_first = hide_first_system

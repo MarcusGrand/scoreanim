@@ -250,3 +250,12 @@ class EngravingParams:
     # (suppression is a rendering option, not a decomposition exemption).
     # Verified: Verovio ids are identical either way, joins unaffected.
     suppress_header: bool = True
+    # The user's score size (2026-08-06): notation drawn bigger or
+    # smaller on the SAME page — Dorico's rastral size, Verovio's
+    # `scale` with scaleToPageSize (measured in spikes/score_scale.py:
+    # page geometry constant, ink linear in this). 1.0 is the default
+    # look. Systems that then overflow repaginate by the rule-7
+    # never-clip mechanism, and scale-to-fit still has the last word
+    # when a single system cannot fit; crowding within a system is the
+    # user's to solve with system breaks.
+    scale: float = 1.0

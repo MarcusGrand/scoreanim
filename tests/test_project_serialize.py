@@ -27,7 +27,8 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
     return ProjectDoc(
         score=FileRef(path=score_path, sha256="ab" * 32),
         audio=FileRef(path=audio_path, sha256=None),
-        engraving=EngravingParams(xml_id_seed=42, suppress_header=True),
+        engraving=EngravingParams(xml_id_seed=42, suppress_header=True,
+                                  scale=1.3),
         layout_overrides={
             ElementId("P1:m3:s1:v1:note:0"): LayoutOverride(dx=2.5, dy=-1.0),
             ElementId("P2:m4:s1:v1:stem:1"): LayoutOverride(hidden=True),
@@ -56,7 +57,7 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
         ),
         stage=StageConfig(
             mode=PresentationMode.SYSTEM,
-            canvas=VideoCanvas(width=1080, height=1920, scale=1.25),
+            canvas=VideoCanvas(width=1080, height=1920),
             texts=(
                 StageTextElement(element_id="stage:title",
                                  content="Det var…",
@@ -617,9 +618,33 @@ def test_older_files_load_with_the_pulse_off() -> None:
 
 def test_v12_canvas_round_trips() -> None:
     doc = ProjectDoc(stage=StageConfig(
-        canvas=VideoCanvas(width=1080, height=1920, scale=1.5)))
+        canvas=VideoCanvas(width=1080, height=1920)))
     out = from_dict(to_dict(doc))
-    assert out.stage.canvas == VideoCanvas(1080, 1920, 1.5)
+    assert out.stage.canvas == VideoCanvas(1080, 1920)
+
+
+def test_v12_score_scale_round_trips_and_is_sparse() -> None:
+    """The score's size rides engraving (it is an engraving input);
+    the default 1.0 writes no key at all, so an untouched document
+    keeps its byte shape."""
+    scaled = ProjectDoc(engraving=EngravingParams(scale=1.3))
+    payload = to_dict(scaled)
+    assert payload["engraving"]["scale"] == 1.3
+    assert from_dict(payload).engraving.scale == 1.3
+    assert "scale" not in to_dict(ProjectDoc())["engraving"]
+    for version in (1, 7, 11):
+        assert from_dict({"version": version}).engraving.scale == 1.0
+
+
+def test_a_pre_release_crop_scale_in_the_canvas_is_ignored() -> None:
+    """One same-day build wrote stage.canvas.scale meaning a CROP;
+    that number must not leak into the engraving scale, and the canvas
+    itself still loads."""
+    doc = from_dict({"version": 12,
+                     "stage": {"canvas": {"width": 1080, "height": 1920,
+                                          "scale": 1.5}}})
+    assert doc.stage.canvas == VideoCanvas(1080, 1920)
+    assert doc.engraving.scale == 1.0
 
 
 def test_no_canvas_writes_no_key_at_all() -> None:

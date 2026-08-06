@@ -61,6 +61,13 @@ def _sig_change_measures(canonical_xml: str) -> dict[
     return out
 
 
+def _user_scale(params: EngravingParams) -> int:
+    """The user's score size as a Verovio scale percent (2026-08-06).
+    1.0 is exactly the default 100, so an untouched document engraves
+    byte-identically."""
+    return max(1, round(kinds._DEFAULT_SCALE * params.scale))
+
+
 def _page_starts_of(engraved: "records.EngravedScore",
                     bands) -> frozenset[int]:
     """The measure ordinals starting a page in one engrave — derived
@@ -181,7 +188,10 @@ class VerovioEngravingProvider(EngravingProvider):
             bands = system_bands(engraved.layout)
             bottom = max((b.rect.y + b.rect.h for b in bands), default=0.0)
             if bottom > page_h:
-                fit = max(1, int(kinds._DEFAULT_SCALE * page_h / bottom
+                # measured from the scale this render actually used —
+                # the user's score size (2026-08-06) — so never-clip
+                # keeps the last word over a scaled-up score too
+                fit = max(1, int(_user_scale(params) * page_h / bottom
                                  * kinds._FIT_MARGIN))
                 prep = prepare(score_path, groups, texts, condense,
                                page_break_measures=breaks,
@@ -298,12 +308,15 @@ class VerovioEngravingProvider(EngravingProvider):
             # SYSTEM_DIVIDER decomposer support stays as defense.
             "systemDivider": "none",
         })
-        # Scale-to-fit (Phase 12.5, never-clip completion): a uniform
-        # staff-size reduction so a system taller than the page fits
-        # (rule 7 — an engraving input like Dorico's rastral size, not
-        # window reflow). None keeps Verovio's default (100).
-        if scale is not None:
-            tk.setOptions({"scale": scale})
+        # The engraving's staff size, two callers (rule 7 both times):
+        # scale-to-fit passes an explicit percent (Phase 12.5, a uniform
+        # reduction so a too-tall system fits); otherwise the user's
+        # score size (2026-08-06, EngravingParams.scale) sets the base.
+        # The default multiplies out to Verovio's own 100 and sets
+        # nothing, which keeps the goldens byte-identical.
+        base = scale if scale is not None else _user_scale(params)
+        if base != kinds._DEFAULT_SCALE:
+            tk.setOptions({"scale": base})
         # Hide-first-system (2026-07-24): Verovio keeps the first system
         # full under optimize (the engraving convention) unless told to
         # condense the first page too. Set only when the option is on —

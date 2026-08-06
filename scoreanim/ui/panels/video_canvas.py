@@ -75,21 +75,29 @@ class VideoCanvasPanel(QWidget):
         size_box = QWidget()
         size_box.setLayout(size_row)
 
+        # Score scale is an ENGRAVING input (rastral size): committing
+        # it re-engraves (~0.6 s), so it must never preview per
+        # keystroke — no LiveField, keyboard tracking off, one execute
+        # on Enter/focus-out. reengrave_fields is the enforcement
+        # test's exemption list for exactly this case.
         self._scale = QDoubleSpinBox()
-        self._scale.setRange(10.0, 800.0)
+        self._scale.setRange(50.0, 300.0)
         self._scale.setDecimals(0)
         self._scale.setSingleStep(5.0)
         self._scale.setSuffix(" %")
-        self._scale.setToolTip("How big the score sits in the frame — "
-                               "100 % fits the page, more crops at the "
-                               "frame edge")
+        self._scale.setKeyboardTracking(False)
+        self._scale.setToolTip("How big the notation is drawn — 100 % "
+                               "is the score's own size; bigger notes "
+                               "repaginate, and a crowded system is "
+                               "yours to break")
+        self._scale.editingFinished.connect(self._commit_scale)
+        self.reengrave_fields = (self._scale,)
 
         self.live_fields = (
             LiveField(self._width, app_state,
                       lambda v: self._edit_side(width=int(v))),
             LiveField(self._height, app_state,
                       lambda v: self._edit_side(height=int(v))),
-            LiveField(self._scale, app_state, self._edit_scale),
         )
 
         # -- preview background: view state, never the document --------
@@ -130,12 +138,12 @@ class VideoCanvasPanel(QWidget):
         edited = replace(canvas, **side)
         return None if edited == canvas else SetVideoCanvas(edited)
 
-    def _edit_scale(self, percent: float) -> Command | None:
-        canvas = self._state.committed.stage.canvas
-        if canvas is None:
-            return None
-        scale = float(percent) / 100.0
-        return None if scale == canvas.scale else SetScoreScale(scale)
+    def _commit_scale(self) -> None:
+        """One re-engraving command per finished edit, no-op guarded so
+        a plain focus-out costs nothing."""
+        scale = self._scale.value() / 100.0
+        if scale != self._state.doc.engraving.scale:
+            self._state.execute(SetScoreScale(scale))
 
     def _on_preset(self, index: int) -> None:
         chosen = self._preset.itemData(index)
@@ -147,9 +155,7 @@ class VideoCanvasPanel(QWidget):
             if committed is None:
                 self._state.execute(SetVideoCanvas(_SEED))
         else:
-            w, h = chosen
-            scale = committed.scale if committed is not None else 1.0
-            canvas = VideoCanvas(w, h, scale)
+            canvas = VideoCanvas(*chosen)
             if canvas != committed:
                 self._state.execute(SetVideoCanvas(canvas))
 
@@ -174,14 +180,19 @@ class VideoCanvasPanel(QWidget):
             self._preset.setCurrentIndex(
                 index if index >= 0 else self._preset_index(_CUSTOM))
         self._preset.blockSignals(False)
-        width, height = self.live_fields[0], self.live_fields[1]
-        scale = self.live_fields[2]
+        width, height = self.live_fields
         if canvas is not None:
             width.resync(canvas.width)
             height.resync(canvas.height)
-            scale.resync(canvas.scale * 100.0)
         for field in self.live_fields:
             field.set_enabled(canvas is not None)
+        # score scale is canvas-independent (it sizes the notation on
+        # the page); blockSignals is enough — no LiveField, so there is
+        # no mid-edit preview to protect
+        if not self._scale.hasFocus():
+            self._scale.blockSignals(True)
+            self._scale.setValue(doc.engraving.scale * 100.0)
+            self._scale.blockSignals(False)
 
     # -- preview background (view state) -----------------------------------
 

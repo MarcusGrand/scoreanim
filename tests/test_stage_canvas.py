@@ -1,6 +1,6 @@
 """The video canvas on the live stage, offscreen: the frame takes the
-user's shape, scale crops at the frame edge, clicks stop at the crop,
-and the overlay preview paints the video color behind the ink."""
+user's shape, clicks stop at the frame, and the overlay preview paints
+the video color behind the ink."""
 from __future__ import annotations
 
 import os
@@ -54,8 +54,7 @@ def _view(scene, canvas, size=(500, 880)) -> StageView:
 def _frame_rect(page: QRectF, canvas: VideoCanvas,
                 center_y: float | None = None) -> QRectF:
     r = canvas_view_rect(page.width(), page.height(),
-                         canvas.width, canvas.height, canvas.scale,
-                         center_y)
+                         canvas.width, canvas.height, center_y)
     return QRectF(r.x, r.y, r.w, r.h)
 
 
@@ -77,37 +76,33 @@ def test_the_frame_takes_the_canvas_shape(qapp, scenes) -> None:
         assert -4 <= pt.y() <= view.viewport().height() + 4
 
 
-def test_scale_crops_at_the_frame_edge(qapp, scenes) -> None:
-    """At scale 2 the page overflows the frame; overflowing ink reads
-    as letterbox (masked) while the frame's center still shows page."""
-    canvas = VideoCanvas(1080, 1920, scale=2.0)
+def test_the_frame_always_holds_the_whole_page(qapp, scenes) -> None:
+    """Fitting means containing: whatever the canvas shape, the frame
+    covers the full page (the score is never cropped — its SIZE is the
+    engraving scale's job), so every point on the page stays clickable
+    and the slack beside it is letterbox."""
     scene = scenes.scene_for_page(1)
-    view = _view(scene, canvas)
     page = scene.sceneRect()
-    frame = _frame_rect(page, canvas)
-    assert frame.left() > page.left()          # the crop is real
-
-    inside = _pixel(view, frame.center().x(), frame.center().y())
-    assert inside is not None
-    assert inside.name() != _LETTERBOX.name()
-    # a point on the page but left of the frame: cropped away
-    cropped_x = (page.left() + frame.left()) / 2
-    color = _pixel(view, cropped_x, frame.center().y())
-    if color is not None:                      # exposed at this aspect
-        assert color.name() == _LETTERBOX.name()
-
-
-def test_clicks_stop_at_the_crop(qapp, scenes) -> None:
-    """in_band gates on the visible region, so ink cropped away by the
-    canvas cannot be clicked (the system-mode rule, generalized)."""
-    canvas = VideoCanvas(1080, 1920, scale=2.0)
-    scene = scenes.scene_for_page(1)
-    view = _view(scene, canvas)
-    page = scene.sceneRect()
-    frame = _frame_rect(page, canvas)
-    assert view.in_band(frame.center())
-    outside = QPointF((page.left() + frame.left()) / 2, frame.center().y())
-    assert not view.in_band(outside)
+    for canvas in (VideoCanvas(1920, 1080), VideoCanvas(1080, 1920)):
+        view = _view(scene, canvas)
+        frame = _frame_rect(page, canvas)
+        assert frame.united(page) == frame     # page ⊆ frame
+        # corners inset by one device pixel: the stability fit snaps
+        # the frame a quarter device pixel, so the mathematical corner
+        # can sit in a sub-pixel sliver outside — a real click cannot
+        # (it always lands on a whole device pixel)
+        inset = 1.0 / view.transform().m11()
+        assert view.in_band(QPointF(page.left() + inset,
+                                    page.top() + inset))
+        assert view.in_band(QPointF(page.right() - inset,
+                                    page.bottom() - inset))
+        # slack beside the page (landscape canvas: left of it) reads
+        # letterbox, not paper
+        if frame.left() < page.left():
+            slack_x = (frame.left() + page.left()) / 2
+            color = _pixel(view, slack_x, page.center().y())
+            if color is not None:
+                assert color.name() == _LETTERBOX.name()
 
 
 def test_no_canvas_is_todays_behavior(qapp, scenes) -> None:

@@ -1161,7 +1161,7 @@ def _canvas_src_rect(inputs, canvas):
     from scoreanim.core.engraving.canvas import canvas_view_rect
     geo = inputs.layout.pages[0]
     return canvas_view_rect(geo.width, geo.height,
-                            canvas.width, canvas.height, canvas.scale)
+                            canvas.width, canvas.height)
 
 
 def test_canvas_frames_are_exactly_the_canvas_size(
@@ -1187,7 +1187,7 @@ def test_canvas_composite_matches_the_pure_rect(
 
     offset = tempo_setup.offset_seconds
     seconds = _trigger_seconds(schedule, tempo_map)
-    canvas = VideoCanvas(270, 480, scale=1.3)
+    canvas = VideoCanvas(270, 480)
     renderer = make_canvas_renderer(inputs, tempo_map, offset,
                                     end=_audio_end(schedule, tempo_map,
                                                    offset),
@@ -1202,7 +1202,7 @@ def test_canvas_composite_matches_the_pure_rect(
     y0 = max(0, int((b.y() - src.y) * ppu) - 1)
     x1 = min(canvas.width, int((b.x() + b.width() - src.x) * ppu) + 2)
     y1 = min(canvas.height, int((b.y() + b.height() - src.y) * ppu) + 2)
-    assert x1 > x0 and y1 > y0                        # in frame at 1.3x
+    assert x1 > x0 and y1 > y0                        # in frame
 
     onset_frame = math.ceil((seconds[0] + offset) * FPS - 1e-6)
     lit = _max_alpha_in(renderer.render_frame(onset_frame),
