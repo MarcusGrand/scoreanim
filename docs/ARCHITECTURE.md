@@ -991,11 +991,27 @@ re-touching. "Clear overrides on selection" must be cheap.
   floor-opacity ghost ink exports as-is (ruling R1, transparent-only).
   Page turns hard-cut on the frame where `current_page()` changes,
   identical to live follow (ruling R2). One
-  `convertToFormat(RGBA8888)` per frame un-premultiplies to the
-  straight alpha encoders expect. ProRes 4444 .mov (ffmpeg stdin
-  stream, runtime-discovered) is the default; PNG sequence (pure Qt)
-  is the no-ffmpeg fallback. Export settings are session memory only
-  (ruling R3) — nothing enters the project document.
+  `convertToFormat` per frame puts the bytes in R,G,B,A order whatever
+  the machine's endianness. ProRes 4444 .mov (ffmpeg stdin stream,
+  runtime-discovered) is the default; PNG sequence (pure Qt) is the
+  no-ffmpeg fallback. Export settings are session memory only (ruling
+  R3) — nothing enters the project document.
+- **Alpha mode** (2026-08-06, `render/encode.py::AlphaMode`): that same
+  convert also decides how the file writes colour beside alpha, and it
+  is the user's choice with **premultiplied ("matted with black") the
+  default**. Straight was the only option until a glow exported for
+  Premiere came out solid: an editor that reads straight frames as
+  premultiplied puts every soft edge on at full strength, wrong by
+  1/alpha (measured on a real halo pixel — alpha 70/255 carrying
+  (251,197,91) should composite over black to (69,54,25) and arrived as
+  the full gold, 3.6x). Premiere assumes premultiplied and offers no
+  switch, so the app matches it. The matte is then RELABELLED as plain
+  RGBA — the same bytes under a name Qt will not undo — because
+  `pixelColor` un-premultiplies on the way out and Qt's PNG writer
+  converts premultiplied data back to straight before saving. Pinned:
+  the two modes are the same picture (premultiplied == straight x its
+  own alpha), and a premultiplied clip's colour channel decodes to the
+  app's own over-black composite within 2/255.
 - **System-mode export** (Phase 7.5): when the document's presentation
   mode is SYSTEM, the canvas is user-chosen (W×H, default 1920×1080,
   dialog-editable, still session memory — R3 stands) and each frame

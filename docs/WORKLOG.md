@@ -54,6 +54,41 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-06 — **The glow going solid in Premiere was an ALPHA reading,
+  not an animation bug** (`beta/f-glow-orthogonal`, UNMERGED): measured
+  the export end to end first — the exported
+  frames' glow state is byte-for-byte the live applier's at every frame,
+  and it tracks the envelope, radius, density and colour exactly (a
+  scratch spike walked both paths side by side). The difference appears
+  only once Premiere has a clip UNDERNEATH: it composites our
+  straight-alpha frames as if they were premultiplied, so the halo's
+  own colour goes on at full strength with alpha used as a mask. A real
+  halo pixel: alpha 70/255 carrying gold (251,197,91) — correct over
+  black is (69,54,25), read as premultiplied it is the full
+  (251,197,91), **3.6x brighter**, and every soft edge in the frame goes
+  hard. It is not glow-specific; ghost ink and fades take the same hit.
+  Marcus A/B'd two clips in Premiere and premultiplied is the one that
+  matches, so **`AlphaMode` is now an export setting with premultiplied
+  the DEFAULT** (`render/encode.py`, one dropdown in the export dialog,
+  session memory per R3) — Premiere has no straight/premultiplied
+  switch the way After Effects does, so the cure is on our side.
+  Straight stays available for the tools that read it. Watch out for
+  one thing: the matte has to be **relabelled** as plain RGBA (same
+  bytes, a name Qt will not undo), because `pixelColor` un-premultiplies
+  whatever the format says AND Qt's PNG writer converts premultiplied
+  data back to straight on save — a premultiplied label would have
+  shipped straight PNGs and a test that read `pixelColor` would have
+  said everything was fine. Verified through the real encoder: a
+  premultiplied clip's colour channel decodes to the app's own
+  over-black composite within 2/255 (max channel difference 2, mean
+  0.002 over the whole frame). Full suite green, no schema bump, no
+  golden movement. Unproven in Premiere on the final build — the thing
+  to check is a real overlay. If it ever reads wrong BOTH ways the next
+  suspect is the sequence compositing in linear colour (the linear
+  reading of that same halo pixel is 141,109,47, 2x the correct one).
+  **`ui/export_dialog.py` is at 425** — it was already at 404 before
+  this, and it is a split due: the settings form and the chunked run
+  are two jobs in one file.
 - 2026-08-06 — **Only notes glow, and a tied note is one note**
   (`beta/f-glow-orthogonal`, UNMERGED): the glow ran on the animation
   denylist, so a meter, a key signature, a rest and a dynamic all lit up
