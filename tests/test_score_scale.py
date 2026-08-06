@@ -191,9 +191,48 @@ def test_staff_line_width_thickens_only_the_lines() -> None:
         samples.sort()
         return samples[len(samples) // 2], eng
 
+    def barline_runs(eng):
+        """Drawn line widths inside the widest barline complex on the
+        last page (a double bar on this fixture) — barlines must ride
+        the knob at a fixed ratio, never separately (Marcus's rule)."""
+        stage = default_stage_config(eng.prepared,
+                                     page_content_top(eng.layout))
+        last = len(eng.layout.pages)
+        scene = ScoreScenes(eng.layout, stage).scene_for_page(last)
+        bar = max((e for e in eng.layout.elements
+                   if e.identity.kind is ElementKind.BARLINE
+                   and e.page == last), key=lambda e: e.bbox.w)
+        b, Z = bar.bbox, 16
+        for yfrac in (0.05, 0.15, 0.3, 0.5, 0.8):
+            src = QRectF(b.x - 3, b.y + b.h * yfrac, b.w + 6, 1)
+            img = QImage(int(src.width() * Z), int(src.height() * Z),
+                         QImage.Format.Format_RGB32)
+            img.fill(Qt.GlobalColor.white)
+            p = QPainter(img)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            scene.render(p, QRectF(0, 0, img.width(), img.height()), src)
+            p.end()
+            y = img.height() // 2
+            runs, run = [], 0
+            for x in range(img.width()):
+                if img.pixelColor(x, y).value() < 128:
+                    run += 1
+                elif run:
+                    runs.append(run / Z)
+                    run = 0
+            if run:
+                runs.append(run / Z)
+            if runs:
+                return runs
+        raise AssertionError("no barline ink found")
+
     thin, plain = line_thickness(1.0)
     thick, sized = line_thickness(2.0)
     assert thick / thin == pytest.approx(2.0, abs=0.1)
     assert _mean_head_width(sized.layout) \
         == pytest.approx(_mean_head_width(plain.layout), rel=0.001)
     assert sized.layout.pages[0].height == plain.layout.pages[0].height
+    bars_plain, bars_sized = barline_runs(plain), barline_runs(sized)
+    assert len(bars_plain) == len(bars_sized)
+    for before, after in zip(bars_plain, bars_sized):
+        assert after / before == pytest.approx(2.0, abs=0.15)

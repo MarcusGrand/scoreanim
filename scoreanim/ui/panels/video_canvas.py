@@ -114,7 +114,9 @@ class VideoCanvasPanel(QWidget):
         self._staff_lines.setSuffix(" %")
         self._staff_lines.setToolTip("Staff line thickness — 100 % is "
                                      "the engraver's default; heavier "
-                                     "lines hold up over video")
+                                     "lines hold up over video. "
+                                     "Barlines follow automatically at "
+                                     "a fixed ratio")
 
         self.live_fields = (
             LiveField(self._width, app_state,

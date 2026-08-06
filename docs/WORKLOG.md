@@ -69,10 +69,17 @@ lines — history lives in git and `docs/history/`.
   time, default 100 % = today's look, byte-identical (goldens green).
   Measured (`spikes/staff_line_width.py`): rendered line ink linear in
   the factor (0.90/1.30/2.00/2.70 units at 0.7/1.0/1.5/2.0), heads,
-  stems, page and pagination untouched. Watch out for one thing: the
-  layout BBOX tracks the drawn path, not the stroke, so only a pixel
-  render shows thickness — the pin measures antialiased coverage over
-  thin runs, skipping beams. Unproven under a human's eye.
+  stems, page and pagination untouched. **Barlines ride the same knob**
+  (Marcus's rule, same day: never tuned separately, always a fixed
+  ratio with the staff lines) — `barLineWidth` and
+  `thickBarlineThickness` at the engraver's own default ratios, neither
+  clamping inside 70–200 %; a double bar's two lines measured 2.69 →
+  5.38 units each at factor 2, pinned beside the staff-line pin. Watch
+  out for two things: the layout BBOX tracks the drawn path, not the
+  stroke, so only a pixel render shows thickness — the pin measures
+  antialiased coverage over thin runs, skipping beams — and most
+  BARLINE elements carry a ZERO-width bbox, so bbox statistics see
+  only the multi-line complexes. Unproven under a human's eye.
 - 2026-08-06 (round 3) — **The box is solid, Scale is live, lyrics get
   a knob** (`beta/f-video-canvas`, UNMERGED): Marcus's second review.
   (1) "The canvas still moves" was the LIT AREA, not the edge: in

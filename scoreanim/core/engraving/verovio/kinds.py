@@ -130,6 +130,12 @@ _DEFAULT_LYRIC_SIZE = 4.5
 # thickness factor multiplies it (2026-08-07,
 # spikes/staff_line_width.py). Hard range 0.1-0.3.
 _DEFAULT_STAFF_LINE_WIDTH = 0.15
+# Barlines ride the SAME factor at Verovio's own default ratios
+# (Marcus's rule, 2026-08-07: barlines are never tuned by the user,
+# always a fixed ratio with the staff lines). Hard ranges 0.1-0.8 and
+# 0.5-2.0 — neither clamps inside the knob's 70-200 %.
+_DEFAULT_BARLINE_WIDTH = 0.3
+_DEFAULT_THICK_BARLINE = 1.0
 
 # SVG classes whose Verovio id is genuinely a timemap key (notes and
 # rests). Note-owned fragments (stems, flags, accidentals, beams, …)

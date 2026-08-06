@@ -5,6 +5,16 @@ Through the real pipeline (EngravingParams.staff_line_width): rendered
 staff-line thickness (antialiased coverage over thin runs), notehead
 width, stem thickness, page geometry.
 
+Findings, measured: line ink is linear in the factor
+(0.90/1.30/2.00/2.70 units at 0.7/1.0/1.5/2.0); heads, stems, page
+and pagination never move. Barlines ride the same factor at Verovio's
+default ratios (barLineWidth 0.3, thickBarlineThickness 1.0) —
+a double bar's two lines measured 2.69 → 5.38 units each at factor 2.
+Two traps: the layout BBOX tracks the drawn path, not the stroke, so
+only a pixel render shows thickness; and most BARLINE elements carry a
+ZERO-width bbox (a bare stroke), so bbox statistics see only the
+multi-line complexes.
+
 Run: PYTHONPATH=. QT_QPA_PLATFORM=offscreen python spikes/staff_line_width.py
 """
 import os
