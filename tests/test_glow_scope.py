@@ -66,9 +66,20 @@ DURATIONS = {ElementId("head-1"): 4.0, ElementId("head-2"): 2.0}
 # -- the gate ---------------------------------------------------------------
 
 def test_only_note_ink_is_in_the_glowing_list() -> None:
+    """A note and everything drawn as part of one. Spelled out rather
+    than derived, because this list IS the feature — if it moves, it
+    should move because somebody meant it to."""
     assert GLOWING_KINDS == {
+        # the heads
         ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.BAR_REPEAT,
-        ElementKind.ACCIDENTAL, ElementKind.LYRIC, ElementKind.TIE}
+        # the note's own ink (OTHER carries the dots, the ornaments and
+        # the tuplet brackets)
+        ElementKind.STEM, ElementKind.FLAG, ElementKind.BEAM,
+        ElementKind.TREMOLO, ElementKind.ACCIDENTAL,
+        ElementKind.ARTICULATION, ElementKind.OTHER,
+        ElementKind.LEDGER_LINES,
+        # sung and held
+        ElementKind.LYRIC, ElementKind.TIE}
 
 
 def test_the_page_furniture_a_note_is_not_stays_out() -> None:

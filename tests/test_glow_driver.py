@@ -99,8 +99,8 @@ def test_a_rest_a_dynamic_and_a_signature_stay_dark(scene) -> None:
     scenes, applier, _schedule, _scope, _durations = scene
     dark = (ElementKind.REST, ElementKind.MREST, ElementKind.DYNAMIC,
             ElementKind.METER_SIG, ElementKind.KEY_SIG, ElementKind.CLEF,
-            ElementKind.STEM, ElementKind.BEAM, ElementKind.LEDGER_LINES,
-            ElementKind.ARTICULATION, ElementKind.SLUR)
+            ElementKind.TEXT, ElementKind.CHORD_SYMBOL, ElementKind.SLUR,
+            ElementKind.BARLINE, ElementKind.STAFF_LINES)
     present = {item.identity.kind for item in scenes.items.values()
                if item.identity is not None}
     assert set(dark) & present, "the fixture should carry some of these"
@@ -193,6 +193,34 @@ def test_a_follower_is_never_lit_by_its_own_clock(scene) -> None:
     for eid in heads:
         assert eid in schedule.beats_by_element   # it still appears
         assert not scenes.items[eid].can_glow     # but it does not light
+
+
+def test_a_notes_own_ink_lights_exactly_as_its_head_does(scene) -> None:
+    """One note, one light. A stem, a beam, a flag, a dot, an
+    articulation and a ledger dash all take the head's value, so no part
+    of a note is ever brighter or dimmer than the rest of it — and on a
+    tied note they hold for the whole chain, not for the notehead's own
+    engraved value."""
+    scenes, applier, schedule, scope, _durations = scene
+    attached = (ElementKind.STEM, ElementKind.BEAM, ElementKind.FLAG,
+                ElementKind.ARTICULATION, ElementKind.LEDGER_LINES,
+                ElementKind.OTHER)
+    leader = max(scope.span, key=lambda eid: scope.span[eid])
+    crew = {eid: scenes.items[eid] for eid in scope.followers()[leader]}
+    assert any(it.identity.kind in attached for it in crew.values()), \
+        "want a tied note with some ink hanging off it"
+
+    start = TEMPO.seconds_at(schedule.beats_by_element[leader])
+    span = TEMPO.seconds_at(schedule.beats_by_element[leader]
+                            + scope.span[leader]) - start
+    lit = False
+    for frac in (0.01, 0.4, 0.8, 0.99):
+        applier.apply_at(start + frac * span)
+        head = scenes.items[leader].glow_strength
+        for eid, item in crew.items():
+            assert item.glow_strength == pytest.approx(head, abs=1e-9), eid
+        lit |= head > 0.0
+    assert lit
 
 
 def test_the_leader_pops_on_its_own_note_not_the_chain(scene) -> None:

@@ -60,18 +60,24 @@ lines — history lives in git and `docs/history/`.
   with the notes. It runs on its own **allowlist** now
   (`GLOWING_KINDS`, new pure `core/animation/glow_scope.py`): noteheads,
   the slash and bar-repeat signs that stand in for one, the accidental
-  in front of one, the syllable under one, and the tie between two.
-  Marcus's call on the width — **head and accidental only**, so a stem,
-  a flag, a beam, a dot, an articulation and a ledger line stay dark
-  even on a glowing note. **A slur is dark where a tie glows**, which is
-  the one place the two spanners part company. That is a THIRD scope
-  list beside `STATIC_KINDS` and `TINTED_KINDS`, and deliberately not
-  merged with either: the denylist is right for "does this animate",
+  in front of one, the syllable under one, the tie between two, and
+  **everything drawn as part of a note** — stem, flag, beam, tremolo
+  strokes, dots, articulations, ornaments, tuplet brackets, ledger
+  dashes. (Marcus first said head-and-accidental only, then corrected it
+  the same session; the correction cost **one frozenset and two test
+  expectations**, which is what the allowlist is for.) **A slur is dark
+  where a tie glows**, the one place those two spanners part company.
+  Dots ride in on `ElementKind.OTHER`, so the ornaments and the tuplet
+  brackets come with them — all note ink, but they cannot be separated
+  until OTHER is split into real kinds in the adapter. That is a THIRD
+  scope list beside `STATIC_KINDS` and `TINTED_KINDS`, and deliberately
+  not merged with either: the denylist is right for "does this animate",
   where a new kind should join for free, and wrong for the glow, where a
-  new kind should be dark until somebody decides it is a note. It also
-  made the glow **three times cheaper** — 76 sprites built where the
-  same fixture used to build 452, 713 elements carrying one where 1418
-  did, 0.21 ms a frame on the first pass against 0.70.
+  new kind should be dark until somebody decides it is a note. Cost is
+  **level with `main`** now that most ink glows again (497 sprites
+  against 452, 0.66 ms a frame on the first pass against 0.70); the
+  narrow first cut measured 76 and 0.21, so the price of the wider rule
+  is known if it ever matters.
   **A tied chain glows as the one note it is**: every head plus the tie
   ink lights together at the chain start and dies together when the last
   of it stops. Marcus's second call: that is a GLOW rule only —
@@ -103,11 +109,12 @@ lines — history lives in git and `docs/history/`.
   back at 399** — both over the ceiling, and `items.py` is the next
   split, though its class docstring argues it is genuinely one job.
   Checked end to end in the real window offscreen: over a whole
-  playthrough exactly NOTEHEAD, ACCIDENTAL, TIE and SLASH ever light,
-  nothing outside the list does, and undo puts every halo out. Rendered
-  a frame mid-chain on a dark page and looked at it — head, tie, head
-  read as one held object. Unproven under a human's eye; the thing to
-  feel is whether a dark stem under a glowing head reads right.
+  playthrough exactly the ten kinds on the list ever light, nothing
+  outside it does, and undo puts every halo out. Rendered a frame
+  mid-chain on a dark page and looked at it — head, stem, tie, head read
+  as one held object, with the 4/4 right beside it dark. Unproven under
+  a human's eye; the thing to feel is whether a whole held note lighting
+  at once is too much light on a busy page.
 - 2026-08-05 — **Each glow knob changes one thing**
   (`beta/f-glow-orthogonal`, UNMERGED): the block had two knobs on one
   axis and one knob doing two jobs. **Strength is retired** — it reached

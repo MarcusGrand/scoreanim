@@ -50,27 +50,52 @@ from scoreanim.core.engraving.types import Layout, RenderedElement
 from scoreanim.core.score.identity import Beats, ElementId, ElementKind
 from scoreanim.core.score.model import ScoreNote
 
-# The only ink that ever glows. A halo marks a sounding note, so this is
-# noteheads and the ink that IS a notehead (a slash beat, a bar-repeat
-# sign), the accidental in front of one, the syllable under one, and the
-# tie that joins two of them. Everything else on the page stays dark:
-# rests, dynamics, clefs, key and meter signatures, texts, chord
-# symbols, slurs, hairpins, and all the scaffold.
+# The only ink that ever glows: a NOTE and everything drawn as part of
+# one. The head, the ink that IS a head (a slash beat, a bar-repeat
+# sign), and every piece hanging off it — stem, flag, beam, tremolo
+# strokes, accidental, augmentation dots, articulations, ornaments,
+# tuplet brackets and numbers, ledger dashes — plus the syllable under a
+# note and the tie that joins two of them.
+#
+# Everything else on the page stays dark, and that list is Marcus's, not
+# a derivation: rests, dynamics, clefs, key and meter signatures, texts,
+# chord symbols, slurs and hairpins, and all the scaffold. A slur is
+# dark where a tie glows — the one place those two spanners part
+# company, because a tie is the note continuing and a slur is not.
 #
 # Unlike `STATIC_KINDS` next door this IS an allowlist, on purpose. The
 # denylist is right for "does this object animate at all", where a new
 # kind should join in for free; it is wrong for the glow, where a new
 # kind is dark until somebody decides it is a note.
+#
+# THIS SET IS THE WHOLE SWITCH. Nothing downstream branches on a kind:
+# the driver writes `can_glow` off this list and the property applier
+# obeys it, so moving one name in or out here is the entire edit.
+#
+# Two things ride in on ElementKind.OTHER, which the adapter uses for
+# augmentation dots: the ornaments (trill, mordent, turn, arpeggio,
+# octave line, breath mark) and the tuplet bracket and number. All of
+# them are note ink, so they are welcome — but dots cannot be admitted
+# without them until OTHER is split into real kinds in the adapter.
 GLOWING_KINDS = frozenset({
+    # the heads
     ElementKind.NOTEHEAD, ElementKind.SLASH, ElementKind.BAR_REPEAT,
-    ElementKind.ACCIDENTAL, ElementKind.LYRIC, ElementKind.TIE,
+    # the note's own ink
+    ElementKind.STEM, ElementKind.FLAG, ElementKind.BEAM,
+    ElementKind.TREMOLO, ElementKind.ACCIDENTAL, ElementKind.ARTICULATION,
+    ElementKind.OTHER, ElementKind.LEDGER_LINES,
+    # sung and held
+    ElementKind.LYRIC, ElementKind.TIE,
 })
 
-# Ink that glows only by sharing a notehead's halo. A slash and a
-# bar-repeat sign are heads in their own right, so they are not here.
-_ATTACHED_KINDS = frozenset({
-    ElementKind.ACCIDENTAL, ElementKind.LYRIC, ElementKind.TIE,
-})
+# The ink that glows only by sharing a head's halo — which is all of it
+# except the heads themselves. Derived, so widening the list above needs
+# no second edit: a new glowing kind shares its note's light by default,
+# which is the answer that keeps one note looking like one object.
+#
+# A bar-repeat sign stands alone: it is a whole bar, not one beat, and
+# there is no head in its group to share with.
+_ATTACHED_KINDS = GLOWING_KINDS - HEAD_KINDS - {ElementKind.BAR_REPEAT}
 
 # The words MusicXML uses for a note that is held from before, and for
 # one that is held on after.

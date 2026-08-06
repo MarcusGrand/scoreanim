@@ -46,7 +46,10 @@ no glow) are the two; both keep `render/properties.py` a table of
 one-line writes with no policy in it. Three separate scope lists exist
 now and they are deliberately not one list: `STATIC_KINDS` (a denylist —
 does this animate at all), `TINTED_KINDS` (does a part tint reach it)
-and `GLOWING_KINDS` (an ALLOWLIST — is this a note).
+and `GLOWING_KINDS` (an ALLOWLIST — is this a note). The test of whether
+such a list is really the one switch is a scope change costing one
+frozenset: widening the glow from head-and-accidental to the whole note
+on 2026-08-06 cost that plus two test expectations, nothing else.
 
 **Spike-first, whole-pipeline** — uncertain Verovio/music21 behavior
 gets a script in `spikes/` before integration; spikes are kept as
