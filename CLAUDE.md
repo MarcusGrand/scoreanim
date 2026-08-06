@@ -104,7 +104,11 @@ history; `docs/ARCHITECTURE.md` has the mechanisms.
    animates except the true scaffold — staff lines, barlines, group
    brackets, system dividers — plus page furniture. A new `ElementKind`
    animates by default. Colour scope (`TINTED_KINDS`) is a separate
-   list, so clefs and key signatures animate but stay black.
+   list, so clefs and key signatures animate but stay black. Glow scope
+   (`GLOWING_KINDS`) is a third list and the one ALLOWLIST: a halo marks
+   a sounding note, so it reaches a note and the ink drawn as part of
+   one, and nothing else. A new `ElementKind` is dark until somebody
+   decides it is a note.
 
 7. **The user owns page layout, and ink is never clipped.** We honor the
    score's encoded system and page breaks, combined with the user's own

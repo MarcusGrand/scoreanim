@@ -81,6 +81,41 @@ first) and update the matching section here.
    (`TINTED_KINDS`) is unchanged, so clefs and key signatures animate
    but stay black. See ARCHITECTURE.md §3 "Animated-ink taxonomy".
 
+   Amendment (user-ruled 2026-08-06): **glow scope is an ALLOWLIST**
+   (`glow_scope.GLOWING_KINDS`), the third scope list and the only one
+   of the three that is not a denylist. A halo says "this note is
+   sounding", so it reaches a note and the ink drawn as part of one —
+   the head, the slash and bar-repeat signs that stand in for a head,
+   the stem, flag, beam, tremolo strokes, accidental, dots,
+   articulations, ornaments, tuplet brackets and ledger dashes, plus the
+   lyric under a note and the tie between two. Dark: rests, dynamics,
+   clefs, key and meter signatures, texts, chord symbols, slurs,
+   hairpins, scaffold. A **slur is dark where a tie glows** — a tie is
+   the note continuing, a slur is not.
+
+   The direction is deliberate and is the reason this list is not folded
+   into the denylist. A new `ElementKind` should animate for free, which
+   is what a denylist buys; it should NOT glow until somebody decides it
+   is a note, which is what an allowlist buys. The two questions have
+   opposite safe defaults, so they are two lists.
+
+   Two consequences, both ruled the same day:
+   - **A tied chain glows as one note.** A held note is re-notated at
+     each barline; the chain's first head owns the halo and every other
+     head plus the tie ink follows it, for the chain's whole length.
+     This is a GLOW rule only — APPEARANCE is untouched, so rule 1 of
+     `schedule.py` (grow-with-playhead, 2026-07-22) stands and a
+     continuation head still fills in as the playhead reaches it.
+   - **Attached ink shares its head's halo** rather than running its own
+     clock, joined through the nearest head — the same join a pop's
+     pivot makes. One note is one light.
+
+   Nothing downstream branches on a kind: the driver
+   (`render/glow_driver.py`) writes `can_glow` onto the item from this
+   list and `render/properties.py` obeys it, so the list IS the switch.
+   Widening it from head-and-accidental to the whole note the same day
+   it was written cost one frozenset and two test expectations.
+
 7. **The user owns page layout.** We honor the MusicXML's encoded
    SYSTEM breaks always (Verovio break-respect mode). We never reflow
    to fit the window. Paged presentation; mismatched aspect is
