@@ -123,4 +123,7 @@ class ScoreInstaller:
         w.playback.set_animation(loaded.applier, loaded.measures)
         w.app_state.set_measures(loaded.measures)
         w.parts_menu.rebuild(loaded.parts)
+        # fresh scenes rebuild their paper rects visible, so the
+        # overlay preview's paper-hiding half is re-applied per load
+        w.apply_overlay_preview()
         w.statusBar().showMessage(loaded.status_line)

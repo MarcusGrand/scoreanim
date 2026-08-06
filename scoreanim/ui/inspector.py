@@ -56,7 +56,7 @@ class Inspector(QDockWidget):
     """
 
     def __init__(self, app_state: AppState, playback: PlaybackController,
-                 parent: QWidget | None = None) -> None:
+                 parent: QWidget | None = None, settings=None) -> None:
         super().__init__("Inspector", parent)
         self.setObjectName("Inspector")      # saveState identity (M1.8)
         self.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
@@ -106,8 +106,10 @@ class Inspector(QDockWidget):
 
         # Video canvas (2026-08-06): the export frame previewed live —
         # preset/size/scale are document intent; the preview background
-        # is view state the window subscribes to.
-        self.video_canvas_panel = VideoCanvasPanel(app_state)
+        # is view state the window subscribes to, riding the window's
+        # own settings store (injectable, so tests stay isolated).
+        self.video_canvas_panel = VideoCanvasPanel(app_state,
+                                                   settings=settings)
 
         # Selection body (M2.5): transient-state driven, so it observes
         # app_state.selection_changed itself and takes no part in

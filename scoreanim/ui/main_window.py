@@ -80,7 +80,8 @@ class MainWindow(QMainWindow):
                            self.lower_zone)
         # right-hand inspector (M1.4): Follow/Systems, floor + Sweep,
         # Selection placeholder; resynced in _on_document_changed
-        self.inspector = Inspector(self.app_state, self.playback, self)
+        self.inspector = Inspector(self.app_state, self.playback, self,
+                                   settings=self._settings)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,
                            self.inspector)
 
@@ -190,6 +191,15 @@ class MainWindow(QMainWindow):
         self.installer = ScoreInstaller(self)
         self.doc_sync = DocumentSync(self.parts_menu)
 
+        # overlay preview (2026-08-06): view state from the canvas
+        # panel — the window holds both halves (the scenes' paper rects
+        # and the view's fill) and re-applies them per load, because a
+        # load adopts fresh scenes with their paper visible.
+        self._overlay_preview: tuple[bool, object] = (False, None)
+        self.inspector.video_canvas_panel.preview_changed.connect(
+            self._set_overlay_preview)
+        self.inspector.video_canvas_panel.restore_preview()
+
         # shell layout (M1.8): restore once docks + toolbar exist; a
         # fresh store yields the first-run default size. UI state only —
         # nothing document-derived lives in the settings (rule 5).
@@ -276,6 +286,24 @@ class MainWindow(QMainWindow):
     def load_score(self, *args, **kwargs) -> StageConfig:
         """Fresh-load entry (ui/score_install.py owns the pipeline)."""
         return self.installer.load_score(*args, **kwargs)
+
+    # -- overlay preview (view state, never the document) -----------------------
+
+    def _set_overlay_preview(self, active: bool, color) -> None:
+        """The panel's preview state: remember it and apply it. Never
+        the document, never export (ruling R1)."""
+        self._overlay_preview = (active, color)
+        self.apply_overlay_preview()
+
+    def apply_overlay_preview(self) -> None:
+        """Apply the remembered state — called again by the installer
+        after every load, because fresh scenes rebuild their paper
+        rects visible."""
+        active, color = self._overlay_preview
+        if self._scenes is not None:
+            self._scenes.set_page_background_visible(not active)
+        if color is not None:
+            self.view.set_overlay_preview(active, color)
 
     # -- close ---------------------------------------------------------------------
 
