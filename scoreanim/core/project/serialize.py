@@ -17,15 +17,13 @@ import os
 from pathlib import Path
 from typing import Any
 
-from scoreanim.core.animation.glow import fold_strength
-from scoreanim.core.animation.reveal import RevealMode
-from scoreanim.core.animation.style import ElementStyle, StyleRules
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.document import (CondenseGroup, FileRef,
                                              LayoutOverride, PageBreak,
                                              PartTextOverride, ProjectDoc,
                                              StaffGroup, StemDirection,
                                              SystemBreak, TimingConfig)
+from scoreanim.core.project.serialize_style import style_out, style_rules_in
 from scoreanim.core.project.stage_config import (PresentationMode,
                                                  StageConfig,
                                                  StageTextElement)
@@ -166,35 +164,8 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
             ],
             "locked_beats": list(doc.timing.locked_beats),
         },
-        "style": {
-            "reveal_mode": doc.style.reveal_mode.name.lower(),
-            "floor_opacity": doc.style.floor_opacity,
-            "parts": {str(p): _style_out(s)
-                      for p, s in sorted(doc.style.parts.items())},
-            "elements": {str(e): _style_out(s)
-                         for e, s in sorted(doc.style.elements.items())},
-            # v7: default_effect omitted when None; effect_params
-            # round-trips RAW (a preset/key this build doesn't consume
-            # is written back verbatim) and is omitted when empty
-            **({"default_effect": doc.style.default_effect}
-               if doc.style.default_effect is not None else {}),
-            **({"effect_params": {
-                    name: dict(entry) for name, entry
-                    in sorted(doc.style.effect_params.items())}}
-               if doc.style.effect_params else {}),
-            # v11: the volume response, written the same way — raw and
-            # omitted when empty
-            **({"volume": dict(sorted(doc.style.volume.items()))}
-               if doc.style.volume else {}),
-            # v11: the system pulse, its twin
-            **({"pulse": dict(sorted(doc.style.pulse.items()))}
-               if doc.style.pulse else {}),
-            # v11: the page's two colours, the third entry of the same
-            # shape — raw, and omitted when nothing is stored, which is
-            # what keeps an untouched document byte-identical
-            **({"colors": dict(sorted(doc.style.colors.items()))}
-               if doc.style.colors else {}),
-        },
+        # the style sub-shape lives with its reader in serialize_style.py
+        "style": style_out(doc.style),
         "stage": {
             "mode": doc.stage.mode.name.lower(),
             "texts": [
@@ -284,7 +255,7 @@ def from_dict(data: dict[str, Any],
                 ),
                 locked_beats=tuple(sorted(timing.get("locked_beats", ()))),
             ),
-            style=_style_rules_in(data.get("style") or {}),
+            style=style_rules_in(data.get("style") or {}),
             stage=StageConfig(
                 mode=_presentation_mode_in(
                     data.get("stage", {}).get("mode")),
@@ -345,15 +316,6 @@ def from_dict(data: dict[str, Any],
         raise ValueError(f"malformed project data: {exc!r}") from exc
 
 
-def _reveal_mode_in(value: Any) -> RevealMode:
-    if value is None:
-        return RevealMode.STEPPED
-    try:
-        return RevealMode[str(value).upper()]
-    except KeyError as exc:
-        raise ValueError(f"unknown reveal mode {value!r}") from exc
-
-
 def _presentation_mode_in(value: Any) -> PresentationMode:
     if value is None:                      # v1/v2 files: no "mode" key
         return PresentationMode.PAGED
@@ -391,54 +353,6 @@ def _text_override_out(override: PartTextOverride) -> dict[str, Any]:
     if override.abbreviation is not None:
         out["abbreviation"] = override.abbreviation
     return out
-
-
-def _style_out(style: ElementStyle) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    if style.color is not None:
-        out["color"] = style.color
-    if style.effect is not None:
-        out["effect"] = style.effect
-    return out
-
-
-def _style_in(data: dict[str, Any]) -> ElementStyle:
-    return ElementStyle(color=data.get("color"), effect=data.get("effect"))
-
-
-def _style_rules_in(style: dict[str, Any]) -> StyleRules:
-    parts = {PartId(p): _style_in(s)
-             for p, s in style.get("parts", {}).items()}
-    # v1 legacy: {"part_colors": {pid: "#rrggbb"}} folds into part color
-    # rules (explicit "parts" entries win if both are present)
-    for p, c in style.get("part_colors", {}).items():
-        parts.setdefault(PartId(p), ElementStyle(color=c))
-    params = {str(name): dict(entry) for name, entry
-              in style.get("effect_params", {}).items()}
-    # v11 legacy: the glow's Strength was a second knob on the axis its
-    # envelope already owns, so it folds into the two levels it
-    # multiplied and the key goes. Once, here — see
-    # core/animation/glow.py for why not at consumption.
-    if "glow" in params:
-        params["glow"] = fold_strength(params["glow"])
-    return StyleRules(
-        reveal_mode=_reveal_mode_in(style.get("reveal_mode")),
-        # .get, never `or`: a saved floor of 0.0 is falsy and must load
-        floor_opacity=style.get("floor_opacity", 0.3),
-        parts=parts,
-        elements={ElementId(e): _style_in(s)
-                  for e, s in style.get("elements", {}).items()},
-        # v7 keys; absent in v<=6 files → None / {} (unchanged look)
-        default_effect=style.get("default_effect"),
-        effect_params=params,
-        # v11 keys; absent in v<=10 files → {} → both off, which is the
-        # look those files have always had
-        volume=dict(style.get("volume", {})),
-        pulse=dict(style.get("pulse", {})),
-        # absent → {} → white paper and black ink, the look every file
-        # written before this existed has always had
-        colors=dict(style.get("colors", {})),
-    )
 
 
 # ---------------------------------------------------------------------------
