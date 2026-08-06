@@ -64,12 +64,13 @@ class StageFraming:
         return self.frame if self.frame is not None else scene_rect
 
     def scene_rect(self, page: QRectF) -> QRectF:
-        """What the view's scene rect should be. The frame may extend
+        """What the view's scene rect should be: the frame may extend
         past the page (a system near the page's top or bottom, or a
         canvas with letterbox slack); widening the view's scene rect
         lets fitInView center there instead of clamping to the page —
         the overhang renders as view background, which is the
-        letterbox, exactly right."""
+        letterbox. (The canvas fit replaces this with its own constant
+        overscan rect — see StageView._fit_canvas.)"""
         if self.frame is None:
             return page
         return self.frame.united(page)

@@ -198,7 +198,40 @@ class StageView(QGraphicsView):
         if self.scene() is None:
             return
         target = self._framing.fit_target(self.scene().sceneRect())
+        if self._framing.canvas is not None:
+            self._fit_canvas(target)
+            return
         self.fitInView(target, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def _fit_canvas(self, frame: QRectF) -> None:
+        """Fit the canvas frame so it CANNOT move between systems.
+
+        fitInView rounds through the integer scrollbars, and how it
+        rounds depends on the frame's scene position — the canvas edge
+        wobbled 1–4 px between systems during playback. Three choices
+        pin it: the zoom is set directly (no fitInView, no 2 px margin —
+        the canvas edge IS the picture); the scroll range is one
+        CONSTANT page-independent overscan rect, so Qt's origin math is
+        identical for every system; and the frame is nudged a quarter
+        device pixel off the integer grid (at most half a pixel against
+        the band — invisible), so every rounding along the way lands
+        the same side for every system."""
+        vp = self.viewport().rect()
+        if vp.isEmpty() or frame.isEmpty():
+            return
+        z = min(vp.width() / frame.width(), vp.height() / frame.height())
+        frame = QRectF(frame)
+        frame.translate(
+            (round(frame.left() * z) + 0.25) / z - frame.left(),
+            (round(frame.top() * z) + 0.25) / z - frame.top())
+        self._framing.frame = frame
+        page = self.scene().sceneRect()
+        self.setSceneRect(page.adjusted(-frame.width(), -frame.height(),
+                                        frame.width(), frame.height()))
+        transform = self.transform()
+        transform.setMatrix(z, 0, 0, 0, z, 0, 0, 0, 1)
+        self.setTransform(transform)
+        self.centerOn(frame.center())
 
     def drawBackground(self, painter, rect) -> None:  # noqa: N802
         """The overlay preview: the chosen video color inside the

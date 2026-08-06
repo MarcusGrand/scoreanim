@@ -173,3 +173,34 @@ def test_overlay_preview_paints_the_video_color(qapp, scenes) -> None:
     view.set_overlay_preview(False, QColor("#000000"))
     scenes.set_page_background_visible(True)
     assert _pixel(view, *probe).name() == "#ffffff"
+
+
+def test_the_canvas_never_moves_between_units(qapp, engraved,
+                                              scenes) -> None:
+    """The reported bug (2026-08-06): the canvas edge jumped 1-4 px
+    between systems during playback, because fitInView rounds through
+    the integer scrollbars position-dependently. The canvas fit pins
+    it: the frame's viewport corners are IDENTICAL for every page and
+    every system, in both modes."""
+    canvas = VideoCanvas(1080, 1920)
+    view = StageView()
+    view.resize(500, 880)
+    view.viewport().grab()
+    view.set_canvas(canvas)
+
+    def corners():
+        f = view._framing.frame
+        tl = view.mapFromScene(f.topLeft())
+        br = view.mapFromScene(f.bottomRight())
+        return (tl.x(), tl.y(), br.x(), br.y())
+
+    seen = set()
+    for page in range(1, scenes.page_count + 1):
+        view.show_scene(scenes.scene_for_page(page))
+        seen.add(corners())
+    for band in system_bands(engraved.layout):
+        view.show_system_band(scenes.scene_for_page(band.page),
+                              QRectF(band.rect.x, band.rect.y,
+                                     band.rect.w, band.rect.h))
+        seen.add(corners())
+    assert len(seen) == 1, f"the canvas moved: {sorted(seen)}"
