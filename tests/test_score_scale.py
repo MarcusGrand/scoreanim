@@ -137,3 +137,63 @@ def test_lyrics_size_scales_only_the_lyrics() -> None:
     assert lyric_ratio == pytest.approx(1.6, abs=0.1)
     assert head_ratio == pytest.approx(1.0, abs=0.02)
     assert sized.layout.pages[0].width == plain.layout.pages[0].width
+
+
+def test_staff_line_width_thickens_only_the_lines() -> None:
+    """The thickness knob (spiked in spikes/staff_line_width.py):
+    rendered staff-line ink doubles at factor 2, noteheads and the
+    page never move. Measured from pixels — the layout bbox tracks the
+    path, not the stroke, so only a render shows the thickness."""
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QImage, QPainter
+    from PySide6.QtWidgets import QApplication
+
+    from scoreanim.core.project.stage_config import (default_stage_config,
+                                                     page_content_top)
+    from scoreanim.render.scene import ScoreScenes
+
+    QApplication.instance() or QApplication([])
+
+    def line_thickness(factor):
+        eng = VerovioEngravingProvider().load_detailed(
+            TESTSCORE, EngravingParams(staff_line_width=factor))
+        stage = default_stage_config(eng.prepared,
+                                     page_content_top(eng.layout))
+        scene = ScoreScenes(eng.layout, stage).scene_for_page(1)
+        staff = next(e for e in eng.layout.elements
+                     if e.identity.kind is ElementKind.STAFF_LINES
+                     and e.page == 1)
+        b, Z = staff.bbox, 32
+        samples = []
+        for frac in (0.15, 0.25, 0.45, 0.55, 0.65, 0.85):
+            src = QRectF(b.x + b.w * frac, b.y - 5, 2, b.h + 10)
+            img = QImage(int(src.width() * Z), int(src.height() * Z),
+                         QImage.Format.Format_RGB32)
+            img.fill(Qt.GlobalColor.white)
+            p = QPainter(img)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            scene.render(p, QRectF(0, 0, img.width(), img.height()), src)
+            p.end()
+            x = img.width() // 2
+            run, y0 = 0, 0
+            for y in range(img.height()):
+                if img.pixelColor(x, y).value() < 200:
+                    if run == 0:
+                        y0 = y
+                    run += 1
+                else:
+                    if 0 < run < 3 * Z:      # thin: a staff line
+                        samples.append(sum(
+                            (255 - img.pixelColor(x, yy).value()) / 255
+                            for yy in range(max(0, y0 - 3),
+                                            min(img.height(), y + 3))) / Z)
+                    run = 0
+        samples.sort()
+        return samples[len(samples) // 2], eng
+
+    thin, plain = line_thickness(1.0)
+    thick, sized = line_thickness(2.0)
+    assert thick / thin == pytest.approx(2.0, abs=0.1)
+    assert _mean_head_width(sized.layout) \
+        == pytest.approx(_mean_head_width(plain.layout), rel=0.001)
+    assert sized.layout.pages[0].height == plain.layout.pages[0].height

@@ -1517,3 +1517,17 @@ def test_set_lyrics_size(doc) -> None:
     for bad in (0.0, 0.4, 1.8, float("nan"), float("inf")):
         with pytest.raises(CommandError):
             SetLyricsSize(bad).apply(doc)
+
+
+def test_set_staff_line_width(doc) -> None:
+    from scoreanim.core.project import SetStaffLineWidth
+
+    assert doc.engraving.staff_line_width == 1.0
+    out = SetStaffLineWidth(1.5).apply(doc)
+    assert out.engraving.staff_line_width == 1.5
+    assert out.engraving.scale == doc.engraving.scale     # its own knob
+    assert out.engraving.lyric_size == doc.engraving.lyric_size
+    assert doc.engraving.staff_line_width == 1.0          # source untouched
+    for bad in (0.0, 0.6, 2.1, float("nan"), float("inf")):
+        with pytest.raises(CommandError):
+            SetStaffLineWidth(bad).apply(doc)

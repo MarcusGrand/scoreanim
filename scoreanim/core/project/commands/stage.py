@@ -70,6 +70,8 @@ _SCALE_RANGE = (0.5, 3.0)
 # Verovio's lyricSize saturates at 2.0–8.0 around a 4.5 default, so
 # the UI range brackets what actually changes anything.
 _LYRICS_RANGE = (0.5, 1.75)
+# Verovio's staffLineWidth saturates at 0.1–0.3 around a 0.15 default.
+_STAFF_LINE_RANGE = (0.7, 2.0)
 
 
 def _validated_canvas(canvas: VideoCanvas) -> VideoCanvas:
@@ -145,6 +147,29 @@ class SetLyricsSize(Command):
 
     def describe(self) -> str:
         return "set lyrics size"
+
+
+@dataclass(frozen=True)
+class SetStaffLineWidth(Command):
+    """Staff line thickness, a factor of the engraver's default —
+    heavier lines read better over video (2026-08-07). The third
+    engraving knob, same contract as the score scale and the lyrics
+    size: re-engrave diff, debounced-preview panel field, saturation
+    at the engraver's own hard range."""
+    factor: float
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        lo, hi = _STAFF_LINE_RANGE
+        if not isinstance(self.factor, (int, float)) \
+                or not math.isfinite(self.factor) \
+                or not lo <= self.factor <= hi:
+            raise CommandError(f"bad staff line width {self.factor!r} "
+                               f"(want {lo}–{hi})")
+        return replace(doc, engraving=replace(
+            doc.engraving, staff_line_width=float(self.factor)))
+
+    def describe(self) -> str:
+        return "set staff line width"
 
 
 _TEXT_ANCHORS = frozenset({"start", "middle", "end"})

@@ -322,6 +322,11 @@ class VerovioEngravingProvider(EngravingProvider):
         if params.lyric_size != 1.0:
             tk.setOptions({"lyricSize": max(2.0, min(8.0,
                           kinds._DEFAULT_LYRIC_SIZE * params.lyric_size))})
+        # Staff line thickness (2026-08-07): same shape.
+        if params.staff_line_width != 1.0:
+            tk.setOptions({"staffLineWidth": max(0.1, min(0.3,
+                          kinds._DEFAULT_STAFF_LINE_WIDTH
+                          * params.staff_line_width))})
         # Hide-first-system (2026-07-24): Verovio keeps the first system
         # full under optimize (the engraving convention) unless told to
         # condense the first page too. Set only when the option is on —

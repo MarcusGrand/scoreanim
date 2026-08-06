@@ -686,3 +686,14 @@ def test_v12_lyrics_size_round_trips_and_is_sparse() -> None:
     assert "lyric_size" not in to_dict(ProjectDoc())["engraving"]
     for version in (1, 7, 11):
         assert from_dict({"version": version}).engraving.lyric_size == 1.0
+
+
+def test_v12_staff_line_width_round_trips_and_is_sparse() -> None:
+    sized = ProjectDoc(engraving=EngravingParams(staff_line_width=1.5))
+    payload = to_dict(sized)
+    assert payload["engraving"]["staff_line_width"] == 1.5
+    assert from_dict(payload).engraving.staff_line_width == 1.5
+    assert "staff_line_width" not in to_dict(ProjectDoc())["engraving"]
+    for version in (1, 7, 11):
+        assert from_dict({"version": version}) \
+            .engraving.staff_line_width == 1.0

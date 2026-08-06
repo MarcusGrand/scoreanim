@@ -138,7 +138,10 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 #   Also v12 (lyrics size, same day): engraving.lyric_size — the
 #   lyrics' own size as a factor of the engraver's default, because
 #   lyrics crowd first when the score grows. Same shape, same sparse
-#   default-1.0 omission, same no-read-gate reasoning. It
+#   default-1.0 omission, same no-read-gate reasoning.
+#   Also v12 (staff line thickness, 2026-08-07):
+#   engraving.staff_line_width — the same factor shape again, because
+#   heavier staff lines read better over video. It
 #   rides v12 by the v3/v11 precedent: no build has shipped reading
 #   v12, so a second number would protect nothing. The first cut of
 #   this feature (same day, never released) briefly stored a `scale`
@@ -168,6 +171,8 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
                if doc.engraving.scale != 1.0 else {}),
             **({"lyric_size": doc.engraving.lyric_size}
                if doc.engraving.lyric_size != 1.0 else {}),
+            **({"staff_line_width": doc.engraving.staff_line_width}
+               if doc.engraving.staff_line_width != 1.0 else {}),
         },
         "layout_overrides": [
             {"element_id": str(eid), "dx": o.dx, "dy": o.dy,
@@ -267,6 +272,8 @@ def from_dict(data: dict[str, Any],
                 scale=float(data.get("engraving", {}).get("scale", 1.0)),
                 lyric_size=float(data.get("engraving", {})
                                  .get("lyric_size", 1.0)),
+                staff_line_width=float(data.get("engraving", {})
+                                       .get("staff_line_width", 1.0)),
             ),
             layout_overrides={
                 ElementId(o["element_id"]): LayoutOverride(

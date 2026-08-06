@@ -265,3 +265,9 @@ class EngravingParams:
     # units, hard range 2–8, so the factor saturates near 0.44 and
     # 1.78). 1.0 sets nothing (spikes/lyric_size.py).
     lyric_size: float = 1.0
+    # Staff line thickness (2026-08-07), as a factor of the default —
+    # heavier lines read better over video. Verovio's `staffLineWidth`
+    # (default 0.15 MEI units, hard range 0.1–0.3, so the factor
+    # saturates at 0.67 and 2.0). 1.0 sets nothing
+    # (spikes/staff_line_width.py).
+    staff_line_width: float = 1.0

@@ -126,6 +126,11 @@ _FIT_MARGIN = 0.96
 # factor multiplies it (2026-08-06, spikes/lyric_size.py).
 _DEFAULT_LYRIC_SIZE = 4.5
 
+# Verovio's own staffLineWidth default (MEI units); the user's
+# thickness factor multiplies it (2026-08-07,
+# spikes/staff_line_width.py). Hard range 0.1-0.3.
+_DEFAULT_STAFF_LINE_WIDTH = 0.15
+
 # SVG classes whose Verovio id is genuinely a timemap key (notes and
 # rests). Note-owned fragments (stems, flags, accidentals, beams, …)
 # derive their onset from their owner, NOT their own id — and MUST NOT

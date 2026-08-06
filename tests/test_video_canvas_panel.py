@@ -154,3 +154,21 @@ def test_lyrics_size_is_a_debounced_engraving_field(panel) -> None:
     state.undo()
     assert state.doc.engraving.lyric_size == 1.0
     assert p._lyrics.value() == 100.0
+
+
+def test_staff_line_width_is_a_debounced_engraving_field(panel) -> None:
+    """Same contract as Scale and Lyrics: armed on change, live on the
+    pause, one undo entry on commit."""
+    p, state = panel
+    field = p.live_fields[4]
+    assert field.spin is p._staff_lines
+    p._staff_lines.setValue(150.0)
+    assert state.doc.engraving.staff_line_width == 1.0
+    field.flush_preview()
+    assert state.doc.engraving.staff_line_width == 1.5
+    assert not state.can_undo
+    field.commit()
+    assert state.undo_text() == "set staff line width"
+    state.undo()
+    assert state.doc.engraving.staff_line_width == 1.0
+    assert p._staff_lines.value() == 100.0

@@ -22,8 +22,8 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox,
                                QPushButton, QSpinBox, QWidget)
 
 from scoreanim.core.project import (Command, ProjectDoc, SetLyricsSize,
-                                    SetScoreScale, SetVideoCanvas,
-                                    VideoCanvas)
+                                    SetScoreScale, SetStaffLineWidth,
+                                    SetVideoCanvas, VideoCanvas)
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
 from scoreanim.ui.window_state import default_settings
@@ -105,6 +105,17 @@ class VideoCanvasPanel(QWidget):
         self._lyrics.setToolTip("The lyrics' own size — shrink them "
                                 "when a bigger score crowds the verses")
 
+        # Staff line thickness (2026-08-07): heavier lines read better
+        # over video. Third engraving knob, same debounced contract.
+        self._staff_lines = QDoubleSpinBox()
+        self._staff_lines.setRange(70.0, 200.0)
+        self._staff_lines.setDecimals(0)
+        self._staff_lines.setSingleStep(10.0)
+        self._staff_lines.setSuffix(" %")
+        self._staff_lines.setToolTip("Staff line thickness — 100 % is "
+                                     "the engraver's default; heavier "
+                                     "lines hold up over video")
+
         self.live_fields = (
             LiveField(self._width, app_state,
                       lambda v: self._edit_side(width=int(v))),
@@ -113,6 +124,8 @@ class VideoCanvasPanel(QWidget):
             LiveField(self._scale, app_state, self._edit_scale,
                       delay_ms=_REENGRAVE_DELAY_MS),
             LiveField(self._lyrics, app_state, self._edit_lyrics,
+                      delay_ms=_REENGRAVE_DELAY_MS),
+            LiveField(self._staff_lines, app_state, self._edit_staff_lines,
                       delay_ms=_REENGRAVE_DELAY_MS),
         )
 
@@ -138,6 +151,7 @@ class VideoCanvasPanel(QWidget):
         form.addRow("Size", size_box)
         form.addRow("Scale", self._scale)
         form.addRow("Lyrics", self._lyrics)
+        form.addRow("Staff lines", self._staff_lines)
         form.addRow("", preview_box)
 
         self._preview_box.toggled.connect(self._on_preview_toggled)
@@ -164,6 +178,11 @@ class VideoCanvasPanel(QWidget):
         factor = float(percent) / 100.0
         committed = self._state.committed.engraving.lyric_size
         return None if factor == committed else SetLyricsSize(factor)
+
+    def _edit_staff_lines(self, percent: float) -> Command | None:
+        factor = float(percent) / 100.0
+        committed = self._state.committed.engraving.staff_line_width
+        return None if factor == committed else SetStaffLineWidth(factor)
 
     def _on_preset(self, index: int) -> None:
         chosen = self._preset.itemData(index)
@@ -200,16 +219,17 @@ class VideoCanvasPanel(QWidget):
             self._preset.setCurrentIndex(
                 index if index >= 0 else self._preset_index(_CUSTOM))
         self._preset.blockSignals(False)
-        width, height, scale, lyrics = self.live_fields
+        width, height, scale, lyrics, staff_lines = self.live_fields
         if canvas is not None:
             width.resync(canvas.width)
             height.resync(canvas.height)
-        # W/H need a canvas; the two engraving sizes are
-        # canvas-independent and stay enabled
+        # W/H need a canvas; the engraving knobs are canvas-independent
+        # and stay enabled
         width.set_enabled(canvas is not None)
         height.set_enabled(canvas is not None)
         scale.resync(doc.engraving.scale * 100.0)
         lyrics.resync(doc.engraving.lyric_size * 100.0)
+        staff_lines.resync(doc.engraving.staff_line_width * 100.0)
 
     # -- preview background (view state) -----------------------------------
 
