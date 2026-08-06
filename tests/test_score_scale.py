@@ -78,6 +78,26 @@ def test_the_command_reengraves_in_the_window(qapp_window) -> None:
     assert win._scenes.page_count == before_pages
 
 
+def test_the_panel_preview_reengraves_live(qapp_window) -> None:
+    """Marcus's real-time requirement: the debounced Scale preview
+    already re-engraves — the playback shows the bigger score before
+    the edit is even committed — and the commit adds nothing but the
+    one undo entry."""
+    win = qapp_window
+    panel = win.inspector.video_canvas_panel
+    scale_field = panel.live_fields[2]
+    before_scenes = win._scenes
+    undo_before = win.app_state.undo_text()       # the open path's own
+    panel._scale.setValue(130.0)
+    scale_field.flush_preview()                   # the pause elapses
+    assert win._scenes is not before_scenes       # re-engraved LIVE
+    assert win.app_state.undo_text() == undo_before   # still a preview
+    previewed = win._scenes
+    scale_field.commit()
+    assert win._scenes is previewed               # no second re-engrave
+    assert win.app_state.undo_text() == "set score scale"
+
+
 @pytest.fixture()
 def qapp_window(tmp_path):
     from PySide6.QtCore import QSettings

@@ -32,6 +32,9 @@ _PRESETS: tuple[tuple[int, int], ...] = (
 _CUSTOM = "custom"
 _SEED = VideoCanvas(1920, 1080)          # first canvas a fresh doc gets
 
+# one re-engrave per typing pause, not per keystroke (live_field.py)
+_REENGRAVE_DELAY_MS = 400
+
 _PREVIEW_KEY = "stage/overlayPreview"
 _COLOR_KEY = "stage/overlayColor"
 _DEFAULT_COLOR = "#000000"               # black video, the common case
@@ -75,29 +78,27 @@ class VideoCanvasPanel(QWidget):
         size_box = QWidget()
         size_box.setLayout(size_row)
 
-        # Score scale is an ENGRAVING input (rastral size): committing
-        # it re-engraves (~0.6 s), so it must never preview per
-        # keystroke — no LiveField, keyboard tracking off, one execute
-        # on Enter/focus-out. reengrave_fields is the enforcement
-        # test's exemption list for exactly this case.
+        # Score scale is an ENGRAVING input (rastral size): a change
+        # re-engraves (~0.6 s), so its LiveField is DEBOUNCED — the
+        # preview fires once per typing pause, live in the playback
+        # (Marcus's call), and the commit is still one undo entry.
         self._scale = QDoubleSpinBox()
         self._scale.setRange(50.0, 300.0)
         self._scale.setDecimals(0)
         self._scale.setSingleStep(5.0)
         self._scale.setSuffix(" %")
-        self._scale.setKeyboardTracking(False)
         self._scale.setToolTip("How big the notation is drawn — 100 % "
                                "is the score's own size; bigger notes "
                                "repaginate, and a crowded system is "
                                "yours to break")
-        self._scale.editingFinished.connect(self._commit_scale)
-        self.reengrave_fields = (self._scale,)
 
         self.live_fields = (
             LiveField(self._width, app_state,
                       lambda v: self._edit_side(width=int(v))),
             LiveField(self._height, app_state,
                       lambda v: self._edit_side(height=int(v))),
+            LiveField(self._scale, app_state, self._edit_scale,
+                      delay_ms=_REENGRAVE_DELAY_MS),
         )
 
         # -- preview background: view state, never the document --------
@@ -138,12 +139,10 @@ class VideoCanvasPanel(QWidget):
         edited = replace(canvas, **side)
         return None if edited == canvas else SetVideoCanvas(edited)
 
-    def _commit_scale(self) -> None:
-        """One re-engraving command per finished edit, no-op guarded so
-        a plain focus-out costs nothing."""
-        scale = self._scale.value() / 100.0
-        if scale != self._state.doc.engraving.scale:
-            self._state.execute(SetScoreScale(scale))
+    def _edit_scale(self, percent: float) -> Command | None:
+        scale = float(percent) / 100.0
+        committed = self._state.committed.engraving.scale
+        return None if scale == committed else SetScoreScale(scale)
 
     def _on_preset(self, index: int) -> None:
         chosen = self._preset.itemData(index)
@@ -180,19 +179,15 @@ class VideoCanvasPanel(QWidget):
             self._preset.setCurrentIndex(
                 index if index >= 0 else self._preset_index(_CUSTOM))
         self._preset.blockSignals(False)
-        width, height = self.live_fields
+        width, height, scale = self.live_fields
         if canvas is not None:
             width.resync(canvas.width)
             height.resync(canvas.height)
-        for field in self.live_fields:
-            field.set_enabled(canvas is not None)
-        # score scale is canvas-independent (it sizes the notation on
-        # the page); blockSignals is enough — no LiveField, so there is
-        # no mid-edit preview to protect
-        if not self._scale.hasFocus():
-            self._scale.blockSignals(True)
-            self._scale.setValue(doc.engraving.scale * 100.0)
-            self._scale.blockSignals(False)
+        # W/H need a canvas; scale is canvas-independent (it sizes the
+        # notation on the page) and stays enabled
+        width.set_enabled(canvas is not None)
+        height.set_enabled(canvas is not None)
+        scale.resync(doc.engraving.scale * 100.0)
 
     # -- preview background (view state) -----------------------------------
 

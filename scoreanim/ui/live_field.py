@@ -24,9 +24,12 @@ Three things the owner still does:
 - call `set_enabled` rather than `spin.setEnabled`, so a resync can
   never gray out the box being typed in. Disabling drops focus, and
   focus-out commits — the resync would commit from inside itself.
-- keep the field out of anything that re-engraves. Re-engraving
-  commands run through `execute`, never `preview` — a re-engrave costs
-  0.25-1.3 s, so it cannot happen per keystroke.
+- give a field whose command RE-ENGRAVES a `delay_ms` (Marcus's call,
+  2026-08-06: the score scale must change the playback in real time).
+  A re-engrave costs 0.25-1.3 s, so it cannot happen per keystroke;
+  with a delay the field previews once per typing pause instead —
+  live, but never more than one engrave per pause — and the commit is
+  still one undo entry. A field with no delay must never re-engrave.
 
 Every host keeps its fields in a `live_fields` tuple. That is what
 holds them alive, and `tests/test_live_field.py` scans it: a spinbox
@@ -42,6 +45,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QDoubleSpinBox, QSpinBox
 
 from scoreanim.core.project import Command
@@ -53,11 +57,16 @@ SpinBox = QDoubleSpinBox | QSpinBox
 class LiveField:
     """Wires one spinbox to preview on every keystroke and commit at the
     end of the edit. Held by the widget that owns the spinbox — that is
-    what keeps the signal connections alive."""
+    what keeps the signal connections alive.
+
+    delay_ms > 0 debounces the preview: it fires once, delay_ms after
+    the last change, instead of per keystroke — for the fields whose
+    command re-engraves (see the module docstring)."""
 
     def __init__(self, spin: SpinBox, state: AppState,
                  edit: Callable[[float], Command | None],
-                 on_change: Callable[[], None] | None = None) -> None:
+                 on_change: Callable[[], None] | None = None,
+                 delay_ms: int = 0) -> None:
         self.spin = spin                 # public: the enforcement test reads it
         self._state = state
         self._edit = edit
@@ -67,8 +76,23 @@ class LiveField:
         # keystroke. Qt only emits it for text that already validates in
         # the spinbox's range, so a half-typed number never previews.
         spin.setKeyboardTracking(True)
-        spin.valueChanged.connect(self._preview)
+        if delay_ms > 0:
+            self._timer = QTimer(spin)
+            self._timer.setSingleShot(True)
+            self._timer.setInterval(delay_ms)
+            self._timer.timeout.connect(
+                lambda: self._preview(self.spin.value()))
+            spin.valueChanged.connect(lambda _value: self._timer.start())
+        else:
+            self._timer = None
+            spin.valueChanged.connect(self._preview)
         spin.editingFinished.connect(self.commit)
+
+    def flush_preview(self) -> None:
+        """Fire a pending debounced preview now (tests mostly)."""
+        if self._timer is not None and self._timer.isActive():
+            self._timer.stop()
+            self._preview(self.spin.value())
 
     def previewing(self) -> bool:
         """This field has an unfinished edit showing. Self-healing on
@@ -107,6 +131,8 @@ class LiveField:
     def commit(self) -> None:
         """Enter or focus-out ends the edit: one undo entry for the whole
         typing session, whatever the preview did along the way."""
+        if self._timer is not None:
+            self._timer.stop()           # the commit IS the pending edit
         command = self._edit(self.spin.value())
         if command is None:
             self.drop()

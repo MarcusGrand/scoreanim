@@ -61,22 +61,26 @@ def test_a_preset_click_is_one_command(panel) -> None:
     assert not p._width.isEnabled()         # display re-derived
 
 
-def test_scale_commits_one_engraving_command(panel) -> None:
-    """Scale re-engraves, so it is NOT a live field: nothing happens
-    per keystroke, one SetScoreScale on the finished edit, no-op
-    guarded on focus-out."""
+def test_scale_previews_debounced_and_commits_once(panel) -> None:
+    """Scale re-engraves, so its LiveField is debounced: a value change
+    arms the timer instead of previewing at once; the (flushed) preview
+    changes the document live with NO undo entry; the finished edit is
+    one entry, and undo re-derives the display."""
     p, state = panel
-    assert p.reengrave_fields == (p._scale,)
-    p._scale.setValue(130.0)                # programmatic: no signal-commit
-    assert state.doc.engraving.scale == 1.0  # nothing until the edit ends
-    p._commit_scale()
-    assert state.doc.engraving.scale == 1.3
+    scale_field = p.live_fields[2]
+    assert scale_field.spin is p._scale
+    p._scale.setValue(130.0)
+    assert state.doc.engraving.scale == 1.0  # armed, not fired
+    scale_field.flush_preview()              # the pause elapses
+    assert state.doc.engraving.scale == 1.3  # live in the playback
+    assert not state.can_undo                # preview: no entry yet
+    scale_field.commit()
+    assert state.committed.engraving.scale == 1.3
     assert state.undo_text() == "set score scale"
-    p._commit_scale()                       # same value: no second entry
     state.undo()
     assert state.doc.engraving.scale == 1.0
     assert not state.can_undo
-    assert p._scale.value() == 100.0        # display re-derived
+    assert p._scale.value() == 100.0         # display re-derived
 
 
 def test_page_aspect_clears_the_canvas(panel) -> None:
