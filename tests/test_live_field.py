@@ -20,7 +20,7 @@ from scoreanim.core.project import SetOffset  # noqa: E402
 from scoreanim.core.score.model import MeasureInfo  # noqa: E402
 from scoreanim.ui.app_state import AppState  # noqa: E402
 from scoreanim.ui.live_field import LiveField  # noqa: E402
-from scoreanim.ui.panels import EffectsPanel  # noqa: E402
+from scoreanim.ui.panels import EffectsPanel, VideoCanvasPanel  # noqa: E402
 from scoreanim.ui.timeline_bar import TimelineBar  # noqa: E402
 
 
@@ -153,11 +153,13 @@ def test_moving_focus_ends_the_edit(qapp) -> None:
 @pytest.mark.parametrize("build", [
     lambda state: TimelineBar(state),
     lambda state: EffectsPanel(state),
+    lambda state: VideoCanvasPanel(state),
 ])
 def test_every_spinbox_is_a_live_field(build) -> None:
     """The standing rule, enforced: a number field that edits the
-    document previews as you type. A spinbox added without a LiveField
-    fails here (see docs/PATTERNS.md)."""
+    document previews as you type — or, for a re-engraving field, once
+    per typing pause (LiveField delay_ms). A spinbox added without a
+    LiveField fails here (see docs/PATTERNS.md)."""
     state = AppState()
     state.set_measures((MeasureInfo(number=1, start=0.0,
                                     quarter_length=4.0),))

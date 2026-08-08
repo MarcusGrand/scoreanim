@@ -17,18 +17,17 @@ import os
 from pathlib import Path
 from typing import Any
 
-from scoreanim.core.animation.glow import fold_strength
-from scoreanim.core.animation.reveal import RevealMode
-from scoreanim.core.animation.style import ElementStyle, StyleRules
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project.document import (CondenseGroup, FileRef,
                                              LayoutOverride, PageBreak,
                                              PartTextOverride, ProjectDoc,
                                              StaffGroup, StemDirection,
                                              SystemBreak, TimingConfig)
+from scoreanim.core.project.serialize_style import style_out, style_rules_in
 from scoreanim.core.project.stage_config import (PresentationMode,
                                                  StageConfig,
-                                                 StageTextElement)
+                                                 StageTextElement,
+                                                 VideoCanvas)
 from scoreanim.core.score.identity import ElementId, PartId
 from scoreanim.core.timing.swing import SwingRegion
 from scoreanim.core.timing.taps import Tap, TapSession
@@ -125,8 +124,32 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 #   the look is the same either way. This is the ONE key we consume
 #   rather than round-trip, and it is the second legacy fold in this
 #   file after v1's part_colors.
-PROJECT_VERSION = 11
-_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+# 12 (video canvas, 2026-08-06): stage.canvas — {width, height}, the
+# user's video frame, previewed live and used verbatim as the export
+# size. Omitted when unset. No read gate: a missing key means no
+# canvas, the page-aspect frame every older file has always had. The
+# bump keeps a v11 reader refusing loudly instead of silently dropping
+# the user's framing on a resave — the v2 rationale. (Marcus approved
+# this bump 2026-08-06.)
+#   Also v12 (score scale, same day): engraving.scale — the score's
+#   size on the page (rastral size; notation bigger, page constant),
+#   an ENGRAVING input consumed at the Verovio seam. Omitted at the
+#   default 1.0; a missing key is the default look, no read gate.
+#   Also v12 (lyrics size, same day): engraving.lyric_size — the
+#   lyrics' own size as a factor of the engraver's default, because
+#   lyrics crowd first when the score grows. Same shape, same sparse
+#   default-1.0 omission, same no-read-gate reasoning.
+#   Also v12 (staff line thickness, 2026-08-07):
+#   engraving.staff_line_width — the same factor shape again, because
+#   heavier staff lines read better over video. It
+#   rides v12 by the v3/v11 precedent: no build has shipped reading
+#   v12, so a second number would protect nothing. The first cut of
+#   this feature (same day, never released) briefly stored a `scale`
+#   inside stage.canvas meaning a crop — Marcus corrected the meaning;
+#   a canvas-key scale from that build is deliberately IGNORED on
+#   read, never folded, because the two numbers mean different things.
+PROJECT_VERSION = 12
+_READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 SUFFIX = ".scoreanim"
 
 
@@ -142,6 +165,14 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
         "engraving": {
             "xml_id_seed": doc.engraving.xml_id_seed,
             "suppress_header": doc.engraving.suppress_header,
+            # v12: the score's size and the lyrics' own, omitted at
+            # the default so an untouched document keeps its byte shape
+            **({"scale": doc.engraving.scale}
+               if doc.engraving.scale != 1.0 else {}),
+            **({"lyric_size": doc.engraving.lyric_size}
+               if doc.engraving.lyric_size != 1.0 else {}),
+            **({"staff_line_width": doc.engraving.staff_line_width}
+               if doc.engraving.staff_line_width != 1.0 else {}),
         },
         "layout_overrides": [
             {"element_id": str(eid), "dx": o.dx, "dy": o.dy,
@@ -166,37 +197,15 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
             ],
             "locked_beats": list(doc.timing.locked_beats),
         },
-        "style": {
-            "reveal_mode": doc.style.reveal_mode.name.lower(),
-            "floor_opacity": doc.style.floor_opacity,
-            "parts": {str(p): _style_out(s)
-                      for p, s in sorted(doc.style.parts.items())},
-            "elements": {str(e): _style_out(s)
-                         for e, s in sorted(doc.style.elements.items())},
-            # v7: default_effect omitted when None; effect_params
-            # round-trips RAW (a preset/key this build doesn't consume
-            # is written back verbatim) and is omitted when empty
-            **({"default_effect": doc.style.default_effect}
-               if doc.style.default_effect is not None else {}),
-            **({"effect_params": {
-                    name: dict(entry) for name, entry
-                    in sorted(doc.style.effect_params.items())}}
-               if doc.style.effect_params else {}),
-            # v11: the volume response, written the same way — raw and
-            # omitted when empty
-            **({"volume": dict(sorted(doc.style.volume.items()))}
-               if doc.style.volume else {}),
-            # v11: the system pulse, its twin
-            **({"pulse": dict(sorted(doc.style.pulse.items()))}
-               if doc.style.pulse else {}),
-            # v11: the page's two colours, the third entry of the same
-            # shape — raw, and omitted when nothing is stored, which is
-            # what keeps an untouched document byte-identical
-            **({"colors": dict(sorted(doc.style.colors.items()))}
-               if doc.style.colors else {}),
-        },
+        # the style sub-shape lives with its reader in serialize_style.py
+        "style": style_out(doc.style),
         "stage": {
             "mode": doc.stage.mode.name.lower(),
+            # v12: the video canvas, omitted when unset (sparse — a
+            # canvas-free document is byte-identical to v11's shape)
+            **({"canvas": {"width": doc.stage.canvas.width,
+                           "height": doc.stage.canvas.height}}
+               if doc.stage.canvas is not None else {}),
             "texts": [
                 {"element_id": t.element_id, "content": t.content,
                  "page": t.page, "x": t.x, "y": t.y, "anchor": t.anchor,
@@ -259,6 +268,12 @@ def from_dict(data: dict[str, Any],
                 xml_id_seed=data.get("engraving", {}).get("xml_id_seed", 42),
                 suppress_header=data.get("engraving", {})
                 .get("suppress_header", True),
+                # v12: missing keys → 1.0, the look every file has had
+                scale=float(data.get("engraving", {}).get("scale", 1.0)),
+                lyric_size=float(data.get("engraving", {})
+                                 .get("lyric_size", 1.0)),
+                staff_line_width=float(data.get("engraving", {})
+                                       .get("staff_line_width", 1.0)),
             ),
             layout_overrides={
                 ElementId(o["element_id"]): LayoutOverride(
@@ -284,10 +299,13 @@ def from_dict(data: dict[str, Any],
                 ),
                 locked_beats=tuple(sorted(timing.get("locked_beats", ()))),
             ),
-            style=_style_rules_in(data.get("style") or {}),
+            style=style_rules_in(data.get("style") or {}),
             stage=StageConfig(
                 mode=_presentation_mode_in(
                     data.get("stage", {}).get("mode")),
+                # v12: missing key → None → the page-aspect frame,
+                # which is the look every older file has always had
+                canvas=_canvas_in(data.get("stage", {}).get("canvas")),
                 texts=tuple(
                     StageTextElement(
                         element_id=t["element_id"], content=t["content"],
@@ -345,13 +363,12 @@ def from_dict(data: dict[str, Any],
         raise ValueError(f"malformed project data: {exc!r}") from exc
 
 
-def _reveal_mode_in(value: Any) -> RevealMode:
-    if value is None:
-        return RevealMode.STEPPED
-    try:
-        return RevealMode[str(value).upper()]
-    except KeyError as exc:
-        raise ValueError(f"unknown reveal mode {value!r}") from exc
+def _canvas_in(data: dict[str, Any] | None) -> VideoCanvas | None:
+    if data is None:
+        return None
+    # a same-day pre-release build wrote a "scale" here meaning a crop;
+    # deliberately ignored (see the v12 note above)
+    return VideoCanvas(width=int(data["width"]), height=int(data["height"]))
 
 
 def _presentation_mode_in(value: Any) -> PresentationMode:
@@ -391,54 +408,6 @@ def _text_override_out(override: PartTextOverride) -> dict[str, Any]:
     if override.abbreviation is not None:
         out["abbreviation"] = override.abbreviation
     return out
-
-
-def _style_out(style: ElementStyle) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    if style.color is not None:
-        out["color"] = style.color
-    if style.effect is not None:
-        out["effect"] = style.effect
-    return out
-
-
-def _style_in(data: dict[str, Any]) -> ElementStyle:
-    return ElementStyle(color=data.get("color"), effect=data.get("effect"))
-
-
-def _style_rules_in(style: dict[str, Any]) -> StyleRules:
-    parts = {PartId(p): _style_in(s)
-             for p, s in style.get("parts", {}).items()}
-    # v1 legacy: {"part_colors": {pid: "#rrggbb"}} folds into part color
-    # rules (explicit "parts" entries win if both are present)
-    for p, c in style.get("part_colors", {}).items():
-        parts.setdefault(PartId(p), ElementStyle(color=c))
-    params = {str(name): dict(entry) for name, entry
-              in style.get("effect_params", {}).items()}
-    # v11 legacy: the glow's Strength was a second knob on the axis its
-    # envelope already owns, so it folds into the two levels it
-    # multiplied and the key goes. Once, here — see
-    # core/animation/glow.py for why not at consumption.
-    if "glow" in params:
-        params["glow"] = fold_strength(params["glow"])
-    return StyleRules(
-        reveal_mode=_reveal_mode_in(style.get("reveal_mode")),
-        # .get, never `or`: a saved floor of 0.0 is falsy and must load
-        floor_opacity=style.get("floor_opacity", 0.3),
-        parts=parts,
-        elements={ElementId(e): _style_in(s)
-                  for e, s in style.get("elements", {}).items()},
-        # v7 keys; absent in v<=6 files → None / {} (unchanged look)
-        default_effect=style.get("default_effect"),
-        effect_params=params,
-        # v11 keys; absent in v<=10 files → {} → both off, which is the
-        # look those files have always had
-        volume=dict(style.get("volume", {})),
-        pulse=dict(style.get("pulse", {})),
-        # absent → {} → white paper and black ink, the look every file
-        # written before this existed has always had
-        colors=dict(style.get("colors", {})),
-    )
 
 
 # ---------------------------------------------------------------------------

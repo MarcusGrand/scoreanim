@@ -269,3 +269,35 @@ def test_bind_without_a_measure_map_still_works() -> None:
     router.show_measure(4)
     assert router.page == 2
     assert view.calls == [("scene", "scene2")]
+
+
+# -- video canvas sync (2026-08-06) -----------------------------------------
+
+def test_sync_canvas_diffs_onto_the_view() -> None:
+    from scoreanim.core.project import VideoCanvas
+
+    view, menus = _View(), _Menus()
+    view.set_canvas = lambda c: view.calls.append(("canvas", c))
+    router = ViewRouter(view, menus)
+
+    canvas = VideoCanvas(1080, 1920)
+    router.sync_canvas(canvas)
+    assert view.calls == [("canvas", canvas)]
+    router.sync_canvas(VideoCanvas(1080, 1920))    # equal value: no call
+    assert len(view.calls) == 1
+    router.sync_canvas(None)                       # clearing is a change
+    assert view.calls[-1] == ("canvas", None)
+    router.sync_canvas(None)                       # already applied
+    assert len(view.calls) == 2
+
+
+def test_sync_canvas_needs_no_scenes() -> None:
+    """Unlike mode sync, a canvas change reframes the view in place, so
+    it must work before bind() — the view handles a missing scene."""
+    from scoreanim.core.project import VideoCanvas
+
+    view, menus = _View(), _Menus()
+    applied = []
+    view.set_canvas = applied.append
+    ViewRouter(view, menus).sync_canvas(VideoCanvas(1920, 1080))
+    assert applied == [VideoCanvas(1920, 1080)]

@@ -30,13 +30,17 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 
 from scoreanim.core.editing import COARSE_NUDGE, NUDGE_STEP
+from scoreanim.ui.stage_frame import StageFraming
 from scoreanim.ui.stage_scrollbars import TransientScrollbars
 
 _LETTERBOX = QColor("#3a3a3a")
+# The canvas frame's own edge: light enough to read on the letterbox,
+# quiet enough not to read as part of the score.
+_FRAME_EDGE = QColor("#7a7a7a")
 # Arrow key → unit direction (M3.2). Page y grows downward, as in SVG.
 _ARROW_KEYS = {Qt.Key.Key_Left: (-1.0, 0.0), Qt.Key.Key_Right: (1.0, 0.0),
                Qt.Key.Key_Up: (0.0, -1.0), Qt.Key.Key_Down: (0.0, 1.0)}
@@ -118,19 +122,57 @@ class StageView(QGraphicsView):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scrollbars = TransientScrollbars(self)
         self._fit_mode = True
-        self._band: QRectF | None = None     # masked region (the system)
-        self._frame: QRectF | None = None    # fitted region (page-sized)
+        self._framing = StageFraming()       # frame/band/mask geometry
+        self._preview_fill: QColor | None = None   # overlay preview
+        self._page_fill = QColor(Qt.GlobalColor.white)   # doc page color
         self._press_pos = None               # viewport px, for click detect
         self.nudge_probe = None              # set by the window (M3.2)
         self._drag_origin: QPointF | None = None   # scene pos of the press
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)   # Esc needs focus
 
+    def set_canvas(self, canvas) -> None:
+        """The document's video canvas (or None): reframe in place,
+        keeping whatever page or band is showing."""
+        self._framing.set_canvas(canvas)
+        scene = self.scene()
+        if scene is not None:
+            page = scene.sceneRect()
+            if self._framing.band is not None:
+                self._framing.set_system_band(page, self._framing.band)
+            else:
+                self._framing.set_page(page)
+            self.setSceneRect(self._framing.scene_rect(page))
+            if self._fit_mode:
+                self._fit()
+        self.viewport().update()
+
+    def set_overlay_preview(self, active: bool, color: QColor) -> None:
+        """View-only composite preview: fill the frame with `color`
+        (the video the overlay will sit on) behind the ink. Never
+        reaches export — ruling R1 keeps frames transparent."""
+        self._preview_fill = QColor(color) if active else None
+        self.viewport().update()
+
+    def set_page_fill(self, color: QColor) -> None:
+        """The document's page background (light or dark mode) — the
+        canvas frame fills with it when the overlay preview is off, so
+        the box reads as one solid rectangle whatever mode shows."""
+        self._page_fill = QColor(color)
+        self.viewport().update()
+
+    def _frame_fill(self) -> QColor:
+        return self._preview_fill if self._preview_fill is not None \
+            else self._page_fill
+
     def show_scene(self, scene: QGraphicsScene) -> None:
         """Page flip: swap scenes, keep the current fit/zoom behavior."""
         self.setScene(scene)
-        self.setSceneRect(scene.sceneRect())
+        page = scene.sceneRect()
+        self._framing.set_page(page)
+        self.setSceneRect(self._framing.scene_rect(page))
         if self._fit_mode:
             self._fit()
+        self.viewport().update()
 
     def show_system_band(self, scene: QGraphicsScene, band: QRectF) -> None:
         """System flip (Phase 7.4; framing revised Phase 10R): swap to
@@ -140,26 +182,21 @@ class StageView(QGraphicsView):
         outside the band letterboxes. A hard cut, exactly like a page
         flip (ruling R2)."""
         self.setScene(scene)
-        self._band = QRectF(band)
         page = scene.sceneRect()
-        self._frame = QRectF(page.left(),
-                             band.center().y() - page.height() / 2,
-                             page.width(), page.height())
-        # the frame may extend past the page for systems near its top or
-        # bottom; widening the VIEW's scene rect lets fitInView center
-        # there instead of clamping to the page (the overhang renders as
-        # view background = letterbox, exactly right)
-        self.setSceneRect(self._frame.united(page))
+        self._framing.set_system_band(page, band)
+        self.setSceneRect(self._framing.scene_rect(page))
         if self._fit_mode:
             self._fit()
         self.viewport().update()
 
     def clear_band(self) -> None:
-        """Back to paged framing (mask off)."""
-        self._band = None
-        self._frame = None
+        """Back to paged framing (band mask off; the canvas stays)."""
         if self.scene() is not None:
-            self.setSceneRect(self.scene().sceneRect())
+            page = self.scene().sceneRect()
+            self._framing.set_page(page)
+            self.setSceneRect(self._framing.scene_rect(page))
+        else:
+            self._framing.band = None
         if self._fit_mode:
             self._fit()
         self.viewport().update()
@@ -172,33 +209,89 @@ class StageView(QGraphicsView):
     def _fit(self) -> None:
         if self.scene() is None:
             return
-        target = self._frame if self._frame is not None \
-            else self.scene().sceneRect()
+        target = self._framing.fit_target(self.scene().sceneRect())
+        if self._framing.canvas is not None:
+            self._fit_canvas(target)
+            return
         self.fitInView(target, Qt.AspectRatioMode.KeepAspectRatio)
 
-    def drawForeground(self, painter, rect) -> None:  # noqa: N802
-        """Letterbox masking for system mode: fill the exposed scene
-        area outside the band (four edge strips; corner overlap is
-        harmless — same opaque color as the view background)."""
-        super().drawForeground(painter, rect)
-        band = self._band
-        if band is None:
+    def _fit_canvas(self, frame: QRectF) -> None:
+        """Fit the canvas frame so it CANNOT move between systems.
+
+        fitInView rounds through the integer scrollbars, and how it
+        rounds depends on the frame's scene position — the canvas edge
+        wobbled 1–4 px between systems during playback. Three choices
+        pin it: the zoom is set directly (no fitInView, no 2 px margin —
+        the canvas edge IS the picture); the scroll range is one
+        CONSTANT page-independent overscan rect, so Qt's origin math is
+        identical for every system; and the frame is nudged a quarter
+        device pixel off the integer grid (at most half a pixel against
+        the band — invisible), so every rounding along the way lands
+        the same side for every system."""
+        vp = self.viewport().rect()
+        if vp.isEmpty() or frame.isEmpty():
             return
-        if rect.top() < band.top():
-            painter.fillRect(QRectF(rect.left(), rect.top(), rect.width(),
-                                    band.top() - rect.top()), _LETTERBOX)
-        if rect.bottom() > band.bottom():
-            painter.fillRect(QRectF(rect.left(), band.bottom(), rect.width(),
-                                    rect.bottom() - band.bottom()),
-                             _LETTERBOX)
-        if rect.left() < band.left():
-            painter.fillRect(QRectF(rect.left(), rect.top(),
-                                    band.left() - rect.left(),
-                                    rect.height()), _LETTERBOX)
-        if rect.right() > band.right():
-            painter.fillRect(QRectF(band.right(), rect.top(),
-                                    rect.right() - band.right(),
-                                    rect.height()), _LETTERBOX)
+        z = min(vp.width() / frame.width(), vp.height() / frame.height())
+        frame = QRectF(frame)
+        frame.translate(
+            (round(frame.left() * z) + 0.25) / z - frame.left(),
+            (round(frame.top() * z) + 0.25) / z - frame.top())
+        self._framing.frame = frame
+        page = self.scene().sceneRect()
+        self.setSceneRect(page.adjusted(-frame.width(), -frame.height(),
+                                        frame.width(), frame.height()))
+        transform = self.transform()
+        transform.setMatrix(z, 0, 0, 0, z, 0, 0, 0, 1)
+        self.setTransform(transform)
+        self.centerOn(frame.center())
+
+    def drawBackground(self, painter, rect) -> None:  # noqa: N802
+        """The frame's own fill, behind the ink.
+
+        With a canvas the whole frame fills — the overlay-preview color
+        when the preview is on (paper hidden, so the ink composites the
+        way the exported overlay will over footage), else the page
+        background, so the letterbox slack beside the page belongs to
+        the box instead of reading as a hole in it. Without a canvas
+        only the preview fills, over the page."""
+        super().drawBackground(painter, rect)
+        if self.scene() is None:
+            return
+        frame = self._framing.frame
+        if self._framing.canvas is not None and frame is not None:
+            painter.fillRect(frame.intersected(rect), self._frame_fill())
+        elif self._preview_fill is not None:
+            target = frame if frame is not None \
+                else self.scene().sceneRect()
+            painter.fillRect(target.intersected(rect), self._preview_fill)
+
+    def drawForeground(self, painter, rect) -> None:  # noqa: N802
+        """The masking, then the canvas frame's edge.
+
+        No canvas: letterbox over everything outside the visible band
+        (geometry in stage_frame.py). Canvas: letterbox only OUTSIDE
+        the frame; inside it, a neighbor system's ink is covered with
+        the frame's own fill — so the box is one still rectangle whose
+        content changes, never a box that reshapes per system."""
+        super().drawForeground(painter, rect)
+        framing = self._framing
+        if framing.canvas is None:
+            for strip in framing.mask_strips(rect):
+                painter.fillRect(strip, _LETTERBOX)
+            return
+        if framing.frame is None:
+            return
+        inside, outside = framing.canvas_mask(rect)
+        fill = self._frame_fill()
+        for strip in inside:
+            painter.fillRect(strip, fill)
+        for strip in outside:
+            painter.fillRect(strip, _LETTERBOX)
+        pen = QPen(_FRAME_EDGE)
+        pen.setCosmetic(True)               # 1 device px at every zoom
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(framing.frame)
 
     # -- selection gesture -------------------------------------------------
 
@@ -210,7 +303,7 @@ class StageView(QGraphicsView):
         system is invisible but fully hittable. The view is the only
         object that knows the band, so it gates here and the selection
         controller stays mode-blind. Paged mode: everything is visible."""
-        return self._band is None or self._band.contains(scene_pos)
+        return self._framing.contains(scene_pos)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:

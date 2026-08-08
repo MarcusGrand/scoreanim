@@ -1142,3 +1142,144 @@ def test_export_matches_live_with_an_onset_pop(qapp, engraved, join_mapping,
     assert len(seen) > 2
     assert max(seen) > 1.0
     assert split
+
+
+# -- the video canvas (2026-08-06) --------------------------------------------
+
+def make_canvas_renderer(inputs, tempo_map, offset, *, end, canvas,
+                         mode=PresentationMode.PAGED,
+                         fps=FPS) -> FrameRenderer:
+    spec = ExportSpec(fps=fps, height=HEIGHT, mode=mode, canvas=canvas,
+                      start_seconds=0.0, end_seconds=end,
+                      offset_seconds=offset,
+                      format=ExportFormat.PNG_SEQUENCE,
+                      out_path=Path("unused"))
+    return FrameRenderer(inputs, StyleRules(), tempo_map, (), spec)
+
+
+def _canvas_src_rect(inputs, canvas):
+    from scoreanim.core.engraving.canvas import canvas_view_rect
+    geo = inputs.layout.pages[0]
+    return canvas_view_rect(geo.width, geo.height,
+                            canvas.width, canvas.height)
+
+
+def test_canvas_frames_are_exactly_the_canvas_size(
+        qapp, inputs, tempo_map, tempo_setup) -> None:
+    """The frame IS the document's pixels — height is ignored and no
+    aspect derivation runs."""
+    from scoreanim.core.project import VideoCanvas
+
+    renderer = make_canvas_renderer(inputs, tempo_map,
+                                    tempo_setup.offset_seconds, end=5.0,
+                                    canvas=VideoCanvas(270, 480))
+    assert renderer.size == (270, 480)
+    image = renderer.render_frame(0)
+    assert (image.width(), image.height()) == (270, 480)
+    assert image.pixelColor(0, 0).alpha() == 0        # still transparent
+
+
+def test_canvas_composite_matches_the_pure_rect(
+        qapp, inputs, schedule, tempo_map, tempo_setup) -> None:
+    """A lit notehead's ink lands at the pixel canvas_view_rect
+    predicts — the live/export agreement, pinned from the export side."""
+    from scoreanim.core.project import VideoCanvas
+
+    offset = tempo_setup.offset_seconds
+    seconds = _trigger_seconds(schedule, tempo_map)
+    canvas = VideoCanvas(270, 480)
+    renderer = make_canvas_renderer(inputs, tempo_map, offset,
+                                    end=_audio_end(schedule, tempo_map,
+                                                   offset),
+                                    canvas=canvas)
+    src = _canvas_src_rect(inputs, canvas)
+    ppu = canvas.width / src.w                        # px per page unit
+
+    eid = next(e for e in schedule.triggers[0].element_ids
+               if renderer.scenes.items[e].bbox is not None)
+    b = renderer.scenes.items[eid].bbox
+    x0 = max(0, int((b.x() - src.x) * ppu) - 1)
+    y0 = max(0, int((b.y() - src.y) * ppu) - 1)
+    x1 = min(canvas.width, int((b.x() + b.width() - src.x) * ppu) + 2)
+    y1 = min(canvas.height, int((b.y() + b.height() - src.y) * ppu) + 2)
+    assert x1 > x0 and y1 > y0                        # in frame
+
+    onset_frame = math.ceil((seconds[0] + offset) * FPS - 1e-6)
+    lit = _max_alpha_in(renderer.render_frame(onset_frame),
+                        x0, y0, x1, y1)
+    assert lit >= 200, lit
+
+
+def test_landscape_canvas_slack_is_transparent(
+        qapp, inputs, tempo_map, tempo_setup) -> None:
+    """A canvas wider than the page letterboxes: the slack past the
+    page's left and right edges exports as transparency, not paper."""
+    from scoreanim.core.project import VideoCanvas
+
+    canvas = VideoCanvas(480, 270)
+    renderer = make_canvas_renderer(inputs, tempo_map,
+                                    tempo_setup.offset_seconds, end=5.0,
+                                    canvas=canvas)
+    src = _canvas_src_rect(inputs, canvas)
+    geo = inputs.layout.pages[0]
+    assert src.x < 0                                  # slack is real
+    ppu = canvas.width / src.w
+    page_left_px = int((0 - src.x) * ppu)
+    page_right_px = int((geo.width - src.x) * ppu)
+    image = renderer.render_frame(0)
+    assert _max_alpha_in(image, 0, 0, page_left_px - 2,
+                         canvas.height) == 0
+    assert _max_alpha_in(image, page_right_px + 2, 0, canvas.width,
+                         canvas.height) == 0
+
+
+def test_system_canvas_frames_are_all_one_size_and_band_clipped(
+        qapp, inputs, schedule, tempo_map, tempo_setup) -> None:
+    """System mode with a canvas: every frame is exactly the canvas
+    size, and ink outside the band's projected strip never paints (the
+    bleed guarantee, canvas edition)."""
+    from scoreanim.core.project import VideoCanvas
+
+    offset = tempo_setup.offset_seconds
+    end = _audio_end(schedule, tempo_map, offset)
+    canvas = VideoCanvas(270, 480)
+    renderer = make_canvas_renderer(inputs, tempo_map, offset, end=end,
+                                    canvas=canvas,
+                                    mode=PresentationMode.SYSTEM)
+    src = _canvas_src_rect(inputs, canvas)
+    ppu = canvas.width / src.w
+    bands = {b.system: b for b in system_bands(inputs.layout)}
+    total = renderer.frame_count
+    for n in (0, total // 2, total - 1):
+        image = renderer.render_frame(n)
+        assert (image.width(), image.height()) == (270, 480)
+        band = bands[renderer.current_system()]
+        # the band is vertically centered, so its strip's top in pixels:
+        strip_top = int(canvas.height / 2 - band.rect.h / 2 * ppu)
+        if strip_top > 2:
+            assert _max_alpha_in(image, 0, 0, canvas.width,
+                                 strip_top - 2) == 0
+
+
+def test_dialog_reflects_the_documents_canvas(qapp, inputs, tempo_map,
+                                              score_model) -> None:
+    """With a canvas the Size row is a read-only reflection (the value
+    has one home, the Video canvas panel) and the summary reports the
+    canvas pixels; without one, the height spinbox behaves as always."""
+    from scoreanim.core.project import VideoCanvas
+    from scoreanim.ui.export_dialog import ExportDialog
+
+    def dialog(canvas=None):
+        return ExportDialog(inputs, StyleRules(), tempo_map, (),
+                            score_model.measures, 0.0, 10.0, "score",
+                            canvas=canvas)
+
+    with_canvas = dialog(VideoCanvas(1080, 1920))
+    assert with_canvas._output_size() == (1080, 1920)
+    assert "1080×1920" in with_canvas._summary.text()
+    assert with_canvas._size_widgets() == ()          # nothing to edit
+
+    legacy = dialog()
+    assert legacy._output_size() == even_size(
+        *legacy._page_aspect, legacy._height.value())
+    assert legacy._size_widgets() == (legacy._height,)

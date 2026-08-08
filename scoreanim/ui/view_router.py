@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QRectF
 
-from scoreanim.core.project import PresentationMode
+from scoreanim.core.project import PresentationMode, VideoCanvas
 
 if TYPE_CHECKING:
     from scoreanim.render.animate import AnimationApplier
@@ -49,6 +49,7 @@ class ViewRouter:
         self._page = 1
         self._system = 1
         self._applied_mode = PresentationMode.PAGED   # what the view shows
+        self._applied_canvas: VideoCanvas | None = None
 
     # -- per-load binding ------------------------------------------------------
 
@@ -154,6 +155,14 @@ class ViewRouter:
             self.show_system(system)
 
     # -- document intent -------------------------------------------------------
+
+    def sync_canvas(self, canvas: VideoCanvas | None) -> None:
+        """Diff the document's video canvas onto the view (called on
+        every document change, beside sync_presentation_mode)."""
+        if canvas == self._applied_canvas:
+            return
+        self._applied_canvas = canvas
+        self._view.set_canvas(canvas)
 
     def sync_presentation_mode(self, mode: PresentationMode) -> None:
         """Diff the document's mode onto the view (called on every

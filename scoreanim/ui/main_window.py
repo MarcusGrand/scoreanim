@@ -24,11 +24,11 @@ from dataclasses import replace as _dc_replace
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
-from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.project import (HIDE_EMPTY_STAVES_DEFAULT, ProjectDoc,
-                                    StageConfig)
+from scoreanim.core.animation import read_colors
+from scoreanim.core.project import ProjectDoc, StageConfig
 from scoreanim.core.timing import TempoMap
 from scoreanim.render.export import AnimationInputs
 from scoreanim.render.scene import ScoreScenes
@@ -45,7 +45,8 @@ from scoreanim.ui.nudge import NudgeController
 from scoreanim.ui.parts_menu import PartsMenu
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
-from scoreanim.ui.score_loader import LoadedScore, ScoreLoader
+from scoreanim.ui.score_install import ScoreInstaller
+from scoreanim.ui.score_loader import ScoreLoader
 from scoreanim.ui.selection import SelectionController
 from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.text_edit import InlineTextEditor
@@ -81,7 +82,8 @@ class MainWindow(QMainWindow):
                            self.lower_zone)
         # right-hand inspector (M1.4): Follow/Systems, floor + Sweep,
         # Selection placeholder; resynced in _on_document_changed
-        self.inspector = Inspector(self.app_state, self.playback, self)
+        self.inspector = Inspector(self.app_state, self.playback, self,
+                                   settings=self._settings)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,
                            self.inspector)
 
@@ -184,10 +186,21 @@ class MainWindow(QMainWindow):
         for action in self.break_action.actions:
             self.addAction(action)
         # load pipeline + document→scene diff-sync (M1.7): the loader
-        # returns a LoadedScore bundle _install adopts; the sync owns
-        # the applied caches the document-changed pass diffs against
+        # returns a LoadedScore bundle the installer adopts
+        # (ui/score_install.py); the sync owns the applied caches the
+        # document-changed pass diffs against
         self.loader = ScoreLoader()
+        self.installer = ScoreInstaller(self)
         self.doc_sync = DocumentSync(self.parts_menu)
+
+        # overlay preview (2026-08-06): view state from the canvas
+        # panel — the window holds both halves (the scenes' paper rects
+        # and the view's fill) and re-applies them per load, because a
+        # load adopts fresh scenes with their paper visible.
+        self._overlay_preview: tuple[bool, object] = (False, None)
+        self.inspector.video_canvas_panel.preview_changed.connect(
+            self._set_overlay_preview)
+        self.inspector.video_canvas_panel.restore_preview()
 
         # shell layout (M1.8): restore once docks + toolbar exist; a
         # fresh store yields the first-run default size. UI state only —
@@ -223,7 +236,8 @@ class MainWindow(QMainWindow):
         if (self._scenes is not None and doc.score is not None
                 and self.loader.needs_reengrave(doc)):
             try:
-                self._reengrave(doc, self._break_anchor(doc))
+                self.installer.reengrave(doc,
+                                         self.installer.break_anchor(doc))
             except Exception as exc:
                 # An engraving failure is NOT a CommandError, so
                 # AppState.execute never sees it and it would otherwise
@@ -235,6 +249,10 @@ class MainWindow(QMainWindow):
                 self.app_state.status.emit(f"re-engrave failed: {exc}")
         self.playback.set_timing_config(*self.timing_config(doc))
         self.doc_sync.sync_styles(doc)
+        # the canvas frame fills with the page's own background when
+        # the overlay preview is off, so the view needs the mode too
+        self.view.set_page_fill(
+            QColor(read_colors(doc.style.colors).background))
         if self.doc_sync.sync_stage(doc) \
                 and self.animation_inputs is not None:
             # a stage-text edit must reach export too — inputs.stage is
@@ -252,6 +270,7 @@ class MainWindow(QMainWindow):
         self.delete_action.sync()     # a delete disables its own action
         self.stem_flip_action.sync()  # a flip re-engraves under its own tip
         self.router.sync_presentation_mode(doc.stage.mode)
+        self.router.sync_canvas(doc.stage.canvas)
         undo_text = self.app_state.undo_text()
         redo_text = self.app_state.redo_text()
         undo = self.menus.undo_action
@@ -270,100 +289,27 @@ class MainWindow(QMainWindow):
 
     # -- score / project --------------------------------------------------------
 
-    def load_score(self, path: Path, params: EngravingParams,
-                    stage: StageConfig | None,
-                    groups: tuple = (),
-                    text_overrides: dict | None = None,
-                    hide_empty_staves: bool = HIDE_EMPTY_STAVES_DEFAULT,
-                    condense_groups: tuple = (),
-                    hide_first_system: bool = False
-                    ) -> StageConfig:
-        """Fresh-load entry: engrave + wire, then reset to page 1."""
-        loaded = self.loader.load(path, params, stage,
-                                  self.app_state.doc.style, groups,
-                                  text_overrides or {},
-                                  hide_empty_staves, condense_groups,
-                                  hide_first_system,
-                                  self.app_state.doc.system_break_overrides,
-                                  self.app_state.doc.page_break_overrides,
-                                  self.app_state.doc.stem_directions)
-        self._install(loaded)
-        self.router.reset()
-        return loaded.stage
+    def load_score(self, *args, **kwargs) -> StageConfig:
+        """Fresh-load entry (ui/score_install.py owns the pipeline)."""
+        return self.installer.load_score(*args, **kwargs)
 
-    def _break_anchor(self, doc: ProjectDoc) -> int | None:
-        """Which measure a break edit touched, for the view to re-anchor
-        to (M5.5 D8; generalized to both override maps in M6.5, D11).
-        Diffed against the loader's applied inputs rather than passed
-        down from the action, so undo and redo re-anchor on the same
-        path — and so a change that touches many ordinals at once (a
-        project load) anchors nowhere and keeps the position.
+    # -- overlay preview (view state, never the document) -----------------------
 
-        A gesture writes at most TWO ordinals over the UNION of the two
-        maps — M5.7's move-up suppresses this system's start and forces
-        the remainder; a page toggle writes its own ordinal plus, at
-        most, the clearing of a contradicting system override at the
-        SAME ordinal (D3) — and the anchor is the LOWEST of them, which
-        is where the affected music is (D14)."""
-        changed: set[int] = set()
-        for before, after in ((self.loader.applied_breaks,
-                               dict(doc.system_break_overrides)),
-                              (self.loader.applied_page_breaks,
-                               dict(doc.page_break_overrides))):
-            changed |= {o for o in set(before) | set(after)
-                        if before.get(o) != after.get(o)}
-        return min(changed) if 1 <= len(changed) <= 2 else None
+    def _set_overlay_preview(self, active: bool, color) -> None:
+        """The panel's preview state: remember it and apply it. Never
+        the document, never export (ruling R1)."""
+        self._overlay_preview = (active, color)
+        self.apply_overlay_preview()
 
-    def _reengrave(self, doc: ProjectDoc,
-                   anchor_measure: int | None = None) -> None:
-        """Re-derive the engraved world after a staff-group, part-label,
-        hide-empty-staves, or system-break change, preserving
-        page/system/zoom (no view.fit, no position reset). ~0.6 s on the
-        GUI thread per call (engrave + scene rebuild), so these commands
-        must arrive via execute(), never preview()."""
-        loaded = self.loader.load(Path(doc.score.path), doc.engraving,
-                                  doc.stage, doc.style, doc.staff_groups,
-                                  doc.text_overrides, doc.hide_empty_staves,
-                                  doc.condense_groups, doc.hide_first_system,
-                                  doc.system_break_overrides,
-                                  doc.page_break_overrides,
-                                  doc.stem_directions)
-        self._install(loaded)
-        # a break edit re-anchors to the measure it touched, so the stage
-        # stays where you were working (D8); everything else re-shows the
-        # position it had
-        if anchor_measure is not None:
-            self.router.show_measure(anchor_measure)
-        else:
-            self.router.show_current()   # install the fresh scene
-
-    def _install(self, loaded: LoadedScore) -> None:
-        """Adopt one load's derived world and point every consumer at
-        it: view scenes, export inputs, playback animation, the shared
-        measure axis, the per-load Score menu."""
-        self._scenes = loaded.scenes
-        self.animation_inputs = loaded.animation_inputs
-        self.doc_sync.bind_scenes(loaded.scenes, loaded.stage.texts)
-        self.selection.bind_scenes(loaded.scenes)   # also clears selection
-        self.delete_action.bind_scenes(loaded.scenes)   # the :seg registry
-        # the drawn geometry a stem's CURRENT direction is read from
-        self.stem_flip_action.bind_layout(loaded.animation_inputs.layout)
-        self.router.bind(loaded.scenes, loaded.band_by_system,
-                         loaded.applier, loaded.system_of_measure)
-        self.break_action.bind(loaded.system_of_measure,
-                               loaded.page_of_measure)
-        self.text_edit.bind(loaded.scenes, loaded.animation_inputs.layout,
-                            loaded.parts)
-        self.nudge.bind_scenes(loaded.scenes)
-        # the :seg fan-out only ever names ids the load actually has
-        self.inspector.selection_panel.style_controls.bind_scenes(
-            loaded.scenes)
-        self.menus.export_action.setEnabled(True)
-        self.menus.texts_action.setEnabled(True)
-        self.playback.set_animation(loaded.applier, loaded.measures)
-        self.app_state.set_measures(loaded.measures)
-        self.parts_menu.rebuild(loaded.parts)
-        self.statusBar().showMessage(loaded.status_line)
+    def apply_overlay_preview(self) -> None:
+        """Apply the remembered state — called again by the installer
+        after every load, because fresh scenes rebuild their paper
+        rects visible."""
+        active, color = self._overlay_preview
+        if self._scenes is not None:
+            self._scenes.set_page_background_visible(not active)
+        if color is not None:
+            self.view.set_overlay_preview(active, color)
 
     # -- close ---------------------------------------------------------------------
 

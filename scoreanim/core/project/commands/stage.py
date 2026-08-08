@@ -10,8 +10,8 @@ from scoreanim.core.project.commands.base import (_HEX_COLOR, Command,
 from scoreanim.core.project.document import LayoutOverride, ProjectDoc
 from scoreanim.core.project.stage_config import (OVERLAY_PREFIX,
                                                  PresentationMode,
-                                                 StageTextElement, fit_texts,
-                                                 is_header_text)
+                                                 StageTextElement, VideoCanvas,
+                                                 fit_texts, is_header_text)
 from scoreanim.core.score.identity import ElementId
 
 
@@ -61,6 +61,115 @@ class SetHideFirstSystem(Command):
     def describe(self) -> str:
         return ("hide empty staves on first system" if self.value
                 else "show staves on first system")
+
+
+# Encoder floor/ceiling for a canvas side: below 16 nothing is a video,
+# above 8192 nothing plays it; even because yuva subsampling needs it.
+_CANVAS_SIDE = range(16, 8193)
+_SCALE_RANGE = (0.5, 3.0)
+# Verovio's lyricSize saturates at 2.0–8.0 around a 4.5 default, so
+# the UI range brackets what actually changes anything.
+_LYRICS_RANGE = (0.5, 1.75)
+# Verovio's staffLineWidth saturates at 0.1–0.3 around a 0.15 default.
+_STAFF_LINE_RANGE = (0.7, 2.0)
+
+
+def _validated_canvas(canvas: VideoCanvas) -> VideoCanvas:
+    for side in (canvas.width, canvas.height):
+        if not isinstance(side, int) or side not in _CANVAS_SIDE \
+                or side % 2:
+            raise CommandError(f"bad canvas side {side!r} "
+                               f"(want an even 16–8192)")
+    return canvas
+
+
+@dataclass(frozen=True)
+class SetVideoCanvas(Command):
+    """The user's video frame (2026-08-06), or None for the page-aspect
+    default. Fat apply: a preset click carries width and height in one
+    undo entry. Stage intent only — never re-engraves."""
+    canvas: VideoCanvas | None
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if self.canvas is not None:
+            _validated_canvas(self.canvas)
+        return replace(doc, stage=replace(doc.stage, canvas=self.canvas))
+
+    def describe(self) -> str:
+        return "set video canvas" if self.canvas is not None \
+            else "clear video canvas"
+
+
+@dataclass(frozen=True)
+class SetScoreScale(Command):
+    """The score's SIZE (2026-08-06, corrected the same day it was
+    born a crop): the notation is engraved bigger or smaller on the
+    same page — rastral size, an ENGRAVING input, so the window
+    re-engraves on this diff (~0.6 s; the panel commits it via
+    execute, never preview). Crowding within a system is the user's to
+    solve with system breaks; a system too tall still repaginates and,
+    at worst, scale-to-fit keeps the last word (rule 7)."""
+    scale: float
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        lo, hi = _SCALE_RANGE
+        if not isinstance(self.scale, (int, float)) \
+                or not math.isfinite(self.scale) \
+                or not lo <= self.scale <= hi:
+            raise CommandError(f"bad score scale {self.scale!r} "
+                               f"(want {lo}–{hi})")
+        return replace(doc, engraving=replace(doc.engraving,
+                                              scale=float(self.scale)))
+
+    def describe(self) -> str:
+        return "set score scale"
+
+
+@dataclass(frozen=True)
+class SetLyricsSize(Command):
+    """The lyrics' own size, a factor of the engraver's default —
+    lyrics crowd first when the score grows, so they get their own
+    knob (2026-08-06). An engraving input like the score scale: same
+    re-engrave diff, same debounced-preview panel field. Verovio
+    clamps the underlying size to its own hard range, so factors past
+    ~1.78 (or under ~0.44) saturate rather than raise."""
+    factor: float
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        lo, hi = _LYRICS_RANGE
+        if not isinstance(self.factor, (int, float)) \
+                or not math.isfinite(self.factor) \
+                or not lo <= self.factor <= hi:
+            raise CommandError(f"bad lyrics size {self.factor!r} "
+                               f"(want {lo}–{hi})")
+        return replace(doc, engraving=replace(doc.engraving,
+                                              lyric_size=float(self.factor)))
+
+    def describe(self) -> str:
+        return "set lyrics size"
+
+
+@dataclass(frozen=True)
+class SetStaffLineWidth(Command):
+    """Staff line thickness, a factor of the engraver's default —
+    heavier lines read better over video (2026-08-07). The third
+    engraving knob, same contract as the score scale and the lyrics
+    size: re-engrave diff, debounced-preview panel field, saturation
+    at the engraver's own hard range."""
+    factor: float
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        lo, hi = _STAFF_LINE_RANGE
+        if not isinstance(self.factor, (int, float)) \
+                or not math.isfinite(self.factor) \
+                or not lo <= self.factor <= hi:
+            raise CommandError(f"bad staff line width {self.factor!r} "
+                               f"(want {lo}–{hi})")
+        return replace(doc, engraving=replace(
+            doc.engraving, staff_line_width=float(self.factor)))
+
+    def describe(self) -> str:
+        return "set staff line width"
 
 
 _TEXT_ANCHORS = frozenset({"start", "middle", "end"})

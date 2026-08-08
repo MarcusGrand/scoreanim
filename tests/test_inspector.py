@@ -41,14 +41,15 @@ def inspector(qapp):
     return Inspector(state, playback), state, playback
 
 
-def test_is_a_fixed_right_dock_with_four_sections(inspector) -> None:
+def test_is_a_fixed_right_dock_with_five_sections(inspector) -> None:
     dock, _, _ = inspector
     assert dock.objectName() == "Inspector"      # saveState identity (M1.8)
     assert dock.features() \
         == QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
     assert dock.allowedAreas() == Qt.DockWidgetArea.RightDockWidgetArea
     assert set(dock.sections) == {"playback", "appearance",
-                                 "page_colors", "selection"}
+                                 "page_colors", "video_canvas",
+                                 "selection"}
     assert all(s.expanded for s in dock.sections.values())
 
 

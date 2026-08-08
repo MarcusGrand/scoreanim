@@ -250,3 +250,26 @@ class EngravingParams:
     # (suppression is a rendering option, not a decomposition exemption).
     # Verified: Verovio ids are identical either way, joins unaffected.
     suppress_header: bool = True
+    # The user's score size (2026-08-06): notation drawn bigger or
+    # smaller on the SAME page — Dorico's rastral size, Verovio's
+    # `scale` with scaleToPageSize (measured in spikes/score_scale.py:
+    # page geometry constant, ink linear in this). 1.0 is the default
+    # look. Systems that then overflow repaginate by the rule-7
+    # never-clip mechanism, and scale-to-fit still has the last word
+    # when a single system cannot fit; crowding within a system is the
+    # user's to solve with system breaks.
+    scale: float = 1.0
+    # The lyrics' own size (2026-08-06), as a factor of the default —
+    # lyrics are the first thing to crowd when the score grows, so
+    # they get their own knob. Verovio's `lyricSize` (default 4.5 MEI
+    # units, hard range 2–8, so the factor saturates near 0.44 and
+    # 1.78). 1.0 sets nothing (spikes/lyric_size.py).
+    lyric_size: float = 1.0
+    # Staff line thickness (2026-08-07), as a factor of the default —
+    # heavier lines read better over video. Verovio's `staffLineWidth`
+    # (default 0.15 MEI units, hard range 0.1–0.3, so the factor
+    # saturates at 0.67 and 2.0). Barlines — thin and thick — follow
+    # the SAME factor at the engraver's default ratios, never tuned
+    # separately (Marcus's rule). 1.0 sets nothing
+    # (spikes/staff_line_width.py).
+    staff_line_width: float = 1.0

@@ -238,6 +238,7 @@ class FileActions:
                               duration, self.score_name or "score",
                               mode=doc.stage.mode,   # live doc, not the
                               overrides=dict(doc.layout_overrides),  # ditto
+                              canvas=doc.stage.canvas,               # ditto
                               settings=self._export_settings,
                               peaks=w.app_state.peaks,   # ditto
                               parent=w)

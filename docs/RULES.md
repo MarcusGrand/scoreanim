@@ -184,6 +184,12 @@ first) and update the matching section here.
    the score shifts to fit — a re-engrave with changed inputs is not
    window reflow; title/tempo texts edit as stage overlay and never
    re-engrave. See docs/BACKLOG.md item 5, resolved as split.)
+   Clarification (score scale, 2026-08-06): the user's score Scale is
+   a rastral-size change — an engraving input like a part rename, so
+   raising it is not window reflow, and the never-clip machinery
+   (repagination, then scale-to-fit as the last word) applies to the
+   scaled engraving exactly as to any other. The video canvas always
+   shows the whole page; nothing is ever cropped at its edge.
 
 8. **Every document mutation is an undoable command** (command pattern)
    from the first mutation implemented onward.

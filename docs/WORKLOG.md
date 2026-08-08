@@ -10,10 +10,13 @@ branches: the volume response, the swell effect, per-notehead pop
 pivots, the system group items and the system pulse. **Schema is v11**,
 so a project saved from here will not open on `v0.2-beta.6` or on any
 older build. `beta/f-glow-orthogonal` carries two unmerged sessions now
-(the one-knob-one-change pass and the glow's scope);
-`fix/bracket-hidden-staves` is the other branch unmerged.
-`main` is **38 commits ahead of `origin/main`** and has been since
-before the glow work — nothing here is pushed.
+(the one-knob-one-change pass and the glow's scope).
+`beta/f-video-canvas` (off `beta/f-glow-orthogonal`, UNMERGED) carries
+the video canvas and **schema v12** — a project saved from it will not
+open on any v11 build, including `main`. Those two are the only
+unmerged branches; `fix/bracket-hidden-staves` went in with the stem
+work (`e29e6bb`). As of 2026-08-08 `main`, the `v0.2-beta.6` tag and
+both unmerged branches are pushed to GitHub — the remote is current.
 
 **Every score re-engraves differently from 2026-08-03 on** — the stem
 pass is unconditional, and it moved 11 of the 12 goldens. That is the
@@ -41,12 +44,15 @@ though its own class docstring argues it is one job (it is the single
 compositing point for how an element looks), so the split wants a real
 seam rather than a line count. `render/animate.py` is back at **399**
 after being split on 2026-08-06.
-`core/project/serialize.py` is at **503** and is the next split due —
-over the ceiling before any of these branches, pushed further by the
-stem work and by three lines of the glow fold (Marcus's call, 2026-08-05:
-add them, split separately); `ui/main_window.py` is at 386 with the F
-key, so it follows. `ui/panels/effect_knobs.py` was split twice on
-2026-08-04 and is at 305.
+Three of the standing split debts were paid on the canvas branch
+(2026-08-06): `export_dialog.py` 425 → 386 (`ui/export_run.py`),
+`serialize.py` 503 → 441 (`serialize_style.py` — still over, but what
+remains is mostly the version-history comment block, which belongs
+with the envelope), `main_window.py` 412 → 326 (`ui/score_install.py`).
+`ui/stage_view.py` is at **443** after the canvas framing and its
+stability fit — the real seam in it is the selection-gesture handlers,
+and it is now the most overdue split. `render/items.py` still wants
+its seam.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -54,6 +60,127 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-08 — Remote sync: pushed `main` (64 commits, `d0af1b5..15ad4b6`),
+  the `v0.2-beta.6` tag and the two unmerged branches
+  (`beta/f-glow-orthogonal`, `beta/f-video-canvas`) to GitHub. Corrected
+  the NOW block: `fix/bracket-hidden-staves` was already merged. No code
+  changes; the merge decision on both beta branches stays with Marcus.
+- 2026-08-07 — **Staff line thickness knob** (`beta/f-video-canvas`,
+  UNMERGED): the fourth engraving knob, and the groove is now fully
+  worn: `EngravingParams.staff_line_width` (a factor of Verovio's
+  `staffLineWidth` 0.15 default, saturating at its hard 0.1–0.3 →
+  70–200 %), sparse v12 key, `SetStaffLineWidth`, a "Staff lines" row
+  in the Video canvas block on the same debounced live field — real
+  time, default 100 % = today's look, byte-identical (goldens green).
+  Measured (`spikes/staff_line_width.py`): rendered line ink linear in
+  the factor (0.90/1.30/2.00/2.70 units at 0.7/1.0/1.5/2.0), heads,
+  stems, page and pagination untouched. **Barlines ride the same knob**
+  (Marcus's rule, same day: never tuned separately, always a fixed
+  ratio with the staff lines) — `barLineWidth` and
+  `thickBarlineThickness` at the engraver's own default ratios, neither
+  clamping inside 70–200 %; a double bar's two lines measured 2.69 →
+  5.38 units each at factor 2, pinned beside the staff-line pin. Watch
+  out for two things: the layout BBOX tracks the drawn path, not the
+  stroke, so only a pixel render shows thickness — the pin measures
+  antialiased coverage over thin runs, skipping beams — and most
+  BARLINE elements carry a ZERO-width bbox, so bbox statistics see
+  only the multi-line complexes. Unproven under a human's eye.
+- 2026-08-06 (round 3) — **The box is solid, Scale is live, lyrics get
+  a knob** (`beta/f-video-canvas`, UNMERGED): Marcus's second review.
+  (1) "The canvas still moves" was the LIT AREA, not the edge: in
+  system mode the visible region was band∩frame, so the box reshaped
+  with every system. The frame now fills WHOLE — preview color, or
+  the page's own background (forwarded from light/dark mode) — and a
+  neighbor system's in-frame ink masks with that same fill; letterbox
+  exists only outside the frame. One still rectangle whose content
+  changes, pinned by a pixel test. (2) **Scale previews in real time**:
+  `LiveField` gained `delay_ms` — a debounced preview, once per typing
+  pause, which is what makes a ~0.6 s re-engrave livable. The preview
+  re-engraves into the running playback BEFORE the commit; the commit
+  is still one undo entry and costs no second engrave (pinned on a
+  real window). The one-day-old `reengrave_fields` exemption is gone
+  again — a re-engraving field is just a delayed live field now, and
+  the LiveField doctrine text says so. (3) **Lyrics size**
+  (`EngravingParams.lyric_size`, rides v12 sparse): a factor of
+  Verovio's `lyricSize`, because lyrics crowd first when the score
+  grows. Measured (`spikes/lyric_size.py`, complex2's 588 syllables):
+  lyric heights linear in the factor, noteheads and page untouched,
+  saturation outside ~45–175 % (the command range). Same debounced
+  panel field, row "Lyrics" under Scale. Watch out for one thing: the
+  end-to-end lyrics pin engraves complex2 twice and costs ~65 s —
+  complex2 is the ONE fixture whose lyrics reach the layout
+  (grieg_short's four never draw). Full suite green (2017), goldens
+  untouched. Unproven under a human's eye — the things to feel are
+  the solid box through a playthrough, the ~0.4 s + engrave latency
+  on a Scale spin, and whether 70 % lyrics read on a real chart.
+- 2026-08-06 (later) — **Scale sizes the score, and the canvas holds
+  still** (`beta/f-video-canvas`, UNMERGED): Marcus's three corrections
+  to the morning's feature. (1) **The canvas moved during playback** —
+  measured: 4 px between systems (fitInView clamped against the
+  frame∪page union's uneven scroll slack), and 1 px left after fixing
+  that (position-dependent integer scrollbar rounding). The canvas has
+  its own fit now (`_fit_canvas`): direct zoom with no fitInView
+  margin, one constant overscan scroll rect per page, and the frame
+  snapped a quarter device pixel off the integer grid so every
+  rounding lands the same side. Probed and pinned: identical viewport
+  corners across all pages, systems and modes. The snap costs a
+  sub-device-pixel sliver at the page's exact corner (unclickable —
+  a real click lands on a whole pixel; the test insets by one). (2) A
+  system band still centers vertically in the canvas — that was
+  already true; the movement was the fit, not the centering. (3)
+  **Scale was born a crop and is now a rastral size**: Marcus wants
+  bigger NOTES, not a magnified window. `EngravingParams.scale`
+  (rides v12), consumed at the Verovio seam as `scale` percent with
+  the `scaleToPageSize` it already sets — measured first
+  (`spikes/score_scale.py`): page constant, ink linear, testscore
+  overflows at 130 % and the rule-7 never-clip repagination absorbs
+  it (scale-to-fit's percent now derives from the user's base, so it
+  keeps the last word). Crowding within a system is the user's to
+  solve with system breaks, per Marcus. `VideoCanvas` is width+height
+  only; the frame always shows the whole page; a pre-release
+  stage.canvas.scale on disk is IGNORED on read (crop and size are
+  different meanings — noted in the schema log). Because Scale
+  re-engraves, the panel commits it on the finished edit — the
+  live-field rule gained its ONE exemption (`reengrave_fields`,
+  enforced by the same scan), and `needs_reengrave` now diffs
+  `doc.engraving`. Full suite green (2011), goldens untouched (1.0
+  sets nothing). Unproven under a human's eye — the things to feel
+  are the canvas holding still through a whole playthrough and
+  whether 130 % reads as "bigger notes" on a real score.
+- 2026-08-06 — **The video is framed in the app now**
+  (`beta/f-video-canvas`, off `beta/f-glow-orthogonal`, UNMERGED):
+  Marcus asked for an export aspect he can SEE (1080×1920 etc.), a
+  score scale inside it, and a way to judge the overlay on black.
+  **Schema v12** (his approval, same session): `VideoCanvas(width,
+  height, scale)` on `StageConfig`, None meaning the page-aspect frame
+  every project has had — no read gate, sparse key, a v11 reader
+  refuses a v12 file. This REVERSES half of Phase 10R: the free-form
+  canvas that phase removed is back as document intent, and 10R's
+  constancy survives narrower — one user shape for both modes, every
+  frame. ONE pure function is the whole seam
+  (`core/engraving/canvas.py::canvas_view_rect`, the inverse of
+  `centered_fit`): the stage fits its view to that rect
+  (`ui/stage_frame.py`, letterbox mask + 1 px edge; clicks stop at the
+  crop) and export renders exactly it, so the composite matches by
+  construction — pinned from both sides (viewport pixels offscreen; a
+  notehead's ink at the predicted pixel in a real 1080×1920 PNG
+  export, both modes, corners transparent). Scale > 100 % crops at the
+  frame edge — user FRAMING, not engraving clipping; RULES rule 7 got
+  the one-line clarification (in this diff for Marcus's eyes; CLAUDE.md
+  untouched). Inspector grew a "Video canvas" block (presets, W/H,
+  Scale — all LiveFields) plus **"Preview on video"**: black default +
+  picker, painted view-side behind the ink with the paper hidden —
+  QSettings, never the document, never a frame (R1 stands, pinned).
+  The export dialog shows a document canvas READ-ONLY (the size has one
+  home); no-canvas docs keep the height spinbox verbatim, and the whole
+  pre-canvas export suite passes unmodified. BACKLOG 11 partially
+  resolved (size left R3; fps/format/alpha/range/path stay session).
+  **Three split-first commits** paid standing debts: `ui/export_run.py`
+  out of the dialog, `core/project/serialize_style.py` out of
+  serialize, `ui/score_install.py` out of the window (412 → 326).
+  Full suite green (2019). Unproven under a human's eye — the things
+  to feel are the frame edge at odd zooms, typing in the W/H fields,
+  and whether the crop at high Scale reads as intended framing.
 - 2026-08-06 — **The glow going solid in Premiere was an ALPHA reading,
   not an animation bug** (`beta/f-glow-orthogonal`, UNMERGED): measured
   the export end to end first — the exported

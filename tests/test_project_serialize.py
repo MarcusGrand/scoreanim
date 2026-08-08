@@ -13,7 +13,7 @@ from scoreanim.core.project import (FileRef, LayoutOverride, PageBreak,
                                     ProjectDoc, StaffGroup, StageConfig,
                                     StageTextElement, StyleRules,
                                     StemDirection, SystemBreak,
-                                    TimingConfig, check_ref,
+                                    TimingConfig, VideoCanvas, check_ref,
                                     from_dict, load_project, save_project,
                                     sha256_of, to_dict)
 from scoreanim.core.animation import (ElementStyle, RevealMode, read_colors,
@@ -27,7 +27,8 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
     return ProjectDoc(
         score=FileRef(path=score_path, sha256="ab" * 32),
         audio=FileRef(path=audio_path, sha256=None),
-        engraving=EngravingParams(xml_id_seed=42, suppress_header=True),
+        engraving=EngravingParams(xml_id_seed=42, suppress_header=True,
+                                  scale=1.3),
         layout_overrides={
             ElementId("P1:m3:s1:v1:note:0"): LayoutOverride(dx=2.5, dy=-1.0),
             ElementId("P2:m4:s1:v1:stem:1"): LayoutOverride(hidden=True),
@@ -56,6 +57,7 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
         ),
         stage=StageConfig(
             mode=PresentationMode.SYSTEM,
+            canvas=VideoCanvas(width=1080, height=1920),
             texts=(
                 StageTextElement(element_id="stage:title",
                                  content="Det var…",
@@ -150,11 +152,11 @@ def test_v1_part_colors_fold_into_style_rules() -> None:
     }
     assert legacy.style.reveal_mode is RevealMode.STEPPED
     assert legacy.style.elements == {}
-    # new files declare version 11 (volume response); a build from the
+    # new files declare version 12 (video canvas); a build from the
     # future is refused
-    assert to_dict(ProjectDoc())["version"] == 11
+    assert to_dict(ProjectDoc())["version"] == 12
     with pytest.raises(ValueError, match="version"):
-        from_dict({"version": 12})
+        from_dict({"version": 13})
 
 
 def test_v4_hide_empty_staves() -> None:
@@ -520,7 +522,7 @@ def test_v11_file_is_refused_by_a_v10_reader() -> None:
     import scoreanim.core.project.serialize as ser
 
     payload = to_dict(ProjectDoc(style=StyleRules(volume={"amount": 1.0})))
-    assert payload["version"] == 11
+    assert payload["version"] == 12              # v12 since the canvas
     original = ser._READABLE_VERSIONS
     ser._READABLE_VERSIONS = tuple(v for v in original if v <= 10)
     try:
@@ -610,3 +612,88 @@ def test_older_files_load_with_the_pulse_off() -> None:
     for version in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
         assert from_dict({"version": version}).style.pulse == {}
     assert read_pulse(from_dict({"version": 10}).style.pulse).is_off
+
+
+# -- v12: the video canvas ---------------------------------------------------
+
+def test_v12_canvas_round_trips() -> None:
+    doc = ProjectDoc(stage=StageConfig(
+        canvas=VideoCanvas(width=1080, height=1920)))
+    out = from_dict(to_dict(doc))
+    assert out.stage.canvas == VideoCanvas(1080, 1920)
+
+
+def test_v12_score_scale_round_trips_and_is_sparse() -> None:
+    """The score's size rides engraving (it is an engraving input);
+    the default 1.0 writes no key at all, so an untouched document
+    keeps its byte shape."""
+    scaled = ProjectDoc(engraving=EngravingParams(scale=1.3))
+    payload = to_dict(scaled)
+    assert payload["engraving"]["scale"] == 1.3
+    assert from_dict(payload).engraving.scale == 1.3
+    assert "scale" not in to_dict(ProjectDoc())["engraving"]
+    for version in (1, 7, 11):
+        assert from_dict({"version": version}).engraving.scale == 1.0
+
+
+def test_a_pre_release_crop_scale_in_the_canvas_is_ignored() -> None:
+    """One same-day build wrote stage.canvas.scale meaning a CROP;
+    that number must not leak into the engraving scale, and the canvas
+    itself still loads."""
+    doc = from_dict({"version": 12,
+                     "stage": {"canvas": {"width": 1080, "height": 1920,
+                                          "scale": 1.5}}})
+    assert doc.stage.canvas == VideoCanvas(1080, 1920)
+    assert doc.engraving.scale == 1.0
+
+
+def test_no_canvas_writes_no_key_at_all() -> None:
+    """Sparse: a canvas-free document's stage shape is byte-identical
+    to what v11 wrote (plus the version number)."""
+    payload = to_dict(ProjectDoc())
+    assert "canvas" not in payload["stage"]
+
+
+def test_older_files_load_with_no_canvas() -> None:
+    """No read gate: a missing key means None, the page-aspect frame
+    every older file has always had."""
+    for version in (1, 4, 7, 10, 11):
+        assert from_dict({"version": version}).stage.canvas is None
+
+
+def test_a_v11_reader_refuses_a_v12_file() -> None:
+    """The bump's whole point: refuse loudly instead of silently
+    dropping the user's framing on a resave."""
+    from scoreanim.core.project import serialize as ser
+
+    payload = to_dict(ProjectDoc(stage=StageConfig(
+        canvas=VideoCanvas(1080, 1920))))
+    assert payload["version"] == 12
+    original = ser._READABLE_VERSIONS
+    ser._READABLE_VERSIONS = tuple(v for v in original if v <= 11)
+    try:
+        with pytest.raises(ValueError, match="version"):
+            ser.from_dict(payload)
+    finally:
+        ser._READABLE_VERSIONS = original
+
+
+def test_v12_lyrics_size_round_trips_and_is_sparse() -> None:
+    sized = ProjectDoc(engraving=EngravingParams(lyric_size=0.7))
+    payload = to_dict(sized)
+    assert payload["engraving"]["lyric_size"] == 0.7
+    assert from_dict(payload).engraving.lyric_size == 0.7
+    assert "lyric_size" not in to_dict(ProjectDoc())["engraving"]
+    for version in (1, 7, 11):
+        assert from_dict({"version": version}).engraving.lyric_size == 1.0
+
+
+def test_v12_staff_line_width_round_trips_and_is_sparse() -> None:
+    sized = ProjectDoc(engraving=EngravingParams(staff_line_width=1.5))
+    payload = to_dict(sized)
+    assert payload["engraving"]["staff_line_width"] == 1.5
+    assert from_dict(payload).engraving.staff_line_width == 1.5
+    assert "staff_line_width" not in to_dict(ProjectDoc())["engraving"]
+    for version in (1, 7, 11):
+        assert from_dict({"version": version}) \
+            .engraving.staff_line_width == 1.0
