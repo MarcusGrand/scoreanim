@@ -52,6 +52,20 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-08 (retime, round 3) — **Grid snap, tick ruler, and the
+  hand cursor** (`beta/f-move-onset`, UNMERGED): Marcus's corrections.
+  The cursor snaps to the union of events and an eighth-note grid
+  (`core/animation/onset_grid.py` — tick x interpolated between event
+  stops, stretched to the system's right edge; `snap_targets` keeps a
+  16th-note EVENT snappable while the ruler shows only eighths), a
+  Dorico-style ruler hangs bars/beats/eighths above the selected
+  system (`render/onset_ruler.py`, hit-transparent), and the line got
+  the idiomatic pair: pointing-hand hover over its grab band, thicker
+  while held. BEAT ticks are quarter-based for now — meter-aware beats
+  need the meter, which MeasureInfo does not carry; a 6/8 bar shows
+  quarter ticks. Full suite green (2078). Unproven under a human's
+  eye — the things to feel are the ruler's heights/grey on both page
+  modes and whether eighth-ticks crowd a dense system.
 - 2026-08-08 (retime, round 2) — **The onset is a line you can grab**
   (`beta/f-move-onset`, UNMERGED): Marcus confirmed the stepping works
   and asked for the on-page cursor. A selection-orange vertical line
