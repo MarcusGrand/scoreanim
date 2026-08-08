@@ -1462,6 +1462,48 @@ def test_flipping_a_stem_is_one_undo_entry(doc) -> None:
     assert flipped.stem_directions != doc.stem_directions
 
 
+# --- trigger overrides (2026-08-08) ----------------------------------------
+
+def test_set_trigger_beat_is_a_sparse_map(doc) -> None:
+    """Not an engraving input: the schedule re-derives live, so a press
+    is cheap. Absolute beats, so replacing overwrites."""
+    from scoreanim.core.project import SetTriggerBeat
+    eid = "P2:m5:s1:v1:dynam:0"
+
+    assert doc.trigger_overrides == {}
+    moved = SetTriggerBeat(eid, 18.5).apply(doc)
+    assert dict(moved.trigger_overrides) == {eid: 18.5}
+    assert doc.trigger_overrides == {}               # the input is untouched
+
+    # moving again replaces rather than accumulates
+    again = SetTriggerBeat(eid, 20.0).apply(moved)
+    assert dict(again.trigger_overrides) == {eid: 20.0}
+
+    # None hands the element back to the automatic schedule
+    assert SetTriggerBeat(eid, None).apply(again).trigger_overrides == {}
+
+
+def test_set_trigger_beat_rejects_a_bad_beat(doc) -> None:
+    from scoreanim.core.project import SetTriggerBeat
+    for bad in ("18.5", float("nan"), float("inf"), True):
+        with pytest.raises(CommandError, match="trigger beat"):
+            SetTriggerBeat("P2:m5:s1:v1:dynam:0", bad).apply(doc)
+    with pytest.raises(CommandError, match="no element"):
+        SetTriggerBeat("", None).apply(doc)
+
+
+def test_moving_an_onset_is_one_undo_entry(doc) -> None:
+    from scoreanim.core.project import SetTriggerBeat
+    eid = "P2:m5:s1:v1:dynam:0"
+    stack = UndoStack()
+    moved = stack.execute(SetTriggerBeat(eid, 18.5), doc)
+    assert stack.undo_text() == "move onset"
+    assert stack.undo() == doc
+    assert moved.trigger_overrides != doc.trigger_overrides
+    # the way back reads differently in the Edit menu
+    assert SetTriggerBeat(eid, None).describe() == "reset onset"
+
+
 def test_set_video_canvas(doc) -> None:
     from scoreanim.core.project import SetVideoCanvas, VideoCanvas
 
