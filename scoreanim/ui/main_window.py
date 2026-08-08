@@ -41,7 +41,9 @@ from scoreanim.ui.file_actions import FileActions
 from scoreanim.ui.inspector import Inspector
 from scoreanim.ui.layout_zone import LayoutZone
 from scoreanim.ui.menus import MainMenus
+from scoreanim.ui.drag_router import DragRouter
 from scoreanim.ui.nudge import NudgeController
+from scoreanim.ui.onset_cursor import OnsetCursorController
 from scoreanim.ui.parts_menu import PartsMenu
 from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
@@ -132,10 +134,15 @@ class MainWindow(QMainWindow):
         # whether this press moves an element or pans, so the pan is
         # untouched everywhere else
         self.nudge = NudgeController(self.app_state, self)
-        self.view.nudge_probe = self.nudge.probe
-        self.view.drag_started.connect(self.nudge.start)
-        self.view.drag_moved.connect(self.nudge.move)
-        self.view.drag_finished.connect(self.nudge.finish)
+        # the onset cursor shares the drag surface: its probe runs
+        # FIRST (the line is the explicit affordance), the nudge takes
+        # everything it declines, and the view still sees one probe
+        self.onset_cursor = OnsetCursorController(self.app_state, self)
+        self.drag_router = DragRouter((self.onset_cursor, self.nudge))
+        self.view.nudge_probe = self.drag_router.probe
+        self.view.drag_started.connect(self.drag_router.start)
+        self.view.drag_moved.connect(self.drag_router.move)
+        self.view.drag_finished.connect(self.drag_router.finish)
         self.view.nudge_key.connect(self.nudge.nudge_by)
 
         # break authoring (M5.4, M5.7, M6.5): the controller owns the
@@ -277,11 +284,12 @@ class MainWindow(QMainWindow):
         self.playback.set_style(doc.style)
         self.lower_zone.bar.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
-        # after the reschedule pass above, so the row reads the rebuilt
-        # schedule (the widget must not self-subscribe: signal order
-        # against this pass is not guaranteed)
+        # after the reschedule pass above, so both read the rebuilt
+        # schedule (neither self-subscribes: signal order against this
+        # pass is not guaranteed)
         self.inspector.selection_panel.trigger_controls.sync_from_document(
             doc)
+        self.onset_cursor.sync_from_document(doc)
         self.layout_zone.sync_from_document(doc)
         self.parts_menu.sync_from_document(doc)
         self.break_action.sync()      # overrides move the action's label

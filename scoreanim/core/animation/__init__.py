@@ -27,8 +27,10 @@ from scoreanim.core.animation.page_colors import (DARK, DARK_BACKGROUND,
                                                   LIGHT_BACKGROUND, LIGHT_INK,
                                                   PageColors, colors_for,
                                                   read_colors)
-from scoreanim.core.animation.onset_stops import (OnsetStop, step_from,
-                                                  stops_for_system)
+from scoreanim.core.animation.onset_stops import (OnsetStop,
+                                                  nearest_stop_to_x,
+                                                  step_from,
+                                                  stops_for_system, x_at)
 from scoreanim.core.animation.presets import (COMBINE_SEP, DEFAULT_EFFECT,
                                               FLOOR_OPACITY, PRESETS,
                                               build_presets, effect_for,
@@ -97,10 +99,11 @@ __all__ = [
     "read_colors", "read_glow", "read_glow_shape", "read_pulse", "read_volume",
     "resolve_durations",
     "reveal_x",
-    "nearest_head", "scale_pivots", "spec_envelope", "split_effect_name",
+    "nearest_head", "nearest_stop_to_x", "scale_pivots", "spec_envelope",
+    "split_effect_name",
     "stem_scale_caps",
     "step_from", "stops_for_system",
-    "takes_part_color",
+    "takes_part_color", "x_at",
     "trigger_intensities",
     "window_gains", "window_intensities",
 ]

@@ -69,3 +69,36 @@ def step_from(stops: Sequence[OnsetStop], current: Beats,
             if quantize_beats(stop.beats) > q:
                 return stop.beats
     return None
+
+
+def x_at(stops: Sequence[OnsetStop], beats: Beats) -> float | None:
+    """Where a beat sits on the page: the stop's own x when the beat
+    IS a stop, a straight-line x between the two stops around it when
+    it is not (an attachment's automatic trigger can sit off-grid),
+    and the nearer end's x when it lies outside the system's stops.
+    None only for an empty list."""
+    if not stops:
+        return None
+    q = quantize_beats(beats)
+    prev = None
+    for stop in stops:
+        sq = quantize_beats(stop.beats)
+        if sq == q:
+            return stop.x
+        if sq > q:
+            if prev is None:
+                return stop.x                      # before the first stop
+            span = stop.beats - prev.beats
+            frac = (beats - prev.beats) / span if span > 0 else 0.0
+            return prev.x + frac * (stop.x - prev.x)
+        prev = stop
+    return stops[-1].x                             # past the last stop
+
+
+def nearest_stop_to_x(stops: Sequence[OnsetStop],
+                      x: float) -> OnsetStop | None:
+    """The snap target for a drag: the stop whose x is closest to the
+    pointer. None only for an empty list."""
+    if not stops:
+        return None
+    return min(stops, key=lambda stop: abs(stop.x - x))

@@ -71,3 +71,23 @@ def test_step_from_walks_the_neighbours() -> None:
     assert step_from(stops, 4.0, +1) is None
     assert step_from((), 1.0, -1) is None
     assert step_from((), 1.0, +1) is None
+
+
+def test_x_at_on_between_and_outside() -> None:
+    from scoreanim.core.animation import x_at
+    stops = (OnsetStop(0.0, 100.0), OnsetStop(2.0, 200.0),
+             OnsetStop(4.0, 260.0))
+    assert x_at(stops, 2.0) == 200.0               # on a stop
+    assert x_at(stops, 1.0) == 150.0               # between, interpolated
+    assert x_at(stops, 3.0) == 230.0
+    assert x_at(stops, -1.0) == 100.0              # clamped to the ends
+    assert x_at(stops, 9.0) == 260.0
+    assert x_at((), 1.0) is None
+
+
+def test_nearest_stop_to_x_snaps_to_the_closest() -> None:
+    from scoreanim.core.animation import nearest_stop_to_x
+    stops = (OnsetStop(0.0, 100.0), OnsetStop(2.0, 200.0))
+    assert nearest_stop_to_x(stops, 130.0) == stops[0]
+    assert nearest_stop_to_x(stops, 170.0) == stops[1]
+    assert nearest_stop_to_x((), 50.0) is None
