@@ -52,6 +52,22 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-08 (retime, round 2) — **The onset is a line you can grab**
+  (`beta/f-move-onset`, UNMERGED): Marcus confirmed the stepping works
+  and asked for the on-page cursor. A selection-orange vertical line
+  spans the selected element's system band at `x_at(stops, beat)` (new
+  pure helper — off-stop times draw between their neighbour stops);
+  dragging snaps stop to stop (`nearest_stop_to_x`) and release
+  commits ONE SetTriggerBeat. First true overlay item in the score
+  scene (`render/onset_cursor.py`); gesture is view-level through a
+  new `DragRouter` (cursor probe first, nudge second — the stage view
+  keeps its one probe slot untouched, and a claimed press never
+  becomes a selection click). Full suite green (2071). Unproven under
+  a human's eye — the things to feel are the grab tolerance (10 page
+  units), the live stop-to-stop snap, and whether the line reads as
+  draggable at all. Known gap: the line does not ride a system-pulse
+  scale (top-level item, not in the group) — invisible unless pulsing
+  while editing.
 - 2026-08-08 (retime) — **You can move WHEN an element fires**
   (`beta/f-move-onset`, UNMERGED): `trigger_overrides` on the document
   (absolute beats, rides v12, stem_directions shape), consumed by
