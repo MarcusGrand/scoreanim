@@ -10,13 +10,13 @@ branches: the volume response, the swell effect, per-notehead pop
 pivots, the system group items and the system pulse. **Schema is v11**,
 so a project saved from here will not open on `v0.2-beta.6` or on any
 older build. `beta/f-glow-orthogonal` carries two unmerged sessions now
-(the one-knob-one-change pass and the glow's scope);
-`fix/bracket-hidden-staves` is the other branch unmerged.
+(the one-knob-one-change pass and the glow's scope).
 `beta/f-video-canvas` (off `beta/f-glow-orthogonal`, UNMERGED) carries
 the video canvas and **schema v12** — a project saved from it will not
-open on any v11 build, including `main`.
-`main` is **38 commits ahead of `origin/main`** and has been since
-before the glow work — nothing here is pushed.
+open on any v11 build, including `main`. Those two are the only
+unmerged branches; `fix/bracket-hidden-staves` went in with the stem
+work (`e29e6bb`). As of 2026-08-08 `main`, the `v0.2-beta.6` tag and
+both unmerged branches are pushed to GitHub — the remote is current.
 
 **Every score re-engraves differently from 2026-08-03 on** — the stem
 pass is unconditional, and it moved 11 of the 12 goldens. That is the
@@ -60,6 +60,11 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-08 — Remote sync: pushed `main` (64 commits, `d0af1b5..15ad4b6`),
+  the `v0.2-beta.6` tag and the two unmerged branches
+  (`beta/f-glow-orthogonal`, `beta/f-video-canvas`) to GitHub. Corrected
+  the NOW block: `fix/bracket-hidden-staves` was already merged. No code
+  changes; the merge decision on both beta branches stays with Marcus.
 - 2026-08-07 — **Staff line thickness knob** (`beta/f-video-canvas`,
   UNMERGED): the fourth engraving knob, and the groove is now fully
   worn: `EngravingParams.staff_line_width` (a factor of Verovio's
