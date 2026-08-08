@@ -108,6 +108,19 @@ REVEALED_KINDS = frozenset({ElementKind.SLUR, ElementKind.TIE,
 SIG_KINDS = frozenset({ElementKind.CLEF, ElementKind.KEY_SIG,
                        ElementKind.METER_SIG})
 
+# Kinds whose (trigger, x) pairs define the reveal edge: struck or
+# sounding EVENTS. Rests joined per ruling B (2026-07-12); dynamics
+# deliberately absent (attachments). Lived in reveal.py until
+# 2026-08-08; moved here (the kind-policy authority) because the
+# trigger-override filter below needs it too: no anchor kind is ever
+# retimeable — its trigger is what the per-(system, part) reveal edge
+# is built from, so moving one would drag the clip wavefront
+# (retime.py derives its policy from this set). reveal.py re-imports
+# it, the REVEALED_KINDS arrangement in reverse.
+ANCHOR_KINDS = frozenset({ElementKind.NOTEHEAD, ElementKind.SLASH,
+                          ElementKind.BAR_REPEAT,
+                          ElementKind.REST, ElementKind.MREST})
+
 # Opacity-animated kinds = everything that is neither scaffold nor a
 # clip-revealed spanner. DERIVED from the denylist (introspection and
 # back-compat); the denylist is the authority, so a new ElementKind

@@ -34,7 +34,7 @@ from scoreanim.core.animation.presets import (COMBINE_SEP, DEFAULT_EFFECT,
 from scoreanim.core.animation.pulse import (SystemBumps, SystemPulse,
                                             build_bumps, pop_at, pulse_scale,
                                             read_pulse)
-from scoreanim.core.animation.reveal import (ANCHOR_KINDS, REVEALED_KINDS,
+from scoreanim.core.animation.reveal import (REVEALED_KINDS,
                                              RevealCurve, RevealMode,
                                              SystemRevealTrack,
                                              build_reveal_tracks, is_revealed,
@@ -46,7 +46,8 @@ from scoreanim.core.animation.scale_groups import (HEAD_KINDS,
                                                    SCALABLE_KINDS,
                                                    nearest_head,
                                                    scale_pivots)
-from scoreanim.core.animation.schedule import (ANIMATED_KINDS, STATIC_KINDS,
+from scoreanim.core.animation.schedule import (ANCHOR_KINDS, ANIMATED_KINDS,
+                                               STATIC_KINDS,
                                                Trigger, TriggerSchedule,
                                                build_trigger_schedule,
                                                is_animated, quantize_beats)

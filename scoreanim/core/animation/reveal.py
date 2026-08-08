@@ -43,19 +43,17 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
-from scoreanim.core.animation.schedule import (REVEALED_KINDS, TriggerSchedule,
+from scoreanim.core.animation.schedule import (ANCHOR_KINDS, REVEALED_KINDS,
+                                               TriggerSchedule,
                                                quantize_beats)
 from scoreanim.core.engraving.types import Layout
 from scoreanim.core.score.identity import (Beats, ElementKind, PartId)
 from scoreanim.core.timing.swing import SwingRegion, resolve_seconds
 from scoreanim.core.timing.tempo_map import TempoMap
 
-# Kinds whose (trigger, x) pairs define the reveal edge: struck or
-# sounding EVENTS. Rests joined per ruling B (2026-07-12); dynamics
-# deliberately absent (attachments).
-ANCHOR_KINDS = frozenset({ElementKind.NOTEHEAD, ElementKind.SLASH,
-                          ElementKind.BAR_REPEAT,
-                          ElementKind.REST, ElementKind.MREST})
+# ANCHOR_KINDS — the kinds whose (trigger, x) pairs define the reveal
+# edge — is defined in schedule.py (the kind-policy authority, since
+# 2026-08-08) and re-imported here, where the edge is built.
 
 # Spanner kinds revealed by clip-grow at the reveal edge (Phase 5.2
 # ruling: grow REPLACES the Phase 3 step-appear for SLUR/TIE and newly
