@@ -247,6 +247,19 @@ class MainWindow(QMainWindow):
                 # until the next successful re-engrave.
                 traceback.print_exc()
                 self.app_state.status.emit(f"re-engrave failed: {exc}")
+        # a trigger-override change re-derives the SCHEDULE only — no
+        # Verovio, no scene rebuild. After the re-engrave gate: a
+        # re-engrave already rebuilt the schedule from the document and
+        # reset the loader's cache, so the diff is False on that path.
+        if (self.animation_inputs is not None
+                and self.loader.needs_reschedule(doc)):
+            schedule = self.loader.rebuild_schedule(doc)
+            if schedule is not None:
+                self.playback.set_schedule(schedule)
+                # export must follow — inputs.schedule is otherwise a
+                # load-time snapshot (the stage-texts precedent below)
+                self.animation_inputs = _dc_replace(self.animation_inputs,
+                                                    schedule=schedule)
         self.playback.set_timing_config(*self.timing_config(doc))
         self.doc_sync.sync_styles(doc)
         # the canvas frame fills with the page's own background when

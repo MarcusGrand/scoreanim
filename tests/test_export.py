@@ -1283,3 +1283,52 @@ def test_dialog_reflects_the_documents_canvas(qapp, inputs, tempo_map,
     assert legacy._output_size() == even_size(
         *legacy._page_aspect, legacy._height.value())
     assert legacy._size_widgets() == (legacy._height,)
+
+
+def test_trigger_override_reaches_an_exported_frame(qapp, engraved,
+                                                    join_mapping,
+                                                    score_model, inputs,
+                                                    schedule, tempo_map,
+                                                    tempo_setup) -> None:
+    """The honest check for the retime feature's export half: inputs
+    carrying an overridden schedule render the moved element dark on a
+    frame where the un-overridden inputs render it lit. If the window
+    ever forgets to refresh AnimationInputs after a live rebuild, this
+    is the bug that comes back."""
+    from dataclasses import replace as dc_replace
+
+    from scoreanim.core.animation import (FLOOR_OPACITY,
+                                          build_trigger_schedule)
+    from scoreanim.core.score.identity import ElementKind
+
+    identities = {el.identity.element_id: el.identity
+                  for el in engraved.layout.elements}
+    dynamic = next(eid for eid, ident in identities.items()
+                   if ident.kind is ElementKind.DYNAMIC
+                   and ident.onset is not None)
+    own = schedule.beats_by_element[dynamic]
+    target = next(b for b in schedule.beat_values if b > own + 1.0)
+    moved = build_trigger_schedule(engraved.layout, join_mapping,
+                                   score_model.measures,
+                                   trigger_overrides={dynamic: target})
+    moved_inputs = dc_replace(inputs, schedule=moved)
+
+    offset = tempo_setup.offset_seconds
+    end = _audio_end(schedule, tempo_map, offset)
+    old_s, new_s = resolve_seconds([own, target], tempo_map, ())
+    n = int((old_s + offset) * FPS) + 2          # just after the OLD trigger
+    t_score = n / FPS - offset
+    assert old_s < t_score < new_s               # the frame sits between
+
+    plain = make_renderer(inputs, tempo_map, offset, end=end)
+    plain.apply_frame(n)
+    assert plain.scenes.items[dynamic].opacity() == pytest.approx(1.0)
+
+    overridden = make_renderer(moved_inputs, tempo_map, offset, end=end)
+    overridden.apply_frame(n)
+    assert overridden.scenes.items[dynamic].opacity() == pytest.approx(
+        FLOOR_OPACITY)
+
+    m = int((new_s + offset) * FPS) + 2          # just after the NEW trigger
+    overridden.apply_frame(m)
+    assert overridden.scenes.items[dynamic].opacity() == pytest.approx(1.0)
