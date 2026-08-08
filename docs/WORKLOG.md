@@ -4,7 +4,8 @@
 `main` is pushed. On 2026-08-08, on Marcus's instruction,
 `beta/f-glow-orthogonal` (the one-knob-one-change pass and the glow's
 scope) and `beta/f-video-canvas` (the video canvas, the engraving
-knobs, the export frame) merged in — no branch is unmerged now.
+knobs, the export frame) merged in. One branch is open again:
+`beta/f-move-onset` (re-timing, first half — see the 2026-08-08 line).
 **Schema is v12**, so a project saved from here will not open on
 `v0.2-beta.6` or any older build. Full suite green after the merge
 (2021 passed, 1 xfailed).
@@ -51,6 +52,25 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-08 (retime) — **You can move WHEN an element fires**
+  (`beta/f-move-onset`, UNMERGED): `trigger_overrides` on the document
+  (absolute beats, rides v12, stem_directions shape), consumed by
+  `build_trigger_schedule` after its four rules — an overridden
+  element is never FRESH (the displaced-sig rule), anchor kinds can
+  never be moved, so the reveal tracks provably cannot change. A
+  change rebuilds the schedule LIVE from the loader's newly retained
+  join mapping (**~36 ms on complex3's 19k elements**, no Verovio, no
+  scene rebuild) through the new `AnimationApplier.set_schedule`, and
+  the retained `AnimationInputs` follow so export keeps the moved
+  time (pinned from the export side). Selection panel grew a Fires
+  row + Earlier/Later/Reset walking the onset stops of the element's
+  own system (`core/animation/onset_stops.py`, x carried for the next
+  step's drag indicator). Full suite green (2062). Watch out for one
+  thing: `set_schedule` must restore the CTOR's construction state
+  (empty seconds AND no tempo map) before re-resolving effects, or
+  the glow resolve indexes an empty seconds list — the window test
+  caught it. Unproven under a human's eye; the on-page drag indicator
+  is the NEXT step.
 - 2026-08-08 (later) — Merged `beta/f-glow-orthogonal` and
   `beta/f-video-canvas` into `main` on Marcus's instruction (schema
   v12 now on `main`). Full suite green before and after. Pushed.
