@@ -184,26 +184,27 @@ class AnimationApplier:
 
     def set_schedule(self, schedule: TriggerSchedule) -> None:
         """Swap the trigger schedule under the same scene (a trigger
-        override changed) and land in exactly the state a fresh load at
-        the current t gives — the cursor is a cache, never state (rule
-        2). The reveal driver stays: no anchor kind can be overridden,
-        so the tracks cannot have moved. Live path only — export
+        override changed) and land in exactly the state a fresh load
+        at the current t gives — the cursor is a cache (rule 2). The
+        reveal driver stays: no anchor kind can be overridden. Export
         inherits the new schedule through AnimationInputs."""
         if schedule == self._schedule:
             return
-        # the gain index is rebuilt, so carry the recording across
+        # carry the recording and timing across; the ctor's state
+        # (empty seconds, NO tempo map) keeps the window and glow
+        # resolves inert until set_timing re-derives off the new rows
         peaks, offset = self._audio.peaks, self._audio.offset
+        tempo_map, swing = self._tempo_map, self._swing
         self._adopt_schedule(schedule)
-        self._trigger_seconds = []       # the ctor's construction state
+        self._trigger_seconds = []
+        self._tempo_map, self._swing = None, ()
         self._audio.set_audio(peaks, offset)
         self._resolve_effects()
         # an element that changed rows may hold a mid-transition state
         # its new row will never rewrite
         reset_animated_transforms(self._index.items)
         self._glow.extinguish()
-        # re-derives seconds, windows, gains and bumps off the new
-        # rows, and ends in refresh(self._t)
-        self.set_timing(self._tempo_map, self._swing)
+        self.set_timing(tempo_map, swing)   # ends in refresh(self._t)
 
     def _resolve_effects(self) -> None:
         rules = self._style

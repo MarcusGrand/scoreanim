@@ -16,7 +16,9 @@ from scoreanim.ui.panels.page_colors import PageColorsPanel
 from scoreanim.ui.panels.video_canvas import VideoCanvasPanel
 from scoreanim.ui.panels.selection_panel import SelectionPanel
 from scoreanim.ui.panels.selection_style import SelectionStyleControls
+from scoreanim.ui.panels.selection_trigger import SelectionTriggerControls
 
 __all__ = ["BreakOverridesList", "DeletedElementsList", "EffectsPanel",
            "PageColorsPanel", "SelectionPanel", "SelectionStyleControls",
+           "SelectionTriggerControls",
            "VideoCanvasPanel"]

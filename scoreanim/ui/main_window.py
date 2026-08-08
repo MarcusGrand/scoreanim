@@ -277,6 +277,11 @@ class MainWindow(QMainWindow):
         self.playback.set_style(doc.style)
         self.lower_zone.bar.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
+        # after the reschedule pass above, so the row reads the rebuilt
+        # schedule (the widget must not self-subscribe: signal order
+        # against this pass is not guaranteed)
+        self.inspector.selection_panel.trigger_controls.sync_from_document(
+            doc)
         self.layout_zone.sync_from_document(doc)
         self.parts_menu.sync_from_document(doc)
         self.break_action.sync()      # overrides move the action's label

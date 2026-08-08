@@ -120,6 +120,12 @@ class ScoreInstaller:
         # the :seg fan-out only ever names ids the load actually has
         w.inspector.selection_panel.style_controls.bind_scenes(
             loaded.scenes)
+        # the stepper reads the CURRENT schedule through a provider —
+        # the window swaps it on a live rebuild, so a pull never stales
+        w.inspector.selection_panel.trigger_controls.bind_score(
+            loaded.animation_inputs.layout, loaded.measures,
+            lambda: (w.animation_inputs.schedule
+                     if w.animation_inputs is not None else None))
         w.menus.export_action.setEnabled(True)
         w.menus.texts_action.setEnabled(True)
         w.playback.set_animation(loaded.applier, loaded.measures)
