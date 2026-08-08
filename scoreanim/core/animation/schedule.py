@@ -166,6 +166,8 @@ def build_trigger_schedule(layout: Layout,
                            mapping: Mapping[ElementId, ScoreNote],
                            measures: Sequence[MeasureInfo] = (),
                            duration_by_element:
+                               Mapping[ElementId, Beats] | None = None,
+                           trigger_overrides:
                                Mapping[ElementId, Beats] | None = None
                            ) -> TriggerSchedule:
     ident_by_id = {el.identity.element_id: el.identity
@@ -282,6 +284,18 @@ def build_trigger_schedule(layout: Layout,
         else:
             key = (ident.part, ident.staff, ident.voice, quantize_beats(own))
             trigger = group_trigger.get(key, own)
+        # A hand-moved fire time overrules the four rules above, applied
+        # here so the element buckets into whatever row its new beat
+        # belongs to. Anchor kinds are skipped — their triggers build
+        # the reveal edge (retime.py's policy, enforced where the
+        # trigger is decided so it holds for every caller); an id the
+        # layout does not have never reaches this loop, so it is inert
+        # by construction. The loader warns about both.
+        overridden = False
+        if trigger_overrides and ident.kind not in ANCHOR_KINDS:
+            moved = trigger_overrides.get(eid)
+            if moved is not None:
+                trigger, overridden = moved, True
         beats_by_element[eid] = trigger
         bucket = by_qbeat.setdefault(quantize_beats(trigger), {
             "beats": trigger, "ids": [], "fresh_pages": set(), "pages": set(),
@@ -290,7 +304,14 @@ def build_trigger_schedule(layout: Layout,
         bucket["pages"].add(el.page)
         if el.system is not None:
             bucket["systems"].add(el.system)
-        if (quantize_beats(trigger) == quantize_beats(own)
+        # An overridden element is never FRESH — the displaced-courtesy-
+        # sig reasoning (see SIG_KINDS above): it lights where it is
+        # drawn, but the VIEW follows the music, so it must not drag the
+        # row's min() page/system hint toward its own page. The check is
+        # explicit rather than trigger != own, because an override can
+        # land exactly on the element's own onset.
+        if (not overridden
+                and quantize_beats(trigger) == quantize_beats(own)
                 and not _displaced_sig(ident)):
             bucket["fresh_pages"].add(el.page)
             if el.system is not None:

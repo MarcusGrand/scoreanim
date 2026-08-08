@@ -330,3 +330,137 @@ def test_rests_trigger_when_their_silence_resolves(schedule, identities,
         measure = next(m for m in score_model.measures
                        if m.start <= onset < m.start + m.quarter_length)
         assert t[eid] <= measure.start + measure.quarter_length, eid
+
+
+# --- trigger overrides (2026-08-08) ----------------------------------------
+
+def _override_setup():
+    """Two pages, two systems. P1's noteheads sit where the hint tests
+    need them; d0 is the movable dynamic."""
+    from scoreanim.core.engraving.types import (Layout, PageGeometry, Point,
+                                                Rect, RenderedElement,
+                                                RenderPrimitive)
+    from scoreanim.core.score.identity import (ElementId, ElementIdentity,
+                                               PartId)
+    from scoreanim.core.score.model import ScoreNote
+
+    def el(eid: str, kind: ElementKind, onset: float,
+           page: int, system: int) -> RenderedElement:
+        ident = ElementIdentity(ElementId(eid), kind, PartId("P1"), "Part",
+                                1, 1, onset)
+        return RenderedElement(ident, page, 0.0, 0.0, Rect(0, 0, 1, 1),
+                               Point(0, 0), RenderPrimitive(paths=()),
+                               system=system)
+
+    def note(onset: float, step: str, order: int) -> ScoreNote:
+        return ScoreNote(part=PartId("P1"), measure=1, staff=1,
+                         voice_label=None, onset=onset, grace=False,
+                         pitch_step=step, pitch_alter=0.0, octave=4,
+                         staff_loc=None, order=order, tie=None)
+
+    layout = Layout(
+        pages=(PageGeometry(1, 100.0, 100.0), PageGeometry(2, 100.0, 100.0)),
+        # n0 deliberately on page 2 so the own-onset case is observable:
+        # a fresh d0 (page 1) would DRAG row 0's min() hint to 1
+        elements=(el("n0", ElementKind.NOTEHEAD, 0.0, 2, 2),
+                  el("d0", ElementKind.DYNAMIC, 0.0, 1, 1),
+                  el("n1", ElementKind.NOTEHEAD, 4.0, 2, 2),
+                  el("n2", ElementKind.NOTEHEAD, 8.0, 2, 2)))
+    mapping = {ElementId("n0"): note(0.0, "C", 0),
+               ElementId("n1"): note(4.0, "D", 1),
+               ElementId("n2"): note(8.0, "E", 2)}
+    return layout, mapping
+
+
+def test_override_moves_an_element_between_rows() -> None:
+    """The override lands d0 in a NEW row at its beat and takes it out
+    of its old one; beats_by_element reports the new time; rows stay
+    sorted."""
+    layout, mapping = _override_setup()
+    moved = build_trigger_schedule(layout, mapping,
+                                   trigger_overrides={"d0": 2.5})
+    beats = {t.beats: t for t in moved.triggers}
+    assert set(beats) == {0.0, 2.5, 4.0, 8.0}
+    assert beats[2.5].element_ids == ("d0",)
+    assert "d0" not in beats[0.0].element_ids
+    assert moved.beats_by_element["d0"] == 2.5
+    assert list(moved.beat_values) == sorted(moved.beat_values)
+
+
+def test_override_merges_into_an_existing_row() -> None:
+    layout, mapping = _override_setup()
+    moved = build_trigger_schedule(layout, mapping,
+                                   trigger_overrides={"d0": 4.0})
+    beats = {t.beats: t for t in moved.triggers}
+    assert set(beats) == {0.0, 4.0, 8.0}
+    assert set(beats[4.0].element_ids) == {"n1", "d0"}
+    assert moved.beats_by_element["d0"] == 4.0
+
+
+def test_overridden_element_never_drives_the_hints() -> None:
+    """The displaced-courtesy-sig rule reused: d0 (drawn page 1,
+    system 1) moved onto n2's row must not drag that row's min() hints
+    off page 2 / system 2."""
+    layout, mapping = _override_setup()
+    moved = build_trigger_schedule(layout, mapping,
+                                   trigger_overrides={"d0": 8.0})
+    row = {t.beats: t for t in moved.triggers}[8.0]
+    assert set(row.element_ids) == {"n2", "d0"}
+    assert row.page == 2
+    assert row.system == 2
+
+
+def test_override_equal_to_own_onset_is_still_not_fresh() -> None:
+    """An override that lands exactly on the element's own onset still
+    never counts as fresh — the exclusion is explicit, not
+    trigger != own."""
+    layout, mapping = _override_setup()
+    moved = build_trigger_schedule(layout, mapping,
+                                   trigger_overrides={"d0": 0.0})
+    row = {t.beats: t for t in moved.triggers}[0.0]
+    assert set(row.element_ids) == {"n0", "d0"}
+    # only n0 is fresh, so the hint is its page 2 — a fresh d0 would
+    # have dragged the min() to page 1
+    assert row.page == 2
+    assert row.system == 2
+
+
+def test_anchor_kind_and_unknown_id_overrides_are_ignored() -> None:
+    layout, mapping = _override_setup()
+    plain = build_trigger_schedule(layout, mapping)
+    assert build_trigger_schedule(
+        layout, mapping, trigger_overrides={"n0": 6.0}) == plain
+    assert build_trigger_schedule(
+        layout, mapping, trigger_overrides={"ghost": 6.0}) == plain
+
+
+def test_override_schedules_are_deterministic() -> None:
+    layout, mapping = _override_setup()
+    overrides = {"d0": 2.5}
+    assert (build_trigger_schedule(layout, mapping,
+                                   trigger_overrides=overrides)
+            == build_trigger_schedule(layout, mapping,
+                                      trigger_overrides=overrides))
+
+
+def test_override_moves_a_real_dynamic(engraved, join_mapping, score_model,
+                                       identities, schedule) -> None:
+    """On the real fixture: a dynamic moved to another row's beat joins
+    that row, and every other element keeps its trigger."""
+    dynamic = next(eid for eid, ident in identities.items()
+                   if ident.kind is ElementKind.DYNAMIC
+                   and ident.onset is not None)
+    target = next(b for b in schedule.beat_values
+                  if quantize_beats(b)
+                  != quantize_beats(schedule.beats_by_element[dynamic]))
+    moved = build_trigger_schedule(engraved.layout, join_mapping,
+                                   score_model.measures,
+                                   trigger_overrides={dynamic: target})
+    assert moved.beats_by_element[dynamic] == target
+    row = {quantize_beats(t.beats): t for t in moved.triggers}[
+        quantize_beats(target)]
+    assert dynamic in row.element_ids
+    others = {eid: b for eid, b in schedule.beats_by_element.items()
+              if eid != dynamic}
+    assert {eid: b for eid, b in moved.beats_by_element.items()
+            if eid != dynamic} == others
