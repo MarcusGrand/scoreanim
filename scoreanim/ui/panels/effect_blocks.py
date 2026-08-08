@@ -21,10 +21,9 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from scoreanim.core.animation import (GLOW_ATTACK, GLOW_COLOR, GLOW_DENSITY,
-                                      GLOW_RADIUS, GLOW_RELEASE, GLOW_STRENGTH,
-                                      GLOW_SUSTAIN, GLOW_SWELL_LEVEL,
-                                      GLOW_SWELL_ON, GLOW_SWELL_POS,
-                                      glow_defaults)
+                                      GLOW_RADIUS, GLOW_RELEASE, GLOW_SUSTAIN,
+                                      GLOW_SWELL_LEVEL, GLOW_SWELL_ON,
+                                      GLOW_SWELL_POS, glow_defaults)
 from scoreanim.core.project import ProjectDoc
 from scoreanim.ui.panels.knob_types import (Check, Color, EffectParamStore,
                                             Envelope, Knob, KnobStore, Number)
@@ -131,11 +130,8 @@ BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (
               title="Glow colour"),
         Number("Radius", "radius", GLOW_RADIUS, 0.0, 500.0, 4.0,
                "How far the halo reaches, in page units — a notehead is "
-               "about 18. A wider radius spreads the same light "
-               "thinner, so it reaches further but dims"),
-        Number("Strength", "strength", GLOW_STRENGTH, 0.0, 1.0, 0.05,
-               "How brightly the halo burns at its brightest (0 = no "
-               "glow at all)"),
+               "about 18. Size only: it does not change how bright or "
+               "how solid the light is"),
         # Per cent in the UI, a fraction in the document — the Peak
         # precedent. See core/animation/glow.py for the curve it drives.
         Number("Density", "density", GLOW_DENSITY, 0, 100, 10,
@@ -164,8 +160,8 @@ BLOCKS: tuple[tuple[str, str, tuple[Knob, ...]], ...] = (
                "per cent of it — 0 % is lit the instant the note starts",
                suffix=" %", factor=100.0, integer=True),
         Number("Sustain", "sustain", GLOW_SUSTAIN, 0, 100, 5,
-               "How brightly the light holds once it is up, as a per "
-               "cent of Strength",
+               "How brightly the light holds once it is up — 100 % is "
+               "the full glow",
                suffix=" %", factor=100.0, integer=True),
         Number("Release", "release", GLOW_RELEASE, 0, 100, 5,
                "How much of the note the light spends dying away at the "

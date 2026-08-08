@@ -27,7 +27,7 @@ from scoreanim.core.project.stage_config import (  # noqa: E402
     default_stage_config, page_content_top)
 from scoreanim.core.score.identity import ElementKind, PartId  # noqa: E402
 from scoreanim.core.timing import TempoEvent, TempoMap  # noqa: E402
-from scoreanim.render import glow_sprite  # noqa: E402
+from scoreanim.render import glow_build, glow_sprite  # noqa: E402
 from scoreanim.render.animate import AnimationApplier  # noqa: E402
 from scoreanim.render.glow_sprite import (OVERSAMPLE,  # noqa: E402
                                           GlowSlot, push_glow_style)
@@ -71,9 +71,13 @@ def _a_head(scenes, schedule):
 
 
 def _parts(scenes, trigger) -> set:
+    """The parts with a NOTEHEAD on this beat. Noteheads rather than any
+    ink, because only note ink glows (core/animation/glow_scope.py) — a
+    beat of clefs and signatures lights nothing at all."""
     return {scenes.items[eid].identity.part for eid in trigger.element_ids
             if eid in scenes.items
-            and scenes.items[eid].identity.part is not None}
+            and scenes.items[eid].identity.part is not None
+            and scenes.items[eid].identity.kind is ElementKind.NOTEHEAD}
 
 
 # -- the applier lights the halo, and only inside the window --------------
@@ -314,6 +318,48 @@ def test_a_density_edit_rebuilds_a_lit_halo(qapp) -> None:
 
 # -- the sprites are shared and sit behind the ink ------------------------
 
+# -- radius: size, and only size -------------------------------------------
+
+def test_the_radius_moves_the_size_of_the_light_and_not_its_brightness(
+        qapp) -> None:
+    """A blur spreads the same light over more page as it widens, so a
+    wider halo used to be a fainter one — Radius was two knobs at once.
+    Every sprite is now scaled to the peak the same ink reaches at the
+    reference radius, so the brightest point does not move."""
+    glow_sprite.reset_cache()
+    peaks = {radius: _sprite_peak(radius)
+             for radius in (12.0, 18.0, 24.0, 36.0, 60.0)}
+    # one of 255 for the rounding in the scaling pass
+    assert max(peaks.values()) - min(peaks.values()) <= 1, peaks
+    # non-vacuity, both ways: there is real light to be equal about,
+    # and the halo really does still grow with the radius
+    assert 8 < peaks[24.0] < 255, peaks
+    assert _halo_reach(1.0, radius=60.0) > _halo_reach(1.0, radius=18.0) + 5.0
+
+
+def test_the_reference_radius_is_left_exactly_alone(qapp, monkeypatch) -> None:
+    """The default radius is the reference, so its gain is 1.0 by
+    construction: no second blur runs and no scaling pass touches the
+    pixels. That is what keeps every already-saved project rendering as
+    it did."""
+    blurs = []
+    real = glow_build._blur
+    monkeypatch.setattr(glow_build, "_blur",
+                        lambda image, r: (blurs.append(r), real(image, r))[1])
+    scaled = []
+    real_scale = glow_build._scale_alpha
+    monkeypatch.setattr(
+        glow_build, "_scale_alpha",
+        lambda image, gain: (scaled.append(gain), real_scale(image, gain))[1])
+    glow_sprite.reset_cache()
+    _sprite_peak(GLOW_RADIUS)
+    assert len(blurs) == 1 and scaled == []
+    # non-vacuity: any other radius pays for both
+    blurs.clear()
+    _sprite_peak(GLOW_RADIUS * 2)
+    assert len(blurs) == 2 and len(scaled) == 1
+
+
 def test_identical_shapes_share_one_sprite(qapp) -> None:
     """A page of quarter noteheads costs a handful of blurs, not one
     per note: same ink, same radius, same colour is one pixmap."""
@@ -485,6 +531,15 @@ def _halo_hue(density: float) -> tuple[int, int, int]:
     image = item._glow._sprite.pixmap().toImage()
     color = image.pixelColor(image.width() // 2, image.height() // 2)
     return color.red(), color.green(), color.blue()
+
+
+def _sprite_peak(radius: float) -> int:
+    """The brightest alpha anywhere in the halo built for one block of
+    ink at `radius` — which is what the normalization holds still."""
+    built = glow_sprite.sprite_for(_element(0, 0, 20, 10),
+                                   QColor("#ffcc66"), radius)
+    assert built is not None
+    return glow_build._peak_alpha(built[0].toImage())
 
 
 def _element(x: float, y: float, w: float, h: float) -> ElementItem:

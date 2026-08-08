@@ -47,15 +47,14 @@ GLOW_SWELL = "swell"
 # Defaults for the document's sparse effect_params["glow"].
 GLOW_COLOR = "#ffcc66"      # a warm gold
 # Scene units, and about a notehead's height: one is 18 units tall on
-# testscore. Measured on that fixture (spikes/glow.py), a wider radius
-# spreads the same light thinner, so the halo goes further but dims:
-# at 18 / 24 / 36 / 60 it reaches 7 / 8 / 8 / 11 units past the ink and
-# changes the brightest pixel it touches by 74 / 66 / 49 / 28 of 255.
-# Rendered all of them on a dark page and looked: 18 is tight enough to
-# read as a bright rim on the ink rather than a halo around it, and 36
-# is noticeably foggy. 24 is the halo.
+# testscore. The radius says how far the light reaches and nothing else
+# — measured on that fixture (spikes/glow.py), 18 / 24 / 36 / 60 reach
+# 7 / 8 / 8 / 11 units past the ink. It used to dim as it widened, which
+# made it two knobs at once; the sprite now normalizes its brightness
+# against this radius (render/glow_build.py), so this number is also
+# where a halo's brightness is calibrated. Rendered several on a dark
+# page and looked: 24 is the halo.
 GLOW_RADIUS = 24.0
-GLOW_STRENGTH = 1.0
 GLOW_S = 0.4
 # The one preset besides swell that stretches to the note by default,
 # and for the same reason turned up a notch: a glow that dies exactly
@@ -72,7 +71,7 @@ GLOW_DENSITY = 0.0          # a plain blur, the soft default
 # precedent). The defaults are a quick rise, a hold while the note
 # sounds, and a release that lands on nothing as the note stops.
 GLOW_ATTACK = 0.10          # spent rising from nothing to the hold
-GLOW_SUSTAIN = 1.0          # the held level, 1 being full Strength
+GLOW_SUSTAIN = 1.0          # the held level, 1 being the full glow
 GLOW_SWELL_ON = False       # the optional hump riding on the hold
 GLOW_SWELL_POS = 0.5        # where the hump's top sits
 GLOW_SWELL_LEVEL = 1.0      # how bright the hump's top is
@@ -185,6 +184,39 @@ def glow_defaults(raw: Mapping[str, object] | None) -> dict[str, object]:
         defaults.update(attack=0.0, sustain=1.0, swell_on=False,
                         release=1.0)
     return defaults
+
+
+def fold_strength(raw: Mapping[str, object] | None) -> dict[str, object]:
+    """The superseded Strength, folded into the two envelope levels it
+    multiplied — and then gone.
+
+    Until 2026-08-05 the halo's brightness was the envelope's value
+    times a separate Strength, and Strength reached the envelope as
+    `spec_envelope`'s amount: it scaled the held level and the swell's
+    top and nothing else. So it was a second knob on the axis Sustain
+    already owns, and a stored one IS those two levels turned down.
+    Multiplying them by it here leaves the light doing exactly what it
+    did with one knob fewer.
+
+    Unlike `glow_defaults` next door this one WRITES, and that is the
+    point. Folding at consumption would multiply a second time the
+    moment the user edited Sustain: the panel would write an explicit
+    level under a `strength` that was still on disk. So the fold happens
+    once, when the document is read (`core/project/serialize.py`), and
+    nothing downstream ever hears the word.
+    """
+    entry = dict(raw or {})
+    if "strength" not in entry:
+        return entry
+    strength = _number(entry.pop("strength"), 1.0, 0.0, 1.0)
+    if strength >= 1.0:
+        return entry            # nothing to fold; just the dead key gone
+    # The levels this document is ACTUALLY glowing at, which is not the
+    # module defaults when it still carries an old shape word.
+    effective = {**glow_defaults(raw), **entry}
+    for key in ("sustain", "swell_level"):
+        entry[key] = _number(effective.get(key), 1.0, 0.0, 1.0) * strength
+    return entry
 
 
 def read_glow_shape(raw: Mapping[str, object] | None) -> GlowShape:

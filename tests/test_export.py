@@ -35,7 +35,7 @@ from scoreanim.core.project.stage_config import (  # noqa: E402
     default_stage_config, page_content_top)
 from scoreanim.core.timing import (TempoMap, parse_tempo_file,  # noqa: E402
                                    resolve_seconds)
-from scoreanim.render.encode import (EncodeError,  # noqa: E402
+from scoreanim.render.encode import (AlphaMode, EncodeError,  # noqa: E402
                                      PngSequenceSink, ProResFfmpegSink,
                                      find_ffmpeg)
 from scoreanim.core.engraving.systems import (centered_fit,  # noqa: E402
@@ -518,7 +518,7 @@ def _test_frame(w: int = 64, h: int = 64):
 
 
 def test_png_sink_writes_straight_alpha(qapp, tmp_path) -> None:
-    sink = PngSequenceSink(tmp_path, "clip")
+    sink = PngSequenceSink(tmp_path, "clip", AlphaMode.STRAIGHT)
     for n in range(3):
         sink.write(n, _test_frame())
     sink.finish()
@@ -533,11 +533,63 @@ def test_png_sink_writes_straight_alpha(qapp, tmp_path) -> None:
     assert inked.red() >= 250                        # straight, not premul
 
 
+def test_png_sink_mattes_with_black_by_default(qapp, tmp_path) -> None:
+    """The default is premultiplied — the half-transparent red ships at
+    half strength, with its alpha still beside it. That is what stops a
+    glow reading as a solid blob in Premiere (2026-08-06)."""
+    sink = PngSequenceSink(tmp_path, "clip")
+    sink.write(0, _test_frame())
+    sink.finish()
+
+    from PySide6.QtGui import QImage
+    inked = QImage(str(tmp_path / "clip.00000.png")).pixelColor(32, 32)
+    assert inked.alpha() == 128
+    assert 125 <= inked.red() <= 131                 # 255 x 128/255
+    assert QImage(str(tmp_path / "clip.00000.png")).pixelColor(0, 0).alpha() \
+        == 0
+
+
+def test_alpha_modes_are_the_same_picture(qapp) -> None:
+    """The two conventions differ by exactly the alpha they carry: a
+    pixel's straight colour times its own alpha IS its premultiplied
+    colour. Read off the bytes both sinks pipe, so the .mov and the PNGs
+    are pinned together."""
+    from scoreanim.render.encode import _rgba_rows
+    frame = _test_frame()
+    straight, _ = _rgba_rows(frame, AlphaMode.STRAIGHT)
+    premult, _ = _rgba_rows(frame, AlphaMode.PREMULTIPLIED)
+    for x, y in ((32, 32), (17, 17), (0, 0)):
+        s = straight.pixelColor(x, y)
+        p = premult.pixelColor(x, y)
+        assert s.alpha() == p.alpha()
+        a = s.alpha() / 255.0
+        for got, want in ((p.red(), s.red() * a), (p.green(), s.green() * a),
+                          (p.blue(), s.blue() * a)):
+            assert abs(got - want) <= 1, (x, y, got, want)
+
+
 def test_png_sink_abort_removes_files(qapp, tmp_path) -> None:
     sink = PngSequenceSink(tmp_path, "clip")
     sink.write(0, _test_frame())
     sink.abort()
     assert list(tmp_path.glob("*.png")) == []
+
+
+def test_dialog_remembers_the_alpha_choice(qapp, inputs, tempo_map,
+                                           score_model) -> None:
+    """Session memory only (ruling R3), and the default is the one
+    Premiere wants."""
+    from scoreanim.ui.export_dialog import ExportDialog
+
+    def dialog(settings=None):
+        return ExportDialog(inputs, StyleRules(), tempo_map, (),
+                            score_model.measures, 0.0, 10.0, "score",
+                            settings=settings)
+
+    fresh = dialog()
+    assert fresh.remembered()["alpha"] is AlphaMode.PREMULTIPLIED
+    reopened = dialog(fresh.remembered() | {"alpha": AlphaMode.STRAIGHT})
+    assert reopened.remembered()["alpha"] is AlphaMode.STRAIGHT
 
 
 needs_ffmpeg = pytest.mark.skipif(

@@ -38,6 +38,19 @@ headless-tested on synthetic inputs. A branch on a kind or effect NAME
 inside an evaluator/applier is the smell (rule 6). Corrections are data
 (a tier value, a measured boolean), not new branches.
 
+**A property that reaches only some ink carries its gate on the item** —
+core decides who is eligible, the scene or a driver writes the answer
+onto `ElementItem`, and the property applier does nothing but obey it.
+`scale_pivot`/`scale_cap` (no pivot, no scale) and `can_glow` (no halo,
+no glow) are the two; both keep `render/properties.py` a table of
+one-line writes with no policy in it. Three separate scope lists exist
+now and they are deliberately not one list: `STATIC_KINDS` (a denylist —
+does this animate at all), `TINTED_KINDS` (does a part tint reach it)
+and `GLOWING_KINDS` (an ALLOWLIST — is this a note). The test of whether
+such a list is really the one switch is a scope change costing one
+frozenset: widening the glow from head-and-accidental to the whole note
+on 2026-08-06 cost that plus two test expectations, nothing else.
+
 **Spike-first, whole-pipeline** — uncertain Verovio/music21 behavior
 gets a script in `spikes/` before integration; spikes are kept as
 library documentation. Measure through the WHOLE pipeline (monkeypatch
@@ -251,7 +264,16 @@ measure/part). Do not merge the paths.
   between parts. Everything rebases onto the engraved timemap.
 - **Cached inverse transforms go stale when items move** —
   `RevealPathItem` caches scene→local; invalidate on `setPos` or the
-  reveal edge is off by exactly dx.
+  reveal edge is off by exactly dx. The glow sprite caches the same
+  thing for the same reason (2026-08-06), so an element's children are
+  now plural: anything that adds a THIRD child kind to `ElementItem`
+  has to take the reveal edge too, or its ink stands ahead of the
+  playhead.
+- **A clip is clamped to the clipped item's own bounds**, so two
+  children cut at one scene x can report different local edges — the
+  halo's box is the ink's plus the blur margin, so it keeps the true
+  edge where the narrower path has already clamped to its left side.
+  Compare clips in SCENE coordinates or the two look like a bug.
 - **Vacuous pins**: a test sampling state that cannot change passes
   forever (M2.7's "playback undisturbed" sampled a downbeat notehead).
   Guard non-vacuity: pick samples that MUST differ, fail if they don't.

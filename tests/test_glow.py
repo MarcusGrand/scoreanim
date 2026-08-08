@@ -15,7 +15,8 @@ from scoreanim.core.animation import (FLOOR_OPACITY, GLOW, GLOW_COLOR,
                                       GLOW_SWELL,
                                       OPACITY, PRESETS, SCALE, build_presets,
                                       derive_windows, element_state,
-                                      glow_track, read_glow, read_glow_shape)
+                                      fold_strength, glow_track, read_glow,
+                                      read_glow_shape)
 from scoreanim.core.timing import TempoEvent, TempoMap
 
 # 60 bpm: one beat is one second, so every duration below reads straight
@@ -23,10 +24,12 @@ from scoreanim.core.timing import TempoEvent, TempoMap
 TEMPO = TempoMap([TempoEvent(0.0, 60.0)])
 
 
-def envelope(params=None, strength: float = 1.0, seconds: float = 1.0):
+def envelope(params=None, seconds: float = 1.0):
     """The envelope one document entry builds. A span of exactly 1 s
-    makes every fraction below read straight off as a second."""
-    return glow_track(read_glow_shape(params or {}), strength, seconds)
+    makes every fraction below read straight off as a second. The
+    amount is always 1.0 — the envelope's own levels are the
+    brightness, which is what retiring Strength means."""
+    return glow_track(read_glow_shape(params or {}), 1.0, seconds)
 
 
 def shape_of(env) -> list[tuple[float, float, str]]:
@@ -64,12 +67,12 @@ def test_the_sustain_is_the_level_it_holds_at() -> None:
     assert env.value_at(1.0) == 0.0
 
 
-def test_the_strength_is_the_ceiling_on_the_whole_envelope() -> None:
-    """Sustain and the swell's level are both fractions of it."""
-    env = envelope({"sustain": 0.5, "swell_on": True, "swell_level": 1.0},
-                   strength=0.4)
+def test_the_swell_level_is_the_top_and_the_sustain_is_the_hold() -> None:
+    """The two levels are the whole of the brightness now: there is no
+    second knob multiplying them."""
+    env = envelope({"sustain": 0.2, "swell_on": True, "swell_level": 0.4})
     assert env.value_at(0.5) == pytest.approx(0.4)   # the swell's top
-    assert env.value_at(0.8) == pytest.approx(0.2)   # the hold, half of it
+    assert env.value_at(0.8) == pytest.approx(0.2)   # the hold
 
 
 def test_the_swell_humps_where_it_says_and_comes_back_to_the_hold() -> None:
@@ -144,7 +147,7 @@ def test_an_old_pop_document_comes_back_exactly_as_it_was() -> None:
     """Full light at the trigger, one eased fall over the whole span:
     this envelope with no attack, everything held, and the release
     taking the lot."""
-    env = envelope({"shape": GLOW_POP}, strength=0.6, seconds=0.4)
+    env = envelope({"shape": GLOW_POP, "sustain": 0.6}, seconds=0.4)
     assert shape_of(env) == [(0.0, 0.6, "STEP"), (0.4, 0.0, "EASE_OUT")]
 
 
@@ -181,6 +184,66 @@ def test_a_document_that_never_stored_a_shape_gets_the_new_defaults() -> None:
     assert (shape.attack, shape.sustain, shape.release) == \
         pytest.approx((0.10, 1.0, 0.20))
     assert shape.swell_on is False
+
+
+# -- the superseded Strength ----------------------------------------------
+
+def test_a_folded_strength_glows_exactly_as_it_did() -> None:
+    """The claim the whole fold rests on, in numbers: the old two-knob
+    path and the folded one-knob entry build the same curve, sample for
+    sample. `amount` is what Strength used to be."""
+    stored = {"sustain": 0.5, "swell_on": True, "swell_level": 1.0,
+              "attack": 0.1, "release": 0.2}
+    before = glow_track(read_glow_shape(stored), 0.4, 1.0)
+    after = envelope(fold_strength({**stored, "strength": 0.4}))
+    assert [round(before.value_at(t / 100), 9) for t in range(101)] == \
+        [round(after.value_at(t / 100), 9) for t in range(101)]
+
+
+def test_the_strength_multiplies_the_two_levels_and_leaves() -> None:
+    """A project tuned to 0.6 with the default shape: the light it held
+    at was 0.6, and now the document says so outright."""
+    assert fold_strength({"strength": 0.6}) == {"sustain": pytest.approx(0.6),
+                                                "swell_level":
+                                                    pytest.approx(0.6)}
+
+
+def test_a_document_with_no_strength_is_left_alone() -> None:
+    for raw in (None, {}, {"radius": 30.0, "sustain": 0.5}):
+        assert fold_strength(raw) == dict(raw or {})
+
+
+def test_a_full_strength_is_just_the_dead_key_going() -> None:
+    """1.0 multiplied nothing, so nothing is written — only the key
+    goes, which is what stops it folding a second time later."""
+    assert fold_strength({"strength": 1.0, "radius": 30.0}) == {"radius": 30.0}
+    assert fold_strength({"strength": 99.0}) == {}      # clamped, so full
+
+
+def test_the_strength_folds_off_the_shape_the_document_glows_in() -> None:
+    """An old project can carry BOTH superseded keys. The levels the
+    strength multiplied were the ones the shape word mapped to, not the
+    module defaults, so the fold reads through `glow_defaults`."""
+    folded = fold_strength({"shape": GLOW_SWELL, "strength": 0.5})
+    assert folded["sustain"] == pytest.approx(0.0)      # the hump held none
+    assert folded["swell_level"] == pytest.approx(0.5)  # half of the top
+    assert "strength" not in folded
+    # and the shape word still supplies the rest of the old look
+    assert read_glow_shape(folded).swell_on is True
+
+
+def test_an_explicit_level_is_folded_too_not_just_a_default() -> None:
+    """The reason this cannot happen at consumption: it has to reach a
+    level the document states outright, and doing it twice would darken
+    the note every time the user touched Sustain."""
+    assert fold_strength({"sustain": 0.5, "strength": 0.5})["sustain"] == \
+        pytest.approx(0.25)
+
+
+def test_an_unreadable_strength_falls_back_to_full() -> None:
+    for bad in ("bright", None, float("nan")):
+        assert fold_strength({"strength": bad, "radius": 30.0}) == \
+            {"radius": 30.0}
 
 
 # -- the styling half -----------------------------------------------------
@@ -271,12 +334,12 @@ def test_the_params_reach_the_envelope() -> None:
     """The shape is authored in fractions of the span, so the duration
     is what turns them into seconds."""
     reg = build_presets(FLOOR_OPACITY,
-                        {"glow": {"strength": 0.5, "attack": 0.25,
+                        {"glow": {"sustain": 0.5, "attack": 0.25,
                                   "release": 0.25, "duration": 2.0}})
     env = reg["glow"].tracks[GLOW]
     assert env.value_at(0.0) == pytest.approx(0.0)
     assert env.value_at(0.5) == pytest.approx(0.5)     # 25 % of 2 s, at
-    assert env.value_at(1.5) == pytest.approx(0.5)     # strength 0.5
+    assert env.value_at(1.5) == pytest.approx(0.5)     # the held level
     assert env.value_at(2.0) == 0.0
 
 
@@ -284,10 +347,10 @@ def test_the_params_are_clamped_at_consumption() -> None:
     """The command layer checks type only; the ranges are enforced
     here, where the params are consumed."""
     reg = build_presets(FLOOR_OPACITY,
-                        {"glow": {"strength": 99.0, "duration": -1.0,
+                        {"glow": {"sustain": 99.0, "duration": -1.0,
                                   "attack": 0.0}})
     env = reg["glow"].tracks[GLOW]
-    assert env.value_at(0.0) == pytest.approx(1.0)     # strength clamped
+    assert env.value_at(0.0) == pytest.approx(1.0)     # sustain clamped
     assert reg["glow"].duration > 0.0                  # duration floored
 
 

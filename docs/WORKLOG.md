@@ -9,7 +9,9 @@ and its editor) and the stem pass, which had been merged into it on
 branches: the volume response, the swell effect, per-notehead pop
 pivots, the system group items and the system pulse. **Schema is v11**,
 so a project saved from here will not open on `v0.2-beta.6` or on any
-older build. `fix/bracket-hidden-staves` is the only branch unmerged.
+older build. `beta/f-glow-orthogonal` carries two unmerged sessions now
+(the one-knob-one-change pass and the glow's scope);
+`fix/bracket-hidden-staves` is the other branch unmerged.
 `main` is **38 commits ahead of `origin/main`** and has been since
 before the glow work — nothing here is pushed.
 
@@ -34,11 +36,17 @@ size. Marcus's call on both; he has said he wants to tweak them.
 Open question from grid-align, still open: whether Tempo mode still
 earns its place now that the Tempo field aims at the selected line.
 
-`render/items.py` was split twice on 2026-08-02 and is at 384 lines.
-`core/project/serialize.py` is at **485** and is the next split due —
-over the ceiling before either branch and pushed further by the stem
-work; `ui/main_window.py` is at 386 with the F key, so it follows.
-`ui/panels/effect_knobs.py` was split twice on 2026-08-04 and is at 305.
+`render/items.py` is at **402** — over the ceiling as of 2026-08-06,
+though its own class docstring argues it is one job (it is the single
+compositing point for how an element looks), so the split wants a real
+seam rather than a line count. `render/animate.py` is back at **399**
+after being split on 2026-08-06.
+`core/project/serialize.py` is at **503** and is the next split due —
+over the ceiling before any of these branches, pushed further by the
+stem work and by three lines of the glow fold (Marcus's call, 2026-08-05:
+add them, split separately); `ui/main_window.py` is at 386 with the F
+key, so it follows. `ui/panels/effect_knobs.py` was split twice on
+2026-08-04 and is at 305.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
@@ -46,6 +54,138 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-06 — **The glow going solid in Premiere was an ALPHA reading,
+  not an animation bug** (`beta/f-glow-orthogonal`, UNMERGED): measured
+  the export end to end first — the exported
+  frames' glow state is byte-for-byte the live applier's at every frame,
+  and it tracks the envelope, radius, density and colour exactly (a
+  scratch spike walked both paths side by side). The difference appears
+  only once Premiere has a clip UNDERNEATH: it composites our
+  straight-alpha frames as if they were premultiplied, so the halo's
+  own colour goes on at full strength with alpha used as a mask. A real
+  halo pixel: alpha 70/255 carrying gold (251,197,91) — correct over
+  black is (69,54,25), read as premultiplied it is the full
+  (251,197,91), **3.6x brighter**, and every soft edge in the frame goes
+  hard. It is not glow-specific; ghost ink and fades take the same hit.
+  Marcus A/B'd two clips in Premiere and premultiplied is the one that
+  matches, so **`AlphaMode` is now an export setting with premultiplied
+  the DEFAULT** (`render/encode.py`, one dropdown in the export dialog,
+  session memory per R3) — Premiere has no straight/premultiplied
+  switch the way After Effects does, so the cure is on our side.
+  Straight stays available for the tools that read it. Watch out for
+  one thing: the matte has to be **relabelled** as plain RGBA (same
+  bytes, a name Qt will not undo), because `pixelColor` un-premultiplies
+  whatever the format says AND Qt's PNG writer converts premultiplied
+  data back to straight on save — a premultiplied label would have
+  shipped straight PNGs and a test that read `pixelColor` would have
+  said everything was fine. Verified through the real encoder: a
+  premultiplied clip's colour channel decodes to the app's own
+  over-black composite within 2/255 (max channel difference 2, mean
+  0.002 over the whole frame). Full suite green, no schema bump, no
+  golden movement. Unproven in Premiere on the final build — the thing
+  to check is a real overlay. If it ever reads wrong BOTH ways the next
+  suspect is the sequence compositing in linear colour (the linear
+  reading of that same halo pixel is 141,109,47, 2x the correct one).
+  **`ui/export_dialog.py` is at 425** — it was already at 404 before
+  this, and it is a split due: the settings form and the chunked run
+  are two jobs in one file.
+- 2026-08-06 — **Only notes glow, and a tied note is one note**
+  (`beta/f-glow-orthogonal`, UNMERGED): the glow ran on the animation
+  denylist, so a meter, a key signature, a rest and a dynamic all lit up
+  with the notes. It runs on its own **allowlist** now
+  (`GLOWING_KINDS`, new pure `core/animation/glow_scope.py`): noteheads,
+  the slash and bar-repeat signs that stand in for one, the accidental
+  in front of one, the syllable under one, the tie between two, and
+  **everything drawn as part of a note** — stem, flag, beam, tremolo
+  strokes, dots, articulations, ornaments, tuplet brackets, ledger
+  dashes. (Marcus first said head-and-accidental only, then corrected it
+  the same session; the correction cost **one frozenset and two test
+  expectations**, which is what the allowlist is for.) **A slur is dark
+  where a tie glows**, the one place those two spanners part company.
+  Dots ride in on `ElementKind.OTHER`, so the ornaments and the tuplet
+  brackets come with them — all note ink, but they cannot be separated
+  until OTHER is split into real kinds in the adapter. That is a THIRD
+  scope list beside `STATIC_KINDS` and `TINTED_KINDS`, and deliberately
+  not merged with either: the denylist is right for "does this animate",
+  where a new kind should join for free, and wrong for the glow, where a
+  new kind should be dark until somebody decides it is a note. Cost is
+  **level with `main`** now that most ink glows again (497 sprites
+  against 452, 0.66 ms a frame on the first pass against 0.70); the
+  narrow first cut measured 76 and 0.21, so the price of the wider rule
+  is known if it ever matters.
+  **A tied chain glows as the one note it is**: every head plus the tie
+  ink lights together at the chain start and dies together when the last
+  of it stops. Marcus's second call: that is a GLOW rule only —
+  **appearance is untouched**, so a continuation head still fills in as
+  the playhead reaches its own barline and schedule.py rule 1 stands
+  (with it the complex3 phantom fix). The chain's first head owns the
+  halo, everything else copies it, and the halo is stretched to the
+  chain by a SECOND evaluation with a chain timescale, so a pop or a
+  swell on the same note still runs on the notehead the user can see.
+  That second evaluation also widens the trigger's window, or every
+  follower would freeze mid-glow when the leader's own note ended.
+  Chains are pitch-matched inside one (part, staff, voice) — a chord
+  holding one note while the others move ties only that one. Attached
+  ink joins through the nearest head, the pop-pivot idiom, so
+  `scale_groups._nearest_head` is public. Measured
+  (`spikes/tie_glow.py`, `spikes/glow_scope.py`): 58 chains on
+  testscore, 234 on video_test, each running 2.3–3.9x its first
+  notehead's own duration; every tie on five fixtures finds its note
+  through the existing rule-3 key, `:seg` halves included.
+  **The reveal clip now cuts the sprite too.** It was moot while nothing
+  clipped ever glowed; a tie is clip-revealed, so without it a held
+  note's light stood a bar ahead of the ink. Watch out for one thing
+  when comparing the two: a clip is clamped to each item's OWN bounds
+  and the halo's box is the ink's plus the blur margin, so the two
+  report different local edges for one scene x. **`animate.py` was split
+  first**, its own commit (395 → 369): the schedule's rows against a
+  scene are now `render/trigger_index.py`. No schema bump, no golden
+  movement, full suite green. **`items.py` is at 402 and `animate.py`
+  back at 399** — both over the ceiling, and `items.py` is the next
+  split, though its class docstring argues it is genuinely one job.
+  Checked end to end in the real window offscreen: over a whole
+  playthrough exactly the ten kinds on the list ever light, nothing
+  outside it does, and undo puts every halo out. Rendered a frame
+  mid-chain on a dark page and looked at it — head, stem, tie, head read
+  as one held object, with the 4/4 right beside it dark. Unproven under
+  a human's eye; the thing to feel is whether a whole held note lighting
+  at once is too much light on a busy page.
+- 2026-08-05 — **Each glow knob changes one thing**
+  (`beta/f-glow-orthogonal`, UNMERGED): the block had two knobs on one
+  axis and one knob doing two jobs. **Strength is retired** — it reached
+  the envelope as `spec_envelope`'s amount, which multiplies the sustain
+  and the swell's level and nothing else, so it was Sustain a second
+  time. An old project's value folds into those two levels **on read**
+  and the key goes (`fold_strength`, three lines in `_style_rules_in`
+  beside the v1 `part_colors` fold). The fold WRITES, unlike the
+  `shape`/`peak` fold next to it, and that is the whole design: at
+  consumption it would multiply again the moment the user edited
+  Sustain, because the panel would write an explicit level under a
+  `strength` still on disk. Checked end to end: a file carrying
+  `strength 0.6` opens as sustain/swell_level 0.6, glows at the same
+  0.600 the old two-knob path did, and the panel says 60 % with no
+  Strength row. **Radius is size only** — a blur spreads the same light
+  thinner as it widens, so the halo used to dim as it grew (74 → 28 of
+  255 from radius 18 to 60). Each sprite is now scaled after the blur so
+  its brightest point matches what the SAME ink reaches at radius 24
+  (`_normalize`, `render/glow_build.py`): per shape, so a thin stem
+  still glows fainter than a fat notehead, and **the gain at 24 is
+  exactly 1.0**, so no second blur runs and every saved project renders
+  as it did. The scaling is `_thicken`'s shape with
+  CompositionMode_Plus, which ADDS — a true linear scale, and the only
+  way past Qt's opacity ceiling of 1 for the radii that need brightening.
+  It runs BEFORE the density pass, which is what keeps those two knobs
+  independent too. Measured on testscore: peak alpha flat at
+  163/163/164/164/164 across radius 12–60 where reach goes 4 → 22 units.
+  **`glow_sprite.py` was split first**, its own commit (378 → 191): how
+  a pixmap is drawn is now `render/glow_build.py`. Watch out for one
+  thing: **`spikes/glow.py` had been printing zeroes since 2026-08-04**
+  — it measured at the trigger, where the default envelope is dark now —
+  **and reading the halo as the ink since 2026-08-02**, because an
+  item's bounds include its sprite child. Both repaired, both worth
+  remembering: a spike can rot silently. No schema bump, no golden
+  movement, full suite green. Unproven under a human's eye — the thing
+  to feel is whether radius 36+ is usable now that it stays bright.
 - 2026-08-04 — **You can draw the glow's shape now**
   (`beta/f-glow-effect`, UNMERGED): an "Envelope" header in the Glow
   block opens the classic synthesizer picture — time across the note,

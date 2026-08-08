@@ -20,6 +20,7 @@ from scoreanim.core.project import (SetDefaultEffect,  # noqa: E402
                                     SetVolumeParam)
 from scoreanim.ui.app_state import AppState  # noqa: E402
 from scoreanim.ui.panels import EffectsPanel  # noqa: E402
+from scoreanim.ui.panels.effect_blocks import BLOCKS  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -1116,7 +1117,7 @@ def test_glow_options_hide_until_glow_is_in_use(panel) -> None:
     widget, state = panel
     knobs = (swatch(widget, "glow", "color"),
              spin(widget, "glow", "radius"),
-             spin(widget, "glow", "strength"),
+             spin(widget, "glow", "density"),
              spin(widget, "glow", "attack"),
              spin(widget, "glow", "sustain"),
              spin(widget, "glow", "release"),
@@ -1135,14 +1136,28 @@ def test_glow_options_hide_until_glow_is_in_use(panel) -> None:
     assert spin(widget, "glow", "duration").isEnabled()
 
 
+def test_the_glow_block_no_longer_offers_a_strength(panel) -> None:
+    """It was a second knob on the axis the envelope's own levels own,
+    so the block ends at Colour, Radius, Density, the envelope and the
+    duration — every one of them changing one thing."""
+    widget, _state = panel
+    block = widget.blocks["glow"]
+    assert "strength" not in block.spins
+    assert "strength" not in block.boxes
+    keys = [knob.key for _name, _title, knobs in BLOCKS
+            for knob in knobs if _name == "glow"]
+    assert "strength" not in keys
+    assert keys[:3] == ["color", "radius", "density"]
+
+
 def test_glow_knobs_commit_glow_params(panel) -> None:
     widget, state = panel
     spin(widget, "glow", "radius").setValue(60.0)
     field(widget, "glow", "radius").commit()
     assert state.committed.style.effect_params["glow"]["radius"] == 60.0
-    spin(widget, "glow", "strength").setValue(0.5)
-    field(widget, "glow", "strength").commit()
-    assert state.doc.style.effect_params["glow"]["strength"] == 0.5
+    spin(widget, "glow", "sustain").setValue(50)
+    field(widget, "glow", "sustain").commit()
+    assert state.doc.style.effect_params["glow"]["sustain"] == 0.5
     spin(widget, "glow", "duration").setValue(1.2)
     field(widget, "glow", "duration").commit()
     assert state.doc.style.effect_params["glow"]["duration"] == 1.2
@@ -1238,14 +1253,14 @@ def test_sync_reflects_glow_params(panel) -> None:
     widget, state = panel
     for cmd in (SetEffectParam("glow", "color", "#123456"),
                 SetEffectParam("glow", "radius", 12.0),
-                SetEffectParam("glow", "strength", 0.25),
+                SetEffectParam("glow", "density", 0.25),
                 SetEffectParam("glow", "attack", 0.35),
                 SetEffectParam("glow", "note_value", False)):
         state.execute(cmd)
     widget.sync_from_document(state.doc)
     assert swatch(widget, "glow", "color").text() == "#123456"
     assert spin(widget, "glow", "radius").value() == 12.0
-    assert spin(widget, "glow", "strength").value() == 0.25
+    assert spin(widget, "glow", "density").value() == 25
     assert spin(widget, "glow", "attack").value() == 35
     assert not box(widget, "glow", "note_value").isChecked()
     depth = 0

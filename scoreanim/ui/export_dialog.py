@@ -30,7 +30,7 @@ from scoreanim.core.audio import PeakCache
 from scoreanim.core.project.stage_config import PresentationMode
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.timing import SwingRegion, TempoMap
-from scoreanim.render.encode import (EncodeError, FrameSink,
+from scoreanim.render.encode import (AlphaMode, EncodeError, FrameSink,
                                      PngSequenceSink, ProResFfmpegSink,
                                      find_ffmpeg)
 from scoreanim.render.export import (AnimationInputs, ExportFormat,
@@ -108,6 +108,19 @@ class ExportDialog(QDialog):
             self._format.setToolTip("ProRes needs ffmpeg on PATH "
                                     "(brew install ffmpeg)")
         form.addRow("Format:", self._format)
+
+        # How the file writes colour beside alpha. Getting this wrong
+        # does not break the export — it makes every soft edge, and a
+        # glow above all, come out solid once the editor has a clip
+        # underneath (render/encode.py).
+        self._alpha = QComboBox()
+        self._alpha.addItem("Premultiplied — Premiere, most NLEs",
+                            AlphaMode.PREMULTIPLIED)
+        self._alpha.addItem("Straight (unmatted)", AlphaMode.STRAIGHT)
+        self._alpha.setToolTip(
+            "If soft edges and glows look too solid over the video "
+            "underneath, try the other one.")
+        form.addRow("Alpha:", self._alpha)
 
         geo = self._inputs.layout.pages[0]
         self._page_aspect = (geo.width, geo.height)
@@ -255,6 +268,11 @@ class ExportDialog(QDialog):
         fmt = settings.get("format")
         if fmt is ExportFormat.PNG_SEQUENCE:
             self._format.setCurrentIndex(1)
+        alpha = settings.get("alpha")
+        if alpha is not None:
+            index = self._alpha.findData(alpha)
+            if index >= 0:
+                self._alpha.setCurrentIndex(index)
         # one height for both modes (Phase 10R: the frame keeps the page
         # aspect everywhere); stale canvas_w/canvas_h session keys from
         # the removed free-form system canvas are simply ignored
@@ -267,6 +285,7 @@ class ExportDialog(QDialog):
         """Session memory only (R3)."""
         return {"fps": self._fps.currentData(),
                 "format": self._chosen_format(),
+                "alpha": self._alpha.currentData(),
                 "path": self._path.text() if self._path.isModified() else "",
                 "height": self._height.value()}
 
@@ -292,11 +311,13 @@ class ExportDialog(QDialog):
                                        peaks=self._peaks)
         w, h = self._renderer.size
         try:
+            alpha = self._alpha.currentData()
             if spec.format is ExportFormat.PRORES_4444:
                 out.parent.mkdir(parents=True, exist_ok=True)
-                self._sink = ProResFfmpegSink(out, w, h, fps, find_ffmpeg())
+                self._sink = ProResFfmpegSink(out, w, h, fps, find_ffmpeg(),
+                                              alpha)
             else:
-                self._sink = PngSequenceSink(out, self._stem)
+                self._sink = PngSequenceSink(out, self._stem, alpha)
         except OSError as exc:
             self._fail(str(exc))
             return

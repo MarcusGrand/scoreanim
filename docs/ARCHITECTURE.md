@@ -690,6 +690,41 @@ hairpins. **Animation scope ≠ color scope** (ruling D stands): this
 ruling widened what animates, not what tints — `TINTED_KINDS` is
 unchanged, so clefs and key signatures animate but stay black.
 
+**Glow scope is a third list, and the one ALLOWLIST** (ruling
+2026-08-06, `core/animation/glow_scope.GLOWING_KINDS`). A halo says
+"this note is sounding", so it reaches a note and the ink drawn as part
+of one: noteheads, the slash and bar-repeat signs that stand in for a
+head, stems, flags, beams, tremolo strokes, accidentals, dots,
+articulations, ornaments, tuplet brackets and numbers, ledger dashes,
+the lyric under a note, and the tie between two. Dark: rests, whole-bar
+rests, dynamics, clefs, key and meter signatures, texts, chord symbols,
+slurs, hairpins, and all the scaffold. A **slur is dark where a tie
+glows** — a tie is the note continuing, a slur is not — which is the one
+place the clip-revealed kinds part company.
+
+The direction is the point, and it is why the three lists are not one.
+A new `ElementKind` should animate for free (denylist) and should stay
+dark until somebody decides it is a note (allowlist): opposite safe
+defaults, so two lists. Dots reach the list through `ElementKind.OTHER`,
+which also carries the ornaments and the tuplet brackets — all note ink,
+but not separable until OTHER is split into real kinds.
+
+Two consequences of the same ruling. **A tied chain glows as one note**:
+the chain's first head owns the halo, every other head and the tie ink
+between them follows it, and the halo lasts the whole chain rather than
+the first head's engraved value. That is a glow rule only — appearance
+is untouched, so `schedule.py` rule 1 (grow-with-playhead, 2026-07-22)
+stands and a continuation head still fills in as the playhead reaches
+it. And **attached ink shares its head's halo** rather than running its
+own clock, joined through the nearest head, the same join a pop's pivot
+makes: one note is one light.
+
+Mechanism: `render/glow_driver.py` writes `can_glow` onto each
+`ElementItem` from this list and clears it for ink whose halo its leader
+owns; `render/properties.py` obeys it and decides nothing. So the list
+IS the switch — widening it from head-and-accidental to the whole note
+cost one frozenset and two test expectations.
+
 ### Styling
 
 `StyleRules` map musical identity → base visual properties (per-part
@@ -956,11 +991,27 @@ re-touching. "Clear overrides on selection" must be cheap.
   floor-opacity ghost ink exports as-is (ruling R1, transparent-only).
   Page turns hard-cut on the frame where `current_page()` changes,
   identical to live follow (ruling R2). One
-  `convertToFormat(RGBA8888)` per frame un-premultiplies to the
-  straight alpha encoders expect. ProRes 4444 .mov (ffmpeg stdin
-  stream, runtime-discovered) is the default; PNG sequence (pure Qt)
-  is the no-ffmpeg fallback. Export settings are session memory only
-  (ruling R3) — nothing enters the project document.
+  `convertToFormat` per frame puts the bytes in R,G,B,A order whatever
+  the machine's endianness. ProRes 4444 .mov (ffmpeg stdin stream,
+  runtime-discovered) is the default; PNG sequence (pure Qt) is the
+  no-ffmpeg fallback. Export settings are session memory only (ruling
+  R3) — nothing enters the project document.
+- **Alpha mode** (2026-08-06, `render/encode.py::AlphaMode`): that same
+  convert also decides how the file writes colour beside alpha, and it
+  is the user's choice with **premultiplied ("matted with black") the
+  default**. Straight was the only option until a glow exported for
+  Premiere came out solid: an editor that reads straight frames as
+  premultiplied puts every soft edge on at full strength, wrong by
+  1/alpha (measured on a real halo pixel — alpha 70/255 carrying
+  (251,197,91) should composite over black to (69,54,25) and arrived as
+  the full gold, 3.6x). Premiere assumes premultiplied and offers no
+  switch, so the app matches it. The matte is then RELABELLED as plain
+  RGBA — the same bytes under a name Qt will not undo — because
+  `pixelColor` un-premultiplies on the way out and Qt's PNG writer
+  converts premultiplied data back to straight before saving. Pinned:
+  the two modes are the same picture (premultiplied == straight x its
+  own alpha), and a premultiplied clip's colour channel decodes to the
+  app's own over-black composite within 2/255.
 - **System-mode export** (Phase 7.5): when the document's presentation
   mode is SYSTEM, the canvas is user-chosen (W×H, default 1920×1080,
   dialog-editable, still session memory — R3 stands) and each frame

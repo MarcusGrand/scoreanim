@@ -227,6 +227,32 @@ def test_unknown_effect_params_round_trip_byte_for_byte(tmp_path) -> None:
         {"shimmer": {"wobble": [1, 2.5, "x"], "n": 3}}
 
 
+def test_the_glows_old_strength_folds_in_on_read() -> None:
+    """The one effect param this build consumes rather than round-trips.
+    Strength multiplied the envelope's two levels and nothing else, so a
+    project tuned to 0.6 opens with those levels at 0.6 and the key
+    gone — the same light, one knob fewer, and it can never fold twice
+    because there is nothing left to fold."""
+    doc = from_dict({"version": 11,
+                     "style": {"effect_params": {"glow": {"strength": 0.6,
+                                                          "radius": 30.0}}}})
+    entry = doc.style.effect_params["glow"]
+    assert "strength" not in entry
+    assert entry["sustain"] == pytest.approx(0.6)
+    assert entry["swell_level"] == pytest.approx(0.6)
+    assert entry["radius"] == 30.0          # the rest is untouched
+    # and it stays folded across a save
+    assert from_dict(to_dict(doc)).style.effect_params["glow"] == entry
+
+
+def test_a_glow_without_a_strength_is_untouched() -> None:
+    """Non-vacuity for the fold: everything else about the entry, and
+    every other preset, goes through exactly as it always did."""
+    raw = {"glow": {"radius": 30.0, "sustain": 0.5}, "pop": {"settle": 0.5}}
+    doc = from_dict({"version": 11, "style": {"effect_params": raw}})
+    assert doc.style.effect_params == raw
+
+
 def test_v2_file_loads_with_v3_defaults() -> None:
     """A Phase 5/6 file (version 2 — no floor_opacity, mode,
     staff_groups, or text_overrides keys) loads with the v3 defaults;
