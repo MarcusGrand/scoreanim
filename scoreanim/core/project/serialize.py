@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -148,6 +149,12 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 #   inside stage.canvas meaning a crop — Marcus corrected the meaning;
 #   a canvas-key scale from that build is deliberately IGNORED on
 #   read, never folded, because the two numbers mean different things.
+#   Also v12 (trigger overrides, 2026-08-08): trigger_overrides — fire
+#   times the user moved by hand, ElementId → absolute beats on the
+#   performance axis. Rides v12 by the same no-shipped-reader
+#   reasoning. A missing key is the automatic schedule alone, so no
+#   read gate; values ARE validated on read (the stem_directions rule:
+#   a non-number beat has no sensible fallback).
 PROJECT_VERSION = 12
 _READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 SUFFIX = ".scoreanim"
@@ -247,6 +254,11 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
         "stem_directions": {
             str(eid): direction.value
             for eid, direction in sorted(doc.stem_directions.items())
+        },
+        # rides v12: hand-moved fire times, same sorted-sparse shape
+        "trigger_overrides": {
+            str(eid): beats
+            for eid, beats in sorted(doc.trigger_overrides.items())
         },
     }
 
@@ -358,6 +370,11 @@ def from_dict(data: dict[str, Any],
                 ElementId(str(eid)): _stem_direction_in(value)
                 for eid, value in data.get("stem_directions", {}).items()
             },
+            # rides v12: missing key → {}, the automatic schedule alone
+            trigger_overrides={
+                ElementId(str(eid)): _trigger_beats_in(value)
+                for eid, value in data.get("trigger_overrides", {}).items()
+            },
         )
     except (KeyError, TypeError) as exc:
         raise ValueError(f"malformed project data: {exc!r}") from exc
@@ -399,6 +416,17 @@ def _stem_direction_in(value: Any) -> StemDirection:
         return StemDirection(str(value))
     except ValueError as exc:
         raise ValueError(f"unknown stem direction {value!r}") from exc
+
+
+def _trigger_beats_in(value: Any) -> float:
+    # strict like the stems above: a beat that is not a finite number
+    # has no sensible fallback
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"bad trigger beat {value!r}")
+    beats = float(value)
+    if not math.isfinite(beats):
+        raise ValueError(f"bad trigger beat {value!r}")
+    return beats
 
 
 def _text_override_out(override: PartTextOverride) -> dict[str, Any]:
