@@ -52,6 +52,17 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-09 (retime, round 4) — **The ruler escapes the system mask,
+  ticks top-align** (`beta/f-move-onset`, UNMERGED): system mode
+  clipped the ruler because a scene item paints UNDER the view's mask;
+  the ruler is view-painted now — `drawForeground` gained ONE overlay
+  hook after every mask path, `render/onset_ruler.py` became a paint
+  function, the controller invalidates the viewport on tick changes.
+  Ticks hang from one shared top line, bars deepest (pinned in
+  pixels). Full suite green (2079). **`ui/stage_view.py` is at 481**
+  — the standing most-overdue split (gesture handlers), this hook
+  added ~10; flagged, not paid — input-code surgery wants its own
+  session.
 - 2026-08-08 (retime, round 3) — **Grid snap, tick ruler, and the
   hand cursor** (`beta/f-move-onset`, UNMERGED): Marcus's corrections.
   The cursor snaps to the union of events and an eighth-note grid
