@@ -1,22 +1,13 @@
 # ScoreAnim — Worklog
 
-**NOW:** everything is on `main` (`c5c05e6`, no tag).
-`beta/f-glow-effect` merged on 2026-08-04 on Marcus's instruction, and
-it carried TWO features: the glow (halo, sprites, density, the envelope
-and its editor) and the stem pass, which had been merged into it on
-2026-08-03. `beta/f-page-colors` merged on 2026-08-02, on top of
-`beta/f-system-pulse` earlier the same day — which itself brought five
-branches: the volume response, the swell effect, per-notehead pop
-pivots, the system group items and the system pulse. **Schema is v11**,
-so a project saved from here will not open on `v0.2-beta.6` or on any
-older build. `beta/f-glow-orthogonal` carries two unmerged sessions now
-(the one-knob-one-change pass and the glow's scope).
-`beta/f-video-canvas` (off `beta/f-glow-orthogonal`, UNMERGED) carries
-the video canvas and **schema v12** — a project saved from it will not
-open on any v11 build, including `main`. Those two are the only
-unmerged branches; `fix/bracket-hidden-staves` went in with the stem
-work (`e29e6bb`). As of 2026-08-08 `main`, the `v0.2-beta.6` tag and
-both unmerged branches are pushed to GitHub — the remote is current.
+**NOW:** everything is on `main` (no tag since `v0.2-beta.6`), and
+`main` is pushed. On 2026-08-08, on Marcus's instruction,
+`beta/f-glow-orthogonal` (the one-knob-one-change pass and the glow's
+scope) and `beta/f-video-canvas` (the video canvas, the engraving
+knobs, the export frame) merged in — no branch is unmerged now.
+**Schema is v12**, so a project saved from here will not open on
+`v0.2-beta.6` or any older build. Full suite green after the merge
+(2021 passed, 1 xfailed).
 
 **Every score re-engraves differently from 2026-08-03 on** — the stem
 pass is unconditional, and it moved 11 of the 12 goldens. That is the
@@ -60,6 +51,9 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-08 (later) — Merged `beta/f-glow-orthogonal` and
+  `beta/f-video-canvas` into `main` on Marcus's instruction (schema
+  v12 now on `main`). Full suite green before and after. Pushed.
 - 2026-08-08 — Remote sync: pushed `main` (64 commits, `d0af1b5..15ad4b6`),
   the `v0.2-beta.6` tag and the two unmerged branches
   (`beta/f-glow-orthogonal`, `beta/f-video-canvas`) to GitHub. Corrected
