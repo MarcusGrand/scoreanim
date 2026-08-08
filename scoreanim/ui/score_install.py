@@ -43,7 +43,8 @@ class ScoreInstaller:
                                hide_first_system,
                                w.app_state.doc.system_break_overrides,
                                w.app_state.doc.page_break_overrides,
-                               w.app_state.doc.stem_directions)
+                               w.app_state.doc.stem_directions,
+                               w.app_state.doc.trigger_overrides)
         self.install(loaded)
         w.router.reset()
         return loaded.stage
@@ -86,7 +87,8 @@ class ScoreInstaller:
                                doc.condense_groups, doc.hide_first_system,
                                doc.system_break_overrides,
                                doc.page_break_overrides,
-                               doc.stem_directions)
+                               doc.stem_directions,
+                               doc.trigger_overrides)
         self.install(loaded)
         # a break edit re-anchors to the measure it touched, so the stage
         # stays where you were working (D8); everything else re-shows the
