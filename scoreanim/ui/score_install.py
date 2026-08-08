@@ -130,7 +130,7 @@ class ScoreInstaller:
         # line spans and the fresh scenes it draws into
         w.onset_cursor.bind(
             loaded.scenes, loaded.animation_inputs.layout,
-            loaded.band_by_system,
+            loaded.band_by_system, loaded.system_of_measure,
             lambda: (w.animation_inputs.schedule
                      if w.animation_inputs is not None else None))
         w.menus.export_action.setEnabled(True)

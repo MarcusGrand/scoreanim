@@ -1,12 +1,14 @@
 """The on-page onset cursor (2026-08-08, re-timing's second half).
 
 A vertical line in the selected element's system marks where it fires
-right now; grab it and drag, and it snaps to the onset stops — the
-SAME list the panel's Earlier/Later walk (core/animation/onset_stops),
-which is why the stops carry x. Release commits ONE SetTriggerBeat
-(rule 8). An off-stop automatic time draws between its neighbouring
-stops (x_at's straight-line rule) and snaps onto the grid on the
-first drag.
+right now; grab it and drag, and it snaps to the union of the
+system's EVENTS (the onset stops the panel's Earlier/Later walk) and
+the tick GRID — bars, beats, eighths (core/animation/onset_grid),
+drawn as a ruler above the system while the cursor is up. An event on
+a 16th outranks the eighth ruler: snap_targets keeps every event.
+Release commits ONE SetTriggerBeat (rule 8). An off-stop automatic
+time draws between its neighbouring stops (x_at's straight-line rule)
+and snaps onto the grid on the first drag.
 
 The gesture is view-level through the DragRouter — probe, start, move,
 finish, the nudge's shape — so the item handles no mouse events, and a
@@ -21,11 +23,13 @@ from typing import Callable
 
 from PySide6.QtCore import QObject
 
-from scoreanim.core.animation import (TriggerSchedule, is_retimeable,
-                                      nearest_stop_to_x, quantize_beats,
-                                      stops_for_system, x_at)
+from scoreanim.core.animation import (TriggerSchedule, grid_for_system,
+                                      is_retimeable, nearest_stop_to_x,
+                                      quantize_beats, snap_targets,
+                                      stops_for_system, system_end_x, x_at)
 from scoreanim.core.project import ProjectDoc, SetTriggerBeat
 from scoreanim.render.onset_cursor import OnsetCursorItem
+from scoreanim.render.onset_ruler import OnsetRulerItem
 from scoreanim.ui.app_state import AppState
 
 
@@ -39,21 +43,25 @@ class OnsetCursorController(QObject):
         self._bands: dict = {}
         self._schedule: Callable[[], TriggerSchedule | None] = lambda: None
         self._by_id: dict = {}
+        self._measure_systems: dict = {}
         self._item: OnsetCursorItem | None = None
+        self._ruler: OnsetRulerItem | None = None
         self._page: int | None = None
         self._origin_x: float | None = None
         self._drag_stop = None
         app_state.selection_changed.connect(self.sync)
 
-    def bind(self, scenes, layout, band_by_system,
+    def bind(self, scenes, layout, band_by_system, measure_systems,
              schedule: Callable[[], TriggerSchedule | None]) -> None:
-        """Per load. The scenes are fresh, so the old item died with
-        them — forget it rather than removing it."""
+        """Per load. The scenes are fresh, so the old items died with
+        them — forget them rather than removing them."""
         self._item = None
+        self._ruler = None
         self._page = None
         self._scenes = scenes
         self._layout = layout
         self._bands = dict(band_by_system)
+        self._measure_systems = dict(measure_systems)
         self._schedule = schedule
         self._by_id = {} if layout is None else {
             el.identity.element_id: el for el in layout.elements}
@@ -83,6 +91,15 @@ class OnsetCursorController(QObject):
             return None
         return el, beat
 
+    def _grid(self, system: int):
+        """The tick grid for one system: its measures' bars, beats and
+        eighths, stretched to the system's right edge."""
+        ordinals = sorted(m for m, s in self._measure_systems.items()
+                          if s == system)
+        return grid_for_system(stops_for_system(self._layout, system),
+                               self._state.measures, ordinals,
+                               system_end_x(self._layout, system))
+
     def sync(self) -> None:
         ctx = self._context()
         band = None if ctx is None else self._bands.get(ctx[0].system)
@@ -94,20 +111,26 @@ class OnsetCursorController(QObject):
         if x is None:
             self._hide()
             return
-        self._show(band.page, x, band.rect)
+        self._show(band.page, x, band.rect, self._grid(el.system))
 
-    def _show(self, page: int, x: float, rect) -> None:
+    def _show(self, page: int, x: float, rect, ticks) -> None:
         if self._item is None or self._page != page:
             self._hide()
             item = OnsetCursorItem()
-            self._scenes.scene_for_page(page).addItem(item)
-            self._item, self._page = item, page
+            ruler = OnsetRulerItem()
+            scene = self._scenes.scene_for_page(page)
+            scene.addItem(item)
+            scene.addItem(ruler)
+            self._item, self._ruler, self._page = item, ruler, page
         self._item.set_span(x, rect.y, rect.y + rect.h)
+        self._ruler.set_ticks(ticks, rect.y)
 
     def _hide(self) -> None:
-        if self._item is not None and self._item.scene() is not None:
-            self._item.scene().removeItem(self._item)
+        for item in (self._item, self._ruler):
+            if item is not None and item.scene() is not None:
+                item.scene().removeItem(item)
         self._item = None
+        self._ruler = None
         self._page = None
 
     # -- the drag (DragRouter handler surface) -----------------------------
@@ -120,16 +143,21 @@ class OnsetCursorController(QObject):
     def start(self, scene_pos, scene=None) -> None:
         self._origin_x = scene_pos.x()
         self._drag_stop = None
+        if self._item is not None:
+            self._item.set_active(True)      # the pressed look
 
     def move(self, delta) -> None:
         ctx = self._context()
         if ctx is None or self._item is None or self._origin_x is None:
             return
         el, _ = ctx
-        stops = stops_for_system(self._layout, el.system)
-        stop = nearest_stop_to_x(stops, self._origin_x + delta.x())
+        # events AND the tick grid — an event on a 16th outranks the
+        # eighth ruler, because snap_targets keeps the finer stop
+        targets = snap_targets(stops_for_system(self._layout, el.system),
+                               self._grid(el.system))
+        stop = nearest_stop_to_x(targets, self._origin_x + delta.x())
         if stop is not None:
-            # live snap: the line jumps stop to stop under the hand
+            # live snap: the line jumps target to target under the hand
             self._drag_stop = stop
             line = self._item.line()
             self._item.set_span(stop.x, line.y1(), line.y2())
@@ -138,6 +166,8 @@ class OnsetCursorController(QObject):
         self.move(delta)
         stop, self._drag_stop = self._drag_stop, None
         self._origin_x = None
+        if self._item is not None:
+            self._item.set_active(False)
         ctx = self._context()
         if ctx is None or stop is None:
             self.sync()

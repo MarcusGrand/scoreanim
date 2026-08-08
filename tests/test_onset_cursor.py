@@ -158,3 +158,66 @@ def test_router_falls_through_to_the_nudge() -> None:
     assert first.calls == []
     # nobody claims: the drag goes nowhere
     assert not DragRouter((first,)).probe(QPointF(0, 0))
+
+
+def test_drag_lands_on_a_grid_tick_between_events(window) -> None:
+    """The changed mind (2026-08-08 round 3): the cursor locks onto
+    the eighth grid too, not just events."""
+    from scoreanim.core.animation import (grid_for_system, snap_targets,
+                                          quantize_beats)
+    el = _select(window, ElementKind.DYNAMIC)
+    eid = el.identity.element_id
+    item = _cursor(window)
+    stops = stops_for_system(window.animation_inputs.layout, el.system)
+    ticks = window.onset_cursor._grid(el.system)
+    event_beats = {quantize_beats(s.beats) for s in stops}
+    tick = next(t for t in ticks
+                if quantize_beats(t.beats) not in event_beats)
+
+    from PySide6.QtCore import QPointF as P
+    line = item.line()
+    origin = P(item.x_pos, (line.y1() + line.y2()) / 2)
+    window.onset_cursor.start(origin, item.scene())
+    window.onset_cursor.finish(P(tick.x - item.x_pos, 0.0))
+
+    assert window.app_state.doc.trigger_overrides[eid] == tick.beats
+    assert quantize_beats(tick.beats) not in event_beats
+
+
+def test_ruler_appears_above_the_system_with_ranked_ticks(window) -> None:
+    from scoreanim.core.animation import TickRank
+    el = _select(window, ElementKind.DYNAMIC)
+    ruler = window.onset_cursor._ruler
+    assert ruler is not None
+    assert ruler.scene() is _cursor(window).scene()
+    ticks = ruler._ticks
+    assert ticks, "ruler has no ticks"
+    ranks = {t.rank for t in ticks}
+    assert ranks == {TickRank.BAR, TickRank.BEAT, TickRank.EIGHTH}
+    band = window.onset_cursor._bands[el.system]
+    assert ruler.boundingRect().bottom() <= band.rect.y  # above the ink
+    # bar ticks sit on the system's measure starts
+    starts = {m.start for i, m in enumerate(window.app_state.measures, 1)
+              if window.onset_cursor._measure_systems.get(i) == el.system}
+    bar_beats = {t.beats for t in ticks if t.rank is TickRank.BAR}
+    assert starts <= bar_beats
+
+
+def test_cursor_affordances(window) -> None:
+    """The idiomatic pair: pointing hand over the grab band, thicker
+    while held."""
+    from PySide6.QtCore import QPointF as P, Qt
+    _select(window, ElementKind.DYNAMIC)
+    item = _cursor(window)
+    assert item.cursor().shape() == Qt.CursorShape.PointingHandCursor
+    # the hover surface is the grab band, not the hairline
+    line = item.line()
+    mid_y = (line.y1() + line.y2()) / 2
+    assert item.shape().contains(P(item.x_pos + 8.0, mid_y))
+    assert not item.shape().contains(P(item.x_pos + 30.0, mid_y))
+
+    rest_width = item.pen().widthF()
+    window.onset_cursor.start(P(item.x_pos, mid_y), item.scene())
+    assert item.pen().widthF() > rest_width
+    window.onset_cursor.finish(P(0.0, 0.0))
+    assert _cursor(window).pen().widthF() == rest_width
