@@ -76,7 +76,8 @@ from scoreanim.render.gain_index import GainIndex
 from scoreanim.render.glow_driver import GlowDriver
 from scoreanim.render.glow_sprite import push_glow_style
 from scoreanim.render.items import ElementItem
-from scoreanim.render.properties import PROPERTY_APPLIERS
+from scoreanim.render.properties import (PROPERTY_APPLIERS,
+                                         reset_animated_transforms)
 from scoreanim.render.pulse_driver import PulseDriver
 from scoreanim.render.reveal_driver import RevealDriver
 from scoreanim.render.system_group import SystemGroupItem
@@ -122,17 +123,13 @@ class AnimationApplier:
         index, the gain index and the glow driver are all keyed by the
         schedule's rows, so they live and die together."""
         self._schedule = schedule
-        # The schedule's rows against this scene — items, ids, and the
-        # followed page/system (render/trigger_index.py).
+        # the rows against this scene: items, ids, followed page/system
         self._index = TriggerIndex(self._items, schedule)
-        # How strongly each element animates, if it follows the
-        # recording: one gain per ELEMENT and the audio state behind it,
-        # all in its own object (render/gain_index.py).
+        # per-element gains and the audio state behind them
         self._audio = GainIndex([trig.beats for trig in schedule.triggers],
                                 self._index.ids,
                                 schedule.duration_by_element)
-        # Which ink may glow at all, which of it shares another note's
-        # halo, and how long a tied chain burns (render/glow_driver.py).
+        # who may glow, whose halo is shared, how long a chain burns
         self._glow = GlowDriver(self._items, self._index, self._glow_scope)
 
     # -- configuration -------------------------------------------------------
@@ -179,23 +176,34 @@ class AnimationApplier:
         self._resolve_effects()
         self._recompute_audio()      # the volume settings may have moved
         self._recompute_bumps()      # and so may the pulse settings
-        # an element whose effects no longer carry a SCALE track would
-        # otherwise keep a stale mid-pop transform, one that lost its
-        # offset tracks would be left standing wherever its slide had
-        # reached, and one that lost its glow would keep a lit halo.
-        # Unconditional, so it covers a combination losing a component
-        # as well: the refresh below writes back only the properties the
-        # new effects actually animate.
-        for items in self._index.items:
-            for item in items:
-                if item.scale() != 1.0:
-                    item.setScale(1.0)
-                if item.animated_offset != (0.0, 0.0):
-                    item.set_animated_offset(0.0, 0.0)
+        reset_animated_transforms(self._index.items)
         # Ties glow but never receive a trigger, so putting the halos
-        # out is the driver's job, not this loop's.
+        # out is the driver's job, not the transform reset's.
         self._glow.extinguish()
         self.refresh(self._t)
+
+    def set_schedule(self, schedule: TriggerSchedule) -> None:
+        """Swap the trigger schedule under the same scene (a trigger
+        override changed) and land in exactly the state a fresh load at
+        the current t gives — the cursor is a cache, never state (rule
+        2). The reveal driver stays: no anchor kind can be overridden,
+        so the tracks cannot have moved. Live path only — export
+        inherits the new schedule through AnimationInputs."""
+        if schedule == self._schedule:
+            return
+        # the gain index is rebuilt, so carry the recording across
+        peaks, offset = self._audio.peaks, self._audio.offset
+        self._adopt_schedule(schedule)
+        self._trigger_seconds = []       # the ctor's construction state
+        self._audio.set_audio(peaks, offset)
+        self._resolve_effects()
+        # an element that changed rows may hold a mid-transition state
+        # its new row will never rewrite
+        reset_animated_transforms(self._index.items)
+        self._glow.extinguish()
+        # re-derives seconds, windows, gains and bumps off the new
+        # rows, and ends in refresh(self._t)
+        self.set_timing(self._tempo_map, self._swing)
 
     def _resolve_effects(self) -> None:
         rules = self._style

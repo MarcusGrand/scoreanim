@@ -1424,3 +1424,100 @@ def test_scrubbing_a_following_element_is_stateless(qapp, engraved,
     assert walked == _visual_state(fresh_scenes)
     # non-vacuity: the followed note really is animating at `mid`
     assert walked[long_head][1] != 1.0
+
+
+# --- set_schedule (2026-08-08): swap the rows under a running scene --------
+
+def _override_for(engraved, schedule):
+    """A real dynamic and a clearly later row's beat to move it to."""
+    from scoreanim.core.score.identity import ElementKind
+
+    identities = {el.identity.element_id: el.identity
+                  for el in engraved.layout.elements}
+    dynamic = next(eid for eid, ident in identities.items()
+                   if ident.kind is ElementKind.DYNAMIC
+                   and ident.onset is not None)
+    own = schedule.beats_by_element[dynamic]
+    target = next(b for b in schedule.beat_values if b > own + 1.0)
+    return dynamic, target
+
+
+def test_set_schedule_equals_a_fresh_applier(qapp, engraved, join_mapping,
+                                             score_model, schedule,
+                                             scenes) -> None:
+    """The whole contract: after set_schedule the scene is in exactly
+    the state a fresh load at the same t gives — probed before, between
+    the old and new trigger, after, and far out; every item's opacity,
+    scale and offsets."""
+    dynamic, target = _override_for(engraved, schedule)
+    moved = build_trigger_schedule(engraved.layout, join_mapping,
+                                   score_model.measures,
+                                   trigger_overrides={dynamic: target})
+    swapped = AnimationApplier(scenes.items, schedule, TEMPO, StyleRules())
+    swapped.set_schedule(moved)
+
+    stage = default_stage_config(engraved.prepared,
+                                 page_content_top(engraved.layout))
+    scenes2 = ScoreScenes(engraved.layout, stage)
+    fresh = AnimationApplier(scenes2.items, moved, TEMPO, StyleRules())
+
+    old_s = TEMPO.seconds_at(schedule.beats_by_element[dynamic])
+    new_s = TEMPO.seconds_at(target)
+    for t in (-1.0, old_s + 0.01, (old_s + new_s) / 2, new_s + 0.01, 1e6):
+        swapped.refresh(t)
+        fresh.refresh(t)
+        for eid, item in scenes.items.items():
+            other = scenes2.items[eid]
+            assert item.opacity() == pytest.approx(other.opacity()), (eid, t)
+            assert item.scale() == pytest.approx(other.scale()), (eid, t)
+            assert item.animated_offset == pytest.approx(
+                other.animated_offset), (eid, t)
+
+
+def test_set_schedule_retimes_the_element_at_the_current_t(
+        engraved, join_mapping, score_model, schedule, scenes) -> None:
+    """The swap itself refreshes at the current t (the cursor is a
+    cache): a dynamic sitting lit between its old and new trigger goes
+    back to the floor the moment the schedule says it now fires later."""
+    dynamic, target = _override_for(engraved, schedule)
+    moved = build_trigger_schedule(engraved.layout, join_mapping,
+                                   score_model.measures,
+                                   trigger_overrides={dynamic: target})
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, StyleRules())
+    old_s = TEMPO.seconds_at(schedule.beats_by_element[dynamic])
+    between = (old_s + TEMPO.seconds_at(target)) / 2
+    applier.refresh(between)
+    assert scenes.items[dynamic].opacity() == pytest.approx(1.0)
+
+    applier.set_schedule(moved)                  # no refresh call of our own
+    assert scenes.items[dynamic].opacity() == pytest.approx(FLOOR)
+
+    applier.refresh(TEMPO.seconds_at(target) + 0.01)
+    assert scenes.items[dynamic].opacity() == pytest.approx(1.0)
+
+
+def test_set_schedule_keeps_the_recording(engraved, join_mapping,
+                                          score_model, schedule, scenes,
+                                          pop_rules) -> None:
+    """The gain index is rebuilt by the swap, so the audio must be
+    carried across: an unrelated override must not change a loud
+    head's pop at all."""
+    from dataclasses import replace
+
+    dynamic, target = _override_for(engraved, schedule)
+    moved = build_trigger_schedule(engraved.layout, join_mapping,
+                                   score_model.measures,
+                                   trigger_overrides={dynamic: target})
+    rules = replace(pop_rules,
+                    volume={"amount": 1.0, "quiet": 0.5, "loud": 1.5})
+    loud_head, _ = _two_p1_heads(scenes, schedule)
+    loud_s = TEMPO.seconds_at(schedule.beats_by_element[loud_head])
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, rules)
+    applier.set_audio(_loud_at([loud_s]), 0.0)
+    applier.refresh(loud_s + 0.125)
+    before = scenes.items[loud_head].scale()
+    assert before > 1.0                          # the recording is heard
+
+    applier.set_schedule(moved)
+    applier.refresh(loud_s + 0.125)
+    assert scenes.items[loud_head].scale() == pytest.approx(before)
