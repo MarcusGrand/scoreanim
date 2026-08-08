@@ -184,23 +184,51 @@ def test_drag_lands_on_a_grid_tick_between_events(window) -> None:
     assert quantize_beats(tick.beats) not in event_beats
 
 
-def test_ruler_appears_above_the_system_with_ranked_ticks(window) -> None:
+def test_ruler_is_view_painted_with_ranked_ticks(window) -> None:
+    """The ruler is drawn AFTER the mask (view overlay), never as a
+    scene item — that is what keeps system mode from clipping it."""
     from scoreanim.core.animation import TickRank
     el = _select(window, ElementKind.DYNAMIC)
-    ruler = window.onset_cursor._ruler
-    assert ruler is not None
-    assert ruler.scene() is _cursor(window).scene()
-    ticks = ruler._ticks
+    ticks = window.onset_cursor._ruler_ticks
     assert ticks, "ruler has no ticks"
-    ranks = {t.rank for t in ticks}
-    assert ranks == {TickRank.BAR, TickRank.BEAT, TickRank.EIGHTH}
+    assert {t.rank for t in ticks} == {TickRank.BAR, TickRank.BEAT,
+                                       TickRank.EIGHTH}
     band = window.onset_cursor._bands[el.system]
-    assert ruler.boundingRect().bottom() <= band.rect.y  # above the ink
+    assert window.onset_cursor._ruler_top < band.rect.y  # above the ink
+    # the view's hook is this controller, and it paints only the
+    # ruler's own page scene
+    assert window.view.overlay_painter \
+        == window.onset_cursor._paint_overlay
     # bar ticks sit on the system's measure starts
     starts = {m.start for i, m in enumerate(window.app_state.measures, 1)
               if window.onset_cursor._measure_systems.get(i) == el.system}
     bar_beats = {t.beats for t in ticks if t.rank is TickRank.BAR}
     assert starts <= bar_beats
+
+
+def test_ruler_ticks_paint_top_aligned() -> None:
+    """Marcus 2026-08-09: every tick starts at ONE top line and hangs
+    down by rank — pinned in pixels, not geometry claims."""
+    from PySide6.QtGui import QImage, QPainter
+    from scoreanim.core.animation import GridTick, TickRank
+    from scoreanim.render.onset_ruler import paint_ticks
+
+    ticks = (GridTick(0.0, 10.0, TickRank.BAR),
+             GridTick(0.5, 30.0, TickRank.EIGHTH))
+    image = QImage(50, 50, QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    paint_ticks(painter, ticks, top=5.0)
+    painter.end()
+
+    def rows_with_ink(x):
+        return [y for y in range(50)
+                if image.pixelColor(x, y).alpha() > 0]
+
+    bar, eighth = rows_with_ink(10), rows_with_ink(30)
+    assert bar and eighth
+    assert min(bar) == min(eighth)             # tops align
+    assert max(bar) > max(eighth)              # the bar hangs deeper
 
 
 def test_cursor_affordances(window) -> None:

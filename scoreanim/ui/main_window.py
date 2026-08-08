@@ -137,7 +137,8 @@ class MainWindow(QMainWindow):
         # the onset cursor shares the drag surface: its probe runs
         # FIRST (the line is the explicit affordance), the nudge takes
         # everything it declines, and the view still sees one probe
-        self.onset_cursor = OnsetCursorController(self.app_state, self)
+        self.onset_cursor = OnsetCursorController(self.app_state,
+                                                  self.view, self)
         self.drag_router = DragRouter((self.onset_cursor, self.nudge))
         self.view.nudge_probe = self.drag_router.probe
         self.view.drag_started.connect(self.drag_router.start)

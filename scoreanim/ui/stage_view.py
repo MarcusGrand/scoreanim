@@ -127,6 +127,8 @@ class StageView(QGraphicsView):
         self._page_fill = QColor(Qt.GlobalColor.white)   # doc page color
         self._press_pos = None               # viewport px, for click detect
         self.nudge_probe = None              # set by the window (M3.2)
+        self.overlay_painter = None          # drawn AFTER the mask, so
+        # it can render outside the system frame (the onset ruler)
         self._drag_origin: QPointF | None = None   # scene pos of the press
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)   # Esc needs focus
 
@@ -266,14 +268,20 @@ class StageView(QGraphicsView):
             painter.fillRect(target.intersected(rect), self._preview_fill)
 
     def drawForeground(self, painter, rect) -> None:  # noqa: N802
-        """The masking, then the canvas frame's edge.
+        """The masking, then the canvas frame's edge, then the one
+        overlay that must never be masked (the onset ruler renders
+        outside the system frame on purpose)."""
+        super().drawForeground(painter, rect)
+        self._draw_mask(painter, rect)
+        if self.overlay_painter is not None:
+            self.overlay_painter(painter, self.scene())
 
-        No canvas: letterbox over everything outside the visible band
+    def _draw_mask(self, painter, rect) -> None:
+        """No canvas: letterbox over everything outside the visible band
         (geometry in stage_frame.py). Canvas: letterbox only OUTSIDE
         the frame; inside it, a neighbor system's ink is covered with
         the frame's own fill — so the box is one still rectangle whose
         content changes, never a box that reshapes per system."""
-        super().drawForeground(painter, rect)
         framing = self._framing
         if framing.canvas is None:
             for strip in framing.mask_strips(rect):

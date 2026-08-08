@@ -29,15 +29,20 @@ from scoreanim.core.animation import (TriggerSchedule, grid_for_system,
                                       stops_for_system, system_end_x, x_at)
 from scoreanim.core.project import ProjectDoc, SetTriggerBeat
 from scoreanim.render.onset_cursor import OnsetCursorItem
-from scoreanim.render.onset_ruler import OnsetRulerItem
+from scoreanim.render.onset_ruler import paint_ticks, ruler_top
 from scoreanim.ui.app_state import AppState
 
 
 class OnsetCursorController(QObject):
-    def __init__(self, app_state: AppState,
+    def __init__(self, app_state: AppState, view,
                  parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._state = app_state
+        # the ruler is view-painted AFTER the mask, so system mode
+        # cannot clip it (Marcus, 2026-08-09) — the line stays a scene
+        # item because it lives inside the band anyway
+        self._view = view
+        view.overlay_painter = self._paint_overlay
         self._scenes = None
         self._layout = None
         self._bands: dict = {}
@@ -45,7 +50,8 @@ class OnsetCursorController(QObject):
         self._by_id: dict = {}
         self._measure_systems: dict = {}
         self._item: OnsetCursorItem | None = None
-        self._ruler: OnsetRulerItem | None = None
+        self._ruler_ticks: tuple = ()
+        self._ruler_top = 0.0
         self._page: int | None = None
         self._origin_x: float | None = None
         self._drag_stop = None
@@ -53,10 +59,10 @@ class OnsetCursorController(QObject):
 
     def bind(self, scenes, layout, band_by_system, measure_systems,
              schedule: Callable[[], TriggerSchedule | None]) -> None:
-        """Per load. The scenes are fresh, so the old items died with
-        them — forget them rather than removing them."""
+        """Per load. The scenes are fresh, so the old item died with
+        them — forget it rather than removing it."""
         self._item = None
-        self._ruler = None
+        self._ruler_ticks = ()
         self._page = None
         self._scenes = scenes
         self._layout = layout
@@ -117,21 +123,30 @@ class OnsetCursorController(QObject):
         if self._item is None or self._page != page:
             self._hide()
             item = OnsetCursorItem()
-            ruler = OnsetRulerItem()
-            scene = self._scenes.scene_for_page(page)
-            scene.addItem(item)
-            scene.addItem(ruler)
-            self._item, self._ruler, self._page = item, ruler, page
+            self._scenes.scene_for_page(page).addItem(item)
+            self._item, self._page = item, page
         self._item.set_span(x, rect.y, rect.y + rect.h)
-        self._ruler.set_ticks(ticks, rect.y)
+        self._ruler_ticks = tuple(ticks)
+        self._ruler_top = ruler_top(rect.y)
+        self._view.viewport().update()       # the overlay must repaint
 
     def _hide(self) -> None:
-        for item in (self._item, self._ruler):
-            if item is not None and item.scene() is not None:
-                item.scene().removeItem(item)
+        if self._item is not None and self._item.scene() is not None:
+            self._item.scene().removeItem(self._item)
         self._item = None
-        self._ruler = None
         self._page = None
+        if self._ruler_ticks:
+            self._ruler_ticks = ()
+            self._view.viewport().update()
+
+    def _paint_overlay(self, painter, scene) -> None:
+        """The view's after-the-mask hook: the ruler, drawn only over
+        the page whose system it belongs to."""
+        if (not self._ruler_ticks or self._scenes is None
+                or self._page is None
+                or scene is not self._scenes.scene_for_page(self._page)):
+            return
+        paint_ticks(painter, self._ruler_ticks, self._ruler_top)
 
     # -- the drag (DragRouter handler surface) -----------------------------
 
