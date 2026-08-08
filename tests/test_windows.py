@@ -175,3 +175,50 @@ def test_the_rows_match_the_ids_given() -> None:
     ids = [["a", "b", "c"], [], ["d"]]
     rows = audio_windows([0.0, 1.0, 2.0], [0.0, 1.0, 2.0], ids, {}, TEMPO)
     assert [len(r) for r in rows] == [3, 0, 1]
+
+
+# --- reapply_indices (the applier's window sweep, moved pure 2026-08-08) ---
+
+def test_reapply_indices_backward_window_with_expiry_guard() -> None:
+    from scoreanim.core.animation.windows import reapply_indices
+    seconds = [0.0, 1.0, 2.0, 3.0]
+    durations = (0.5, 0.0, 2.0, 0.5)
+    # cursor past all four, t at 3.2: trigger 2's window [2, 4] is still
+    # open; 0 and 1 expired (short or zero duration); 3's window [3,
+    # 3.5] is open too
+    got = list(reapply_indices(seconds, durations, 2.0, 0.0, 4, 3.2, 3.1))
+    assert got == [2, 3]
+    # nothing mid-transition once every window has closed
+    assert list(reapply_indices(seconds, durations, 2.0, 0.0, 4,
+                                9.0, 8.9)) == []
+
+
+def test_reapply_indices_settles_a_transition_that_expired_between_calls(
+        ) -> None:
+    """A window that closed between t_prev and t still gets one final
+    evaluation (the settle), keyed off min(t, t_prev)."""
+    from scoreanim.core.animation.windows import reapply_indices
+    seconds = [0.0]
+    # window [0, 1]; the previous apply was at 0.9 (inside), this one at
+    # 5.0 (long after): the trigger must be yielded once more
+    assert list(reapply_indices(seconds, (1.0,), 1.0, 0.0, 1,
+                                5.0, 0.9)) == [0]
+
+
+def test_reapply_indices_forward_lead_covers_backward_scrubs() -> None:
+    from scoreanim.core.animation.windows import reapply_indices
+    seconds = [0.0, 1.0, 2.0]
+    # cursor at 0 (t before everything), lead 1.5 reaches triggers at
+    # 0.0 and 1.0 from t = -0.2
+    assert list(reapply_indices(seconds, (0.0,) * 3, 0.0, 1.5, 0,
+                                -0.2, -0.3)) == [0, 1]
+    # a backward scrub keeps the previously lit lead range covered via
+    # max(t, t_prev)
+    assert list(reapply_indices(seconds, (0.0,) * 3, 0.0, 1.5, 0,
+                                -5.0, 0.4)) == [0, 1]
+
+
+def test_reapply_indices_empty_without_windows_or_lead() -> None:
+    from scoreanim.core.animation.windows import reapply_indices
+    assert list(reapply_indices([0.0, 1.0], (0.0, 0.0), 0.0, 0.0, 2,
+                                5.0, 4.9)) == []

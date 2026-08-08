@@ -59,7 +59,7 @@ whose ink overlaps double-darken at floor opacity.
 """
 from __future__ import annotations
 
-from bisect import bisect_left, bisect_right
+from bisect import bisect_right
 from typing import Iterable, Mapping, Sequence
 
 from scoreanim.core.animation import (GLOW, PRESETS, Effect, GlowScope,
@@ -68,6 +68,7 @@ from scoreanim.core.animation import (GLOW, PRESETS, Effect, GlowScope,
                                       build_presets, combined_state,
                                       derive_windows, effects_for,
                                       modulate_state, read_pulse)
+from scoreanim.core.animation.windows import reapply_indices
 from scoreanim.core.audio import PeakCache
 from scoreanim.core.score.identity import ElementId
 from scoreanim.core.timing import SwingRegion, TempoMap, resolve_seconds
@@ -91,10 +92,8 @@ class AnimationApplier:
                  reveal_tracks: Sequence[SystemRevealTrack] = (),
                  system_groups: Iterable[SystemGroupItem] = (),
                  glow: GlowScope | None = None) -> None:
-        self._schedule = schedule
-        # The schedule's rows against this scene — items, ids, and the
-        # followed page/system (render/trigger_index.py).
-        self._index = TriggerIndex(items, schedule)
+        self._items = items
+        self._glow_scope = glow
         self._trigger_seconds: list[float] = []
         self._cursor = 0
         self._t = _BEFORE_EVERYTHING
@@ -103,12 +102,7 @@ class AnimationApplier:
         # swing-aware seam, so a bpm/swing change re-times every stretch
         self._tempo_map: TempoMap | None = None
         self._swing: tuple[SwingRegion, ...] = ()
-        # How strongly each element animates, if it follows the
-        # recording: one gain per ELEMENT and the audio state behind it,
-        # all in its own object (render/gain_index.py).
-        self._audio = GainIndex([trig.beats for trig in schedule.triggers],
-                                self._index.ids,
-                                schedule.duration_by_element)
+        self._adopt_schedule(schedule)
 
         # Spanners reveal by clip-grow at their (system, part) reveal
         # edge — no triggers involved (REVEALED_KINDS left the
@@ -118,13 +112,28 @@ class AnimationApplier:
         # every system, so it has its own object too. With no groups it
         # can never do anything (render/pulse_driver.py).
         self._pulse = PulseDriver(system_groups)
-        # Which ink may glow at all, which of it shares another note's
-        # halo, and how long a tied chain burns (render/glow_driver.py).
-        self._glow = GlowDriver(items, self._index, glow)
 
         self._style = style
         self._resolve_effects()
         self.set_timing(tempo_map)       # also refreshes: floor everywhere
+
+    def _adopt_schedule(self, schedule: TriggerSchedule) -> None:
+        """The schedule-shaped state, (re)built as one unit — the row
+        index, the gain index and the glow driver are all keyed by the
+        schedule's rows, so they live and die together."""
+        self._schedule = schedule
+        # The schedule's rows against this scene — items, ids, and the
+        # followed page/system (render/trigger_index.py).
+        self._index = TriggerIndex(self._items, schedule)
+        # How strongly each element animates, if it follows the
+        # recording: one gain per ELEMENT and the audio state behind it,
+        # all in its own object (render/gain_index.py).
+        self._audio = GainIndex([trig.beats for trig in schedule.triggers],
+                                self._index.ids,
+                                schedule.duration_by_element)
+        # Which ink may glow at all, which of it shares another note's
+        # halo, and how long a tied chain burns (render/glow_driver.py).
+        self._glow = GlowDriver(self._items, self._index, self._glow_scope)
 
     # -- configuration -------------------------------------------------------
 
@@ -370,30 +379,12 @@ class AnimationApplier:
 
     def _apply_window(self, t: float, t_prev: float) -> int:
         """Re-evaluate triggers whose timed effects were mid-transition
-        at ANY point since the previously applied time — including the
-        one final evaluation that settles a transition expiring between
-        two calls (evaluating past the last keyframe yields its final
-        value, so the settle equals a fresh refresh). Two M4.6 bounds:
-        the F2 expiry guard skips triggers whose effective window ended
-        before min(t, t_prev) — cost tracks elements genuinely
-        mid-transition, not d_max — and the F3 forward `lead` bound
-        evaluates not-yet-crossed triggers whose negatively shifted
-        effects are already live (early evaluation before the shifted
-        step is a natural no-op: the envelope yields its initial)."""
+        since the previously applied time. The index arithmetic — the
+        F2 expiry guard and the F3 forward lead — is pure and lives in
+        core (windows.reapply_indices)."""
         changed = 0
-        floor_t = min(t, t_prev)
-        if self._d_max > 0.0:
-            lo = bisect_left(self._trigger_seconds, floor_t - self._d_max)
-            for i in range(lo, self._cursor):
-                d = self._durations[i]
-                if d > 0.0 and self._trigger_seconds[i] + d >= floor_t:
-                    changed += self._apply_trigger(i, t)
-        if self._lead > 0.0:
-            # max(t, t_prev): a backward scrub must also RE-evaluate the
-            # not-yet-crossed triggers the lead had lit before the jump,
-            # or they would hold their early-lit state
-            hi = bisect_right(self._trigger_seconds,
-                              max(t, t_prev) + self._lead)
-            for i in range(self._cursor, hi):
-                changed += self._apply_trigger(i, t)
+        for i in reapply_indices(self._trigger_seconds, self._durations,
+                                 self._d_max, self._lead, self._cursor,
+                                 t, t_prev):
+            changed += self._apply_trigger(i, t)
         return changed
