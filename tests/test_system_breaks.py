@@ -22,7 +22,8 @@ from scoreanim.core.score.identity import ElementKind
 from scoreanim.core.score.musicxml_prep import SystemBreak, prepare
 from scoreanim.core.score.musicxml_breaks import _apply_breaks
 
-from .conftest import BIGBAND_SCORE, TALL_SYSTEM_SCORE, TESTSCORE
+from .conftest import (BIGBAND_SCORE, TALL_SYSTEM_SCORE, TESTSCORE,
+                       VIDEO_SCORE)
 
 # testscore, baseline (spike §3.1): 5 systems of 4, 4, 4, 4, 3 measures.
 # Its encoded breaks are m9 / m17 as `new-system="yes"` and m5 / m13 as
@@ -245,10 +246,14 @@ def test_scale_to_fit_retry_carries_the_overrides() -> None:
     assert "scaled-to-fit" in {w.code for w in out.warnings}
 
 
-def test_hide_unavailable_retry_carries_the_overrides() -> None:
-    """testscore's slash regions defeat hiding (rule 10), so this load
-    re-engraves flat. That retry re-uses the same `prep` rather than
-    re-preparing — pinned here so it stays that way."""
+def test_hide_unavailable_retry_carries_the_overrides(monkeypatch) -> None:
+    """The rule-10 fallback re-engraves flat, re-using the same `prep`
+    rather than re-preparing — pinned here so it stays that way. Since
+    2026-08-09 the region fill keeps the fallback from firing on
+    testscore at all, so this pin disables the fill to reach it."""
+    from scoreanim.core.engraving.verovio import region_fill
+    monkeypatch.setattr(region_fill, "fill_region_measures",
+                        lambda xml, regions: xml)
     out = _load(TESTSCORE, hide_empty_staves=True,
                 system_breaks={3: SystemBreak.FORCE})
     codes = [w.code for w in out.warnings]
@@ -258,6 +263,28 @@ def test_hide_unavailable_retry_carries_the_overrides() -> None:
     # and the slash synthesis the fallback exists to protect is intact
     assert sum(1 for x in out.layout.elements
                if x.identity.kind is ElementKind.SLASH) == 52
+
+
+def test_a_break_isolating_a_slash_measure_keeps_hiding() -> None:
+    """THE regression the region fill exists for (2026-08-09): a user
+    break that isolates a slash measure into its own system used to
+    trip the rule-10 fallback and silently un-hide the WHOLE score —
+    every system snapped back to all 8 staves. With the fill, hiding
+    stays per-system and no fallback fires."""
+    out = _load(VIDEO_SCORE, hide_empty_staves=True, strict=False,
+                system_breaks={21: SystemBreak.FORCE})
+    assert "hide-unavailable" not in {w.code for w in out.warnings}
+    by_system: dict[int, set] = {}
+    for e in out.layout.elements:
+        if e.identity.kind is ElementKind.STAFF_LINES:
+            by_system.setdefault(e.system, set()).add(
+                (e.identity.part, e.identity.staff))
+    rows = [len(by_system[s]) for s in sorted(by_system)]
+    # non-vacuous: hiding genuinely ran (before the fill, every row
+    # read 8), and the forced break took (one system more than the 15
+    # the encoded layout carries)
+    assert any(r < 8 for r in rows)
+    assert len(rows) == 16
 
 
 # ---------------------------------------------------------------------------

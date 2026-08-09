@@ -329,10 +329,14 @@ def test_scale_to_fit_retry_carries_both_maps() -> None:
     assert not _clipped(out)
 
 
-def test_hide_unavailable_retry_carries_both_maps() -> None:
-    """testscore's slash regions defeat hiding (rule 10), so this load
-    re-engraves flat — re-using the same `prep` rather than re-preparing.
-    Pinned here so it stays that way."""
+def test_hide_unavailable_retry_carries_both_maps(monkeypatch) -> None:
+    """The rule-10 fallback re-engraves flat, re-using the same `prep`
+    rather than re-preparing — pinned so it stays that way. Since
+    2026-08-09 the region fill keeps the fallback from firing on
+    testscore at all, so this pin disables the fill to reach it."""
+    from scoreanim.core.engraving.verovio import region_fill
+    monkeypatch.setattr(region_fill, "fill_region_measures",
+                        lambda xml, regions: xml)
     out = _load(hide_empty_staves=True, page_breaks={3: PageBreak.FORCE})
     codes = [w.code for w in out.warnings]
     assert codes.count("hide-unavailable") == 1

@@ -1,8 +1,11 @@
 """Hide-empty-staves (Phase 10R): the two-pass optimize load hides
 staves that are empty for a whole system — the layout the score's
 encoded page breaks assume. Mechanics: spikes/NOTES.md "Phase 10R"
-(id- and timemap-transparent MEI round-trip; slash regions win over
-the option via the hide-unavailable fallback, rule 10)."""
+(id- and timemap-transparent MEI round-trip). Since 2026-08-09 slash
+and repeat regions COEXIST with hiding: region measures are filled
+with invisible notes at the Verovio seam (spikes/region_fill.py), so
+optimize keeps their staves and the rule-10 hide-unavailable fallback
+is a safety net that no longer fires on these fixtures."""
 
 from collections import Counter, defaultdict
 
@@ -67,10 +70,14 @@ def test_hidden_load_warning_census(engraved_video_hidden):
     warning (5 → 6). One `stray-path` remains: a system-14 hairpin path
     nested in an id-colliding system-13 group (hairpin ink is straight,
     outside the reclaim's curve discriminator) is re-homed geometrically
-    so it animates in place (2026-07-21)."""
+    so it animates in place (2026-07-21).
+
+    2026-08-09, region fill: with region measures no longer empty,
+    Verovio mints different ids around them and the two id-colliding
+    foreign groups the reclaim pass repaired simply never form — the
+    2 reclaimed-spanner-ink warnings are gone, nothing replaces them."""
     assert Counter(w.code for w in engraved_video_hidden.warnings) == {
-        "dropped-spanner": 6, "implausible-tie": 13,
-        "reclaimed-spanner-ink": 2, "stray-path": 1}
+        "dropped-spanner": 6, "implausible-tie": 13, "stray-path": 1}
 
 
 def test_hide_first_system_extends_hiding_to_system_one(
@@ -158,14 +165,35 @@ def test_page_follow_never_jumps_backward(engraved_video_hidden,
         f"page follow jumps: {[p for p in pages]}"
 
 
-def test_slash_regions_win_over_hiding(engraved):
-    # testscore's drum staff would be hidden across its slash regions
-    # (Verovio sees MEI <space> as empty) — the adapter falls back to
-    # the flat layout, flagged, never a broken slash synthesis (rule 10)
+def test_slash_regions_survive_hiding(engraved):
+    """testscore's drum staff used to defeat hiding for the WHOLE score
+    (the rule-10 fallback): its slash regions import as empty <space>,
+    so optimize would hide the staff. Region measures are filled with
+    invisible notes at the Verovio seam now (2026-08-09), so hiding
+    genuinely runs AND the slash synthesis is intact."""
+    hidden = VerovioEngravingProvider().load_detailed(
+        TESTSCORE, EngravingParams(), hide_empty_staves=True)
+    assert "hide-unavailable" not in {w.code for w in hidden.warnings}
+    rows = _staves_per_system(hidden)
+    flat_rows = _staves_per_system(engraved)
+    assert rows[0] == flat_rows[0]       # first system full (convention)
+    assert any(r < f for r, f in zip(rows, flat_rows))   # hiding ran
+    slashes = [e for e in hidden.layout.elements
+               if e.identity.kind is ElementKind.SLASH]
+    assert len(slashes) == 52            # the Phase 1 census, intact
+
+
+def test_the_rule10_fallback_still_guards(engraved, monkeypatch):
+    """The safety net behind the fill: with the fill disabled, optimize
+    hides the slash staff, the guard fires ONCE, and the load falls
+    back to the flat layout with the synthesis intact — exactly the
+    pre-fill behavior, kept reachable on purpose."""
+    from scoreanim.core.engraving.verovio import region_fill
+    monkeypatch.setattr(region_fill, "fill_region_measures",
+                        lambda xml, regions: xml)
     hidden = VerovioEngravingProvider().load_detailed(
         TESTSCORE, EngravingParams(), hide_empty_staves=True)
     assert [w.code for w in hidden.warnings].count("hide-unavailable") == 1
     assert _staves_per_system(hidden) == _staves_per_system(engraved)
-    slashes = [e for e in hidden.layout.elements
-               if e.identity.kind is ElementKind.SLASH]
-    assert len(slashes) == 52            # the Phase 1 census, intact
+    assert sum(1 for e in hidden.layout.elements
+               if e.identity.kind is ElementKind.SLASH) == 52

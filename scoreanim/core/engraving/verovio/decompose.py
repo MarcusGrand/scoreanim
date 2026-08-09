@@ -33,6 +33,7 @@ from scoreanim.core.engraving.verovio.kinds import (
     _KIND_BY_CLASS, _SPANNER_CLASSES, _SVG_NS, _XLINK_HREF, _XML_ID)
 from scoreanim.core.engraving.verovio.mei_index import _int_or
 from scoreanim.core.engraving.verovio.records import _LoadState
+from scoreanim.core.engraving.verovio.region_fill import FILL_ID_PREFIX
 from scoreanim.core.score.identity import Beats, ElementKind
 
 # ---------------------------------------------------------------------------
@@ -123,6 +124,13 @@ class _PageDecomposer:
             if tag == "g":
                 cls = (child.get("class") or "").split()[0] if child.get("class") else ""
                 cid = child.get(_XML_ID) or child.get("id")
+                if cid and cid.startswith(FILL_ID_PREFIX):
+                    # region-fill scaffolding (2026-08-09): an invisible
+                    # note that exists only so optimize keeps a slash/
+                    # repeat staff — never an element, never a note
+                    # record, never counted ink. Skipping the subtree
+                    # keeps the drawables accounting balanced too.
+                    continue
                 new_measure, new_staff, new_layer = measure, staff, layer
                 new_owner, new_owner_onset = owner, owner_onset
                 new_system = system

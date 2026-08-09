@@ -27,7 +27,8 @@ from scoreanim.core.engraving.types import (TRANSPOSE_TO_SOUNDING_PITCH,
                                             PageGeometry)
 from scoreanim.core.engraving.verovio import (attribution, decompose,
                                               identity, kinds, label_parts,
-                                              mei_index, records, synthesis)
+                                              mei_index, records, region_fill,
+                                              synthesis)
 from scoreanim.core.score.identity import Beats, ElementKind
 from scoreanim.core.score.musicxml_prep import (PageBreak, PartCondenseSpec,
                                                 PartGroupSpec, PartTextSpec,
@@ -375,7 +376,16 @@ class VerovioEngravingProvider(EngravingProvider):
         optimize round-trip there is nothing to extend."""
         condense_first = hide_empty_staves and hide_first_system
         tk = self._make_toolkit(prep, params, scale, condense_first)
-        if not tk.loadData(prep.canonical_xml):
+        # Under hiding, region measures are filled with invisible notes
+        # so optimize cannot judge their staves empty (2026-08-09;
+        # spikes/region_fill.py). Verovio's input only — the canonical
+        # bytes music21 reads stay untouched, and the decomposer skips
+        # the fill ids, so nothing downstream ever sees them.
+        source = prep.canonical_xml
+        if hide_empty_staves:
+            source = region_fill.fill_region_measures(
+                source, (*prep.slash_regions, *prep.repeat_regions))
+        if not tk.loadData(source):
             raise ValueError(f"Verovio failed to load {score_path}")
         if hide_empty_staves:
             # Two-pass load: Verovio honors hidden empty staves only via
