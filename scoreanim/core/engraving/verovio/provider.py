@@ -89,12 +89,14 @@ class VerovioEngravingProvider(EngravingProvider):
              hide_first_system: bool = False,
              system_breaks: Mapping[int, SystemBreak] | None = None,
              page_breaks: Mapping[int, PageBreak] | None = None,
-             stem_directions: Mapping[str, StemDirection] | None = None
+             stem_directions: Mapping[str, StemDirection] | None = None,
+             hidden_parts: frozenset = frozenset()
              ) -> Layout:
         return self.load_detailed(score_path, params, groups, texts,
                                   hide_empty_staves, condense, strict,
                                   hide_first_system, system_breaks,
-                                  page_breaks, stem_directions).layout
+                                  page_breaks, stem_directions,
+                                  hidden_parts).layout
 
     def load_detailed(self, score_path: Path, params: EngravingParams,
                       groups: tuple[PartGroupSpec, ...] = (),
@@ -105,7 +107,8 @@ class VerovioEngravingProvider(EngravingProvider):
                       hide_first_system: bool = False,
                       system_breaks: Mapping[int, SystemBreak] | None = None,
                       page_breaks: Mapping[int, PageBreak] | None = None,
-                      stem_directions: Mapping[str, StemDirection] | None = None
+                      stem_directions: Mapping[str, StemDirection] | None = None,
+                      hidden_parts: frozenset = frozenset()
                       ) -> records.EngravedScore:
         # strict (Phase 11.4): when False (the app path) an unknown
         # drawable SVG class degrades to a static OTHER element plus a
@@ -113,7 +116,8 @@ class VerovioEngravingProvider(EngravingProvider):
         # and pytest / the doctor's --strict) keeps coverage gaps loud.
         prep = prepare(score_path, groups, texts, condense,
                        system_breaks=system_breaks, page_breaks=page_breaks,
-                       stem_directions=stem_directions)
+                       stem_directions=stem_directions,
+                       hidden_parts=hidden_parts)
         extra: list[LoadWarning] = []
         effective_hide = hide_empty_staves
         engraved, first_measure = self._engrave_prepared(
@@ -168,7 +172,8 @@ class VerovioEngravingProvider(EngravingProvider):
                                page_break_measures=breaks,
                                system_breaks=system_breaks,
                                page_breaks=page_breaks,
-                               stem_directions=stem_directions)
+                               stem_directions=stem_directions,
+                               hidden_parts=hidden_parts)
                 engraved, _ = self._engrave_prepared(
                     score_path, prep, params, effective_hide, strict,
                     hide_first_system=hide_first_system)
@@ -197,7 +202,8 @@ class VerovioEngravingProvider(EngravingProvider):
                                page_break_measures=breaks,
                                system_breaks=system_breaks,
                                page_breaks=page_breaks,
-                               stem_directions=stem_directions)
+                               stem_directions=stem_directions,
+                               hidden_parts=hidden_parts)
                 engraved, _ = self._engrave_prepared(
                     score_path, prep, params, effective_hide, strict,
                     scale=fit, hide_first_system=hide_first_system)
@@ -235,6 +241,13 @@ class VerovioEngravingProvider(EngravingProvider):
                 f"{len(stale)} stem flip(s) had no note to land on "
                 f"({', '.join(stale[:5])}"
                 f"{', …' if len(stale) > 5 else ''})"))
+        # And for a hidden part the score no longer has — same trade.
+        if engraved.prepared.inert_hidden_parts:
+            gone = engraved.prepared.inert_hidden_parts
+            extra.append(LoadWarning(
+                "hidden-part-inert",
+                f"{len(gone)} hidden part(s) no longer in the score "
+                f"({', '.join(gone)})"))
         # Authored PAGE intent has two ways of not landing, and D8 gives
         # them two codes because they want different things from the
         # user. Both are read off the FINAL layout, so no ordinal is ever
