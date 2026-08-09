@@ -52,6 +52,8 @@ class LoadedScore:
     applier: AnimationApplier
     measures: tuple
     parts: tuple
+    all_parts: tuple             # FULL roster, hidden parts included —
+                                 # what the stage's Staves menu lists
     band_by_system: dict         # per-system band rects (Phase 7.4)
     system_of_measure: dict      # measure ordinal → system index (M5)
     page_of_measure: dict        # measure ordinal → page (M6, derived §1.2)
@@ -85,6 +87,7 @@ class ScoreLoader:
         self._applied_breaks: dict = {}    # system-break overrides ditto
         self._applied_page_breaks: dict = {}   # page-break overrides ditto
         self._applied_stem_directions: dict = {}   # hand-flipped stems ditto
+        self._applied_hidden_parts: frozenset = frozenset()  # hidden parts ditto
         self._applied_trigger_overrides: dict = {}   # hand-moved onsets ditto
         self._retained: _RebuildInputs | None = None   # for rebuild_schedule
 
@@ -119,7 +122,8 @@ class ScoreLoader:
                 or dict(doc.system_break_overrides) != self._applied_breaks
                 or dict(doc.page_break_overrides)
                 != self._applied_page_breaks
-                or dict(doc.stem_directions) != self._applied_stem_directions)
+                or dict(doc.stem_directions) != self._applied_stem_directions
+                or doc.hidden_parts != self._applied_hidden_parts)
 
     def needs_reschedule(self, doc: ProjectDoc) -> bool:
         """A trigger-override change re-derives the SCHEDULE only.
@@ -153,7 +157,8 @@ class ScoreLoader:
              system_breaks: dict[int, SystemBreak] | None = None,
              page_breaks: dict[int, PageBreak] | None = None,
              stem_directions: dict | None = None,
-             trigger_overrides: dict | None = None
+             trigger_overrides: dict | None = None,
+             hidden_parts: frozenset = frozenset()
              ) -> LoadedScore:
         """Engrave + decompose + join + wire the animation. `groups` is
         doc.staff_groups — injected as <part-group> at the prep seam;
@@ -169,7 +174,9 @@ class ScoreLoader:
         encoded direction on every single-voice staff;
         `trigger_overrides` is doc.trigger_overrides — hand-moved fire
         times consumed by the schedule, NOT an engraving input
-        (2026-08-08);
+        (2026-08-08); `hidden_parts` is doc.hidden_parts — parts the
+        user hid from the stage's Staves menu, removed from the part
+        list at the prep seam (2026-08-09);
         geometry re-derives, musical ids survive (rule 5, Phases
         8/9/12). `style` is the CURRENT document style — the applier is
         built with it and set_style'd after any later change."""
@@ -197,7 +204,7 @@ class ScoreLoader:
             condense_specs, strict=False,
             hide_first_system=hide_first_system,
             system_breaks=system_breaks, page_breaks=page_breaks,
-            stem_directions=stem_directions)
+            stem_directions=stem_directions, hidden_parts=hidden_parts)
         t1 = time.perf_counter()
         if stage is None:
             stage = default_stage_config(engraved.prepared,
@@ -272,6 +279,7 @@ class ScoreLoader:
         self._applied_breaks = system_breaks
         self._applied_page_breaks = page_breaks
         self._applied_stem_directions = stem_directions
+        self._applied_hidden_parts = frozenset(hidden_parts)
         self._applied_trigger_overrides = trigger_overrides
         self._retained = _RebuildInputs(layout=engraved.layout,
                                         mapping=dict(report.mapping),
@@ -282,6 +290,7 @@ class ScoreLoader:
             scenes=scenes, stage=stage,
             animation_inputs=animation_inputs, applier=applier,
             measures=model.measures, parts=engraved.prepared.parts,
+            all_parts=engraved.prepared.all_parts or engraved.prepared.parts,
             band_by_system=band_by_system,
             system_of_measure=dict(engraved.system_of_measure),
             page_of_measure=page_of_measure(bands,
