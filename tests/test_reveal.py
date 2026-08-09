@@ -285,3 +285,25 @@ def test_broken_chain_reveals_each_side_with_its_own_playhead(
     # revealed — it grows in with the playhead, it does not pop at chain start
     earliest = BPM60.seconds_at(stop_onsets[0])
     assert reveal_x(c3, earliest - 0.01, S) < seg.bbox.x
+
+
+def test_reveal_tracks_are_unchanged_by_a_trigger_override() -> None:
+    """No anchor kind can be overridden (retime.py), so the reveal edge
+    cannot move — held as a comparison, not a comment: the tracks built
+    from an overridden schedule equal the plain ones exactly."""
+    layout = _layout(
+        _el("scaffold", ElementKind.STAFF_LINES, None, 1, 50, 450),
+        _el("n0", ElementKind.NOTEHEAD, 0.0, 1, 100, 10),
+        _el("n1", ElementKind.NOTEHEAD, 1.0, 1, 200, 10),
+        _el("n2", ElementKind.NOTEHEAD, 2.0, 1, 300, 10),
+        _el("d0", ElementKind.DYNAMIC, 1.0, 1, 195, 12),
+    )
+    mapping = {ElementId("n0"): _note("P1", 0.0, "C", 0, None),
+               ElementId("n1"): _note("P1", 1.0, "D", 1, None),
+               ElementId("n2"): _note("P1", 2.0, "E", 2, None)}
+    plain = build_trigger_schedule(layout, mapping)
+    moved = build_trigger_schedule(layout, mapping,
+                                   trigger_overrides={ElementId("d0"): 2.0})
+    assert moved.beats_by_element[ElementId("d0")] == 2.0   # it DID move
+    assert (build_reveal_tracks(layout, moved, score_end=4.0)
+            == build_reveal_tracks(layout, plain, score_end=4.0))

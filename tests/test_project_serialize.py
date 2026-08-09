@@ -94,6 +94,11 @@ def _full_doc(score_path: str, audio_path: str) -> ProjectDoc:
             ElementId("P1:m3:s1:v1:stem:0"): StemDirection.UP,
             ElementId("P4:m12:s1:v2:stem:3"): StemDirection.DOWN,
         },
+        # rides v12: hand-moved fire times, a whole and a fractional beat
+        trigger_overrides={
+            ElementId("P2:m5:s1:v1:dynam:0"): 18.5,
+            ElementId("P1:m2:s1:v1:stem:1"): 4.0,
+        },
     )
 
 
@@ -343,6 +348,32 @@ def test_v11_rejects_unknown_stem_direction() -> None:
                    "stem_directions": {"P1:m1:s1:v1:stem:0": "sideways"}})
 
 
+def test_v12_trigger_overrides() -> None:
+    """Rides v12 (2026-08-08): the sparse fire-time map round-trips,
+    and every older file loads with {} — the automatic schedule alone,
+    so no read gate."""
+    assert ProjectDoc().trigger_overrides == {}
+    doc = ProjectDoc(trigger_overrides={
+        ElementId("P2:m5:s1:v1:dynam:0"): 18.5,
+        ElementId("P1:m2:s1:v1:stem:1"): 4.0})
+    payload = to_dict(doc)
+    assert payload["trigger_overrides"] == {"P2:m5:s1:v1:dynam:0": 18.5,
+                                            "P1:m2:s1:v1:stem:1": 4.0}
+    assert from_dict(payload) == doc
+    assert from_dict(to_dict(ProjectDoc())).trigger_overrides == {}
+    for version in range(1, 13):
+        assert from_dict({"version": version}).trigger_overrides == {}
+
+
+def test_v12_rejects_a_bad_trigger_beat() -> None:
+    """Strict like the stems: a beat that is not a finite number has no
+    sensible fallback."""
+    for bad in ("fast", None, float("nan"), float("inf"), True):
+        with pytest.raises(ValueError, match="trigger beat"):
+            from_dict({"version": 12,
+                       "trigger_overrides": {"P1:m1:s1:v1:dynam:0": bad}})
+
+
 def test_v8_rejects_unknown_break_mode() -> None:
     with pytest.raises(ValueError, match="system break"):
         from_dict({"version": 8, "system_break_overrides": {"3": "maybe"}})
@@ -459,7 +490,8 @@ def test_never_persists_derived_data() -> None:
                             "staff_groups", "text_overrides",
                             "hide_empty_staves", "hide_first_system",
                             "condense_groups", "system_break_overrides",
-                            "page_break_overrides", "stem_directions"}
+                            "page_break_overrides", "stem_directions",
+                            "trigger_overrides"}
 
 
 def test_v10_locked_beats_round_trip_and_older_files_have_none() -> None:

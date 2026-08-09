@@ -211,9 +211,11 @@ def test_layout_and_join_census(engraved_video, video_join_mapping):
     # fit — never-clip re-derives the breaks, one system per page here.
     # Element census: 4661 raw minus the 13 implausible ties and their
     # 13 continuation segments (10R.3), plus the page-scoped elements
-    # repagination re-scopes (re-derived below at 15 pages).
+    # repagination re-scopes (re-derived below at 15 pages), minus the
+    # drum staff's 15 key signatures — one per system, suppressed
+    # 2026-08-09.
     assert len(engraved_video.layout.pages) == 15
-    assert len(engraved_video.layout.elements) == 4635
+    assert len(engraved_video.layout.elements) == 4620
     assert len(engraved_video.note_records) == 1368
     # complete bijection: every ScoreNote joined to exactly one notehead
     assert len(video_join_mapping) == 1368

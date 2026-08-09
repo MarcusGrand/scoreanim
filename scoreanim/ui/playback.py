@@ -156,6 +156,13 @@ class PlaybackController(QObject):
         if self._applier is not None:
             self._applier.set_style(style)
 
+    def set_schedule(self, schedule) -> None:
+        """Forward a rebuilt trigger schedule (a trigger override
+        changed) to the applier; it refreshes at the current t, so the
+        running playback never notices the swap."""
+        if self._applier is not None:
+            self._applier.set_schedule(schedule)
+
     # -- transport surface used by the window ----------------------------------
 
     def open_audio(self, path: Path) -> None:

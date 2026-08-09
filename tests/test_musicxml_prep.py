@@ -8,7 +8,7 @@ import pytest
 
 from scoreanim.core.score.musicxml_prep import (
     CreditText, PartGroupSpec, _drop_redundant_trailing_forwards,
-    _repaginate, prepare)
+    _repaginate, _suppress_percussion_key_signatures, prepare)
 from tests.conftest import BAR_REPEAT_SCORE, TESTSCORE
 
 
@@ -278,3 +278,72 @@ def test_grieg_timeline_is_uncorrupted(engraved_grieg) -> None:
     assert sorted(tl.durations) == list(range(1, 14))     # 13 measures
     assert all(d == 4.0 for d in tl.durations.values())
     assert tl.score_end == 52.0
+
+
+# --- percussion key-signature suppression (hotfix 2026-08-09) ----------------
+# Dorico exports the score's key on every part, drums included; Verovio
+# then engraves sharps or flats on the percussion staff. The pass zeroes
+# any <key> in force while every staff of the part shows the percussion
+# clef.
+
+def _part_with(clef_sign: str, fifths: int) -> ET.Element:
+    root = ET.Element("score-partwise")
+    part = ET.SubElement(root, "part", id="P1")
+    measure = ET.SubElement(part, "measure", number="1")
+    attrs = ET.SubElement(measure, "attributes")
+    key = ET.SubElement(attrs, "key")
+    ET.SubElement(key, "fifths").text = str(fifths)
+    clef = ET.SubElement(attrs, "clef")
+    ET.SubElement(clef, "sign").text = clef_sign
+    return root
+
+
+def test_percussion_key_is_zeroed() -> None:
+    root = _part_with("percussion", 3)
+    assert _suppress_percussion_key_signatures(root) == 1
+    assert root.find(".//key/fifths").text == "0"
+
+
+def test_pitched_key_is_untouched() -> None:
+    root = _part_with("G", 3)
+    assert _suppress_percussion_key_signatures(root) == 0
+    assert root.find(".//key/fifths").text == "3"
+
+
+def test_key_before_any_clef_is_untouched() -> None:
+    # no clef seen yet: nothing vouches for percussion, so stay out
+    root = ET.Element("score-partwise")
+    part = ET.SubElement(root, "part", id="P1")
+    measure = ET.SubElement(part, "measure", number="1")
+    attrs = ET.SubElement(measure, "attributes")
+    key = ET.SubElement(attrs, "key")
+    ET.SubElement(key, "fifths").text = "2"
+    assert _suppress_percussion_key_signatures(root) == 0
+    assert root.find(".//key/fifths").text == "2"
+
+
+def test_mid_piece_key_change_on_drums_is_zeroed_too() -> None:
+    root = _part_with("percussion", 1)
+    part = root.find("part")
+    m2 = ET.SubElement(part, "measure", number="2")
+    attrs = ET.SubElement(m2, "attributes")
+    key = ET.SubElement(attrs, "key")
+    ET.SubElement(key, "fifths").text = "4"
+    assert _suppress_percussion_key_signatures(root) == 2
+    assert [f.text for f in root.iter("fifths")] == ["0", "0"]
+
+
+def test_prepare_strips_drum_key_from_fixture() -> None:
+    # testscore's Drum Set (P7) exports the score's one-sharp key; the
+    # prepped bytes must carry zero fifths on that part and leave the
+    # pitched parts' key alone
+    prep = prepare(TESTSCORE)
+    root = ET.fromstring(prep.canonical_xml)
+    for part in root.iter("part"):
+        fifths = [f.text for f in part.iter("fifths")]
+        clefs = {c.findtext("sign") for c in part.iter("clef")}
+        if "percussion" in clefs:
+            assert fifths == ["0"], part.get("id")
+        else:
+            # pitched parts keep their (written) key untouched
+            assert fifths and all(f != "0" for f in fifths), part.get("id")

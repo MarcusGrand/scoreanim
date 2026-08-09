@@ -164,6 +164,18 @@ class ProjectDoc:
     # load, never repaired here (rule 5's staleness trade).
     stem_directions: Mapping[ElementId, StemDirection] = \
         field(default_factory=dict)
+    # Fire times the user has moved by hand (2026-08-08), keyed by
+    # ElementId: ABSOLUTE beats on the performance axis (rule 12's one
+    # axis), so "this dynamic fires at beat 42.5" stays where the user
+    # put it even if the schedule rules change later. NOT an engraving
+    # input — build_trigger_schedule consumes it after its own four
+    # rules, so a change re-derives the schedule only, never the
+    # engraving. Sparse: an element nobody moved is simply absent. An
+    # id whose element has gone, or whose kind cannot be re-timed
+    # (core/animation/retime.py), is inert and warned at load, never
+    # repaired here (rule 5's staleness trade).
+    trigger_overrides: Mapping[ElementId, Beats] = \
+        field(default_factory=dict)
 
 
 __all__ = ["DEFAULT_BPM", "FileRef", "HIDE_EMPTY_STAVES_DEFAULT",

@@ -43,7 +43,8 @@ from scoreanim.core.score.musicxml_breaks import (  # noqa: F401
 from scoreanim.core.score.musicxml_rewrite import (  # noqa: F401
     _apply_condense, _apply_text_overrides,
     _drop_redundant_trailing_forwards, _inject_part_groups,
-    _neutralize_octave_only_transposes, _set_part_text, _voice_cursor)
+    _neutralize_octave_only_transposes, _set_part_text,
+    _suppress_percussion_key_signatures, _voice_cursor)
 from scoreanim.core.score.musicxml_stems import (  # noqa: F401
     StemDirection, _apply_stem_directions, _normalize_stem_directions)
 
@@ -344,6 +345,8 @@ def prepare(score_path: Path,
     credits = _credits(root)
     width, height, units_per_tenth = _page_size(root)
     _neutralize_octave_only_transposes(root)
+    _suppress_percussion_key_signatures(root)  # AFTER condense: sees the
+                                               # staves Verovio will see
     _inject_part_groups(root, groups)
     # User break intent first — BOTH maps, in one pass (M6, D3) — and our
     # never-clip repagination on top: the page-break plan the caller

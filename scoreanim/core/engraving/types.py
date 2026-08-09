@@ -233,7 +233,11 @@ class LoadWarning:
     "label-unattributed" (a drawn part label could not be matched to the
     staff it belongs to, so it stays part-less and cannot be renamed in
     place — M7; the join refuses rather than naming the wrong
-    instrument).
+    instrument), "stem-flip-inert" (a stored hand-flipped stem had no
+    note to land on — 2026-08-03), "trigger-override-inert" (a stored
+    hand-moved fire time names an element the layout does not have, or
+    one that cannot be re-timed — inert, never repaired; the
+    break-override twin, 2026-08-08).
     """
     code: str
     message: str

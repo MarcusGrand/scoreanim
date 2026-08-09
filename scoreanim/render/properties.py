@@ -8,7 +8,7 @@ instead of crashing.
 """
 from __future__ import annotations
 
-from typing import Callable, Mapping
+from typing import Callable, Iterable, Mapping
 
 from scoreanim.core.animation import GLOW, OFFSET_X, OFFSET_Y, OPACITY, SCALE
 from scoreanim.render.items import ElementItem
@@ -64,3 +64,22 @@ PROPERTY_APPLIERS: Mapping[str, Callable[[ElementItem, float], None]] = {
     OFFSET_Y: _apply_offset_y,
     GLOW: _apply_glow,
 }
+
+
+def reset_animated_transforms(rows: "Iterable[Iterable[ElementItem]]"
+                              ) -> None:
+    """Put every item's animated transform back to rest, before a
+    re-resolve or a schedule swap: an element whose effects no longer
+    carry a SCALE track would otherwise keep a stale mid-pop transform,
+    one that lost its offset tracks would be left standing wherever its
+    slide had reached — and one that changed trigger rows may hold a
+    mid-transition state its new row will never rewrite. Unconditional,
+    so it covers a combination losing a component as well: the refresh
+    that follows writes back only the properties the new effects
+    actually animate."""
+    for items in rows:
+        for item in items:
+            if item.scale() != 1.0:
+                item.setScale(1.0)
+            if item.animated_offset != (0.0, 0.0):
+                item.set_animated_offset(0.0, 0.0)

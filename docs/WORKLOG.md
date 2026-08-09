@@ -4,7 +4,8 @@
 `main` is pushed. On 2026-08-08, on Marcus's instruction,
 `beta/f-glow-orthogonal` (the one-knob-one-change pass and the glow's
 scope) and `beta/f-video-canvas` (the video canvas, the engraving
-knobs, the export frame) merged in — no branch is unmerged now.
+knobs, the export frame) merged in. One branch is open again:
+`beta/f-move-onset` (re-timing, first half — see the 2026-08-08 line).
 **Schema is v12**, so a project saved from here will not open on
 `v0.2-beta.6` or any older build. Full suite green after the merge
 (2021 passed, 1 xfailed).
@@ -51,6 +52,73 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-09 (hotfix) — **Drum staves lose their key signatures**
+  (`beta/f-move-onset`): Dorico exports the score's key on percussion
+  parts too; a new prep pass (`_suppress_percussion_key_signatures`)
+  zeroes any `<key>` in force while every staff shows the percussion
+  clef. 7 goldens re-captured (diff is exactly the drum keysigs, plus
+  the leftward shift on bar_repeat_min); censuses −3/−15.
+
+- 2026-08-09 (retime, round 4) — **The ruler escapes the system mask,
+  ticks top-align** (`beta/f-move-onset`, UNMERGED): system mode
+  clipped the ruler because a scene item paints UNDER the view's mask;
+  the ruler is view-painted now — `drawForeground` gained ONE overlay
+  hook after every mask path, `render/onset_ruler.py` became a paint
+  function, the controller invalidates the viewport on tick changes.
+  Ticks hang from one shared top line, bars deepest (pinned in
+  pixels). Full suite green (2079). **`ui/stage_view.py` is at 481**
+  — the standing most-overdue split (gesture handlers), this hook
+  added ~10; flagged, not paid — input-code surgery wants its own
+  session.
+- 2026-08-08 (retime, round 3) — **Grid snap, tick ruler, and the
+  hand cursor** (`beta/f-move-onset`, UNMERGED): Marcus's corrections.
+  The cursor snaps to the union of events and an eighth-note grid
+  (`core/animation/onset_grid.py` — tick x interpolated between event
+  stops, stretched to the system's right edge; `snap_targets` keeps a
+  16th-note EVENT snappable while the ruler shows only eighths), a
+  Dorico-style ruler hangs bars/beats/eighths above the selected
+  system (`render/onset_ruler.py`, hit-transparent), and the line got
+  the idiomatic pair: pointing-hand hover over its grab band, thicker
+  while held. BEAT ticks are quarter-based for now — meter-aware beats
+  need the meter, which MeasureInfo does not carry; a 6/8 bar shows
+  quarter ticks. Full suite green (2078). Unproven under a human's
+  eye — the things to feel are the ruler's heights/grey on both page
+  modes and whether eighth-ticks crowd a dense system.
+- 2026-08-08 (retime, round 2) — **The onset is a line you can grab**
+  (`beta/f-move-onset`, UNMERGED): Marcus confirmed the stepping works
+  and asked for the on-page cursor. A selection-orange vertical line
+  spans the selected element's system band at `x_at(stops, beat)` (new
+  pure helper — off-stop times draw between their neighbour stops);
+  dragging snaps stop to stop (`nearest_stop_to_x`) and release
+  commits ONE SetTriggerBeat. First true overlay item in the score
+  scene (`render/onset_cursor.py`); gesture is view-level through a
+  new `DragRouter` (cursor probe first, nudge second — the stage view
+  keeps its one probe slot untouched, and a claimed press never
+  becomes a selection click). Full suite green (2071). Unproven under
+  a human's eye — the things to feel are the grab tolerance (10 page
+  units), the live stop-to-stop snap, and whether the line reads as
+  draggable at all. Known gap: the line does not ride a system-pulse
+  scale (top-level item, not in the group) — invisible unless pulsing
+  while editing.
+- 2026-08-08 (retime) — **You can move WHEN an element fires**
+  (`beta/f-move-onset`, UNMERGED): `trigger_overrides` on the document
+  (absolute beats, rides v12, stem_directions shape), consumed by
+  `build_trigger_schedule` after its four rules — an overridden
+  element is never FRESH (the displaced-sig rule), anchor kinds can
+  never be moved, so the reveal tracks provably cannot change. A
+  change rebuilds the schedule LIVE from the loader's newly retained
+  join mapping (**~36 ms on complex3's 19k elements**, no Verovio, no
+  scene rebuild) through the new `AnimationApplier.set_schedule`, and
+  the retained `AnimationInputs` follow so export keeps the moved
+  time (pinned from the export side). Selection panel grew a Fires
+  row + Earlier/Later/Reset walking the onset stops of the element's
+  own system (`core/animation/onset_stops.py`, x carried for the next
+  step's drag indicator). Full suite green (2062). Watch out for one
+  thing: `set_schedule` must restore the CTOR's construction state
+  (empty seconds AND no tempo map) before re-resolving effects, or
+  the glow resolve indexes an empty seconds list — the window test
+  caught it. Unproven under a human's eye; the on-page drag indicator
+  is the NEXT step.
 - 2026-08-08 (later) — Merged `beta/f-glow-orthogonal` and
   `beta/f-video-canvas` into `main` on Marcus's instruction (schema
   v12 now on `main`). Full suite green before and after. Pushed.

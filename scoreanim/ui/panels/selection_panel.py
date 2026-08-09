@@ -32,6 +32,7 @@ from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.selection import Selection
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.panels.selection_style import SelectionStyleControls
+from scoreanim.ui.panels.selection_trigger import SelectionTriggerControls
 
 _EMPTY = "—"
 
@@ -90,6 +91,8 @@ class SelectionPanel(QWidget):
         edit_line.setFrameShape(QFrame.Shape.HLine)
         edit_line.setFrameShadow(QFrame.Shadow.Sunken)
         outer_details.addWidget(edit_line)
+        self.trigger_controls = SelectionTriggerControls(app_state)
+        outer_details.addWidget(self.trigger_controls)
         self.style_controls = SelectionStyleControls(app_state)
         outer_details.addWidget(self.style_controls)
 

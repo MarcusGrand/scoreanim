@@ -105,7 +105,9 @@ def test_grace_delayed_principals_now_match(
 # --- 11.5 census + notation coverage ---------------------------------------
 
 def test_complex1_census(engraved_complex1):
-    assert len(engraved_complex1.layout.elements) == 3491
+    # 3491 before the drum staff's 3 key signatures were suppressed
+    # (one per system the Drum Set starts on, 2026-08-09)
+    assert len(engraved_complex1.layout.elements) == 3488
     assert len(engraved_complex1.layout.pages) == 3
     assert len(engraved_complex1.note_records) == 921
     assert Counter(w.code for w in engraved_complex1.warnings) == \

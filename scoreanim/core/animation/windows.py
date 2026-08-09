@@ -30,8 +30,9 @@ swing edit re-times every stretch.
 """
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Iterator, Mapping, Sequence
 
 from scoreanim.core.animation.effect import Effect
 from scoreanim.core.score.identity import Beats, ElementId
@@ -168,3 +169,34 @@ def audio_windows(trigger_beats: Sequence[Beats],
                max(end_by_ref.get((i, j), start), start) + offset_seconds)
               for j in range(len(element_ids_per_trigger[i])))
         for i, start in enumerate(trigger_seconds))
+
+
+def reapply_indices(trigger_seconds: Sequence[float],
+                    durations: Sequence[float],
+                    d_max: float, lead: float, cursor: int,
+                    t: float, t_prev: float) -> Iterator[int]:
+    """Which triggers the applier must re-evaluate between two applied
+    times: those whose timed effects were mid-transition at ANY point
+    since `t_prev` — including the one final evaluation that settles a
+    transition expiring between two calls (evaluating past the last
+    keyframe yields its final value, so the settle equals a fresh
+    refresh). Two M4.6 bounds: the F2 expiry guard skips triggers whose
+    effective window ended before min(t, t_prev) — cost tracks elements
+    genuinely mid-transition, not d_max — and the F3 forward `lead`
+    bound yields not-yet-crossed triggers whose negatively shifted
+    effects are already live (early evaluation before the shifted step
+    is a natural no-op: the envelope yields its initial)."""
+    floor_t = min(t, t_prev)
+    if d_max > 0.0:
+        lo = bisect_left(trigger_seconds, floor_t - d_max)
+        for i in range(lo, cursor):
+            d = durations[i]
+            if d > 0.0 and trigger_seconds[i] + d >= floor_t:
+                yield i
+    if lead > 0.0:
+        # max(t, t_prev): a backward scrub must also RE-evaluate the
+        # not-yet-crossed triggers the lead had lit before the jump, or
+        # they would hold their early-lit state
+        hi = bisect_right(trigger_seconds, max(t, t_prev) + lead)
+        for i in range(cursor, hi):
+            yield i

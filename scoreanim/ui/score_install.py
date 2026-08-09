@@ -43,7 +43,8 @@ class ScoreInstaller:
                                hide_first_system,
                                w.app_state.doc.system_break_overrides,
                                w.app_state.doc.page_break_overrides,
-                               w.app_state.doc.stem_directions)
+                               w.app_state.doc.stem_directions,
+                               w.app_state.doc.trigger_overrides)
         self.install(loaded)
         w.router.reset()
         return loaded.stage
@@ -86,7 +87,8 @@ class ScoreInstaller:
                                doc.condense_groups, doc.hide_first_system,
                                doc.system_break_overrides,
                                doc.page_break_overrides,
-                               doc.stem_directions)
+                               doc.stem_directions,
+                               doc.trigger_overrides)
         self.install(loaded)
         # a break edit re-anchors to the measure it touched, so the stage
         # stays where you were working (D8); everything else re-shows the
@@ -118,6 +120,19 @@ class ScoreInstaller:
         # the :seg fan-out only ever names ids the load actually has
         w.inspector.selection_panel.style_controls.bind_scenes(
             loaded.scenes)
+        # the stepper reads the CURRENT schedule through a provider —
+        # the window swaps it on a live rebuild, so a pull never stales
+        w.inspector.selection_panel.trigger_controls.bind_score(
+            loaded.animation_inputs.layout, loaded.measures,
+            lambda: (w.animation_inputs.schedule
+                     if w.animation_inputs is not None else None))
+        # the on-page onset cursor: same provider, plus the bands its
+        # line spans and the fresh scenes it draws into
+        w.onset_cursor.bind(
+            loaded.scenes, loaded.animation_inputs.layout,
+            loaded.band_by_system, loaded.system_of_measure,
+            lambda: (w.animation_inputs.schedule
+                     if w.animation_inputs is not None else None))
         w.menus.export_action.setEnabled(True)
         w.menus.texts_action.setEnabled(True)
         w.playback.set_animation(loaded.applier, loaded.measures)

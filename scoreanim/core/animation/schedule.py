@@ -108,6 +108,19 @@ REVEALED_KINDS = frozenset({ElementKind.SLUR, ElementKind.TIE,
 SIG_KINDS = frozenset({ElementKind.CLEF, ElementKind.KEY_SIG,
                        ElementKind.METER_SIG})
 
+# Kinds whose (trigger, x) pairs define the reveal edge: struck or
+# sounding EVENTS. Rests joined per ruling B (2026-07-12); dynamics
+# deliberately absent (attachments). Lived in reveal.py until
+# 2026-08-08; moved here (the kind-policy authority) because the
+# trigger-override filter below needs it too: no anchor kind is ever
+# retimeable — its trigger is what the per-(system, part) reveal edge
+# is built from, so moving one would drag the clip wavefront
+# (retime.py derives its policy from this set). reveal.py re-imports
+# it, the REVEALED_KINDS arrangement in reverse.
+ANCHOR_KINDS = frozenset({ElementKind.NOTEHEAD, ElementKind.SLASH,
+                          ElementKind.BAR_REPEAT,
+                          ElementKind.REST, ElementKind.MREST})
+
 # Opacity-animated kinds = everything that is neither scaffold nor a
 # clip-revealed spanner. DERIVED from the denylist (introspection and
 # back-compat); the denylist is the authority, so a new ElementKind
@@ -153,6 +166,8 @@ def build_trigger_schedule(layout: Layout,
                            mapping: Mapping[ElementId, ScoreNote],
                            measures: Sequence[MeasureInfo] = (),
                            duration_by_element:
+                               Mapping[ElementId, Beats] | None = None,
+                           trigger_overrides:
                                Mapping[ElementId, Beats] | None = None
                            ) -> TriggerSchedule:
     ident_by_id = {el.identity.element_id: el.identity
@@ -269,6 +284,18 @@ def build_trigger_schedule(layout: Layout,
         else:
             key = (ident.part, ident.staff, ident.voice, quantize_beats(own))
             trigger = group_trigger.get(key, own)
+        # A hand-moved fire time overrules the four rules above, applied
+        # here so the element buckets into whatever row its new beat
+        # belongs to. Anchor kinds are skipped — their triggers build
+        # the reveal edge (retime.py's policy, enforced where the
+        # trigger is decided so it holds for every caller); an id the
+        # layout does not have never reaches this loop, so it is inert
+        # by construction. The loader warns about both.
+        overridden = False
+        if trigger_overrides and ident.kind not in ANCHOR_KINDS:
+            moved = trigger_overrides.get(eid)
+            if moved is not None:
+                trigger, overridden = moved, True
         beats_by_element[eid] = trigger
         bucket = by_qbeat.setdefault(quantize_beats(trigger), {
             "beats": trigger, "ids": [], "fresh_pages": set(), "pages": set(),
@@ -277,7 +304,14 @@ def build_trigger_schedule(layout: Layout,
         bucket["pages"].add(el.page)
         if el.system is not None:
             bucket["systems"].add(el.system)
-        if (quantize_beats(trigger) == quantize_beats(own)
+        # An overridden element is never FRESH — the displaced-courtesy-
+        # sig reasoning (see SIG_KINDS above): it lights where it is
+        # drawn, but the VIEW follows the music, so it must not drag the
+        # row's min() page/system hint toward its own page. The check is
+        # explicit rather than trigger != own, because an override can
+        # land exactly on the element's own onset.
+        if (not overridden
+                and quantize_beats(trigger) == quantize_beats(own)
                 and not _displaced_sig(ident)):
             bucket["fresh_pages"].add(el.page)
             if el.system is not None:
