@@ -43,6 +43,12 @@ def window(qapp, tmp_path):
     settings = QSettings(str(tmp_path / "ui.ini"), QSettings.Format.IniFormat)
     win = MainWindow(settings=settings)
     win.files.open_score(TESTSCORE)          # the real open path
+    # Flat layout on purpose: these are WIRING tests whose click targets
+    # were calibrated on it. Hiding genuinely works on testscore since
+    # the region fill (2026-08-09), and under it a barline's bbox centre
+    # can miss its ink — the m19 hit-geometry nuance, not a break one.
+    from scoreanim.core.project import SetHideEmptyStaves
+    win.app_state.execute(SetHideEmptyStaves(False))
     return win
 
 

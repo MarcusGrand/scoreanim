@@ -389,9 +389,14 @@ def test_the_scale_to_fit_retry_carries_the_flips():
     _flip_survives(TALL_SYSTEM_SCORE, strict=False)
 
 
-def test_the_hide_unavailable_retry_carries_the_flips():
+def test_the_hide_unavailable_retry_carries_the_flips(monkeypatch):
     """This retry re-uses the same prep rather than re-preparing, so the
-    flips ride for free — pinned so it stays that way."""
+    flips ride for free — pinned so it stays that way. The region fill
+    (2026-08-09) keeps the fallback from firing on testscore at all,
+    so this pin disables the fill to reach it."""
+    from scoreanim.core.engraving.verovio import region_fill
+    monkeypatch.setattr(region_fill, "fill_region_measures",
+                        lambda xml, regions: xml)
     engraved = VerovioEngravingProvider().load_detailed(
         TESTSCORE, EngravingParams(), hide_empty_staves=True)
     assert "hide-unavailable" in {w.code for w in engraved.warnings}

@@ -109,6 +109,12 @@ def qapp_window(tmp_path):
                          QSettings.Format.IniFormat)
     win = MainWindow(settings=settings)
     win.files.open_score(TESTSCORE)
+    # Flat on purpose: the repagination assertion below needs 130 % to
+    # overflow, which it did when testscore always engraved flat. With
+    # hiding genuinely working (the region fill, 2026-08-09) the hidden
+    # systems are short enough to fit — so pin the flat behavior.
+    from scoreanim.core.project import SetHideEmptyStaves
+    win.app_state.execute(SetHideEmptyStaves(False))
     return win
 
 
