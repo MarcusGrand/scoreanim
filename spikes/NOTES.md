@@ -1083,3 +1083,34 @@ automated: run `python spikes/stage_gestures.py` and pinch over the
 window to see the `QNativeGestureEvent` stream (type, `value()` per
 step, which of view/viewport receives it, and whether a pinch also
 produces wheel events).
+
+## Region fill under optimize (2026-08-09) — spikes/region_fill.py
+
+Measured before fixing the hide-unavailable fallback (a slash/repeat
+staff that optimize would hide used to switch hiding off for the whole
+score — and a user break isolating a region measure tripped it after
+the fact).
+
+- **Invisible rests do NOT keep a staff under `optimize`** — neither an
+  explicit `print-object="no"` rest nor a whole-measure one. Hiding
+  exists precisely to hide resting staves, so BACKLOG's "invisible
+  rests" guess was wrong on that one word.
+- **An invisible NOTE does.** `print-object="no"` on a note becomes MEI
+  `@visible="false"` and the SVG group draws `visibility="hidden"` —
+  no visible ink at any hop, and optimize counts the staff as carrying
+  music. testscore under hiding went from all-flat (fallback) to
+  7/5/6/4/5 staves per system; video_test with a forced break at m21
+  kept per-system hiding instead of collapsing to all-8.
+- **MusicXML `@id` survives to MEI `xml:id` and into the SVG group id**,
+  so the fill notes carry our own `scoreanim-fill-*` ids and the
+  decomposer can skip them wholesale — no element, no note record, no
+  stray ink, and the drawables accounting stays balanced.
+- **An invisible note still takes vertical room.** A hard-coded B4 over
+  a BASS clef sat above the staff and pushed the system 30 units
+  apart. The fill pitch is the middle line of the clef in force
+  (treble B4, bass D3, alto C4, tenor A3, octave clefs shifted), which
+  measured zero geometry movement.
+- Side effect worth knowing: real encoded ink that Verovio could never
+  anchor on an empty measure (video_test's dashed bracket at Drums
+  m23) now draws — a fidelity gain, and the one element the golden
+  re-capture blessed.

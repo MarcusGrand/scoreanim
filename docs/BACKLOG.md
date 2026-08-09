@@ -306,14 +306,15 @@ scale-to-fit). Parked:
   group is condensed for the whole piece or not at all). These are the
   Dorico-condensing features that would make the merged look match the
   PDF; v1's target is "usable and clean", and the user picks sane pairs.
-- **Hide-empty-staves is a no-op on scores with percussion slash/repeat
-  regions.** Those staves import as `<space>`, so Verovio's `optimize`
-  would hide them → the rule-10 fallback disables hiding globally
-  (`hide-unavailable`). Scale-to-fit (rule-7 amendment c) now guarantees
-  the layout regardless, so hiding is a readability nicety here, not the
-  overflow fix. A proper fix (keep slash/repeat staves visible under
-  optimize by filling their region measures with invisible rests so
-  hiding can thin the genuinely-empty staves) is parked.
+- **RESOLVED 2026-08-09 — hide-empty-staves now works on scores with
+  slash/repeat regions.** The parked fix landed, with one correction:
+  invisible RESTS do not keep a staff under `optimize` (hiding exists
+  to hide resting staves) — an invisible NOTE on the clef's middle
+  line does (`core/engraving/verovio/region_fill.py`, measured in
+  `spikes/region_fill.py`). Verovio's input only; canonical bytes,
+  music21, note_records and the timemap are untouched, and the
+  decomposer skips the fill ids. The rule-10 fallback stays as a
+  safety net (tests reach it by no-opping the fill).
 - **Condensing multi-staff parts** (e.g. two grand-staff keyboards) is
   rejected in v1 (raises); needs a per-staff merge design.
 

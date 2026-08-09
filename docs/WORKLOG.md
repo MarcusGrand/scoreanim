@@ -1,14 +1,14 @@
 # ScoreAnim — Worklog
 
-**NOW:** everything is on `main` (no tag since `v0.2-beta.6`), and
-`main` is pushed. On 2026-08-08, on Marcus's instruction,
-`beta/f-glow-orthogonal` (the one-knob-one-change pass and the glow's
-scope) and `beta/f-video-canvas` (the video canvas, the engraving
-knobs, the export frame) merged in. One branch is open again:
-`beta/f-move-onset` (re-timing, first half — see the 2026-08-08 line).
-**Schema is v12**, so a project saved from here will not open on
-`v0.2-beta.6` or any older build. Full suite green after the merge
-(2021 passed, 1 xfailed).
+**NOW:** `beta/f-move-onset` (re-timing) merged to `main` on
+2026-08-09 on Marcus's call (suite green before and after; `main` NOT
+yet pushed since the merge). One branch is open:
+`beta/f-hide-parts` — the right-click Staves menu (per-part hiding)
+and the region-fill fix that stops a system break from switching
+empty-staff hiding off score-wide (see the 2026-08-09 hide line).
+Awaiting Marcus's in-app check before merge. **Schema is v12** (the
+hidden-parts key rides it sparsely), so a project saved from here will
+not open on `v0.2-beta.6` or any older build.
 
 **Every score re-engraves differently from 2026-08-03 on** — the stem
 pass is unconditional, and it moved 11 of the 12 goldens. That is the
@@ -52,6 +52,29 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-09 (hide) — **Right-click Staves menu + hiding survives
+  breaks** (`beta/f-hide-parts`, off `main` after `beta/f-move-onset`
+  merged on Marcus's call, UNMERGED): two halves. (1) Per-part manual
+  hiding: `doc.hidden_parts` (rides v12), `SetPartHidden` (refuses the
+  last visible part), the part removed at the prep seam (condense
+  mechanics; `PreparedScore.all_parts` keeps the full roster so the
+  menu can re-show), threaded through all three provider prepares; the
+  stage view grew ONE `context_menu_requested` signal and the menu
+  lives in new `ui/stage_menu.py` (built fresh per popup — no resync).
+  (2) The "staves don't always hide" bug was the rule-10 fallback going
+  score-wide when a break isolated a slash measure; fixed by invisible
+  notes in region measures at the Verovio seam ONLY
+  (`region_fill.py` — invisible RESTS don't work, the clef's
+  middle-line NOTE does, spike-measured; decomposer skips the fill
+  ids; canonical bytes/music21/note_records untouched). Hiding WORKS
+  on testscore now, so five old flat-calibrated pins were repinned.
+  ONE golden moved 3 lines (video_test_hidden — a real dashed bracket
+  at Drums m23 draws for the first time; Marcus blessed the diff).
+  Full suite green. Unproven under a human's eye — the things to feel
+  are the right-click menu on a real score and hiding holding through
+  break edits. Watch out for one thing: a PySide6 `addMenu(str)`
+  submenu is Python-owned and dies with its wrapper — build submenus
+  as `QMenu(title, parent)`.
 - 2026-08-09 (hotfix) — **Drum staves lose their key signatures**
   (`beta/f-move-onset`): Dorico exports the score's key on percussion
   parts too; a new prep pass (`_suppress_percussion_key_signatures`)
