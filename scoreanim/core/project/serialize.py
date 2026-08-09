@@ -155,6 +155,11 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 #   reasoning. A missing key is the automatic schedule alone, so no
 #   read gate; values ARE validated on read (the stem_directions rule:
 #   a non-number beat has no sensible fallback).
+#   Also v12 (hidden parts, 2026-08-09): hidden_parts — parts the user
+#   hid by hand from the stage's Staves menu, a sorted list of part
+#   ids. Rides v12 by the same no-shipped-reader reasoning; a missing
+#   key is every part visible, the look every file has had, so no
+#   read gate.
 PROJECT_VERSION = 12
 _READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 SUFFIX = ".scoreanim"
@@ -232,6 +237,9 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
         },
         "hide_empty_staves": doc.hide_empty_staves,
         "hide_first_system": doc.hide_first_system,
+        # rides v12: parts hidden by hand, sorted so a saved file is
+        # deterministic
+        "hidden_parts": [str(p) for p in sorted(doc.hidden_parts)],
         "condense_groups": [
             {"parts": [str(p) for p in g.parts], "name": g.name,
              "abbreviation": g.abbreviation}
@@ -346,6 +354,9 @@ def from_dict(data: dict[str, Any],
             # v6: missing key → False (first system full), the pre-option
             # look for every older file
             hide_first_system=data.get("hide_first_system", False),
+            # rides v12: missing key → every part visible
+            hidden_parts=frozenset(
+                PartId(p) for p in data.get("hidden_parts", [])),
             condense_groups=tuple(
                 CondenseGroup(parts=tuple(PartId(p) for p in g["parts"]),
                               name=g.get("name", ""),

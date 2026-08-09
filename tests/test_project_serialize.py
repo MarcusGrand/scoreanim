@@ -491,7 +491,7 @@ def test_never_persists_derived_data() -> None:
                             "hide_empty_staves", "hide_first_system",
                             "condense_groups", "system_break_overrides",
                             "page_break_overrides", "stem_directions",
-                            "trigger_overrides"}
+                            "trigger_overrides", "hidden_parts"}
 
 
 def test_v10_locked_beats_round_trip_and_older_files_have_none() -> None:
@@ -729,3 +729,19 @@ def test_v12_staff_line_width_round_trips_and_is_sparse() -> None:
     for version in (1, 7, 11):
         assert from_dict({"version": version}) \
             .engraving.staff_line_width == 1.0
+
+
+def test_v12_hidden_parts_round_trip_sorted() -> None:
+    """Hand-hidden parts persist as a sorted list of part ids, so a
+    saved file is deterministic whatever order the user clicked in."""
+    doc = ProjectDoc(hidden_parts=frozenset({PartId("P3"), PartId("P1")}))
+    payload = to_dict(doc)
+    assert payload["hidden_parts"] == ["P1", "P3"]
+    assert from_dict(payload).hidden_parts == \
+        frozenset({PartId("P1"), PartId("P3")})
+
+
+def test_older_files_load_with_every_part_visible() -> None:
+    """No read gate: a missing key means no part was ever hidden."""
+    for version in (1, 4, 7, 11, 12):
+        assert from_dict({"version": version}).hidden_parts == frozenset()

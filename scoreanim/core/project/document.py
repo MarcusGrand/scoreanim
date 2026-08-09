@@ -124,6 +124,15 @@ class ProjectDoc:
     # Phase 10R hide deliberately kept. Meaningful only with
     # hide_empty_staves; rides the same re-engrave.
     hide_first_system: bool = False
+    # Parts the user has hidden by hand (rides v12, 2026-08-09), from
+    # the stage's Staves menu. An ENGRAVING INPUT like the flags above:
+    # a hidden part is removed from the part list at the prep seam (the
+    # condense mechanics) and everything re-derives (rule 5). Per PART,
+    # so a grand-staff part hides as a whole. Sparse — an untouched
+    # score stores nothing. Element ids embed the part id, so other
+    # parts' stored overrides never shift; the hidden part's own go
+    # inert (warned at load, never repaired here).
+    hidden_parts: frozenset[PartId] = frozenset()
     # Contiguous like parts merged onto one staff (schema v5, consumed
     # Phase 12.3); the merged part-list is re-derived at the prep seam.
     condense_groups: tuple[CondenseGroup, ...] = ()

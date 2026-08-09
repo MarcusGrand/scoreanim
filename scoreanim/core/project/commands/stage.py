@@ -12,7 +12,7 @@ from scoreanim.core.project.stage_config import (OVERLAY_PREFIX,
                                                  PresentationMode,
                                                  StageTextElement, VideoCanvas,
                                                  fit_texts, is_header_text)
-from scoreanim.core.score.identity import ElementId
+from scoreanim.core.score.identity import ElementId, PartId
 
 
 @dataclass(frozen=True)
@@ -61,6 +61,37 @@ class SetHideFirstSystem(Command):
     def describe(self) -> str:
         return ("hide empty staves on first system" if self.value
                 else "show staves on first system")
+
+
+@dataclass(frozen=True)
+class SetPartHidden(Command):
+    """Hide one part everywhere, or show it again (2026-08-09) — the
+    stage's Staves menu. An engraving input like the two toggles above:
+    the part is removed from the part list at the prep seam and the
+    window re-engraves on the doc diff. `part_order` is runtime data
+    (the AddStaffGroup trust model): the FULL roster of the loaded
+    score, hidden parts included, so the command can refuse to hide a
+    part the score does not have — and refuse to hide the last one
+    still visible, because an empty part list engraves nothing."""
+    part: PartId
+    hidden: bool
+    part_order: tuple[PartId, ...]     # full roster, score order
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not isinstance(self.hidden, bool):
+            raise CommandError(f"bad hidden {self.hidden!r}")
+        if self.part not in self.part_order:
+            raise CommandError(f"unknown part {self.part!r}")
+        if self.hidden:
+            hidden = doc.hidden_parts | {self.part}
+            if not [p for p in self.part_order if p not in hidden]:
+                raise CommandError("cannot hide the last visible part")
+        else:
+            hidden = doc.hidden_parts - {self.part}
+        return replace(doc, hidden_parts=frozenset(hidden))
+
+    def describe(self) -> str:
+        return "hide part" if self.hidden else "show part"
 
 
 # Encoder floor/ceiling for a canvas side: below 16 nothing is a video,

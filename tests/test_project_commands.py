@@ -1504,6 +1504,54 @@ def test_moving_an_onset_is_one_undo_entry(doc) -> None:
     assert SetTriggerBeat(eid, None).describe() == "reset onset"
 
 
+# --- hidden parts (2026-08-09) ---------------------------------------------
+
+_ROSTER = (PartId("P1"), PartId("P2"), PartId("P3"))
+
+
+def test_set_part_hidden_is_a_sparse_set(doc) -> None:
+    from scoreanim.core.project import SetPartHidden
+
+    assert doc.hidden_parts == frozenset()
+    hidden = SetPartHidden(PartId("P2"), True, _ROSTER).apply(doc)
+    assert hidden.hidden_parts == frozenset({PartId("P2")})
+    assert doc.hidden_parts == frozenset()       # the input is untouched
+
+    # showing removes the entry entirely
+    shown = SetPartHidden(PartId("P2"), False, _ROSTER).apply(hidden)
+    assert shown.hidden_parts == frozenset()
+
+
+def test_set_part_hidden_refuses_an_unknown_part(doc) -> None:
+    from scoreanim.core.project import SetPartHidden
+    with pytest.raises(CommandError, match="unknown part"):
+        SetPartHidden(PartId("P9"), True, _ROSTER).apply(doc)
+
+
+def test_set_part_hidden_refuses_the_last_visible_part(doc) -> None:
+    """An empty part list engraves nothing, so the last visible part
+    cannot be hidden — the command is the guard, whatever the UI does."""
+    from scoreanim.core.project import SetPartHidden
+    two_hidden = ProjectDoc(
+        hidden_parts=frozenset({PartId("P1"), PartId("P3")}))
+    with pytest.raises(CommandError, match="last visible"):
+        SetPartHidden(PartId("P2"), True, _ROSTER).apply(two_hidden)
+    # re-hiding an already-hidden part is fine (idempotent, not last)
+    out = SetPartHidden(PartId("P1"), True, _ROSTER).apply(two_hidden)
+    assert out.hidden_parts == two_hidden.hidden_parts
+
+
+def test_hiding_a_part_is_one_undo_entry(doc) -> None:
+    from scoreanim.core.project import SetPartHidden
+    stack = UndoStack()
+    hidden = stack.execute(SetPartHidden(PartId("P1"), True, _ROSTER), doc)
+    assert stack.undo_text() == "hide part"
+    assert stack.undo() == doc
+    assert hidden.hidden_parts != doc.hidden_parts
+    assert SetPartHidden(PartId("P1"), False, _ROSTER).describe() \
+        == "show part"
+
+
 def test_set_video_canvas(doc) -> None:
     from scoreanim.core.project import SetVideoCanvas, VideoCanvas
 
