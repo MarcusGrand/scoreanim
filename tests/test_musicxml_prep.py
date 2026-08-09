@@ -347,3 +347,83 @@ def test_prepare_strips_drum_key_from_fixture() -> None:
         else:
             # pitched parts keep their (written) key untouched
             assert fifths and all(f != "0" for f in fifths), part.get("id")
+
+
+# --- hidden parts (2026-08-09) ---------------------------------------------
+
+def test_hidden_part_is_removed_and_staves_renumber() -> None:
+    prep = prepare(TESTSCORE, hidden_parts=frozenset({"P2"}))
+    root = ET.fromstring(prep.canonical_xml)
+    assert [p.get("id") for p in root.findall("part")] == \
+        ["P1", "P3", "P4", "P5", "P6", "P7"]
+    assert [sp.get("id")
+            for sp in root.findall("./part-list/score-part")] == \
+        ["P1", "P3", "P4", "P5", "P6", "P7"]
+    # the engraved roster renumbers contiguously past the gap
+    assert [(i.part_id, i.first_staff) for i in prep.parts] == \
+        [("P1", 1), ("P3", 2), ("P4", 3), ("P5", 4), ("P6", 5), ("P7", 6)]
+    assert prep.inert_hidden_parts == ()
+
+
+def test_full_roster_still_lists_the_hidden_part() -> None:
+    """The Staves menu needs every part, hidden ones included, or
+    nothing could ever be shown again."""
+    prep = prepare(TESTSCORE, hidden_parts=frozenset({"P2"}))
+    assert [i.part_id for i in prep.all_parts] == \
+        ["P1", "P2", "P3", "P4", "P5", "P6", "P7"]
+    assert prep.all_parts[1].name == "Ten. 2 Bari."
+
+
+def test_no_hidden_parts_changes_nothing() -> None:
+    plain = prepare(TESTSCORE)
+    explicit = prepare(TESTSCORE, hidden_parts=frozenset())
+    assert plain.canonical_xml == explicit.canonical_xml
+    assert plain.all_parts == plain.parts
+
+
+def test_unknown_hidden_part_is_inert() -> None:
+    prep = prepare(TESTSCORE, hidden_parts=frozenset({"P99"}))
+    assert prep.inert_hidden_parts == ("P99",)
+    assert [i.part_id for i in prep.parts] == \
+        ["P1", "P2", "P3", "P4", "P5", "P6", "P7"]
+
+
+def test_hiding_every_part_raises() -> None:
+    everything = frozenset(f"P{n}" for n in range(1, 8))
+    with pytest.raises(ValueError, match="nothing to engrave"):
+        prepare(TESTSCORE, hidden_parts=everything)
+
+
+def test_hidden_part_contributes_no_regions() -> None:
+    """The region scans walk the tree AFTER removal, so a hidden part's
+    slash regions vanish with it — which keeps the hide-unavailable
+    guard quiet about a part the user hid on purpose."""
+    assert any(r.part == "P7" for r in prepare(TESTSCORE).slash_regions)
+    prep = prepare(TESTSCORE, hidden_parts=frozenset({"P7"}))
+    assert prep.slash_regions == ()
+
+
+def test_group_specs_drop_their_hidden_parts() -> None:
+    # a two-part group loses one member -> no group is injected at all
+    prep = prepare(TESTSCORE, (PartGroupSpec(parts=("P1", "P2")),),
+                   hidden_parts=frozenset({"P2"}))
+    root = ET.fromstring(prep.canonical_xml)
+    assert root.findall("./part-list/part-group") == []
+    # a three-part group keeps its two visible members, which are
+    # contiguous once the hidden one is out of score order
+    prep = prepare(TESTSCORE, (PartGroupSpec(parts=("P1", "P2", "P3")),),
+                   hidden_parts=frozenset({"P2"}))
+    root = ET.fromstring(prep.canonical_xml)
+    assert len(root.findall("./part-list/part-group")) == 2  # start + stop
+
+
+def test_breaks_land_in_the_first_visible_part() -> None:
+    from scoreanim.core.score.musicxml_prep import SystemBreak
+    prep = prepare(TESTSCORE, system_breaks={3: SystemBreak.FORCE},
+                   hidden_parts=frozenset({"P1"}))
+    root = ET.fromstring(prep.canonical_xml)
+    first = root.findall("part")[0]
+    assert first.get("id") == "P2"
+    m3 = first.findall("measure")[2]
+    pr = m3.find("print")
+    assert pr is not None and pr.get("new-system") == "yes"

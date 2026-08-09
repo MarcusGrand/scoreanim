@@ -160,6 +160,39 @@ def _apply_condense(root: ET.Element,
             part_list.remove(sp_by_id[str(absorb)])
 
 
+def _apply_hidden_parts(root: ET.Element,
+                        hidden: frozenset[str]) -> tuple[str, ...]:
+    """Remove each hidden part from the tree — its <part> and its
+    part-list entry — so Verovio never sees it (2026-08-09). The
+    condense removal mechanics; encoded <part-group> elements are left
+    alone, exactly as condense leaves them. Returns the ids it could
+    not find (the score changed under the document): inert, warned by
+    the provider, never repaired (rule 5's staleness trade).
+
+    Runs AFTER condense (so hiding a merged part's kept id hides the
+    merged part, and hiding an absorbed id is inert) and BEFORE the
+    break passes (they write into the first <part> element, which must
+    be a part Verovio will engrave)."""
+    if not hidden:
+        return ()
+    part_list = root.find("part-list")
+    if part_list is None:
+        raise ValueError("MusicXML has no <part-list>")
+    parts_by_id = {p.get("id", ""): p for p in root.findall("part")}
+    sp_by_id = {sp.get("id", ""): sp
+                for sp in part_list.findall("score-part")}
+    present = [pid for pid in sorted(hidden) if pid in parts_by_id]
+    if len(present) >= len(parts_by_id):
+        # defense behind SetPartHidden's own guard, for a stale document
+        # over a changed score file
+        raise ValueError("hiding every part leaves nothing to engrave")
+    for pid in present:
+        root.remove(parts_by_id[pid])
+        if pid in sp_by_id:
+            part_list.remove(sp_by_id[pid])
+    return tuple(pid for pid in sorted(hidden) if pid not in parts_by_id)
+
+
 def _apply_text_overrides(root: ET.Element,
                           texts: tuple[PartTextSpec, ...]) -> None:
     """Rewrite part labels in the <part-list> (Phase 9.3). Runs BEFORE

@@ -41,7 +41,7 @@ from scoreanim.core.score.musicxml_breaks import (  # noqa: F401
     PageBreak, SystemBreak, _apply_breaks, _promote_page_breaks_to_system,
     _repaginate, _system_only, _wanted_break_attrs)
 from scoreanim.core.score.musicxml_rewrite import (  # noqa: F401
-    _apply_condense, _apply_text_overrides,
+    _apply_condense, _apply_hidden_parts, _apply_text_overrides,
     _drop_redundant_trailing_forwards, _inject_part_groups,
     _neutralize_octave_only_transposes, _set_part_text,
     _suppress_percussion_key_signatures, _voice_cursor)
@@ -172,6 +172,15 @@ class PreparedScore:
     # condensing renumbered the voice under it. Same contract as the two
     # above — derived here, warned by the provider, never stored.
     inert_stem_directions: tuple[str, ...] = ()
+    # The FULL roster (2026-08-09), captured before hidden parts are
+    # removed: what the stage's Staves menu lists, so a hidden part can
+    # be shown again. MENU DATA ONLY — its staff numbering predates the
+    # removal, so geometry consumers must keep reading `parts`. Empty
+    # means "same as parts" (the no-hidden fast path).
+    all_parts: tuple[PartInfo, ...] = ()
+    # Hidden-part ids this prep could not find (the score changed under
+    # the document). Same contract as the inert families above.
+    inert_hidden_parts: tuple[str, ...] = ()
 
     def part_for_staff(self, staff_n: int) -> PartInfo:
         for p in self.parts:
@@ -316,7 +325,8 @@ def prepare(score_path: Path,
             page_break_measures: tuple[int, ...] = (),
             system_breaks: Mapping[int, SystemBreak] | None = None,
             page_breaks: Mapping[int, PageBreak] | None = None,
-            stem_directions: Mapping[str, StemDirection] | None = None
+            stem_directions: Mapping[str, StemDirection] | None = None,
+            hidden_parts: frozenset[PartId] = frozenset()
             ) -> PreparedScore:
     root = ET.fromstring(score_path.read_bytes())
     if root.tag != "score-partwise":
@@ -339,7 +349,27 @@ def prepare(score_path: Path,
     inert_stems = _apply_stem_directions(root, stem_directions or {})
     _apply_text_overrides(root, texts)   # before _parts: PartInfo carries
                                          # the EFFECTIVE names (Phase 9.3)
-    parts = _parts(root)
+    # The full roster first (what the Staves menu lists), then the
+    # removal, then every derivation from the tree Verovio will see:
+    # parts renumber, and the region scans skip a removed part on their
+    # own — which is what keeps the hide-unavailable guard quiet about
+    # a part the user hid on purpose.
+    all_parts = _parts(root)
+    inert_hidden = _apply_hidden_parts(
+        root, frozenset(str(p) for p in hidden_parts))
+    hidden_present = {str(p) for p in hidden_parts} - set(inert_hidden)
+    if hidden_present:
+        # a group spec is intent over the full roster: keep its visible
+        # parts (still contiguous once the hidden ones are gone from
+        # score order), and drop a group left with fewer than two — a
+        # bracket exists to group staves
+        groups = tuple(
+            PartGroupSpec(parts=kept, symbol=g.symbol,
+                          join_barlines=g.join_barlines)
+            for g in groups
+            if len(kept := tuple(p for p in g.parts
+                                 if str(p) not in hidden_present)) >= 2)
+    parts = _parts(root) if hidden_present else all_parts
     slash_regions = _slash_regions(root)
     repeat_regions = _repeat_regions(root)
     credits = _credits(root)
@@ -375,4 +405,6 @@ def prepare(score_path: Path,
         inert_system_breaks=inert_breaks,
         inert_page_breaks=inert_pages,
         inert_stem_directions=inert_stems,
+        all_parts=all_parts,
+        inert_hidden_parts=inert_hidden,
     )
