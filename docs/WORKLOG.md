@@ -52,6 +52,13 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-09 (hotfix) — **Drum staves lose their key signatures**
+  (`beta/f-move-onset`): Dorico exports the score's key on percussion
+  parts too; a new prep pass (`_suppress_percussion_key_signatures`)
+  zeroes any `<key>` in force while every staff shows the percussion
+  clef. 7 goldens re-captured (diff is exactly the drum keysigs, plus
+  the leftward shift on bar_repeat_min); censuses −3/−15.
+
 - 2026-08-09 (retime, round 4) — **The ruler escapes the system mask,
   ticks top-align** (`beta/f-move-onset`, UNMERGED): system mode
   clipped the ruler because a scene item paints UNDER the view's mask;

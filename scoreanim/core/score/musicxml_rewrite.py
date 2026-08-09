@@ -212,6 +212,43 @@ def _set_part_text(sp: ET.Element, plain_tag: str, display_tag: str,
         ET.SubElement(display, "display-text").text = value
 
 
+def _suppress_percussion_key_signatures(root: ET.Element) -> int:
+    """Dorico exports the score's key on every part, drums included, and
+    Verovio then engraves sharps or flats on the percussion staff. A
+    staff showing the percussion clef never carries a key signature, so
+    any <key> in force on such a staff is rewritten to zero fifths.
+    Zeroing (not removing) keeps the staff from inheriting a score-level
+    key downstream, and since EVERY key on the staff is zeroed, no
+    cancellation naturals appear at key changes either.
+
+    A <key> without a number applies to all of the part's staves, so it
+    is only zeroed when every staff currently shows the percussion clef.
+    Clefs in the same <attributes> block are read first: MusicXML puts
+    <key> before <clef>, but the clef governs the music that follows,
+    which is where the signature would be drawn. Returns how many keys
+    were zeroed.
+    """
+    zeroed = 0
+    for part in root.iter("part"):
+        clef_by_staff: dict[str, str] = {}
+        for measure in part.findall("measure"):
+            for attributes in measure.findall("attributes"):
+                for clef in attributes.findall("clef"):
+                    clef_by_staff[clef.get("number", "1")] = (
+                        clef.findtext("sign") or "")
+                for key in attributes.findall("key"):
+                    number = key.get("number")
+                    staves = [number] if number else list(clef_by_staff)
+                    if not staves or any(clef_by_staff.get(n) != "percussion"
+                                         for n in staves):
+                        continue
+                    for child in list(key):
+                        key.remove(child)
+                    ET.SubElement(key, "fifths").text = "0"
+                    zeroed += 1
+    return zeroed
+
+
 def _neutralize_octave_only_transposes(root: ET.Element) -> None:
     for attributes in root.iter("attributes"):
         for tr in list(attributes.findall("transpose")):
