@@ -101,6 +101,11 @@ class StageView(QGraphicsView):
     drag_moved = Signal(QPointF)             # cumulative scene delta
     drag_finished = Signal(QPointF)          # cumulative scene delta
     nudge_key = Signal(float, float)         # arrow keys, in page units
+    # 2026-08-09: right-click opens the stage context menu. The view
+    # only reports (global QPoint, scene QPointF) — the menu itself
+    # lives in ui/stage_menu.py, the "view emits, controller decides"
+    # contract every other gesture here follows.
+    context_menu_requested = Signal(object, QPointF)
 
     def __init__(self) -> None:
         super().__init__()
@@ -375,6 +380,14 @@ class StageView(QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         if self.in_band(scene_pos):
             self.double_clicked.emit(scene_pos, self.scene())
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802
+        """Right-click (or the menu key): report where, decide nothing."""
+        if self.scene() is None:
+            return
+        self.context_menu_requested.emit(
+            event.globalPos(), self.mapToScene(event.pos()))
+        event.accept()
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         """Esc deselects. View-level, not a window shortcut, so Esc keeps

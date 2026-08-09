@@ -32,7 +32,8 @@ class ScoreInstaller:
                    text_overrides: dict | None = None,
                    hide_empty_staves: bool = HIDE_EMPTY_STAVES_DEFAULT,
                    condense_groups: tuple = (),
-                   hide_first_system: bool = False
+                   hide_first_system: bool = False,
+                   hidden_parts: frozenset = frozenset()
                    ) -> StageConfig:
         """Fresh-load entry: engrave + wire, then reset to page 1."""
         w = self._w
@@ -44,7 +45,8 @@ class ScoreInstaller:
                                w.app_state.doc.system_break_overrides,
                                w.app_state.doc.page_break_overrides,
                                w.app_state.doc.stem_directions,
-                               w.app_state.doc.trigger_overrides)
+                               w.app_state.doc.trigger_overrides,
+                               hidden_parts)
         self.install(loaded)
         w.router.reset()
         return loaded.stage
@@ -88,7 +90,8 @@ class ScoreInstaller:
                                doc.system_break_overrides,
                                doc.page_break_overrides,
                                doc.stem_directions,
-                               doc.trigger_overrides)
+                               doc.trigger_overrides,
+                               doc.hidden_parts)
         self.install(loaded)
         # a break edit re-anchors to the measure it touched, so the stage
         # stays where you were working (D8); everything else re-shows the
@@ -138,6 +141,8 @@ class ScoreInstaller:
         w.playback.set_animation(loaded.applier, loaded.measures)
         w.app_state.set_measures(loaded.measures)
         w.parts_menu.rebuild(loaded.parts)
+        # the stage's Staves menu lists the FULL roster, hidden included
+        w.stage_menu.bind(loaded.all_parts)
         # fresh scenes rebuild their paper rects visible, so the
         # overlay preview's paper-hiding half is re-applied per load
         w.apply_overlay_preview()

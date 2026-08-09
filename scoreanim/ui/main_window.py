@@ -50,6 +50,7 @@ from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.score_install import ScoreInstaller
 from scoreanim.ui.score_loader import ScoreLoader
 from scoreanim.ui.selection import SelectionController
+from scoreanim.ui.stage_menu import StageMenu
 from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.text_edit import InlineTextEditor
 from scoreanim.ui.transport import LowerZone
@@ -187,6 +188,9 @@ class MainWindow(QMainWindow):
         # Owns the three part-shaped dialogs too since M3.0 (BACKLOG 9b)
         self.parts_menu = PartsMenu(self.menus.score_menu, self.app_state,
                                     self)
+        # the stage's right-click menu (2026-08-09): built fresh per
+        # popup, roster bound per load by the installer
+        self.stage_menu = StageMenu(self.app_state, self.view, self)
         # the Score menu is cleared per load, so the break actions are
         # handed to its builder to re-insert; the shortcuts are
         # registered window-level so they fire regardless of focus

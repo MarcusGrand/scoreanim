@@ -168,7 +168,8 @@ class FileActions:
                      text_overrides=doc.text_overrides,
                      hide_empty_staves=doc.hide_empty_staves,
                      condense_groups=doc.condense_groups,
-                     hide_first_system=doc.hide_first_system)
+                     hide_first_system=doc.hide_first_system,
+                     hidden_parts=doc.hidden_parts)
         self.project_path = path
         self.score_name = path.name
         self.tempo_path = None
