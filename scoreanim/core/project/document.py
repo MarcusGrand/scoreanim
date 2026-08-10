@@ -176,6 +176,14 @@ class ProjectDoc:
     # repaired here (rule 5's staleness trade).
     trigger_overrides: Mapping[ElementId, Beats] = \
         field(default_factory=dict)
+    # Render every tied chain as the one note it is (2026-08-10): the
+    # continuation heads and the tie ink appear at the chain start, and
+    # note-value effects run over the whole tied duration. A SCHEDULE
+    # input like `trigger_overrides` above, not an engraving input and
+    # not a style — a change re-derives the schedule, the durations and
+    # the reveal tracks only, never the engraving. Off = today's
+    # fill-in-at-the-barline behavior, untouched.
+    tied_notes_as_one: bool = False
 
 
 __all__ = ["DEFAULT_BPM", "FileRef", "HIDE_EMPTY_STAVES_DEFAULT",

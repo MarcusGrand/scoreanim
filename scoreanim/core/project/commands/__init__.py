@@ -31,7 +31,8 @@ from scoreanim.core.project.commands.layout import (AddCondenseGroup,
                                                     SetElementsHidden,
                                                     SetLayoutOverride,
                                                     SetPartText)
-from scoreanim.core.project.commands.retime import SetTriggerBeat
+from scoreanim.core.project.commands.retime import (SetTiedNotesAsOne,
+                                                    SetTriggerBeat)
 from scoreanim.core.project.commands.stems import SetStemDirection
 from scoreanim.core.project.commands.stage import (AddTempoOverlay,
                                                    EditStageText,
@@ -86,7 +87,8 @@ __all__ = [
     "SetLayoutOverride", "SetPageBreak",
     "SetColorMode", "SetPartText", "SetPresentationMode", "SetPulseParam",
     "SetRevealMode", "SetScoreScale", "SetStaffLineWidth",
-    "SetStemDirection", "SetSwingRegion", "SetTempoFrom", "SetTriggerBeat",
+    "SetStemDirection", "SetSwingRegion", "SetTempoFrom",
+    "SetTiedNotesAsOne", "SetTriggerBeat",
     "SetSystemBreak", "SetVideoCanvas", "SetVolumeParam",
     "UndoStack",
 ]
