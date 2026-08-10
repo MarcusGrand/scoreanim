@@ -105,12 +105,15 @@ def test_trigger_overrides_reschedule_not_reengrave(qapp_and_loader) -> None:
     assert not loader.needs_reschedule(doc)
     assert loader.needs_reschedule(moved_doc)
 
-    rebuilt = loader.rebuild_schedule(moved_doc)
+    rebuilt, _tracks = loader.rebuild_schedule(moved_doc)
     assert rebuilt.beats_by_element[dynamic] == target
     assert not loader.needs_reschedule(moved_doc)    # cache updated
 
     # back to automatic: the rebuild equals the load's own schedule
-    assert loader.rebuild_schedule(doc) == bundle.animation_inputs.schedule
+    # and its own reveal tracks (an override never moves an anchor)
+    schedule, tracks = loader.rebuild_schedule(doc)
+    assert schedule == bundle.animation_inputs.schedule
+    assert tracks == bundle.animation_inputs.reveal_tracks
     assert not loader.needs_reschedule(doc)
 
 
@@ -132,13 +135,40 @@ def test_rebuild_matches_a_fresh_load_and_stale_ids_warn(
         hide_empty_staves=ProjectDoc().hide_empty_staves,
         trigger_overrides=overrides)
     doc = replace(ProjectDoc(), trigger_overrides=overrides)
-    assert loader.rebuild_schedule(doc) == fresh.animation_inputs.schedule
+    schedule, _tracks = loader.rebuild_schedule(doc)
+    assert schedule == fresh.animation_inputs.schedule
 
     inert = [w for w in fresh.warnings
              if w.code == "trigger-override-inert"]
     assert len(inert) == 1
     assert "ghost" in inert[0].message
     assert "1 moved onset(s)" in inert[0].message
+
+    # leave the module-scoped loader's cache as the other tests expect
+    loader.rebuild_schedule(ProjectDoc())
+
+
+def test_tied_as_one_reschedules_not_reengraves(qapp_and_loader) -> None:
+    """The flag is the trigger overrides' species: needs_reengrave
+    never sees it, needs_reschedule trips, and the live rebuild —
+    schedule AND reveal tracks, because tied-as-one moves the chain
+    anchors — matches a fresh load with the flag on."""
+    loader, bundle = qapp_and_loader
+    tied_doc = replace(ProjectDoc(), tied_notes_as_one=True)
+
+    assert not loader.needs_reengrave(tied_doc)
+    assert loader.needs_reschedule(tied_doc)
+
+    fresh = ScoreLoader().load(
+        TESTSCORE, EngravingParams(), None, StyleRules(),
+        hide_empty_staves=ProjectDoc().hide_empty_staves,
+        tied_as_one=True)
+    schedule, tracks = loader.rebuild_schedule(tied_doc)
+    assert schedule == fresh.animation_inputs.schedule
+    assert tracks == fresh.animation_inputs.reveal_tracks
+    assert schedule != bundle.animation_inputs.schedule      # chains moved
+    assert tracks != bundle.animation_inputs.reveal_tracks
+    assert not loader.needs_reschedule(tied_doc)             # cache updated
 
     # leave the module-scoped loader's cache as the other tests expect
     loader.rebuild_schedule(ProjectDoc())

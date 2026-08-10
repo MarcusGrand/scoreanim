@@ -63,13 +63,15 @@ class LoadedScore:
 @dataclass(frozen=True)
 class _RebuildInputs:
     """The last load's non-engraving derivations, retained so a
-    trigger-override change can rebuild the schedule live — no Verovio,
-    no scene rebuild. The join mapping is the one input `load()` used
-    to throw away."""
+    trigger-override or tied-as-one change can rebuild the schedule
+    live — no Verovio, no scene rebuild. The join mapping is the one
+    input `load()` used to throw away. `note_durations` is the
+    adapter's RAW per-note map, kept instead of the resolved one so
+    the rebuild can re-resolve under either tied-as-one reading."""
     layout: Layout
     mapping: dict
     measures: tuple
-    durations: dict
+    note_durations: dict
 
 
 class ScoreLoader:
@@ -86,6 +88,7 @@ class ScoreLoader:
         self._applied_page_breaks: dict = {}   # page-break overrides ditto
         self._applied_stem_directions: dict = {}   # hand-flipped stems ditto
         self._applied_trigger_overrides: dict = {}   # hand-moved onsets ditto
+        self._applied_tied_as_one = False    # tied-as-one flag ditto
         self._retained: _RebuildInputs | None = None   # for rebuild_schedule
 
     @property
@@ -122,25 +125,39 @@ class ScoreLoader:
                 or dict(doc.stem_directions) != self._applied_stem_directions)
 
     def needs_reschedule(self, doc: ProjectDoc) -> bool:
-        """A trigger-override change re-derives the SCHEDULE only.
-        Deliberately not in `needs_reengrave`: the overrides are not
-        engraving inputs, so no Verovio and no scene rebuild."""
-        return dict(doc.trigger_overrides) != self._applied_trigger_overrides
+        """A trigger-override or tied-as-one change re-derives the
+        SCHEDULE (and its reveal tracks) only. Deliberately not in
+        `needs_reengrave`: neither is an engraving input, so no
+        Verovio and no scene rebuild."""
+        return (dict(doc.trigger_overrides) != self._applied_trigger_overrides
+                or doc.tied_notes_as_one != self._applied_tied_as_one)
 
-    def rebuild_schedule(self, doc: ProjectDoc) -> TriggerSchedule | None:
-        """The schedule alone, rebuilt from the LAST load's retained
-        derivations plus the document's overrides. None before any
-        load. Ids that turned stale since the load stay inert here —
-        they were warned about then (rule 5's staleness trade)."""
+    def rebuild_schedule(self, doc: ProjectDoc
+                         ) -> tuple[TriggerSchedule, tuple] | None:
+        """The schedule AND its reveal tracks, rebuilt from the LAST
+        load's retained derivations plus the document's overrides and
+        tied-as-one flag. None before any load. The tracks come too
+        because tied-as-one moves the chain anchors — a plain override
+        never does, but rebuilding both keeps this one seam. Ids that
+        turned stale since the load stay inert here — they were warned
+        about then (rule 5's staleness trade)."""
         if self._retained is None:
             return None
         kept = self._retained
         overrides = dict(doc.trigger_overrides)
+        durations = resolve_durations(kept.layout, kept.mapping,
+                                      kept.note_durations, kept.measures,
+                                      tied_as_one=doc.tied_notes_as_one)
         schedule = build_trigger_schedule(
-            kept.layout, kept.mapping, kept.measures, kept.durations,
-            trigger_overrides=overrides)
+            kept.layout, kept.mapping, kept.measures, durations,
+            trigger_overrides=overrides,
+            tied_as_one=doc.tied_notes_as_one)
+        score_end = max((m.start + m.quarter_length for m in kept.measures),
+                        default=0.0)
+        tracks = tuple(build_reveal_tracks(kept.layout, schedule, score_end))
         self._applied_trigger_overrides = overrides
-        return schedule
+        self._applied_tied_as_one = doc.tied_notes_as_one
+        return schedule, tracks
 
     def load(self, path: Path, params: EngravingParams,
              stage: StageConfig | None,
@@ -153,7 +170,8 @@ class ScoreLoader:
              system_breaks: dict[int, SystemBreak] | None = None,
              page_breaks: dict[int, PageBreak] | None = None,
              stem_directions: dict | None = None,
-             trigger_overrides: dict | None = None
+             trigger_overrides: dict | None = None,
+             tied_as_one: bool = False
              ) -> LoadedScore:
         """Engrave + decompose + join + wire the animation. `groups` is
         doc.staff_groups — injected as <part-group> at the prep seam;
@@ -169,7 +187,9 @@ class ScoreLoader:
         encoded direction on every single-voice staff;
         `trigger_overrides` is doc.trigger_overrides — hand-moved fire
         times consumed by the schedule, NOT an engraving input
-        (2026-08-08);
+        (2026-08-08); `tied_as_one` is doc.tied_notes_as_one — tied
+        chains scheduled and stretched as one note, the same
+        schedule-only species (2026-08-10);
         geometry re-derives, musical ids survive (rule 5, Phases
         8/9/12). `style` is the CURRENT document style — the applier is
         built with it and set_style'd after any later change."""
@@ -235,13 +255,20 @@ class ScoreLoader:
                 print(f"load warning [{w.code}]: {w.message}",
                       file=sys.stderr)
         # per-element engraved durations (M4): resolved once here, carried
-        # by the schedule so live AND export read the same seam
-        durations = resolve_durations(engraved.layout, report.mapping,
-                                      engraved.note_durations,
-                                      model.measures)
+        # by the schedule so live AND export read the same seam. The
+        # BASE resolution (each segment its own) always exists too: the
+        # glow's chain walk measures spans off own-segment lengths, so
+        # feeding it tied-as-one durations would double-count a chain.
+        base_durations = resolve_durations(engraved.layout, report.mapping,
+                                           engraved.note_durations,
+                                           model.measures)
+        durations = base_durations if not tied_as_one else resolve_durations(
+            engraved.layout, report.mapping, engraved.note_durations,
+            model.measures, tied_as_one=True)
         schedule = build_trigger_schedule(engraved.layout, report.mapping,
                                           model.measures, durations,
-                                          trigger_overrides=trigger_overrides)
+                                          trigger_overrides=trigger_overrides,
+                                          tied_as_one=tied_as_one)
         score_end = max((m.start + m.quarter_length for m in model.measures),
                         default=0.0)
         reveal_tracks = build_reveal_tracks(engraved.layout, schedule,
@@ -249,8 +276,9 @@ class ScoreLoader:
         # retained for export: the private export scenes+applier build
         # from the SAME inputs as the live ones (render/export.py)
         # who glows, whose halo they share, and how long a tied chain
-        # burns: derived here so live and export read one seam
-        glow = glow_scope(engraved.layout, report.mapping, durations)
+        # burns: derived here so live and export read one seam — off
+        # the BASE durations always (see above)
+        glow = glow_scope(engraved.layout, report.mapping, base_durations)
         animation_inputs = AnimationInputs(
             engraved.layout, stage, schedule, tuple(reveal_tracks), glow)
         applier = AnimationApplier(scenes.items, schedule,
@@ -273,10 +301,12 @@ class ScoreLoader:
         self._applied_page_breaks = page_breaks
         self._applied_stem_directions = stem_directions
         self._applied_trigger_overrides = trigger_overrides
-        self._retained = _RebuildInputs(layout=engraved.layout,
-                                        mapping=dict(report.mapping),
-                                        measures=tuple(model.measures),
-                                        durations=dict(durations))
+        self._applied_tied_as_one = tied_as_one
+        self._retained = _RebuildInputs(
+            layout=engraved.layout,
+            mapping=dict(report.mapping),
+            measures=tuple(model.measures),
+            note_durations=dict(engraved.note_durations))
 
         return LoadedScore(
             scenes=scenes, stage=stage,

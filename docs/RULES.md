@@ -106,6 +106,13 @@ first) and update the matching section here.
      This is a GLOW rule only — APPEARANCE is untouched, so rule 1 of
      `schedule.py` (grow-with-playhead, 2026-07-22) stands and a
      continuation head still fills in as the playhead reaches it.
+     Since 2026-08-10 the user can ask for more:
+     `doc.tied_notes_as_one` ("Tied notes as one" in the Effects
+     panel, off by default) makes APPEARANCE follow the same chains —
+     the whole held note shows at the chain start and note-value
+     effects run its full tied length. That is a deliberate,
+     option-scoped reversal of grow-with-playhead; off is the
+     2026-07-22 ruling untouched.
    - **Attached ink shares its head's halo** rather than running its own
      clock, joined through the nearest head — the same join a pop's
      pivot makes. One note is one light.
