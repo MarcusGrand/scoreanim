@@ -28,6 +28,7 @@ from scoreanim.core.engraving.svg_geom import (ellipse_path, line_path,
 from scoreanim.core.engraving.types import (Affine, LoadWarning,
                                             PathPrimitive, Point, Rect,
                                             TextPrimitive)
+from scoreanim.core.engraving.verovio import decoration_reclaim
 from scoreanim.core.engraving.verovio.kinds import (
     _CONTAINER_CLASSES, _KIND_BY_CLASS, _SPANNER_CLASSES, _SVG_NS,
     _XLINK_HREF, _XML_ID)
@@ -90,6 +91,11 @@ class _PageDecomposer:
         inner = self.root.find(f"{_SVG_NS}svg")
         if inner is None:
             raise ValueError(f"page {self.page}: no definition-scale <svg>")
+        # Decoration ink stolen under id reuse (2026-08-10): mark it
+        # before the walk so the host never absorbs it; fold it back
+        # onto its own element at the end.
+        self.reclaim = decoration_reclaim.scan(inner)
+        self.reclaimed: list[tuple[str, str, ET.Element, Affine]] = []
         for defs in self.root.findall(f"{_SVG_NS}defs"):
             for g in defs:
                 gid = g.get("id")
@@ -110,6 +116,10 @@ class _PageDecomposer:
             raise ValueError(
                 f"page {self.page}: {self.drawables_seen - self.drawables_claimed} "
                 f"drawable(s) not claimed by any element — decomposition is lossy")
+        decoration_reclaim.finish(
+            self.reclaim, self.reclaimed, self.done, self._add_drawable,
+            self.st.mei.measure_by_id, self.st.warnings, self.st.strict,
+            self.page)
         return self.done
 
     # -- tree walk ----------------------------------------------------------
@@ -224,8 +234,12 @@ class _PageDecomposer:
                     # the foreign group carrying its id and leaves this
                     # one bare (FINDING-5) — _reclaim_spanner_ink needs
                     # its measure/system context to put the ink back,
-                    # and drops it again if nothing is reclaimed.
-                    if acc.paths or acc.texts or cls in _SPANNER_CLASSES:
+                    # and drops it again if nothing is reclaimed. An
+                    # empty decoration group expecting reclaimed ink is
+                    # kept for the same reason, at its document
+                    # position so its minted seq matches the flat load.
+                    if acc.paths or acc.texts or cls in _SPANNER_CLASSES \
+                            or self.reclaim.is_expected(cid, cls):
                         self.done.append(acc)
                     continue
                 if cls and cls not in _CONTAINER_CLASSES and cls not in _KIND_BY_CLASS \
@@ -264,6 +278,14 @@ class _PageDecomposer:
             elif tag in ("use", "path", "rect", "line", "polygon", "polyline",
                          "ellipse", "circle", "text"):
                 self.drawables_seen += 1
+                vid = self.reclaim.stolen.get(id(child))
+                if vid is not None:
+                    # stolen decoration ink: buffered with the walk's
+                    # own transform, folded back after the walk — the
+                    # host never sees it
+                    self.reclaimed.append((vid, tag, child, child_ctm))
+                    self.drawables_claimed += 1
+                    continue
                 if owner is None:
                     raise ValueError(
                         f"page {self.page}: orphan <{tag}> outside any "

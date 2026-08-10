@@ -109,6 +109,21 @@ _ID_TAG = {k: k.name.lower() for k in ElementKind}
 # continuation system (Phase 5 spike, spikes/spanner_split.py).
 _SPANNER_CLASSES = {"slur", "tie", "hairpin", "lv"}
 
+# Decoration classes whose ink Verovio can draw into a FOREIGN group
+# under id reuse (2026-08-10, testdata/triplet_error.musicxml m28): the
+# optimize round-trip re-mints xml:ids, the decoration's own <g> comes
+# back empty, and its ink sits as direct children of another group
+# carrying the same id — the FINDING-5 family, beyond the spanner
+# curves the by-id reclaim already covers. Each class maps to the
+# signature of its own ink (drawable tag, plus the SMuFL codepoint
+# range for glyph <use>s), which is how the reclaim tells stolen ink
+# from the host's own. decoration_reclaim.py consumes this; a new
+# class showing the same theft joins here, nowhere else.
+_DECORATION_INK: dict[str, tuple[str, tuple[int, int] | None]] = {
+    "tupletNum": ("use", (0xE880, 0xE88F)),   # SMuFL tuplet digits
+    "tupletBracket": ("polyline", None),
+}
+
 # Page furniture: TEXT sub-classes that stay STATIC under the Phase 10R
 # animate-everything ruling (part labels, page header/footer, measure
 # numbers are navigation furniture, not musical objects). They mint
