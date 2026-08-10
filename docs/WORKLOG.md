@@ -52,6 +52,26 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-10 (tied) — **"Tied notes as one"** (`f-tied-as-one`, off
+  `main`, UNMERGED): Marcus's option — a tied chain appears whole at
+  its chain start, and note-value effects (and the volume window) run
+  the full tied length. `doc.tied_notes_as_one` rides v12 sparsely
+  (written only when True), `SetTiedNotesAsOne` beside SetTriggerBeat,
+  checkbox under Sweep in the Effects panel. Mechanism: the glow's
+  chain walk extracted to `core/animation/tie_chains.py`;
+  `build_trigger_schedule(tied_as_one)` retargets continuation heads —
+  the OPTION-SCOPED reversal of the 2026-07-22 grow-with-playhead
+  ruling, off is that ruling untouched (pinned) —
+  `resolve_durations(tied_as_one)` gives every chain link the chain
+  span so all links run one effect window, and the reveal anchors fold
+  to chain start. Toggling live re-derives schedule + reveal tracks
+  (no Verovio); `set_schedule` grew an optional reveal_tracks. Watch
+  out for one thing: the glow scope must keep BASE durations — chain
+  spans measured off tied durations double-count. Full suite green
+  (2099), goldens untouched. Unproven under a human's eye — the thing
+  to feel is a long held note with a swell on (video_test has 24x
+  chains) and the toggle mid-playback. `render/animate.py` at 408 —
+  over the ceiling, flagged not paid (the items.py precedent).
 - 2026-08-09 (hotfix) — **Drum staves lose their key signatures**
   (`beta/f-move-onset`): Dorico exports the score's key on percussion
   parts too; a new prep pass (`_suppress_percussion_key_signatures`)
