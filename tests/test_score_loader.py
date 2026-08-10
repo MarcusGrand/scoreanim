@@ -74,6 +74,8 @@ def test_needs_reengrave_trips_on_prep_seam_inputs_only(
     assert loader.needs_reengrave(replace(doc, hide_first_system=True))
     assert loader.needs_reengrave(
         replace(doc, hidden_parts=frozenset({PartId("P2")})))
+    assert loader.needs_reengrave(replace(
+        doc, system_staff_hides={5: frozenset({PartId("P7")})}))
     # a non-engraving change (timing, style, stage) never trips it
     assert not loader.needs_reengrave(
         replace(doc, style=replace(doc.style, floor_opacity=0.9)))

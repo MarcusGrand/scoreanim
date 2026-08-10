@@ -30,6 +30,7 @@ from scoreanim.core.engraving.types import (EngravingParams, Layout,
 from scoreanim.core.engraving.verovio import VerovioEngravingProvider
 from scoreanim.core.project import (DEFAULT_BPM, ProjectDoc, StageConfig,
                                     default_stage_config, page_content_top)
+from scoreanim.core.score.identity import ElementKind
 from scoreanim.core.score.join import join_notes
 from scoreanim.core.score.model import build_score_model
 from scoreanim.core.score.musicxml_prep import (PageBreak, PartCondenseSpec,
@@ -55,6 +56,10 @@ class LoadedScore:
     all_parts: tuple             # FULL roster, hidden parts included —
                                  # what the stage's Staves menu lists
     band_by_system: dict         # per-system band rects (Phase 7.4)
+    first_measure_of_system: dict   # system → its starting ordinal —
+                                 # the per-system hide command's key
+    noted_parts_by_system: dict  # system → parts with NOTEHEADS there
+                                 # (a sounding staff cannot be hidden)
     system_of_measure: dict      # measure ordinal → system index (M5)
     page_of_measure: dict        # measure ordinal → page (M6, derived §1.2)
     warnings: tuple              # LoadWarnings (flag-and-continue)
@@ -88,6 +93,7 @@ class ScoreLoader:
         self._applied_page_breaks: dict = {}   # page-break overrides ditto
         self._applied_stem_directions: dict = {}   # hand-flipped stems ditto
         self._applied_hidden_parts: frozenset = frozenset()  # hidden parts ditto
+        self._applied_staff_hides: dict = {}   # per-system hides ditto
         self._applied_trigger_overrides: dict = {}   # hand-moved onsets ditto
         self._retained: _RebuildInputs | None = None   # for rebuild_schedule
 
@@ -123,7 +129,8 @@ class ScoreLoader:
                 or dict(doc.page_break_overrides)
                 != self._applied_page_breaks
                 or dict(doc.stem_directions) != self._applied_stem_directions
-                or doc.hidden_parts != self._applied_hidden_parts)
+                or doc.hidden_parts != self._applied_hidden_parts
+                or dict(doc.system_staff_hides) != self._applied_staff_hides)
 
     def needs_reschedule(self, doc: ProjectDoc) -> bool:
         """A trigger-override change re-derives the SCHEDULE only.
@@ -158,7 +165,8 @@ class ScoreLoader:
              page_breaks: dict[int, PageBreak] | None = None,
              stem_directions: dict | None = None,
              trigger_overrides: dict | None = None,
-             hidden_parts: frozenset = frozenset()
+             hidden_parts: frozenset = frozenset(),
+             system_staff_hides: dict | None = None
              ) -> LoadedScore:
         """Engrave + decompose + join + wire the animation. `groups` is
         doc.staff_groups — injected as <part-group> at the prep seam;
@@ -204,7 +212,8 @@ class ScoreLoader:
             condense_specs, strict=False,
             hide_first_system=hide_first_system,
             system_breaks=system_breaks, page_breaks=page_breaks,
-            stem_directions=stem_directions, hidden_parts=hidden_parts)
+            stem_directions=stem_directions, hidden_parts=hidden_parts,
+            system_staff_hides=system_staff_hides)
         t1 = time.perf_counter()
         if stage is None:
             stage = default_stage_config(engraved.prepared,
@@ -268,6 +277,19 @@ class ScoreLoader:
         # — derived from the Layout, never persisted (rule 5)
         bands = system_bands(engraved.layout)
         band_by_system = {b.system: b for b in bands}
+        # the stage menu's per-system data (2026-08-10), derived once:
+        # which measure starts each system (the hide command's key) and
+        # which parts play notes there (a sounding staff cannot hide)
+        first_of_system: dict[int, int] = {}
+        for measure_n, system_n in engraved.system_of_measure.items():
+            if measure_n < first_of_system.get(system_n, 1 << 30):
+                first_of_system[system_n] = measure_n
+        noted: dict[int, set] = {}
+        for el in engraved.layout.elements:
+            if (el.identity.kind is ElementKind.NOTEHEAD
+                    and el.system is not None
+                    and el.identity.part is not None):
+                noted.setdefault(el.system, set()).add(str(el.identity.part))
         t3 = time.perf_counter()
 
         self._applied_groups = groups
@@ -280,6 +302,7 @@ class ScoreLoader:
         self._applied_page_breaks = page_breaks
         self._applied_stem_directions = stem_directions
         self._applied_hidden_parts = frozenset(hidden_parts)
+        self._applied_staff_hides = dict(system_staff_hides or {})
         self._applied_trigger_overrides = trigger_overrides
         self._retained = _RebuildInputs(layout=engraved.layout,
                                         mapping=dict(report.mapping),
@@ -292,6 +315,9 @@ class ScoreLoader:
             measures=model.measures, parts=engraved.prepared.parts,
             all_parts=engraved.prepared.all_parts or engraved.prepared.parts,
             band_by_system=band_by_system,
+            first_measure_of_system=first_of_system,
+            noted_parts_by_system={s_n: frozenset(v)
+                                   for s_n, v in noted.items()},
             system_of_measure=dict(engraved.system_of_measure),
             page_of_measure=page_of_measure(bands,
                                             engraved.system_of_measure),

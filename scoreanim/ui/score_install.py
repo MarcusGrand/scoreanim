@@ -33,7 +33,8 @@ class ScoreInstaller:
                    hide_empty_staves: bool = HIDE_EMPTY_STAVES_DEFAULT,
                    condense_groups: tuple = (),
                    hide_first_system: bool = False,
-                   hidden_parts: frozenset = frozenset()
+                   hidden_parts: frozenset = frozenset(),
+                   system_staff_hides: dict | None = None
                    ) -> StageConfig:
         """Fresh-load entry: engrave + wire, then reset to page 1."""
         w = self._w
@@ -46,7 +47,7 @@ class ScoreInstaller:
                                w.app_state.doc.page_break_overrides,
                                w.app_state.doc.stem_directions,
                                w.app_state.doc.trigger_overrides,
-                               hidden_parts)
+                               hidden_parts, system_staff_hides)
         self.install(loaded)
         w.router.reset()
         return loaded.stage
@@ -91,7 +92,8 @@ class ScoreInstaller:
                                doc.page_break_overrides,
                                doc.stem_directions,
                                doc.trigger_overrides,
-                               doc.hidden_parts)
+                               doc.hidden_parts,
+                               doc.system_staff_hides)
         self.install(loaded)
         # a break edit re-anchors to the measure it touched, so the stage
         # stays where you were working (D8); everything else re-shows the
@@ -141,8 +143,12 @@ class ScoreInstaller:
         w.playback.set_animation(loaded.applier, loaded.measures)
         w.app_state.set_measures(loaded.measures)
         w.parts_menu.rebuild(loaded.parts)
-        # the stage's Staves menu lists the FULL roster, hidden included
+        # the stage's Staves menu lists the FULL roster, hidden included;
+        # the per-system half needs the bands and per-system facts too
         w.stage_menu.bind(loaded.all_parts)
+        w.stage_menu.bind_systems(loaded.scenes, loaded.band_by_system,
+                                  loaded.first_measure_of_system,
+                                  loaded.noted_parts_by_system)
         # fresh scenes rebuild their paper rects visible, so the
         # overlay preview's paper-hiding half is re-applied per load
         w.apply_overlay_preview()
