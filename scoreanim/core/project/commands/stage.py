@@ -94,6 +94,51 @@ class SetPartHidden(Command):
         return "hide part" if self.hidden else "show part"
 
 
+@dataclass(frozen=True)
+class SetSystemStaffHidden(Command):
+    """Hide one part's staff in ONE system, or show it again
+    (2026-08-10) — the stage menu's per-system half. `ordinal` is the
+    measure that starts the system (the break-map key convention), so
+    the intent survives edits elsewhere and goes inert-with-warning if
+    that measure stops starting a system (rule 5's staleness trade).
+    `part_order` is the full roster, runtime data (the AddStaffGroup
+    trust model); the guard refuses to hide the last part that could
+    still show in that system."""
+    ordinal: int                       # measure that STARTS the system
+    part: PartId
+    hidden: bool
+    part_order: tuple[PartId, ...]     # full roster, score order
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not isinstance(self.hidden, bool):
+            raise CommandError(f"bad hidden {self.hidden!r}")
+        if not isinstance(self.ordinal, int) or isinstance(self.ordinal, bool) \
+                or self.ordinal < 1:
+            raise CommandError(f"bad system start {self.ordinal!r}")
+        if self.part not in self.part_order:
+            raise CommandError(f"unknown part {self.part!r}")
+        hides = {k: frozenset(v) for k, v in doc.system_staff_hides.items()}
+        entry = set(hides.get(self.ordinal, frozenset()))
+        if self.hidden:
+            entry.add(self.part)
+            showable = [p for p in self.part_order
+                        if p not in doc.hidden_parts and p not in entry]
+            if not showable:
+                raise CommandError(
+                    "cannot hide the last visible staff of a system")
+        else:
+            entry.discard(self.part)
+        if entry:
+            hides[self.ordinal] = frozenset(entry)
+        else:
+            hides.pop(self.ordinal, None)
+        return replace(doc, system_staff_hides=hides)
+
+    def describe(self) -> str:
+        return ("hide staff in system" if self.hidden
+                else "show staff in system")
+
+
 # Encoder floor/ceiling for a canvas side: below 16 nothing is a video,
 # above 8192 nothing plays it; even because yuva subsampling needs it.
 _CANVAS_SIDE = range(16, 8193)

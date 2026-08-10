@@ -160,6 +160,10 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 #   ids. Rides v12 by the same no-shipped-reader reasoning; a missing
 #   key is every part visible, the look every file has had, so no
 #   read gate.
+#   Also v12 (per-system staff hides, 2026-08-10): system_staff_hides —
+#   parts hidden in ONE system, keyed by the system's starting measure
+#   ordinal (stringified like the break maps, sorted numerically).
+#   Same no-read-gate reasoning: a missing key is no override anywhere.
 PROJECT_VERSION = 12
 _READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 SUFFIX = ".scoreanim"
@@ -240,6 +244,11 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
         # rides v12: parts hidden by hand, sorted so a saved file is
         # deterministic
         "hidden_parts": [str(p) for p in sorted(doc.hidden_parts)],
+        # rides v12: per-system staff hides, the break maps' key shape
+        "system_staff_hides": {
+            str(ordinal): [str(p) for p in sorted(parts)]
+            for ordinal, parts in sorted(doc.system_staff_hides.items())
+        },
         "condense_groups": [
             {"parts": [str(p) for p in g.parts], "name": g.name,
              "abbreviation": g.abbreviation}
@@ -357,6 +366,12 @@ def from_dict(data: dict[str, Any],
             # rides v12: missing key → every part visible
             hidden_parts=frozenset(
                 PartId(p) for p in data.get("hidden_parts", [])),
+            # rides v12: missing key → no per-system override anywhere
+            system_staff_hides={
+                int(ordinal): frozenset(PartId(p) for p in parts)
+                for ordinal, parts in
+                data.get("system_staff_hides", {}).items()
+            },
             condense_groups=tuple(
                 CondenseGroup(parts=tuple(PartId(p) for p in g["parts"]),
                               name=g.get("name", ""),

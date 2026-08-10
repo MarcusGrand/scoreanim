@@ -491,7 +491,8 @@ def test_never_persists_derived_data() -> None:
                             "hide_empty_staves", "hide_first_system",
                             "condense_groups", "system_break_overrides",
                             "page_break_overrides", "stem_directions",
-                            "trigger_overrides", "hidden_parts"}
+                            "trigger_overrides", "hidden_parts",
+                            "system_staff_hides"}
 
 
 def test_v10_locked_beats_round_trip_and_older_files_have_none() -> None:
@@ -745,3 +746,20 @@ def test_older_files_load_with_every_part_visible() -> None:
     """No read gate: a missing key means no part was ever hidden."""
     for version in (1, 4, 7, 11, 12):
         assert from_dict({"version": version}).hidden_parts == frozenset()
+
+
+def test_v12_system_staff_hides_round_trip_sorted() -> None:
+    """The break maps' shape: stringified ordinals sorted numerically,
+    part lists sorted, so a saved file is deterministic."""
+    doc = ProjectDoc(system_staff_hides={
+        13: frozenset({PartId("P2")}),
+        5: frozenset({PartId("P7"), PartId("P3")})})
+    payload = to_dict(doc)
+    assert payload["system_staff_hides"] == {"5": ["P3", "P7"],
+                                            "13": ["P2"]}
+    out = from_dict(payload)
+    assert dict(out.system_staff_hides) == {
+        5: frozenset({PartId("P3"), PartId("P7")}),
+        13: frozenset({PartId("P2")})}
+    for version in (1, 7, 11, 12):
+        assert from_dict({"version": version}).system_staff_hides == {}

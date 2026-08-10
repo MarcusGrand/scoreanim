@@ -133,6 +133,17 @@ class ProjectDoc:
     # parts' stored overrides never shift; the hidden part's own go
     # inert (warned at load, never repaired here).
     hidden_parts: frozenset[PartId] = frozenset()
+    # Parts hidden by hand in ONE system (rides v12, 2026-08-10), keyed
+    # by the ordinal of the measure that STARTS the system — the break
+    # maps' key convention, so it means what <print new-system> means.
+    # An ENGRAVING INPUT applied at the Verovio seam: the part's
+    # empty/rest/slash measures in that system read as blank, and
+    # optimize hides the staff there — sounding notes are never
+    # stripped, so a staff with real music stays put (warned). Needs
+    # hide_empty_staves (optimize is the mechanism). Sparse; an ordinal
+    # that no longer starts a system is inert and warned at load.
+    system_staff_hides: Mapping[int, frozenset[PartId]] = \
+        field(default_factory=dict)
     # Contiguous like parts merged onto one staff (schema v5, consumed
     # Phase 12.3); the merged part-list is re-derived at the prep seam.
     condense_groups: tuple[CondenseGroup, ...] = ()

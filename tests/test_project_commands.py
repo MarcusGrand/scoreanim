@@ -1552,6 +1552,59 @@ def test_hiding_a_part_is_one_undo_entry(doc) -> None:
         == "show part"
 
 
+# --- per-system staff hides (2026-08-10) -----------------------------------
+
+def test_set_system_staff_hidden_is_a_sparse_map(doc) -> None:
+    from scoreanim.core.project import SetSystemStaffHidden
+
+    assert doc.system_staff_hides == {}
+    hidden = SetSystemStaffHidden(9, PartId("P2"), True, _ROSTER).apply(doc)
+    assert dict(hidden.system_staff_hides) == {9: frozenset({PartId("P2")})}
+    assert doc.system_staff_hides == {}          # the input is untouched
+
+    both = SetSystemStaffHidden(9, PartId("P3"), True, _ROSTER).apply(hidden)
+    assert both.system_staff_hides[9] == \
+        frozenset({PartId("P2"), PartId("P3")})
+
+    # showing removes the part; an emptied system drops its key entirely
+    one = SetSystemStaffHidden(9, PartId("P3"), False, _ROSTER).apply(both)
+    assert dict(one.system_staff_hides) == {9: frozenset({PartId("P2")})}
+    none = SetSystemStaffHidden(9, PartId("P2"), False, _ROSTER).apply(one)
+    assert none.system_staff_hides == {}
+
+
+def test_set_system_staff_hidden_validation(doc) -> None:
+    from scoreanim.core.project import SetSystemStaffHidden
+    with pytest.raises(CommandError, match="unknown part"):
+        SetSystemStaffHidden(9, PartId("P9"), True, _ROSTER).apply(doc)
+    for bad in (0, -1, "9", 2.5, True):
+        with pytest.raises(CommandError, match="system start"):
+            SetSystemStaffHidden(bad, PartId("P1"), True, _ROSTER).apply(doc)
+
+
+def test_a_system_keeps_one_showable_staff(doc) -> None:
+    """Globally hidden parts count as gone: with P1 hidden everywhere
+    and P2 hidden in system 9, P3 is the last showable staff there."""
+    from scoreanim.core.project import SetSystemStaffHidden
+    start = ProjectDoc(
+        hidden_parts=frozenset({PartId("P1")}),
+        system_staff_hides={9: frozenset({PartId("P2")})})
+    with pytest.raises(CommandError, match="last visible"):
+        SetSystemStaffHidden(9, PartId("P3"), True, _ROSTER).apply(start)
+
+
+def test_hiding_a_system_staff_is_one_undo_entry(doc) -> None:
+    from scoreanim.core.project import SetSystemStaffHidden
+    stack = UndoStack()
+    hidden = stack.execute(
+        SetSystemStaffHidden(5, PartId("P1"), True, _ROSTER), doc)
+    assert stack.undo_text() == "hide staff in system"
+    assert stack.undo() == doc
+    assert hidden.system_staff_hides != doc.system_staff_hides
+    assert SetSystemStaffHidden(5, PartId("P1"), False, _ROSTER) \
+        .describe() == "show staff in system"
+
+
 def test_set_video_canvas(doc) -> None:
     from scoreanim.core.project import SetVideoCanvas, VideoCanvas
 

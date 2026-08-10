@@ -41,6 +41,7 @@ from scoreanim.core.project.commands.stage import (AddTempoOverlay,
                                                    SetLyricsSize,
                                                    SetPartHidden,
                                                    SetPresentationMode,
+                                                   SetSystemStaffHidden,
                                                    SetScoreScale,
                                                    SetStaffLineWidth,
                                                    SetVideoCanvas)
@@ -88,7 +89,8 @@ __all__ = [
     "SetLayoutOverride", "SetPageBreak",
     "SetColorMode", "SetPartText", "SetPresentationMode", "SetPulseParam",
     "SetRevealMode", "SetScoreScale", "SetStaffLineWidth",
-    "SetStemDirection", "SetSwingRegion", "SetTempoFrom", "SetTriggerBeat",
+    "SetStemDirection", "SetSwingRegion", "SetSystemStaffHidden",
+    "SetTempoFrom", "SetTriggerBeat",
     "SetSystemBreak", "SetVideoCanvas", "SetVolumeParam",
     "UndoStack",
 ]
