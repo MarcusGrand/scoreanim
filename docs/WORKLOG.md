@@ -53,6 +53,30 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-10 (tuplet reclaim) — **Stolen tuplet ink goes home**
+  (`f-tuplet-ink-reclaim`, off `beta/f-hide-parts`, UNMERGED): Marcus's
+  bug — on the new `testdata/triplet_error.musicxml` (fixture #13, own
+  golden, his call), Alto 1's m28 tuplet "3" lit with a Trombone 1 note
+  and Trumpet 1's bracket was unclickable. Root cause measured: under
+  hide-empty-staves' optimize round-trip Verovio re-mints xml:ids,
+  leaves the `tupletNum`/`tupletBracket` groups EMPTY and draws their
+  ink as direct children of id-colliding groups in ANOTHER part (the
+  FINDING-5 family, beyond the spanner-curve reclaim; the bracket fell
+  into staff lines = unselectable, with ZERO warnings). New
+  `decoration_reclaim.py` at the decompose seam: for an empty
+  id-bearing group of a `kinds._DECORATION_INK` class whose id
+  collides in-page, the colliding groups' direct children matching the
+  class's ink signature (tuplet digits by SMuFL range E880-E88F,
+  brackets by polyline) are buffered at the walk and folded back — one
+  `reclaimed-decoration-ink` warning each; collision with NO ink found
+  warns/raises (`empty-decoration`). Hidden now matches flat (onset
+  108.0, selectable, onset-movable); the phantom P4 accidental never
+  exists. Repro needs THIS branch — on `main` the fixture's slash
+  staff dies under optimize and the provider retries flat. Split
+  first: `svg_text.py` out of decompose (455 → 382). Full suite green
+  (2148), 12 old goldens byte-identical. Unproven under a human's eye —
+  the thing to do is click the "3" and the bracket in m28 and drag
+  their onsets.
 - 2026-08-10 (system hide) — **A staff can hide for ONE system**
   (`beta/f-hide-parts`, UNMERGED): Marcus's correction — per-part was
   not enough, he wants "hide the drums HERE, keep them next system".
