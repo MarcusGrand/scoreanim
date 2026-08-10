@@ -44,6 +44,7 @@ GOLDEN_LOADS = {
     "condense_min_flat": "engraved_condense_flat",
     "condense_min_condensed": "engraved_condense_grouped",
     "tall_system_min": "engraved_tall_system",
+    "triplet_error_hidden": "engraved_triplet_hidden",
 }
 
 

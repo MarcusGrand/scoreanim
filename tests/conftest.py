@@ -70,6 +70,11 @@ PICKUP_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
 # regression fixture (hotfix 2026-07-25).
 GRIEG_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
     "grieg_short.musicxml"
+# 5-part chart whose m28 tuplet numbers/brackets come back EMPTY after
+# the optimize round-trip, their ink drawn inside id-colliding groups
+# in another part's m27 — the decoration-reclaim fixture (2026-08-10).
+TRIPLET_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
+    "triplet_error.musicxml"
 
 
 @pytest.fixture(scope="session")
@@ -150,6 +155,15 @@ def engraved_complex3_hidden() -> EngravedScore:
     return VerovioEngravingProvider().load_detailed(
         COMPLEX3_SCORE, EngravingParams(), hide_empty_staves=True,
         strict=True)
+
+
+@pytest.fixture(scope="session")
+def engraved_triplet_hidden() -> EngravedScore:
+    # hide_empty_staves=True (the new-document default) is what makes
+    # Verovio re-mint ids and steal the tuplet decorations' ink; loaded
+    # strict, so the reclaim has to make every empty group whole.
+    return VerovioEngravingProvider().load_detailed(
+        TRIPLET_SCORE, EngravingParams(), hide_empty_staves=True)
 
 
 @pytest.fixture(scope="session")
