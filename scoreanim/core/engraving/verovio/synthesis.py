@@ -48,8 +48,15 @@ def _synthesize_slashes(st: _LoadState,
             if count <= 0:
                 raise ValueError(f"slash region {region.part} m{m}: "
                                  f"non-positive slash count")
-            # v1 limitation: slash regions on the part's first staff
-            page, system, staff_bbox = staff_geo[(region.part, m, 1)]
+            # v1 limitation: slash regions on the part's first staff.
+            # A missing staff here is a DELIBERATE per-system hide
+            # (2026-08-10): the rule-10 guard upstream already returned
+            # None for any other kind of vanishing, so skipping is safe
+            # — no staff, no slashes.
+            geo = staff_geo.get((region.part, m, 1))
+            if geo is None:
+                continue
+            page, system, staff_bbox = geo
             staff_space = staff_bbox.h / 4
             mid_y = staff_bbox.y + staff_bbox.h / 2
             slot_w = staff_bbox.w / count
@@ -95,8 +102,13 @@ def _synthesize_repeats(st: _LoadState,
     for region in st.prep.repeat_regions:
         info = next(p for p in st.prep.parts if p.part_id == region.part)
         for m in range(region.start_measure, region.stop_measure):
-            # v1 limitation: repeat regions on the part's first staff
-            page, system, staff_bbox = staff_geo[(region.part, m, 1)]
+            # v1 limitation: repeat regions on the part's first staff.
+            # Missing staff = deliberate per-system hide (2026-08-10),
+            # the same skip as the slash synthesis above.
+            geo = staff_geo.get((region.part, m, 1))
+            if geo is None:
+                continue
+            page, system, staff_bbox = geo
             staff_space = staff_bbox.h / 4
             cx = staff_bbox.x + staff_bbox.w / 2
             mid_y = staff_bbox.y + staff_bbox.h / 2

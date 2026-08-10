@@ -28,7 +28,7 @@ from scoreanim.core.engraving.types import (TRANSPOSE_TO_SOUNDING_PITCH,
 from scoreanim.core.engraving.verovio import (attribution, decompose,
                                               identity, kinds, label_parts,
                                               mei_index, records, region_fill,
-                                              synthesis)
+                                              synthesis, system_hides)
 from scoreanim.core.score.identity import Beats, ElementKind
 from scoreanim.core.score.musicxml_prep import (PageBreak, PartCondenseSpec,
                                                 PartGroupSpec, PartTextSpec,
@@ -91,13 +91,14 @@ class VerovioEngravingProvider(EngravingProvider):
              system_breaks: Mapping[int, SystemBreak] | None = None,
              page_breaks: Mapping[int, PageBreak] | None = None,
              stem_directions: Mapping[str, StemDirection] | None = None,
-             hidden_parts: frozenset = frozenset()
+             hidden_parts: frozenset = frozenset(),
+             system_staff_hides: Mapping[int, frozenset] | None = None
              ) -> Layout:
         return self.load_detailed(score_path, params, groups, texts,
                                   hide_empty_staves, condense, strict,
                                   hide_first_system, system_breaks,
                                   page_breaks, stem_directions,
-                                  hidden_parts).layout
+                                  hidden_parts, system_staff_hides).layout
 
     def load_detailed(self, score_path: Path, params: EngravingParams,
                       groups: tuple[PartGroupSpec, ...] = (),
@@ -109,7 +110,8 @@ class VerovioEngravingProvider(EngravingProvider):
                       system_breaks: Mapping[int, SystemBreak] | None = None,
                       page_breaks: Mapping[int, PageBreak] | None = None,
                       stem_directions: Mapping[str, StemDirection] | None = None,
-                      hidden_parts: frozenset = frozenset()
+                      hidden_parts: frozenset = frozenset(),
+                      system_staff_hides: Mapping[int, frozenset] | None = None
                       ) -> records.EngravedScore:
         # strict (Phase 11.4): when False (the app path) an unknown
         # drawable SVG class degrades to a static OTHER element plus a
@@ -121,9 +123,10 @@ class VerovioEngravingProvider(EngravingProvider):
                        hidden_parts=hidden_parts)
         extra: list[LoadWarning] = []
         effective_hide = hide_empty_staves
+        staff_hides = dict(system_staff_hides or {})
         engraved, first_measure = self._engrave_prepared(
             score_path, prep, params, effective_hide, strict,
-            hide_first_system=hide_first_system)
+            hide_first_system=hide_first_system, staff_hides=staff_hides)
         if engraved is None:
             # Hiding made a slash- or bar-repeat-region staff vanish
             # (Verovio judges both empty — MEI <space>). Both are
@@ -141,7 +144,8 @@ class VerovioEngravingProvider(EngravingProvider):
                 "empty-staff hiding skipped for this score"))
             engraved, first_measure = self._engrave_prepared(
                 score_path, prep, params, effective_hide, strict,
-                hide_first_system=hide_first_system)
+                hide_first_system=hide_first_system,
+                staff_hides=staff_hides)
             assert engraved is not None
 
         # Never-clip guard (Phase 10R, rule-7 amendment): when the
@@ -177,7 +181,8 @@ class VerovioEngravingProvider(EngravingProvider):
                                hidden_parts=hidden_parts)
                 engraved, _ = self._engrave_prepared(
                     score_path, prep, params, effective_hide, strict,
-                    hide_first_system=hide_first_system)
+                    hide_first_system=hide_first_system,
+                    staff_hides=staff_hides)
                 assert engraved is not None    # same flag that succeeded
                 extra.append(LoadWarning(
                     "repaginated",
@@ -207,7 +212,8 @@ class VerovioEngravingProvider(EngravingProvider):
                                hidden_parts=hidden_parts)
                 engraved, _ = self._engrave_prepared(
                     score_path, prep, params, effective_hide, strict,
-                    scale=fit, hide_first_system=hide_first_system)
+                    scale=fit, hide_first_system=hide_first_system,
+                    staff_hides=staff_hides)
                 assert engraved is not None
                 extra.append(LoadWarning(
                     "scaled-to-fit",
@@ -249,6 +255,31 @@ class VerovioEngravingProvider(EngravingProvider):
                 "hidden-part-inert",
                 f"{len(gone)} hidden part(s) no longer in the score "
                 f"({', '.join(gone)})"))
+        # Per-system staff hides (2026-08-10): three ways of not
+        # landing, each said out loud. The report re-runs the pure
+        # strip on the FINAL prep, so it describes what this load did.
+        if staff_hides and not hide_empty_staves:
+            extra.append(LoadWarning(
+                "staff-hide-ignored",
+                f"{len(staff_hides)} per-system staff hide(s) ignored: "
+                f"empty-staff hiding is off"))
+        elif staff_hides:
+            filled = region_fill.fill_region_measures(
+                engraved.prepared.canonical_xml,
+                (*engraved.prepared.slash_regions,
+                 *engraved.prepared.repeat_regions))
+            _, rep = system_hides.strip_hidden_staves(filled, staff_hides)
+            if rep.inert:
+                extra.append(LoadWarning(
+                    "staff-hide-inert",
+                    f"{len(rep.inert)} per-system staff hide(s) had no "
+                    f"system to land on (measure "
+                    f"{', '.join(str(o) for o in rep.inert)})"))
+            for ordinal, pid in rep.kept:
+                extra.append(LoadWarning(
+                    "staff-hide-kept-notes",
+                    f"{pid} plays notes in the system at measure "
+                    f"{ordinal}; its staff stays visible there"))
         # Authored PAGE intent has two ways of not landing, and D8 gives
         # them two codes because they want different things from the
         # user. Both are read off the FINAL layout, so no ordinal is ever
@@ -365,7 +396,8 @@ class VerovioEngravingProvider(EngravingProvider):
                           hide_empty_staves: bool,
                           strict: bool = True,
                           scale: int | None = None,
-                          hide_first_system: bool = False
+                          hide_first_system: bool = False,
+                          staff_hides: Mapping[int, frozenset] | None = None
                           ) -> tuple[records.EngravedScore | None, dict[int, int]]:
         """One full engrave+decompose; also returns the first measure
         of every system (for the repagination planner). The score is
@@ -382,9 +414,16 @@ class VerovioEngravingProvider(EngravingProvider):
         # bytes music21 reads stay untouched, and the decomposer skips
         # the fill ids, so nothing downstream ever sees them.
         source = prep.canonical_xml
+        overridden: frozenset = frozenset()
         if hide_empty_staves:
             source = region_fill.fill_region_measures(
                 source, (*prep.slash_regions, *prep.repeat_regions))
+            if staff_hides:
+                # AFTER the fill, so a hidden system's fill notes are
+                # stripped back out and optimize hides the staff there
+                source, strip_report = system_hides.strip_hidden_staves(
+                    source, staff_hides)
+                overridden = frozenset(strip_report.stripped)
         if not tk.loadData(source):
             raise ValueError(f"Verovio failed to load {score_path}")
         if hide_empty_staves:
@@ -535,8 +574,11 @@ class VerovioEngravingProvider(EngravingProvider):
                 first_measure[system_n] = measure_n
         if hide_empty_staves and any(
                 (region.part, m, 1) not in staff_geo
+                and (str(region.part), m) not in overridden
                 for region in (*prep.slash_regions, *prep.repeat_regions)
                 for m in range(region.start_measure, region.stop_measure)):
+            # a region staff vanished that the user did NOT hide — the
+            # rule-10 fallback (a deliberately hidden span is exempt)
             return None, first_measure   # caller retries flat (rule 10)
         elements.extend(synthesis._synthesize_slashes(state, staff_geo))
         elements.extend(synthesis._synthesize_repeats(state, staff_geo))

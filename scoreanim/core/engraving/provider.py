@@ -21,7 +21,9 @@ class EngravingProvider(abc.ABC):
              condense: tuple[PartCondenseSpec, ...] = (),
              hide_first_system: bool = False,
              system_breaks: Mapping[int, SystemBreak] | None = None,
-             hidden_parts: frozenset = frozenset()) -> Layout:
+             hidden_parts: frozenset = frozenset(),
+             system_staff_hides: Mapping[int, frozenset] | None = None
+             ) -> Layout:
         """Engrave the score and decompose it into an identity-tagged,
         paged Layout. Must be deterministic for (file contents, params,
         groups, texts, hide_empty_staves, condense, hide_first_system,
@@ -41,7 +43,10 @@ class EngravingProvider(abc.ABC):
         operate on the edited break set exactly as they do on the
         encoded one; `hidden_parts` (2026-08-09) removes each named
         part from the part list at the prep seam, so it is not engraved
-        at all — engraving inputs, never persisted, and separate
+        at all; `system_staff_hides` (2026-08-10) hides named parts'
+        staves in single systems, keyed by the system's starting
+        measure ordinal (needs hide_empty_staves — optimize is the
+        mechanism) — engraving inputs, never persisted, and separate
         arguments (NOT EngravingParams fields: params serialize in the
         doc and would duplicate doc.staff_groups / doc.text_overrides /
         doc.hide_empty_staves / doc.condense_groups /
