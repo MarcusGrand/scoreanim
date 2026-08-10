@@ -1114,3 +1114,22 @@ the fact).
   anchor on an empty measure (video_test's dashed bracket at Drums
   m23) now draws — a fidelity gain, and the one element the golden
   re-capture blessed.
+
+## Per-system staff visibility (2026-08-10) — spikes/system_staff_visibility.py
+
+Measured before building the manual "hide this staff in this system"
+override.
+
+- **Verovio 6.2.1 still ignores `staffDef@visible`** — in the header
+  scoreDef, as a milestone scoreDef/staffGrp/staffDef, and as a bare
+  milestone staffDef. All three load fine and change nothing, so the
+  Phase 10R finding stands on the current toolkit.
+- The working mechanism is the region fill run backwards: under
+  scoreDef@optimize a staff whose measures are ALL blank for a system
+  is hidden, so stripping a part's non-sounding measures to whole-bar
+  forwards (after the fill, whose keep-alive notes strip back out)
+  hides exactly that system's staff. Sounding measures are never
+  stripped — the staff stays and the load warns.
+- Two hard limits ride the mechanism and gray the menu entries:
+  optimize must be on (hide_empty_staves), and system 1 only condenses
+  under condenseFirstPage (hide_first_system).

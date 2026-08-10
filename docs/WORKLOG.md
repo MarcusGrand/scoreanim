@@ -3,9 +3,10 @@
 **NOW:** `beta/f-move-onset` (re-timing) merged to `main` on
 2026-08-09 on Marcus's call (suite green before and after; `main` NOT
 yet pushed since the merge). One branch is open:
-`beta/f-hide-parts` — the right-click Staves menu (per-part hiding)
-and the region-fill fix that stops a system break from switching
-empty-staff hiding off score-wide (see the 2026-08-09 hide line).
+`beta/f-hide-parts` — the right-click Staves menu (per-part hiding
+plus per-SYSTEM hides), and the region-fill fix that stops a system
+break from switching empty-staff hiding off score-wide (the
+2026-08-09 hide and 2026-08-10 system-hide lines).
 Awaiting Marcus's in-app check before merge. **Schema is v12** (the
 hidden-parts key rides it sparsely), so a project saved from here will
 not open on `v0.2-beta.6` or any older build.
@@ -52,6 +53,25 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-10 (system hide) — **A staff can hide for ONE system**
+  (`beta/f-hide-parts`, UNMERGED): Marcus's correction — per-part was
+  not enough, he wants "hide the drums HERE, keep them next system".
+  Verovio 6.2.1 still ignores `staffDef@visible` (re-spiked), so the
+  mechanism is the region fill run backwards: `doc.system_staff_hides`
+  (rides v12, keyed by the system's starting measure ordinal — the
+  break maps' convention, inert+warned when stale) strips the part's
+  non-sounding measures to whole-bar forwards at the Verovio seam and
+  optimize hides the staff there. Sounding notes are NEVER stripped
+  (kept + warned), the rule-10 guard exempts deliberate hides, and the
+  slash synthesis skips a staff that is not there. The context menu
+  grew "Staves in This System" — the band under the right-click, one
+  checkable entry per part, grayed when the mechanism cannot work
+  (notes there / hiding off / system 1 without the first-system
+  option), never grayed when already hidden so a stale override stays
+  clearable. Full suite green; goldens untouched (no override = no
+  strip). Unproven under a human's eye — the thing to feel is
+  right-clicking a drum slash system and watching only that system
+  thin.
 - 2026-08-09 (hide) — **Right-click Staves menu + hiding survives
   breaks** (`beta/f-hide-parts`, off `main` after `beta/f-move-onset`
   merged on Marcus's call, UNMERGED): two halves. (1) Per-part manual
