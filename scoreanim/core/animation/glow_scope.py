@@ -21,13 +21,16 @@ mostly about that:
   2026-08-06). The chain's FIRST notehead owns the halo; every other
   head, and every tie between them, follows it.
 
-  That is a glow rule only. How the ink APPEARS is untouched: a
-  continuation notehead still fills in as the playhead reaches its own
-  barline, and the tie ink still grows left-to-right against the reveal
-  edge (schedule.py rule 1, the 2026-07-22 grow-with-playhead ruling —
-  reversing it drew a 14-beat held note out to the system's end while
-  the playhead was mid-system). So a tied note fills in bar by bar and
-  glows all at once, which is what Marcus asked for.
+  By default that is a glow rule only. How the ink APPEARS is
+  untouched: a continuation notehead still fills in as the playhead
+  reaches its own barline, and the tie ink still grows left-to-right
+  against the reveal edge (schedule.py rule 1, the 2026-07-22
+  grow-with-playhead ruling — reversing it unasked drew a 14-beat held
+  note out to the system's end while the playhead was mid-system). So
+  a tied note fills in bar by bar and glows all at once. The user CAN
+  ask for more: doc.tied_notes_as_one (2026-08-10) makes appearance
+  follow the same chains, through the schedule and the duration
+  resolver — this module's maps stay glow-only either way.
 
 Chains are built from the joined `ScoreNote.tie` words, matched by pitch
 inside one (part, staff, voice) — the same way MusicXML means them, so a

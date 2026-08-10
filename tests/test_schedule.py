@@ -161,7 +161,7 @@ def test_trigger_pages_monotone(schedule) -> None:
 
 # --- synthetic coverage for the group rule (no mixed chords in fixture) ----
 
-def _synthetic(tie_second_head: str | None):
+def _synthetic(tie_second_head: str | None, tied_as_one: bool = False):
     from scoreanim.core.engraving.types import (Layout, PageGeometry, Point,
                                                 Rect, RenderedElement,
                                                 RenderPrimitive)
@@ -196,7 +196,7 @@ def _synthetic(tie_second_head: str | None):
         "c1": note(4.0, "C", 0, "stop"),
         "e1": note(4.0, "E", 1, tie_second_head),
     }
-    return build_trigger_schedule(layout, mapping)
+    return build_trigger_schedule(layout, mapping, tied_as_one=tied_as_one)
 
 
 def test_chord_ink_fires_at_own_onset_tied_or_not() -> None:
@@ -210,6 +210,74 @@ def test_chord_ink_fires_at_own_onset_tied_or_not() -> None:
         assert sched.beats_by_element["e1"] == 4.0   # head, own onset
         assert sched.beats_by_element["s1"] == 4.0   # shared stem, own onset
         assert sched.beats_by_element["s0"] == 0.0   # first chord's stem
+
+
+# --- tied notes as one (2026-08-10, option) --------------------------------
+
+@pytest.fixture(scope="module")
+def schedule_tied(engraved, join_mapping, score_model):
+    return build_trigger_schedule(engraved.layout, join_mapping,
+                                  score_model.measures, tied_as_one=True)
+
+
+def test_tied_as_one_off_is_exactly_todays_schedule(engraved, join_mapping,
+                                                    score_model,
+                                                    schedule) -> None:
+    """The flag's default is off, and off is byte-for-byte rule 1 — the
+    guard that makes every already-saved project render unchanged."""
+    assert build_trigger_schedule(engraved.layout, join_mapping,
+                                  score_model.measures,
+                                  tied_as_one=False) == schedule
+
+
+def test_tied_as_one_retimes_every_continuation_to_its_chain_start(
+        schedule_tied, engraved, join_mapping) -> None:
+    """Option on: all 64 stop/continue heads fire WITH their chain's
+    first head, at that head's own notated onset — the deliberate,
+    option-scoped reversal of the 2026-07-22 grow-with-playhead rule."""
+    from scoreanim.core.animation.tie_chains import tie_chains
+    leader, _ = tie_chains(engraved.layout, join_mapping, {})
+    assert len(leader) == 64             # every tied head finds its chain
+    for eid, head in leader.items():
+        assert schedule_tied.beats_by_element[eid] \
+            == schedule_tied.beats_by_element[head], eid
+        assert schedule_tied.beats_by_element[head] \
+            == join_mapping[head].onset, head
+
+
+def test_tied_as_one_leaves_fresh_noteheads_alone(schedule_tied, schedule,
+                                                  join_mapping) -> None:
+    for eid, note in join_mapping.items():
+        if note.tie not in ("stop", "continue"):
+            assert schedule_tied.beats_by_element[eid] \
+                == schedule.beats_by_element[eid], eid
+
+
+def test_tied_as_one_hihat_stop_fires_with_its_m18_start(schedule,
+                                                         schedule_tied
+                                                         ) -> None:
+    """The m18→19 voice-relabel chain: off fires the stop at its own
+    m19 downbeat (66.0); on carries it back to the m18 chain start."""
+    stop = "P7:m19:s1:v5:note:0"
+    assert schedule.beats_by_element[stop] == 66.0
+    assert schedule_tied.beats_by_element[stop] < 66.0
+
+
+def test_tied_as_one_mixed_chord_still_articulates() -> None:
+    """Rule 3's any-fresh rule survives the option: a chord holding one
+    tied note still articulates at its own onset, and only an ALL-tied
+    group inherits the chain-start trigger (rule 3's else branch, live
+    again for the first time since 2026-07-22)."""
+    mixed = _synthetic(tie_second_head=None, tied_as_one=True)
+    assert mixed.beats_by_element["c1"] == 0.0    # continuation retimed
+    assert mixed.beats_by_element["e1"] == 4.0    # fresh head, its own
+    assert mixed.beats_by_element["s1"] == 4.0    # any-fresh articulates
+
+    all_tied = _synthetic(tie_second_head="stop", tied_as_one=True)
+    assert all_tied.beats_by_element["c1"] == 0.0
+    assert all_tied.beats_by_element["e1"] == 0.0
+    assert all_tied.beats_by_element["s1"] == 0.0  # the group follows
+    assert all_tied.beats_by_element["s0"] == 0.0
 
 
 # Page furniture — TEXT sub-classes the adapter mints onset-less; the

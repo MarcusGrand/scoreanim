@@ -17,7 +17,10 @@ it musically correct on real Dorico exports (spikes/NOTES.md):
    not fully lit. The default "appear" effect is an opacity fade, so a
    continuation REVEALS rather than re-attacks; onset-less broken :seg
    tie/slur segments carry no ScoreNote, never reach this table, and stay
-   edge-driven.
+   edge-driven. ``tied_as_one`` (doc.tied_notes_as_one, 2026-08-10) is
+   the user's deliberate reversal of this rule: every continuation head
+   takes its chain start's trigger again, so the whole held note appears
+   at once. Off by default, and off is this rule untouched.
 
 2. Grace timing. Grace ScoreNotes carry the principal's onset, but the
    layout identity carries Verovio's fractional qstamp (just before the
@@ -51,6 +54,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Mapping, Sequence
 
+from scoreanim.core.animation.tie_chains import tie_chains
 from scoreanim.core.engraving.types import Layout
 from scoreanim.core.score.identity import (Beats, ElementId, ElementIdentity,
                                            ElementKind)
@@ -168,7 +172,8 @@ def build_trigger_schedule(layout: Layout,
                            duration_by_element:
                                Mapping[ElementId, Beats] | None = None,
                            trigger_overrides:
-                               Mapping[ElementId, Beats] | None = None
+                               Mapping[ElementId, Beats] | None = None,
+                           tied_as_one: bool = False
                            ) -> TriggerSchedule:
     ident_by_id = {el.identity.element_id: el.identity
                    for el in layout.elements}
@@ -191,6 +196,22 @@ def build_trigger_schedule(layout: Layout,
         ident = ident_by_id[eid]
         note_trigger[eid] = (ident.onset if note.grace
                              and ident.onset is not None else note.onset)
+
+    # -- tied-as-one (option, 2026-08-10) ----------------------------------
+    # Every continuation head takes its chain start's trigger, so a held
+    # note appears whole at the chain start — the deliberate,
+    # OPTION-SCOPED reversal of rule 1's grow-with-playhead default
+    # (doc.tied_notes_as_one; off is rule 1 untouched). Rule 3 below
+    # then carries an all-tied group's attachments back with it (its
+    # else branch, live again for the first time since 2026-07-22), and
+    # the reveal anchors read these triggers, so the tie ink stands
+    # revealed from chain start too.
+    if tied_as_one:
+        leader, _spans = tie_chains(layout, mapping,
+                                    duration_by_element or {})
+        for eid, head in leader.items():
+            if eid in note_trigger and head in note_trigger:
+                note_trigger[eid] = note_trigger[head]
 
     # -- rule 3: group table from the noteheads ----------------------------
     group_triggers: dict[tuple, list[tuple[Beats, Beats]]] = defaultdict(list)
