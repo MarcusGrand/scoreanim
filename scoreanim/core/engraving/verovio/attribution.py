@@ -28,9 +28,9 @@ from collections import defaultdict
 from scoreanim.core.engraving.svg_geom import path_bbox
 from scoreanim.core.engraving.types import (LoadWarning, PathPrimitive,
                                             Rect)
-from scoreanim.core.engraving.verovio.decompose import (_ElementAccumulator,
-                                                        _text_prim_bbox)
+from scoreanim.core.engraving.verovio.decompose import _ElementAccumulator
 from scoreanim.core.engraving.verovio.kinds import _SPANNER_CLASSES
+from scoreanim.core.engraving.verovio.svg_text import _text_prim_bbox
 from scoreanim.core.engraving.verovio.records import _LoadState
 from scoreanim.core.score.identity import Beats, ElementKind
 
