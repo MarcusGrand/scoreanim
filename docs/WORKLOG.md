@@ -1,15 +1,16 @@
 # ScoreAnim — Worklog
 
-**NOW:** `beta/f-move-onset` (re-timing) merged to `main` on
-2026-08-09 on Marcus's call (suite green before and after; `main` NOT
-yet pushed since the merge). One branch is open:
-`beta/f-hide-parts` — the right-click Staves menu (per-part hiding
-plus per-SYSTEM hides), and the region-fill fix that stops a system
-break from switching empty-staff hiding off score-wide (the
-2026-08-09 hide and 2026-08-10 system-hide lines).
-Awaiting Marcus's in-app check before merge. **Schema is v12** (the
-hidden-parts key rides it sparsely), so a project saved from here will
-not open on `v0.2-beta.6` or any older build.
+**NOW:** everything is on `main` and pushed (no tag since
+`v0.2-beta.6`). On 2026-08-16, on Marcus's call after his in-app
+check, three branches merged in order: `beta/f-hide-parts` (the
+Staves menu, per-system hides, the region-fill hide fix),
+`f-tuplet-ink-reclaim` (stolen tuplet ink under id reuse) and
+`f-tied-as-one` ("Tied notes as one"). The last merge's conflicts
+were resolved to the byte-identical tree tested on the scratch
+integration branch (full suite 2163 green there). No branch is open.
+**Schema is v12** (hidden-parts, system-hides and tied-as-one all
+ride it sparsely), so a project saved from here will not open on
+`v0.2-beta.6` or any older build.
 
 **Every score re-engraves differently from 2026-08-03 on** — the stem
 pass is unconditional, and it moved 11 of the 12 goldens. That is the
@@ -35,8 +36,9 @@ earns its place now that the Tempo field aims at the selected line.
 `render/items.py` is at **402** — over the ceiling as of 2026-08-06,
 though its own class docstring argues it is one job (it is the single
 compositing point for how an element looks), so the split wants a real
-seam rather than a line count. `render/animate.py` is back at **399**
-after being split on 2026-08-06.
+seam rather than a line count. `render/animate.py` is at **408** as of
+2026-08-10 (the tied-as-one reveal-tracks hook) — same shape, one
+class whose drivers are already split out; flagged, not paid.
 Three of the standing split debts were paid on the canvas branch
 (2026-08-06): `export_dialog.py` 425 → 386 (`ui/export_run.py`),
 `serialize.py` 503 → 441 (`serialize_style.py` — still over, but what
@@ -53,6 +55,12 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-16 — Merged to `main` on Marcus's call after his in-app
+  check, in order: `beta/f-hide-parts`, `f-tuplet-ink-reclaim`,
+  `f-tied-as-one`. The tied merge's conflicts (both features widened
+  the same loader/installer signatures and command exports) resolved
+  to the byte-identical tree of the tested scratch integration branch
+  (`git diff` empty; full suite 2163 green on that tree). Pushed.
 - 2026-08-10 (tuplet reclaim) — **Stolen tuplet ink goes home**
   (`f-tuplet-ink-reclaim`, off `beta/f-hide-parts`, UNMERGED): Marcus's
   bug — on the new `testdata/triplet_error.musicxml` (fixture #13, own
