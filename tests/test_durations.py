@@ -25,11 +25,12 @@ def _el(eid: str, kind: ElementKind, onset: float | None,
                            Point(0, 0), RenderPrimitive(paths=()))
 
 
-def _note(onset: float, step: str, order: int) -> ScoreNote:
+def _note(onset: float, step: str, order: int,
+          tie: str | None = None) -> ScoreNote:
     return ScoreNote(part=PartId("P1"), measure=1, staff=1,
                      voice_label=None, onset=onset, grace=False,
                      pitch_step=step, pitch_alter=0.0, octave=4,
-                     staff_loc=None, order=order)
+                     staff_loc=None, order=order, tie=tie)
 
 
 _MEASURES = (MeasureInfo(number=1, start=0.0, quarter_length=4.0),
@@ -106,6 +107,66 @@ def test_schedule_carries_the_map_and_defaults_empty() -> None:
         layout, mapping, (), {ElementId("c0"): 1.0})
     assert carried.duration_by_element == {ElementId("c0"): 1.0}
     assert carried.beats_by_element == bare.beats_by_element
+
+
+# --- tied notes as one (2026-08-10, option) --------------------------------
+
+def _tied_synthetic(tied_as_one: bool):
+    """A whole note tied to a quarter across the barline, each with its
+    own stem — the chain runs 0.0..5.0."""
+    layout = Layout(
+        pages=(PageGeometry(1, 100.0, 100.0),),
+        elements=(_el("c0", ElementKind.NOTEHEAD, 0.0),
+                  _el("s0", ElementKind.STEM, 0.0),
+                  _el("c1", ElementKind.NOTEHEAD, 4.0),
+                  _el("s1", ElementKind.STEM, 4.0)))
+    mapping = {ElementId("c0"): _note(0.0, "C", 0, tie="start"),
+               ElementId("c1"): _note(4.0, "C", 0, tie="stop")}
+    note_durations = {ElementId("c0"): 4.0, ElementId("c1"): 1.0}
+    return resolve_durations(layout, mapping, note_durations, _MEASURES,
+                             tied_as_one=tied_as_one)
+
+
+def test_tied_as_one_every_chain_link_carries_the_chain_span() -> None:
+    """Leader AND continuation carry the whole 5-beat chain, measured
+    from the chain start — the same trigger both fire at under the
+    option — so the held note's ink runs one shared effect window. The
+    stems inherit through their groups."""
+    durs = _tied_synthetic(tied_as_one=True)
+    assert durs[ElementId("c0")] == 5.0
+    assert durs[ElementId("c1")] == 5.0
+    assert durs[ElementId("s0")] == 5.0
+    assert durs[ElementId("s1")] == 5.0
+
+
+def test_tied_as_one_off_keeps_each_segment_its_own() -> None:
+    durs = _tied_synthetic(tied_as_one=False)
+    assert durs[ElementId("c0")] == 4.0
+    assert durs[ElementId("c1")] == 1.0
+    assert durs[ElementId("s0")] == 4.0
+    assert durs[ElementId("s1")] == 1.0
+
+
+def test_tied_as_one_fixture_chains_stretch_and_nothing_else_moves(
+        engraved, join_mapping, score_model) -> None:
+    from scoreanim.core.animation.tie_chains import tie_chains
+    base = resolve_durations(engraved.layout, join_mapping,
+                             engraved.note_durations, score_model.measures)
+    tied = resolve_durations(engraved.layout, join_mapping,
+                             engraved.note_durations, score_model.measures,
+                             tied_as_one=True)
+    leader, span = tie_chains(engraved.layout, join_mapping,
+                              engraved.note_durations)
+    assert span                              # this fixture has real chains
+    for head, s in span.items():
+        assert tied[head] == s
+        assert s > base[head]                # genuinely longer than its own
+    for eid, head in leader.items():
+        assert tied[eid] == span.get(head, engraved.note_durations[head])
+    chain_ids = set(leader) | set(span)
+    for eid in join_mapping:
+        if eid not in chain_ids:
+            assert tied[eid] == base[eid], eid
 
 
 def test_real_fixture_policy(engraved, join_mapping, score_model) -> None:

@@ -164,6 +164,12 @@ from scoreanim.core.timing.tempo_map import TempoEvent
 #   parts hidden in ONE system, keyed by the system's starting measure
 #   ordinal (stringified like the break maps, sorted numerically).
 #   Same no-read-gate reasoning: a missing key is no override anywhere.
+#   Also v12 (tied notes as one, 2026-08-10): tied_notes_as_one — render
+#   every tied chain as the one note it is (appears at chain start,
+#   note-value effects run the whole tied duration). Rides v12 by the
+#   same reasoning; written only when True, so an untouched document
+#   keeps its byte shape, and a missing key is today's
+#   fill-in-at-the-barline look — no read gate.
 PROJECT_VERSION = 12
 _READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 SUFFIX = ".scoreanim"
@@ -277,6 +283,9 @@ def to_dict(doc: ProjectDoc, base_dir: Path | None = None) -> dict[str, Any]:
             str(eid): beats
             for eid, beats in sorted(doc.trigger_overrides.items())
         },
+        # rides v12: tied chains render as one note; omitted when off so
+        # an untouched document keeps its byte shape
+        **({"tied_notes_as_one": True} if doc.tied_notes_as_one else {}),
     }
 
 
@@ -401,6 +410,8 @@ def from_dict(data: dict[str, Any],
                 ElementId(str(eid)): _trigger_beats_in(value)
                 for eid, value in data.get("trigger_overrides", {}).items()
             },
+            # rides v12: missing key → False, today's per-barline look
+            tied_notes_as_one=bool(data.get("tied_notes_as_one", False)),
         )
     except (KeyError, TypeError) as exc:
         raise ValueError(f"malformed project data: {exc!r}") from exc

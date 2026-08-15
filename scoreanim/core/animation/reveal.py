@@ -3,17 +3,15 @@ re-plan, rulings A/B 2026-07-12 — supersedes the 5.1 shared-edge model
 and ARCHITECTURE §3's original single per-system function).
 
 Per system AND part, the reveal edge is a function of time built from
-the part's events — anchors keyed by the trigger schedule's TIE-GATED
-beats (``schedule.beats_by_element``), not notated onsets. A tied chain
-is therefore ONE event (ruling A): its stop heads and their attachments
-carry the chain-start trigger, so the whole group collapses into a
-single anchor at (chain start, x2 of the chain's furthest ink); nothing
-about the group advances until the chain completes, and the edge's next
-advance is the part's next event. The chain's tie curves and broken
-``:seg`` segments are folded into the chain-start bucket of the system
-they sit in, so a chain broken across systems stands revealed from
-chain start on both sides — consistent with tied ink lighting at chain
-start (Phase 3).
+the part's events — anchors keyed by the trigger schedule's beats
+(``schedule.beats_by_element``), not notated onsets. Since the
+2026-07-22 grow-with-playhead revision those are each notehead's OWN
+notated onset (schedule rule 1) — a tied continuation anchors at its
+own barline, so the tie ink grows with the playhead. Under
+doc.tied_notes_as_one (2026-08-10) the schedule hands this module
+chain-start triggers instead, and the same bucketing then folds a
+chain's furthest ink into its chain-start anchor — the whole held note
+stands revealed at once, the deliberate option-scoped reversal.
 
 Edges are per PART so one part's tied group holds only that part's
 spanners; another part keeps stepping with its own events. Known limit
@@ -134,10 +132,12 @@ def build_reveal_tracks(layout: Layout, schedule: TriggerSchedule,
                         score_end: Beats) -> tuple[SystemRevealTrack, ...]:
     """One track per (system, part), system-major order.
 
-    Anchors come from ``schedule.beats_by_element`` (tie-gated), so a
-    tied chain is one event at its chain start. ``score_end`` (total
-    quarters; from the score model's measures) closes each part's last
-    system — Layout carries no durations."""
+    Anchors come from ``schedule.beats_by_element`` — each notehead's
+    own onset by default, or chain-start beats when the schedule was
+    built tied-as-one (the bucketing below then folds a whole chain
+    into one anchor). ``score_end`` (total quarters; from the score
+    model's measures) closes each part's last system — Layout carries
+    no durations."""
     triggers: Mapping = schedule.beats_by_element
 
     # (system, part) → {quantized trigger → (beats, max x2)}, plus the

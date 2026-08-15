@@ -156,12 +156,13 @@ class PlaybackController(QObject):
         if self._applier is not None:
             self._applier.set_style(style)
 
-    def set_schedule(self, schedule) -> None:
-        """Forward a rebuilt trigger schedule (a trigger override
-        changed) to the applier; it refreshes at the current t, so the
-        running playback never notices the swap."""
+    def set_schedule(self, schedule, reveal_tracks=None) -> None:
+        """Forward a rebuilt trigger schedule (a trigger override or
+        the tied-as-one flag changed) to the applier, with re-derived
+        reveal tracks when the anchors moved too; it refreshes at the
+        current t, so the running playback never notices the swap."""
         if self._applier is not None:
-            self._applier.set_schedule(schedule)
+            self._applier.set_schedule(schedule, reveal_tracks)
 
     # -- transport surface used by the window ----------------------------------
 

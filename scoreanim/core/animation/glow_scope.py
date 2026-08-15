@@ -21,13 +21,16 @@ mostly about that:
   2026-08-06). The chain's FIRST notehead owns the halo; every other
   head, and every tie between them, follows it.
 
-  That is a glow rule only. How the ink APPEARS is untouched: a
-  continuation notehead still fills in as the playhead reaches its own
-  barline, and the tie ink still grows left-to-right against the reveal
-  edge (schedule.py rule 1, the 2026-07-22 grow-with-playhead ruling —
-  reversing it drew a 14-beat held note out to the system's end while
-  the playhead was mid-system). So a tied note fills in bar by bar and
-  glows all at once, which is what Marcus asked for.
+  By default that is a glow rule only. How the ink APPEARS is
+  untouched: a continuation notehead still fills in as the playhead
+  reaches its own barline, and the tie ink still grows left-to-right
+  against the reveal edge (schedule.py rule 1, the 2026-07-22
+  grow-with-playhead ruling — reversing it unasked drew a 14-beat held
+  note out to the system's end while the playhead was mid-system). So
+  a tied note fills in bar by bar and glows all at once. The user CAN
+  ask for more: doc.tied_notes_as_one (2026-08-10) makes appearance
+  follow the same chains, through the schedule and the duration
+  resolver — this module's maps stay glow-only either way.
 
 Chains are built from the joined `ScoreNote.tie` words, matched by pitch
 inside one (part, staff, voice) — the same way MusicXML means them, so a
@@ -46,6 +49,7 @@ from typing import Mapping
 
 from scoreanim.core.animation.scale_groups import (HEAD_KINDS, group_key,
                                                    nearest_head)
+from scoreanim.core.animation.tie_chains import tie_chains
 from scoreanim.core.engraving.types import Layout, RenderedElement
 from scoreanim.core.score.identity import Beats, ElementId, ElementKind
 from scoreanim.core.score.model import ScoreNote
@@ -97,11 +101,6 @@ GLOWING_KINDS = frozenset({
 # there is no head in its group to share with.
 _ATTACHED_KINDS = GLOWING_KINDS - HEAD_KINDS - {ElementKind.BAR_REPEAT}
 
-# The words MusicXML uses for a note that is held from before, and for
-# one that is held on after.
-_HELD_FROM = ("stop", "continue")
-_HELD_ON = ("start", "continue")
-
 
 @dataclass(frozen=True)
 class GlowScope:
@@ -145,7 +144,7 @@ def glow_scope(layout: Layout,
         if ident.kind in HEAD_KINDS and ident.onset is not None:
             heads_by_key[group_key(ident)].append(el)
 
-    leader, span = _tie_chains(layout, mapping, durations)
+    leader, span = tie_chains(layout, mapping, durations)
 
     owner: dict[ElementId, ElementId] = dict(leader)
     for el in layout.elements:
@@ -160,51 +159,3 @@ def glow_scope(layout: Layout,
         # follows that head's chain leader, not the head itself.
         owner[ident.element_id] = leader.get(head, head)
     return GlowScope(owner=owner, span=span)
-
-
-def _tie_chains(layout: Layout,
-                mapping: Mapping[ElementId, ScoreNote],
-                durations: Mapping[ElementId, Beats]
-                ) -> tuple[dict[ElementId, ElementId], dict[ElementId, Beats]]:
-    """Every held note as one chain: which head leads it, and how many
-    beats it holds for."""
-    ident_by_id = {el.identity.element_id: el.identity
-                   for el in layout.elements}
-
-    by_voice: dict[tuple, list[tuple[Beats, int, ElementId, ScoreNote]]] = \
-        defaultdict(list)
-    for eid, note in mapping.items():
-        ident = ident_by_id.get(eid)
-        # A grace note is never tied, and its layout onset is a
-        # fractional qstamp just before the beat — leave it out rather
-        # than let it sort in among the notes it decorates.
-        if ident is None or ident.onset is None or note.grace:
-            continue
-        by_voice[(ident.part, ident.staff, ident.voice)].append(
-            (ident.onset, note.order, eid, note))
-
-    leader: dict[ElementId, ElementId] = {}
-    span: dict[ElementId, Beats] = {}
-    for rows in by_voice.values():
-        rows.sort(key=lambda row: (row[0], row[1]))
-        # pitch → the head leading the chain currently open on it
-        open_chain: dict[tuple, ElementId] = {}
-        for onset, _order, eid, note in rows:
-            pitch = (note.pitch_step, note.pitch_alter, note.octave,
-                     note.staff_loc)
-            head = open_chain.pop(pitch, None) \
-                if note.tie in _HELD_FROM else None
-            if head is None:
-                head = eid               # this note starts its own chain
-            else:
-                leader[eid] = head
-                # The chain now reaches to the end of THIS note. Written
-                # every time it grows, so the last link is what stands.
-                end = onset + durations.get(eid, 0.0)
-                own_end = (ident_by_id[head].onset or 0.0) \
-                    + durations.get(head, 0.0)
-                if end > own_end:
-                    span[head] = end - (ident_by_id[head].onset or 0.0)
-            if note.tie in _HELD_ON:
-                open_chain[pitch] = head
-    return leader, span

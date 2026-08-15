@@ -1605,6 +1605,24 @@ def test_hiding_a_system_staff_is_one_undo_entry(doc) -> None:
         .describe() == "show staff in system"
 
 
+def test_set_tied_notes_as_one(doc) -> None:
+    """A schedule input like the trigger overrides: cheap, undoable,
+    strict about its one boolean."""
+    from scoreanim.core.project import SetTiedNotesAsOne
+
+    assert doc.tied_notes_as_one is False        # today's look by default
+    on = SetTiedNotesAsOne(True).apply(doc)
+    assert on.tied_notes_as_one is True
+    assert doc.tied_notes_as_one is False        # the input is untouched
+    assert SetTiedNotesAsOne(True).describe() == "set tied notes as one"
+    with pytest.raises(CommandError, match="tied-notes"):
+        SetTiedNotesAsOne("yes").apply(doc)  # type: ignore[arg-type]
+    stack = UndoStack()
+    d1 = stack.execute(SetTiedNotesAsOne(True), doc)
+    assert stack.undo() == doc
+    assert stack.redo() == d1
+
+
 def test_set_video_canvas(doc) -> None:
     from scoreanim.core.project import SetVideoCanvas, VideoCanvas
 

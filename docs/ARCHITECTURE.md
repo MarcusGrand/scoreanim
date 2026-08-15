@@ -618,6 +618,19 @@ events. Edges are per part so one part's tie holds only its own
 spanners (known limit: per part, not per voice — voice labels relabel
 per measure; BACKLOG 10).
 
+`doc.tied_notes_as_one` (2026-08-10, "Tied notes as one" in the
+Effects panel) is the user's deliberate reversal of this rule, scoped
+to the option: `build_trigger_schedule(tied_as_one=True)` retargets
+every continuation head to its chain start (chains from
+`core/animation/tie_chains.py`, the walk the glow already used),
+`resolve_durations(tied_as_one=True)` gives every chain link the
+chain's span so note-value effects and the volume window run the whole
+held note, and the reveal anchors fold back into the chain-start
+bucket. A schedule input like `trigger_overrides` — the loader's
+`rebuild_schedule` re-derives schedule + reveal tracks live, no
+Verovio, and `AnimationApplier.set_schedule` accepts the new tracks.
+Off (the default) is this ruling byte-for-byte.
+
 **Spanners grow — this REPLACED Phase 3's step-appear** (ruling
 2026-07-11): slurs, ties, and hairpins reveal by a clip-rect right edge
 at `reveal_x`, opacity pinned 1.0, with a floor-opacity ghost of the

@@ -7,7 +7,12 @@ axis) into a per-animated-element duration map consumed as
 the evaluator (rule 6, brief F6):
 
 - A notehead keeps its OWN engraved entry — a tied notehead its own
-  segment, a grace its fractional length (F7: graces flick).
+  segment, a grace its fractional length (F7: graces flick). Under
+  ``tied_as_one`` (doc.tied_notes_as_one, 2026-08-10) every link of a
+  tie chain carries the CHAIN's duration instead, measured from the
+  chain start — the same trigger every link fires at under that
+  option — so leader and continuations run identical effect windows
+  and the held note animates as one object.
 - Attachments (stems, flags, dots, beams, accidentals, articulations,
   tremolo strokes, ledger dashes) inherit the MAX duration of their
   (part, staff, voice, quantized-onset) notehead group — the
@@ -34,6 +39,7 @@ from typing import Mapping, Sequence
 
 from scoreanim.core.animation.schedule import (_MEASURE_RE, SIG_KINDS,
                                                is_animated, quantize_beats)
+from scoreanim.core.animation.tie_chains import tie_chains
 from scoreanim.core.engraving.types import Layout
 from scoreanim.core.score.identity import Beats, ElementId, ElementKind
 from scoreanim.core.score.model import MeasureInfo, ScoreNote
@@ -45,7 +51,8 @@ _OMITTED_KINDS = frozenset({ElementKind.REST, ElementKind.MREST}) | SIG_KINDS
 def resolve_durations(layout: Layout,
                       mapping: Mapping[ElementId, ScoreNote],
                       note_durations: Mapping[ElementId, Beats],
-                      measures: Sequence[MeasureInfo] = ()
+                      measures: Sequence[MeasureInfo] = (),
+                      tied_as_one: bool = False
                       ) -> Mapping[ElementId, Beats]:
     ident_by_id = {el.identity.element_id: el.identity
                    for el in layout.elements}
@@ -61,6 +68,24 @@ def resolve_durations(layout: Layout,
                quantize_beats(ident.onset))
         if dur > group_max.get(key, 0.0):
             group_max[key] = dur
+
+    # -- tied-as-one: every chain link runs the whole chain ----------------
+    leader: dict[ElementId, ElementId] = {}
+    span: dict[ElementId, Beats] = {}
+    if tied_as_one:
+        leader, span = tie_chains(layout, mapping, note_durations)
+        # Raise each link's GROUP too, so the stems, flags and dots that
+        # resolve through it stretch with their head.
+        for eid in set(leader) | set(span):
+            head = leader.get(eid, eid)
+            dur = span.get(head)
+            ident = ident_by_id.get(eid)
+            if dur is None or ident is None or ident.onset is None:
+                continue
+            key = (ident.part, ident.staff, ident.voice,
+                   quantize_beats(ident.onset))
+            if dur > group_max.get(key, 0.0):
+                group_max[key] = dur
 
     # -- synthesized regions: slash counts + engraved measure spans --------
     slash_count: dict[tuple, int] = defaultdict(int)
@@ -80,8 +105,13 @@ def resolve_durations(layout: Layout,
             continue
         eid = ident.element_id
         if ident.kind is ElementKind.NOTEHEAD:
-            if eid in note_durations:
-                out[eid] = note_durations[eid]
+            # Its chain's first head when tied-as-one is on (leader and
+            # span are empty maps otherwise, so head is itself and the
+            # entry is its own engraved segment — today's rule).
+            head = leader.get(eid, eid)
+            dur = span.get(head, note_durations.get(head))
+            if dur is not None:
+                out[eid] = dur
             continue
         if ident.kind in (ElementKind.SLASH, ElementKind.BAR_REPEAT):
             m = _MEASURE_RE.search(str(eid))

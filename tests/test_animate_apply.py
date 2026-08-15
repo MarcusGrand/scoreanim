@@ -123,6 +123,55 @@ def test_tie_stop_fills_in_at_its_own_onset(
     assert scenes.items[eid].opacity() == pytest.approx(1.0)
 
 
+def test_tied_as_one_lights_the_stop_head_at_the_chain_start(
+        scenes, engraved, join_mapping, score_model) -> None:
+    """doc.tied_notes_as_one: the same stop head is at FULL opacity
+    between the chain start and its own barline — the whole held note
+    appears at once (the option-scoped reversal of the test above)."""
+    tied = build_trigger_schedule(engraved.layout, join_mapping,
+                                  score_model.measures, tied_as_one=True)
+    applier = AnimationApplier(scenes.items, tied, TEMPO, StyleRules())
+    eid = next(e for e, n in join_mapping.items()
+               if n.tie == "stop"
+               and tied.beats_by_element[e] < n.onset)
+    start_s = TEMPO.seconds_at(tied.beats_by_element[eid])
+    own_s = TEMPO.seconds_at(join_mapping[eid].onset)
+    applier.apply_at((start_s + own_s) / 2.0)          # mid-chain
+    assert scenes.items[eid].opacity() == pytest.approx(1.0)
+    applier.apply_at(start_s - 0.01)                   # before the chain
+    assert scenes.items[eid].opacity() == pytest.approx(FLOOR)
+
+
+def test_set_schedule_swaps_tied_and_back_live(
+        scenes, engraved, join_mapping, score_model, schedule) -> None:
+    """The live toggle path: set_schedule with the re-derived reveal
+    tracks lands the scene in exactly the state the other flag builds,
+    at the same t, and the way back restores it — the window's
+    reschedule seam, pinned from the applier side."""
+    from scoreanim.core.animation import build_reveal_tracks
+    score_end = max(m.start + m.quarter_length for m in score_model.measures)
+    tied = build_trigger_schedule(engraved.layout, join_mapping,
+                                  score_model.measures, tied_as_one=True)
+    base_tracks = tuple(build_reveal_tracks(engraved.layout, schedule,
+                                            score_end))
+    tied_tracks = tuple(build_reveal_tracks(engraved.layout, tied,
+                                            score_end))
+    assert tied_tracks != base_tracks                  # anchors moved
+
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, StyleRules(),
+                               base_tracks)
+    eid = next(e for e, n in join_mapping.items()
+               if n.tie == "stop" and tied.beats_by_element[e] < n.onset)
+    mid = (TEMPO.seconds_at(tied.beats_by_element[eid])
+           + TEMPO.seconds_at(join_mapping[eid].onset)) / 2.0
+    applier.apply_at(mid)
+    assert scenes.items[eid].opacity() == pytest.approx(FLOOR)
+    applier.set_schedule(tied, tied_tracks)            # toggle ON
+    assert scenes.items[eid].opacity() == pytest.approx(1.0)
+    applier.set_schedule(schedule, base_tracks)        # toggle OFF
+    assert scenes.items[eid].opacity() == pytest.approx(FLOOR)
+
+
 def test_diff_apply_touches_only_crossed_triggers(scenes, schedule,
                                                   applier) -> None:
     applier.refresh(0.0)

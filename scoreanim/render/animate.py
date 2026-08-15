@@ -182,13 +182,18 @@ class AnimationApplier:
         self._glow.extinguish()
         self.refresh(self._t)
 
-    def set_schedule(self, schedule: TriggerSchedule) -> None:
+    def set_schedule(self, schedule: TriggerSchedule,
+                     reveal_tracks:
+                         Sequence[SystemRevealTrack] | None = None) -> None:
         """Swap the trigger schedule under the same scene (a trigger
-        override changed) and land in exactly the state a fresh load
-        at the current t gives — the cursor is a cache (rule 2). The
-        reveal driver stays: no anchor kind can be overridden. Export
-        inherits the new schedule through AnimationInputs."""
-        if schedule == self._schedule:
+        override or the tied-as-one flag changed) and land in exactly
+        the state a fresh load at the current t gives — the cursor is
+        a cache (rule 2). The reveal driver stays UNLESS new tracks
+        are handed over: a trigger override can never move an anchor,
+        but tied-as-one moves every chain anchor, so its rebuild
+        passes the re-derived tracks (None means keep). Export
+        inherits both through AnimationInputs."""
+        if schedule == self._schedule and reveal_tracks is None:
             return
         # carry the recording and timing across; the ctor's state
         # (empty seconds, NO tempo map) keeps the window and glow
@@ -196,6 +201,10 @@ class AnimationApplier:
         peaks, offset = self._audio.peaks, self._audio.offset
         tempo_map, swing = self._tempo_map, self._swing
         self._adopt_schedule(schedule)
+        if reveal_tracks is not None:
+            # fresh driver off the new anchors; the set_timing below
+            # resolves its curves and refresh re-derives every clip
+            self._reveal = RevealDriver(self._items, reveal_tracks)
         self._trigger_seconds = []
         self._tempo_map, self._swing = None, ()
         self._audio.set_audio(peaks, offset)

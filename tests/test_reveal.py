@@ -46,8 +46,7 @@ def _layout(*elements: RenderedElement) -> Layout:
     return Layout(pages=(PageGeometry(1, 600.0, 600.0),), elements=elements)
 
 
-@pytest.fixture()
-def tied_setup():
+def _tied_setup(tied_as_one: bool = False):
     """One system, two parts. P1 has a tied pair (beats 2→3, same
     pitch); P2 walks quarters straight through. A tie curve sits
     between P1's tied heads."""
@@ -79,9 +78,15 @@ def tied_setup():
         ElementId("p2n3"): _note("P2", 3.0, "C", 3, None),
         ElementId("p2n4"): _note("P2", 4.0, "D", 4, None),
     }
-    schedule = build_trigger_schedule(layout, mapping)
+    schedule = build_trigger_schedule(layout, mapping,
+                                      tied_as_one=tied_as_one)
     tracks = build_reveal_tracks(layout, schedule, score_end=6.0)
     return {t.part: t for t in tracks}
+
+
+@pytest.fixture()
+def tied_setup():
+    return _tied_setup()
 
 
 def test_tied_stop_anchors_at_its_own_onset(tied_setup) -> None:
@@ -127,6 +132,27 @@ def test_continuous_lerps_across_the_tie(tied_setup) -> None:
     assert reveal_x(c1, 3.0, C) == 410.0
     for t in (2.2, 2.5, 2.9):
         assert 310.0 <= reveal_x(c1, t, C) <= 410.0
+
+
+def test_tied_as_one_reveals_the_whole_chain_at_its_start() -> None:
+    """doc.tied_notes_as_one (2026-08-10): the stop head's anchor folds
+    into the chain-start bucket, so the edge jumps across the whole
+    held note — heads AND the tie ink between them — at beat 2, and
+    beat 3 stops being an anchor. The option-scoped reversal of the
+    grow-with-playhead default the tests above pin."""
+    p1 = _tied_setup(tied_as_one=True)[PartId("P1")]
+    assert p1.beats == (-1.0, 0.0, 1.0, 2.0, 4.0, 6.0)   # no beat-3 anchor
+    assert p1.xs == (50.0, 110.0, 210.0, 410.0, 460.0, 500.0)
+    c1 = p1.resolve(BPM60)
+    S = RevealMode.STEPPED
+    assert reveal_x(c1, 2.0, S) == 410.0   # whole chain at the start
+    assert reveal_x(c1, 3.5, S) == 410.0   # nothing more mid-chain
+    assert reveal_x(c1, 4.0, S) == 460.0
+
+
+def test_tied_as_one_leaves_the_other_part_alone() -> None:
+    p2 = _tied_setup(tied_as_one=True)[PartId("P2")]
+    assert p2.beats == (-1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 6.0)
 
 
 def test_rests_anchor_when_their_silence_resolves() -> None:

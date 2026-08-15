@@ -3,7 +3,8 @@
 Document-wide effect controls: the Effect dropdown (enumerates the
 preset registry, sets `default_effect`), a second dropdown for an effect
 to run WITH it, each knobbed preset's own block of options, the Volume
-response block, plus Reset, Floor opacity and Sweep. Two effects at once are stored as ONE name,
+response block, plus Reset, Floor opacity, Sweep and Tied notes as
+one. Two effects at once are stored as ONE name,
 "drop+fade" — the document is unchanged, and a build that does not know
 one of the parts still runs the other. Every control commits
 exactly ONE command per user gesture. The number fields preview as you
@@ -38,7 +39,7 @@ from scoreanim.core.animation import (COMBINE_SEP, DEFAULT_EFFECT, PRESETS,
                                       RevealMode, split_effect_name)
 from scoreanim.core.project import (Command, ProjectDoc, ResetEffectSettings,
                                     SetDefaultEffect, SetFloorOpacity,
-                                    SetRevealMode)
+                                    SetRevealMode, SetTiedNotesAsOne)
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
 from scoreanim.ui.panels.effect_blocks import BLOCKS, STORES
@@ -94,6 +95,17 @@ class EffectsPanel(QWidget):
             lambda checked: self._state.execute(SetRevealMode(
                 RevealMode.CONTINUOUS if checked else RevealMode.STEPPED)))
 
+        # Tied notes as one (Marcus, 2026-08-10): a document flag like
+        # Sweep, not a style entry — it re-derives the schedule and the
+        # reveal tracks, never the engraving.
+        self._tied_box = QCheckBox("Tied notes as one")
+        self._tied_box.setToolTip(
+            "A tied chain appears and animates as one note: the whole "
+            "held note shows at the chain start and effects run its "
+            "full tied length; unchecked fills it in bar by bar")
+        self._tied_box.toggled.connect(
+            lambda checked: self._state.execute(SetTiedNotesAsOne(checked)))
+
         # Reset (Marcus, 2026-07-25): back to the pre-M4 defaults —
         # effect "appear", every preset's params cleared — as ONE undo
         # step. Floor opacity and Sweep predate the M4 options and stay
@@ -134,6 +146,7 @@ class EffectsPanel(QWidget):
         self._form.addRow(self._reset_button)
         self._form.addRow("Floor opacity", self._floor_spin)
         self._form.addRow(self._sweep_box)
+        self._form.addRow(self._tied_box)
 
         # the tuple is what holds the fields alive, and the test scans it
         self.live_fields = tuple(field for block in self.blocks.values()
@@ -244,6 +257,9 @@ class EffectsPanel(QWidget):
         self._sweep_box.setChecked(doc.style.reveal_mode
                                    is RevealMode.CONTINUOUS)
         self._sweep_box.blockSignals(False)
+        self._tied_box.blockSignals(True)
+        self._tied_box.setChecked(doc.tied_notes_as_one)
+        self._tied_box.blockSignals(False)
         self._update_display()
 
     # -- commit handlers (one command per user gesture) ------------------------

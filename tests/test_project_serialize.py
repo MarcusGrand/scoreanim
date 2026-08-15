@@ -374,6 +374,20 @@ def test_v12_rejects_a_bad_trigger_beat() -> None:
                        "trigger_overrides": {"P1:m1:s1:v1:dynam:0": bad}})
 
 
+def test_v12_tied_notes_as_one() -> None:
+    """Rides v12 (2026-08-10): the flag round-trips, is OMITTED when
+    off (an untouched document keeps its byte shape), and every older
+    file loads OFF — today's per-barline fill-in, so no read gate."""
+    assert ProjectDoc().tied_notes_as_one is False
+    on = ProjectDoc(tied_notes_as_one=True)
+    assert to_dict(on)["tied_notes_as_one"] is True
+    assert from_dict(to_dict(on)).tied_notes_as_one is True
+    assert "tied_notes_as_one" not in to_dict(ProjectDoc())
+    assert from_dict(to_dict(ProjectDoc())).tied_notes_as_one is False
+    for version in range(1, 13):
+        assert from_dict({"version": version}).tied_notes_as_one is False
+
+
 def test_v8_rejects_unknown_break_mode() -> None:
     with pytest.raises(ValueError, match="system break"):
         from_dict({"version": 8, "system_break_overrides": {"3": "maybe"}})

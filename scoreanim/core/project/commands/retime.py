@@ -53,3 +53,19 @@ class SetTriggerBeat(Command):
     def describe(self) -> str:
         # Says what it wrote, not what the key was called (the M3.5 rule)
         return "move onset" if self.beats is not None else "reset onset"
+
+
+@dataclass(frozen=True)
+class SetTiedNotesAsOne(Command):
+    """Render tied chains as the one note they are — or go back to the
+    per-barline fill-in. A schedule input like SetTriggerBeat above:
+    cheap, no Verovio, no scene rebuild."""
+    enabled: bool
+
+    def apply(self, doc: ProjectDoc) -> ProjectDoc:
+        if not isinstance(self.enabled, bool):
+            raise CommandError(f"bad tied-notes flag {self.enabled!r}")
+        return replace(doc, tied_notes_as_one=self.enabled)
+
+    def describe(self) -> str:
+        return "set tied notes as one"
