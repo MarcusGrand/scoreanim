@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox,
 from scoreanim.core.project import (Command, ProjectDoc, SetLyricsSize,
                                     SetScoreScale, SetStaffLineWidth,
                                     SetVideoCanvas, VideoCanvas)
+from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
 from scoreanim.ui.window_state import default_settings
@@ -72,8 +73,12 @@ class VideoCanvasPanel(QWidget):
             spin.setRange(16, 8192)
             spin.setSingleStep(2)
             spin.setSuffix(" px")
+            # two fields sharing one row: neither may be squeezed down
+            # to its arrows
+            spin.setMinimumWidth(panel_style.min_field_width(spin))
         size_row = QHBoxLayout()
         size_row.setContentsMargins(0, 0, 0, 0)
+        size_row.setSpacing(panel_style.COLUMN_GAP)
         size_row.addWidget(self._width)
         size_row.addWidget(self._height)
         size_box = QWidget()
@@ -148,13 +153,14 @@ class VideoCanvasPanel(QWidget):
         preview_box.setLayout(preview_row)
 
         form = QFormLayout(self)
-        form.setContentsMargins(8, 2, 8, 6)
+        panel_style.style_form(form)
         form.addRow("Frame", self._preset)
         form.addRow("Size", size_box)
         form.addRow("Scale", self._scale)
         form.addRow("Lyrics", self._lyrics)
         form.addRow("Staff lines", self._staff_lines)
         form.addRow("", preview_box)
+        panel_style.fix_label_column(form)
 
         self._preview_box.toggled.connect(self._on_preview_toggled)
         self._show_swatch()

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout,
 from scoreanim.core.project import (Command, ProjectDoc, SetGlobalSwing,
                                     SetOffset)
 from scoreanim.core.timing import GRID_UNITS
+from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.grid_options import LaneDisplay
 from scoreanim.ui.live_field import LiveField
@@ -100,14 +101,21 @@ class TimelineBar(QWidget):
         self._shape_button.toggled.connect(self._commit_shape)
 
         self._bpm_label = QLabel("Tempo")
+        # One field and its label are a group; the 12 px gaps below are
+        # what keep "Swing" reading as the swing field's own label and
+        # not as something that belongs to the field before it.
         row = QHBoxLayout(self)
-        row.setContentsMargins(4, 2, 4, 2)
+        row.setContentsMargins(panel_style.PADDING, panel_style.ROW_GAP,
+                               panel_style.PADDING, panel_style.ROW_GAP)
+        row.setSpacing(panel_style.COLUMN_GAP)
         row.addWidget(self._bpm_label)
         row.addWidget(self._bpm_spin)
         for text, spin in (("Offset", self._offset_spin),
                            ("Swing", self._swing_spin)):
+            row.addSpacing(panel_style.GROUP_GAP)
             row.addWidget(QLabel(text))
             row.addWidget(spin)
+        row.addSpacing(panel_style.GROUP_GAP)
         row.addWidget(QLabel("Lane"))
         row.addWidget(self._lane_mode)
         row.addWidget(self._grid_unit)

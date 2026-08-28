@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QScrollArea,
                                QToolButton, QVBoxLayout, QWidget)
 
 from scoreanim.core.project import ProjectDoc
+from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.panels import BreakOverridesList, DeletedElementsList
 from scoreanim.ui.theme import icons
@@ -51,8 +52,9 @@ class LayoutZone(QDockWidget):
 
         body = QWidget(self)
         column = QVBoxLayout(body)
-        column.setContentsMargins(8, 8, 8, 8)
-        column.setSpacing(4)
+        column.setContentsMargins(panel_style.PADDING, panel_style.PADDING,
+                                  panel_style.PADDING, panel_style.PADDING)
+        column.setSpacing(panel_style.ROW_GAP)
         heading = QLabel("Breaks")
         heading.setObjectName("ZoneHeading")
         column.addWidget(heading)
@@ -64,13 +66,13 @@ class LayoutZone(QDockWidget):
             self._button(action, body) for action in actions)
         button_row = QHBoxLayout()
         button_row.setContentsMargins(0, 0, 0, 0)
-        button_row.setSpacing(4)
+        button_row.setSpacing(panel_style.ROW_GAP)
         for button in self.buttons:
             button_row.addWidget(button)
         button_row.addStretch(1)
         column.addLayout(button_row)
 
-        column.addSpacing(8)
+        column.addSpacing(panel_style.GROUP_GAP)
         overrides_heading = QLabel("Overrides")
         overrides_heading.setObjectName("ZoneHeading")
         column.addWidget(overrides_heading)
@@ -78,7 +80,7 @@ class LayoutZone(QDockWidget):
         self.overrides = BreakOverridesList(app_state, body)
         column.addWidget(self.overrides)
 
-        column.addSpacing(8)
+        column.addSpacing(panel_style.GROUP_GAP)
         deleted_heading = QLabel("Deleted")
         deleted_heading.setObjectName("ZoneHeading")
         column.addWidget(deleted_heading)
@@ -94,6 +96,8 @@ class LayoutZone(QDockWidget):
         scroller.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroller.setWidget(body)
+        # the same squeeze guard the inspector needs (panel_style)
+        panel_style.lock_min_width(scroller, body)
         self.setWidget(scroller)
 
     @staticmethod

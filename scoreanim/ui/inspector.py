@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (QCheckBox, QDockWidget, QScrollArea,
 
 from scoreanim.core.project import (PresentationMode, ProjectDoc,
                                     SetPresentationMode)
+from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.collapsible import CollapsibleSection
 from scoreanim.ui.panels import (EffectsPanel, PageColorsPanel,
@@ -91,7 +92,11 @@ class Inspector(QDockWidget):
 
         playback_body = QWidget()
         playback_col = QVBoxLayout(playback_body)
-        playback_col.setContentsMargins(8, 2, 8, 6)
+        playback_col.setContentsMargins(panel_style.PADDING,
+                                        panel_style.PADDING,
+                                        panel_style.PADDING,
+                                        panel_style.PADDING)
+        playback_col.setSpacing(panel_style.ROW_GAP)
         playback_col.addWidget(self._follow_box)
         playback_col.addWidget(self._systems_box)
 
@@ -118,8 +123,11 @@ class Inspector(QDockWidget):
 
         body = QWidget(self)
         column = QVBoxLayout(body)
-        column.setContentsMargins(4, 4, 4, 4)
-        column.setSpacing(4)
+        # No padding of its own: a section header is a band that runs
+        # the full width of the dock, and each body pays its own 8 px
+        # inside. The gap here is the one between two groups.
+        column.setContentsMargins(0, 0, 0, panel_style.GROUP_GAP)
+        column.setSpacing(panel_style.GROUP_GAP)
         self.sections: dict[str, CollapsibleSection] = {}
         for key, title, content in (
                 ("playback", "Playback && Sync", playback_body),
@@ -142,6 +150,11 @@ class Inspector(QDockWidget):
         scroller.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroller.setWidget(body)
+        # A scrolled dock will otherwise squeeze its content until the
+        # text inside is cut off — "Entire note value" and the volume
+        # "Loud" row were the two that showed it. This is the width
+        # below which the dock will not go.
+        panel_style.lock_min_width(scroller, body)
         self.setWidget(scroller)
 
     # -- document sync ---------------------------------------------------------

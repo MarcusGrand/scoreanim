@@ -111,24 +111,32 @@ QDockWidget > QWidget {
 
 /* -- our own section headers -------------------------------------- */
 
-QToolButton#SectionHeader {
+/* A flat band the full width of the panel, not a button: no frame, no
+   rounding, text pinned left beside its chevron, and a highlight that
+   runs edge to edge under the pointer. */
+QPushButton#SectionHeader {
     background: transparent;
+    color: $DIM;
     border: 0px;
-    border-radius: 3px;
-    padding: 4px 4px;
+    border-radius: 0px;
+    padding: 6px 8px;
     font-weight: 600;
     text-align: left;
 }
-QToolButton#SectionHeader:hover {
+QPushButton#SectionHeader:hover {
     background: $HOVER;
+    color: $TEXT;
 }
-QToolButton#SectionHeader:checked {
+QPushButton#SectionHeader:pressed {
+    background: $PRESSED;
+}
+QPushButton#SectionHeader:checked {
     /* expanded, not "active": a header must not take the accent */
     background: transparent;
     color: $TEXT;
     border: 0px;
 }
-QToolButton#SectionHeader:checked:hover {
+QPushButton#SectionHeader:checked:hover {
     background: $HOVER;
 }
 QLabel#ZoneHeading {

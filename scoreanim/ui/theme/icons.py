@@ -60,6 +60,24 @@ def icon(name: str) -> QIcon:
     return result
 
 
+@lru_cache(maxsize=None)
+def plain_icon(name: str) -> QIcon:
+    """The named icon in the text colour, checked or not.
+
+    For a control that is checkable but must not light up: a section
+    header's chevron says which way the section is folded, and turning
+    it accent-coloured would read as "this section is the active one".
+    Cached like `icon`, and read-only for the same reason.
+    """
+    result = QIcon()
+    for state in (QIcon.State.Off, QIcon.State.On):
+        for mode, colour in ((QIcon.Mode.Normal, tokens.TEXT),
+                             (QIcon.Mode.Disabled, tokens.DISABLED)):
+            for pixmap in _render(name, colour):
+                result.addPixmap(pixmap, mode, state)
+    return result
+
+
 def names() -> tuple[str, ...]:
     """Every icon vendored under `icons/`, sorted."""
     return tuple(sorted(path.stem for path in ICON_DIR.glob("*.svg")))

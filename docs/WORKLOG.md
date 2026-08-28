@@ -1,8 +1,9 @@
 # ScoreAnim — Worklog
 
 **NOW:** the UI facelift is under way on branch `ui-redesign`, working
-through the phases in `docs/UI_REDESIGN.md`: A1 (one dark theme) and A2
-(icons) are on the branch and unmerged, awaiting Marcus's in-app check.
+through the phases in `docs/UI_REDESIGN.md`: A1 (one dark theme), A2
+(icons) and A3 (the panel finish pass) are on the branch and unmerged,
+awaiting Marcus's in-app check.
 Everything else is on `main` and pushed (no tag since
 `v0.2-beta.6`). On 2026-08-16, on Marcus's call after his in-app
 check, three branches merged in order: `beta/f-hide-parts` (the
@@ -57,6 +58,19 @@ at start and appends its line at close. Keep entries to one or two
 lines — history lives in git and `docs/history/`.
 
 ---
+
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase A3): **panel finish
+  pass**. Section headers are flat full-width bands now — a chevron
+  (new `icons.plain_icon`, which never takes the accent), a bold label
+  pinned left, a hover highlight edge to edge, no button frame. New
+  `ui/panel_style.py` holds the four spacing numbers every dock form
+  reads (8 px padding, 12 px between groups) and pins each form's label
+  column to one width. The clipping was two bugs: a `QScrollArea` with
+  `widgetResizable` squeezes its content past the content's own minimum
+  (`lock_min_width` hands it back), and a panel that hides rows has to
+  measure itself while it is whole. The right dock is 346 px at its
+  narrowest and nothing in it clips, pinned by `tests/test_panel_style.py`.
+  UNMERGED.
 
 - 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase A2): **icons**. 13
   Lucide SVGs vendored under `ui/theme/icons/` (their LICENSE too — it

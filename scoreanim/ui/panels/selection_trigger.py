@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (QFormLayout, QHBoxLayout, QLabel, QPushButton,
 from scoreanim.core.animation import (TriggerSchedule, is_retimeable,
                                       step_from, stops_for_system)
 from scoreanim.core.project import ProjectDoc, SetTriggerBeat
+from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 
 _EMPTY = "—"
@@ -89,6 +90,7 @@ class SelectionTriggerControls(QWidget):
         self._reset.clicked.connect(self._clear)
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(panel_style.ROW_GAP)
         buttons.addWidget(self._earlier)
         buttons.addWidget(self._later)
         buttons.addWidget(self._reset)
@@ -97,9 +99,11 @@ class SelectionTriggerControls(QWidget):
         buttons_box.setLayout(buttons)
 
         form = QFormLayout(self)
-        form.setContentsMargins(0, 0, 0, 0)
+        # the padding is paid at the Selection panel's own edge
+        panel_style.style_form(form, padding=False)
         form.addRow("Fires", fires_box)
         form.addRow("", buttons_box)
+        panel_style.fix_label_column(form)
 
         app_state.selection_changed.connect(self.sync)
         self.sync()

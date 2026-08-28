@@ -346,3 +346,15 @@ measure/part). Do not merge the paths.
 - **git via the Cowork device bridge leaves stale `.git/index.lock`**
   (it cannot unlink); if a commit is blocked, remove the lock in a
   native terminal.
+- **A `QScrollArea` with `widgetResizable` squeezes its content past
+  the content's own minimum**, and Qt then cuts the text inside — with
+  the horizontal bar switched off there is not even a way to scroll to
+  what was cut. A widget's minimum stops the layout AROUND it, not the
+  scroll area that owns it. Hand the minimum back up:
+  `panel_style.lock_min_width(scroller, body)`, called once the dock's
+  body is built.
+- **A panel that hides rows must measure itself while it is whole.** A
+  preset's block of options hides when nothing is using it, so a
+  minimum width taken after the first resync is the minimum of whatever
+  happens to be showing. `EffectsPanel` takes its width before the
+  first `sync_from_document`, when every row is still on screen.

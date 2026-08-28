@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QButtonGroup, QFormLayout, QHBoxLayout,
 
 from scoreanim.core.animation import DARK, LIGHT, read_colors
 from scoreanim.core.project import ProjectDoc, SetColorMode
+from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 
 _MODES = ((LIGHT, "Light", "Black score on white — the printed look"),
@@ -48,8 +49,9 @@ class PageColorsPanel(QWidget):
         box.setLayout(row)
 
         form = QFormLayout(self)
-        form.setContentsMargins(8, 2, 8, 6)
+        panel_style.style_form(form)
         form.addRow("Colours", box)
+        panel_style.fix_label_column(form)
 
         app_state.document_changed.connect(self._resync)
         self.sync_from_document(app_state.doc)

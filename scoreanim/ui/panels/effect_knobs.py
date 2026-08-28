@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox,
                                QLabel, QPushButton, QSpinBox, QWidget)
 
 from scoreanim.core.project import Command, ProjectDoc
+from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
 from scoreanim.ui.panels.envelope_row import EnvelopeRow
@@ -131,6 +132,9 @@ class KnobGroup:
         font = self.header.font()
         font.setBold(True)
         self.header.setFont(font)
+        # the gap between two groups, paid above the heading that opens
+        # one — a form has no per-row spacing to set it with
+        self.header.setContentsMargins(0, panel_style.GROUP_GAP, 0, 0)
         form.addRow(self.header)
         rows = [form.rowCount() - 1]
         beside = {knob.beside: knob for knob in self._knobs
@@ -295,10 +299,18 @@ def _paint_swatch(button: QPushButton, color: str) -> None:
 
 def _pair(spin: QWidget, box: QCheckBox) -> QWidget:
     """Two controls on one line: type a number, or hand the job to the
-    checkbox beside it."""
+    checkbox beside it.
+
+    The widest row the panel has, and the one that used to lose the end
+    of "Entire note value". The number keeps a floor of its own so the
+    two never fight over the width, and the whole row is what sets the
+    dock's minimum (`panel_style.lock_min_width`).
+    """
     row = QWidget()
     layout = QHBoxLayout(row)
     layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(panel_style.COLUMN_GAP)
+    spin.setMinimumWidth(panel_style.min_field_width(spin))
     layout.addWidget(spin)
     layout.addWidget(box)
     layout.addStretch(1)

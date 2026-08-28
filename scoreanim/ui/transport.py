@@ -19,6 +19,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QSlider,
                                QSplitter, QToolButton, QVBoxLayout, QWidget)
 
+from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.readouts import format_time
@@ -61,7 +62,9 @@ class TransportStrip(QWidget):
         self._time_label = QLabel(" 0:00.0 / 0:00.0 ")
 
         row = QHBoxLayout(self)
-        row.setContentsMargins(4, 2, 4, 2)
+        row.setContentsMargins(panel_style.PADDING, panel_style.ROW_GAP,
+                               panel_style.PADDING, panel_style.ROW_GAP)
+        row.setSpacing(panel_style.GROUP_GAP)
         row.addWidget(_action_button(self.play_action))
         row.addWidget(self._slider, 1)
         row.addWidget(self._time_label)

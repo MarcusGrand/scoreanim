@@ -40,6 +40,7 @@ from scoreanim.core.animation import (COMBINE_SEP, DEFAULT_EFFECT, PRESETS,
 from scoreanim.core.project import (Command, ProjectDoc, ResetEffectSettings,
                                     SetDefaultEffect, SetFloorOpacity,
                                     SetRevealMode, SetTiedNotesAsOne)
+from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
 from scoreanim.ui.panels.effect_blocks import BLOCKS, STORES
@@ -122,7 +123,7 @@ class EffectsPanel(QWidget):
                                 self._update_display)
 
         self._form = QFormLayout(self)
-        self._form.setContentsMargins(8, 2, 8, 6)
+        panel_style.style_form(self._form)
         self._form.addRow("Effect", self._effect_combo)
         self._form.addRow("Combine with", self._combine_combo)
         # Each preset's block builds its own rows here, so it can be
@@ -147,6 +148,14 @@ class EffectsPanel(QWidget):
         self._form.addRow("Floor opacity", self._floor_spin)
         self._form.addRow(self._sweep_box)
         self._form.addRow(self._tied_box)
+
+        # Every row is on screen right now — a preset's block only hides
+        # itself on the first resync, below — so this is the widest the
+        # panel can ever be. Pinning the label column and taking that
+        # width as the panel's minimum here is what stops a row being
+        # squeezed into clipping later, whichever blocks are showing.
+        panel_style.fix_label_column(self._form)
+        self.setMinimumWidth(panel_style.natural_width(self._form))
 
         # the tuple is what holds the fields alive, and the test scans it
         self.live_fields = tuple(field for block in self.blocks.values()
