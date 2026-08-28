@@ -240,6 +240,17 @@ says so rather than staying silent: `Check.forced_by` makes
 everything downstream of it (the duration that grays out) follows for
 free. The document is never written to — core stays the one authority.
 
+**One theme, one place for a colour** — `ui/theme/palette.py` names
+every colour the chrome uses; `ui/theme/theme.py` turns them into the
+Fusion style, a QPalette and one app-wide QSS string, applied once in
+`app.py` before any window exists. A widget never sets a colour on
+itself: a painting view (waveform, lanes, stage letterbox) imports the
+token, and anything QSS can reach is styled by class or by object name
+(`SectionHeader`, `ZoneHeading`). A new colour = a new name in
+`palette.py`. The one exception is a colour the DOCUMENT owns — page
+ink, a part colour, a style swatch — which comes from the document, not
+from the theme.
+
 **Two hit paths, on purpose** — selection resolves rule-13 OBJECTS;
 double-click-to-edit has its own resolver that also reaches stage
 texts. Stage texts are editable but never selectable (they carry no

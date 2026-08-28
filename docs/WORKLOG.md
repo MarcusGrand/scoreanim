@@ -55,6 +55,15 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase A1): **one dark
+  theme**. New `ui/theme/` package — `palette.py` names every chrome
+  colour, `theme.py` builds the Fusion style + QPalette + one app-wide
+  QSS string, applied in `app.py` before the window exists. The
+  waveform, both lanes and the stage letterbox now read tokens instead
+  of their own hex; section headers and the layout zone's headings are
+  styled by object name, so no module sets a colour on itself any more.
+  UNMERGED.
+
 - 2026-08-16 — Merged to `main` on Marcus's call after his in-app
   check, in order: `beta/f-hide-parts`, `f-tuplet-ink-reclaim`,
   `f-tied-as-one`. The tied merge's conflicts (both features widened

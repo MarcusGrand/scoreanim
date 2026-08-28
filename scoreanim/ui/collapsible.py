@@ -8,7 +8,8 @@ document (rule 5).
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QSizePolicy, QToolButton, QVBoxLayout,
+                               QWidget)
 
 
 class CollapsibleSection(QWidget):
@@ -22,6 +23,8 @@ class CollapsibleSection(QWidget):
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._header = QToolButton(self)
+        # the app-wide theme styles headers by this name (ui/theme)
+        self._header.setObjectName("SectionHeader")
         self._header.setText(title)
         self._header.setCheckable(True)
         self._header.setChecked(True)
@@ -29,6 +32,8 @@ class CollapsibleSection(QWidget):
         self._header.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._header.setAutoRaise(True)
+        self._header.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                   QSizePolicy.Policy.Fixed)
         self._header.toggled.connect(self._on_toggled)
 
         self._content: QWidget | None = None

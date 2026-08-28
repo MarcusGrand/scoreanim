@@ -53,7 +53,7 @@ class LayoutZone(QDockWidget):
         column.setContentsMargins(8, 8, 8, 8)
         column.setSpacing(4)
         heading = QLabel("Breaks")
-        heading.setStyleSheet("font-weight: 600;")
+        heading.setObjectName("ZoneHeading")
         column.addWidget(heading)
 
         self.buttons: tuple[QToolButton, ...] = tuple(
@@ -63,7 +63,7 @@ class LayoutZone(QDockWidget):
 
         column.addSpacing(8)
         overrides_heading = QLabel("Overrides")
-        overrides_heading.setStyleSheet("font-weight: 600;")
+        overrides_heading.setObjectName("ZoneHeading")
         column.addWidget(overrides_heading)
         # its own widget module rather than a limb on the dock (D9)
         self.overrides = BreakOverridesList(app_state, body)
@@ -71,7 +71,7 @@ class LayoutZone(QDockWidget):
 
         column.addSpacing(8)
         deleted_heading = QLabel("Deleted")
-        deleted_heading.setStyleSheet("font-weight: 600;")
+        deleted_heading.setObjectName("ZoneHeading")
         column.addWidget(deleted_heading)
         # deleted ink is not clickable, so this list is the only way back
         # other than undo — it belongs where the work is, not in a dialog

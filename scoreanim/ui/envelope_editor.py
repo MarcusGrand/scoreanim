@@ -31,6 +31,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from scoreanim.core.animation import EnvelopeSpec, spec_envelope
 from scoreanim.core.editing import Box, Handle, drag, handle_at, handle_points
+from scoreanim.ui.theme import palette as theme
 
 # The canvas sits in a panel about 250 px wide. Room for the labels
 # under the curve, and a little air around it.
@@ -139,7 +140,9 @@ class EnvelopeEditor(QWidget):
         painter.drawRect(frame)
 
         curve = self._curve(box)
-        accent = palette.highlight().color()
+        # the curve is content, not a selection: it takes the theme's
+        # accent rather than the palette's quiet highlight (ui/theme)
+        accent = QColor(theme.ACCENT)
         under = _faded(accent, 70)
         area = QPolygonF(curve + [QPointF(box.x + box.w, box.y + box.h),
                                   QPointF(box.x, box.y + box.h)])
