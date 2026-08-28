@@ -19,3 +19,9 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = ["scoreanim*"]
+
+# the first non-Python files inside the package: the vendored Lucide
+# icons. Without this a built wheel would ship the loader and not the
+# drawings.
+[tool.setuptools.package-data]
+"scoreanim.ui.theme" = ["icons/*.svg", "icons/LICENSE"]
