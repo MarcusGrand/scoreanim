@@ -17,6 +17,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtGui import QKeySequence  # noqa: E402
 from PySide6.QtWidgets import QApplication, QToolBar  # noqa: E402
 
@@ -68,7 +69,8 @@ def test_view_menu_holds_dock_toggles(window) -> None:
         assert dock.toggleViewAction() in actions
     # left to right across the window, which is how the docks sit (M6.6)
     assert _texts(window.menus.view_menu) \
-        == ["Fit", "◀", "▶", "Layout Zone", "Inspector", "Lower Zone"]
+        == ["Fit", "Previous", "Next", "Layout Zone", "Inspector",
+            "Lower Zone"]
 
 
 def test_playback_menu_shares_the_component_actions(window) -> None:
@@ -79,7 +81,7 @@ def test_playback_menu_shares_the_component_actions(window) -> None:
     assert actions[1] is window.inspector.follow_action
     # the two openers moved to the toolbar; Reload Tempo stayed
     assert _texts(window.menus.playback_menu) \
-        == ["▶ Play", "Follow", "Reload Tempo"]
+        == ["Play", "Follow", "Reload Tempo"]
 
 
 def test_toolbar_holds_the_openers(window) -> None:
@@ -88,7 +90,29 @@ def test_toolbar_holds_the_openers(window) -> None:
     # the page readout is a widget action, so it carries no text
     texts = [a.text() for a in _toolbar(window).actions() if a.text()]
     assert texts == ["Open Score…", "Open Audio…", "Import Tempo…",
-                     "◀", "▶", "Fit"]
+                     "Previous", "Next", "Fit"]
+
+
+def test_toolbar_is_icons_with_labels_only_on_the_openers(window) -> None:
+    """Icon + label on the three openers, icon-only on the rest — the
+    tooltip carries the name there, so nothing is nameless (A2)."""
+    toolbar = _toolbar(window)
+    labelled = {"Open Score…", "Open Audio…", "Import Tempo…"}
+    for action in toolbar.actions():
+        if not action.text():
+            continue                             # the page readout widget
+        assert not action.icon().isNull(), action.text()
+        assert action.toolTip(), action.text()
+        button = toolbar.widgetForAction(action)
+        expected = (Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+                    if action.text() in labelled
+                    else Qt.ToolButtonStyle.ToolButtonIconOnly)
+        assert button.toolButtonStyle() == expected, action.text()
+
+
+def test_undo_and_redo_carry_icons(window) -> None:
+    assert not window.menus.undo_action.icon().isNull()
+    assert not window.menus.redo_action.icon().isNull()
 
 
 def test_window_level_shortcut_registration(window) -> None:
@@ -122,9 +146,9 @@ def test_shortcut_sweep_assignments(window) -> None:
     assert shortcuts["Open Project…"] == QKeySequence("Ctrl+Shift+O")
     assert shortcuts["Export Video…"] == QKeySequence("Ctrl+E")
     assert shortcuts["Fit"] == QKeySequence("Ctrl+0")
-    assert shortcuts["◀"] \
+    assert shortcuts["Previous"] \
         == QKeySequence(QKeySequence.StandardKey.MoveToPreviousPage)
-    assert shortcuts["▶"] \
+    assert shortcuts["Next"] \
         == QKeySequence(QKeySequence.StandardKey.MoveToNextPage)
     assert shortcuts["Reload Tempo"] == QKeySequence("F5")
 

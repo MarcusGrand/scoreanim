@@ -170,6 +170,11 @@ QToolBar QToolButton:hover {
     background: $HOVER;
     border-color: $BORDER;
 }
+QToolBar QToolButton:disabled {
+    /* a toolbar button draws no frame; a disabled one must not be the
+       only one that does */
+    border-color: transparent;
+}
 
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox,
 QComboBox, QAbstractSpinBox {

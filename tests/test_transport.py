@@ -16,7 +16,8 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QObject, Qt, Signal  # noqa: E402
-from PySide6.QtWidgets import QApplication, QDockWidget  # noqa: E402
+from PySide6.QtWidgets import (QApplication, QDockWidget,  # noqa: E402
+                               QToolButton)
 
 from scoreanim.ui.app_state import AppState  # noqa: E402
 from scoreanim.ui.transport import LowerZone, TransportStrip  # noqa: E402
@@ -82,12 +83,25 @@ def test_drag_and_keyboard_step_seek(strip) -> None:
     assert playback.seeks == [2.5, 4.0]
 
 
-def test_playing_flips_the_play_text(strip) -> None:
+def test_playing_flips_the_play_text_and_icon(strip) -> None:
     widget, playback = strip
+    play_icon = widget.play_action.icon().cacheKey()
     playback.playing_changed.emit(True)
-    assert widget.play_action.text() == "⏸ Pause"
+    assert widget.play_action.text() == "Pause"
+    assert widget.play_action.icon().cacheKey() != play_icon
     playback.playing_changed.emit(False)
-    assert widget.play_action.text() == "▶ Play"
+    assert widget.play_action.text() == "Play"
+    assert widget.play_action.icon().cacheKey() == play_icon
+
+
+def test_the_play_button_is_an_icon_with_a_tooltip(strip) -> None:
+    """No "▶ Play" text on the strip any more (A2): the button is the
+    icon, and the tooltip names both halves of the toggle and its key."""
+    widget, _ = strip
+    assert not widget.play_action.icon().isNull()
+    assert widget.play_action.toolTip() == "Play / Pause (Space)"
+    button = widget.findChild(QToolButton)
+    assert button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
 
 
 def test_lower_zone_is_a_fixed_bottom_dock(qapp) -> None:

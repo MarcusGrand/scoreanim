@@ -23,6 +23,7 @@ from scoreanim.ui.app_state import AppState
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.readouts import format_time
 from scoreanim.ui.tempo_lane import TempoLaneView
+from scoreanim.ui.theme import icons
 from scoreanim.ui.timeline_bar import TimelineBar
 from scoreanim.ui.waveform import WaveformView
 
@@ -42,7 +43,11 @@ class TransportStrip(QWidget):
         self._state = app_state
         self._playback = playback
 
-        self.play_action = QAction("▶ Play", self)
+        # The menu item reads the text; the strip's button is icon-only,
+        # so it reads the tooltip — which says both halves of the toggle
+        # and stays put while the text and the icon flip.
+        self.play_action = QAction(icons.icon("play"), "Play", self)
+        self.play_action.setToolTip("Play / Pause (Space)")
         self.play_action.setShortcut(Qt.Key.Key_Space)
         self.play_action.triggered.connect(playback.toggle_play)
 
@@ -81,7 +86,8 @@ class TransportStrip(QWidget):
             self._playback.seek(ms / 1000.0)
 
     def _on_playing(self, playing: bool) -> None:
-        self.play_action.setText("⏸ Pause" if playing else "▶ Play")
+        self.play_action.setText("Pause" if playing else "Play")
+        self.play_action.setIcon(icons.icon("pause" if playing else "play"))
 
 
 class LowerZone(QDockWidget):
@@ -122,10 +128,12 @@ class LowerZone(QDockWidget):
 
 
 def _action_button(action: QAction) -> QToolButton:
-    """Toolbar-style button for a strip action: mirrors text/checked
-    state, takes no focus (shortcuts stay window-level; the stage keeps
-    keyboard focus)."""
+    """Toolbar-style button for a strip action: icon only, mirrors the
+    action's icon/checked state, takes no focus (shortcuts stay
+    window-level; the stage keeps keyboard focus)."""
     button = QToolButton()
     button.setDefaultAction(action)
+    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+    button.setIconSize(icons.BUTTON_SIZE)
     button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     return button

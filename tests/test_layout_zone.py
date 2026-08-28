@@ -109,6 +109,20 @@ def test_a_button_mirrors_its_action_without_any_sync_of_its_own(
     assert page_button.statusTip() == ""
 
 
+def test_a_button_is_an_icon_whose_tooltip_renames_itself(window) -> None:
+    """A2: the three buttons lost their long labels, so the label the
+    action renames itself to has to reach the user as the tooltip."""
+    page_button = window.layout_zone.buttons[2]
+    assert page_button.toolButtonStyle() \
+        == Qt.ToolButtonStyle.ToolButtonIconOnly
+    for button in window.layout_zone.buttons:
+        assert not button.icon().isNull()
+    assert page_button.toolTip() == "Toggle Page Break Here"
+
+    _barline_in(window, 2)
+    assert page_button.toolTip() == "Force Page Break Here"
+
+
 def test_a_button_runs_the_same_command_the_menu_item_does(window) -> None:
     from scoreanim.core.project import PageBreak
 

@@ -26,6 +26,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QLabel, QMenu
 
+from scoreanim.ui.theme import icons
+
 if TYPE_CHECKING:
     from scoreanim.ui.main_window import MainWindow
 
@@ -49,7 +51,7 @@ class MainMenus:
 
     def __init__(self, window: MainWindow) -> None:
         # -- File ------------------------------------------------------------
-        open_score = QAction("Open Score…", window)
+        open_score = QAction(icons.icon("file-music"), "Open Score…", window)
         open_score.setShortcut(QKeySequence.StandardKey.Open)
         open_score.triggered.connect(window.files.open_score_dialog)
 
@@ -71,12 +73,12 @@ class MainMenus:
         self.export_action.triggered.connect(window.files.open_export_dialog)
 
         # -- Edit ------------------------------------------------------------
-        self.undo_action = QAction("Undo", window)
+        self.undo_action = QAction(icons.icon("undo-2"), "Undo", window)
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
         self.undo_action.setEnabled(False)
         self.undo_action.triggered.connect(window.app_state.undo)
 
-        self.redo_action = QAction("Redo", window)
+        self.redo_action = QAction(icons.icon("redo-2"), "Redo", window)
         self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
         self.redo_action.setEnabled(False)
         self.redo_action.triggered.connect(window.app_state.redo)
@@ -86,25 +88,30 @@ class MainMenus:
         self.texts_action.triggered.connect(window.text_edit.open_texts_dialog)
 
         # -- View ------------------------------------------------------------
-        fit = QAction("Fit", window)
+        fit = QAction(icons.icon("maximize"), "Fit", window)
         fit.setShortcut("Ctrl+0")
         fit.triggered.connect(window.view.fit)
 
         # prev/next step the presentation unit: pages in paged mode,
-        # systems in system mode
-        self.prev_action = QAction("◀", window)
+        # systems in system mode — hence the plain name, and a tooltip
+        # that says both rather than promising pages
+        self.prev_action = QAction(icons.icon("chevron-left"), "Previous",
+                                   window)
+        self.prev_action.setToolTip("Previous page or system")
         self.prev_action.setShortcut(
             QKeySequence.StandardKey.MoveToPreviousPage)
         self.prev_action.triggered.connect(lambda: window.router.step(-1))
-        self.next_action = QAction("▶", window)
+        self.next_action = QAction(icons.icon("chevron-right"), "Next", window)
+        self.next_action.setToolTip("Next page or system")
         self.next_action.setShortcut(QKeySequence.StandardKey.MoveToNextPage)
         self.next_action.triggered.connect(lambda: window.router.step(+1))
         self.page_label = QLabel("–/–")
 
         # -- Playback --------------------------------------------------------
-        open_audio = QAction("Open Audio…", window)
+        open_audio = QAction(icons.icon("audio-lines"), "Open Audio…",
+                             window)
         open_audio.triggered.connect(window.files.open_audio_dialog)
-        open_tempo = QAction("Import Tempo…", window)
+        open_tempo = QAction(icons.icon("timer"), "Import Tempo…", window)
         open_tempo.triggered.connect(window.files.open_tempo_dialog)
         reload_tempo = QAction("Reload Tempo", window)
         reload_tempo.setShortcut("F5")
@@ -152,15 +159,17 @@ class MainMenus:
         self.playback_menu.addSeparator()
         self.playback_menu.addAction(reload_tempo)
 
-        # -- toolbar: the three openers · ◀ page-label ▶ · Fit ---------------
+        # -- toolbar: the three openers · pager · Fit -----------------------
         # The openers are the first thing you do with the app, so they sit
         # in the window rather than in the OS menu bar (ruling 2026-07-30).
         toolbar = window.addToolBar("Main")
         toolbar.setObjectName("MainToolbar")   # saveState identity (M1.8)
         toolbar.setMovable(False)
-        # nothing here has an icon, so ask for the labels explicitly
+        # the openers keep their labels; everything else is icon-only,
+        # set per button below
+        toolbar.setIconSize(icons.TOOLBAR_SIZE)
         toolbar.setToolButtonStyle(
-            Qt.ToolButtonStyle.ToolButtonTextOnly)
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         toolbar.addAction(open_score)
         toolbar.addAction(open_audio)
         toolbar.addAction(open_tempo)
@@ -170,6 +179,11 @@ class MainMenus:
         toolbar.addAction(self.next_action)
         toolbar.addSeparator()
         toolbar.addAction(fit)
+        for action in (self.prev_action, self.next_action, fit):
+            button = toolbar.widgetForAction(action)
+            if button is not None:
+                button.setToolButtonStyle(
+                    Qt.ToolButtonStyle.ToolButtonIconOnly)
 
         # window-level so these shortcuts fire regardless of focus
         for action in (self.undo_action, self.redo_action, save,

@@ -251,6 +251,21 @@ token, and anything QSS can reach is styled by class or by object name
 ink, a part colour, a style swatch — which comes from the document, not
 from the theme.
 
+**One icon, every state it needs** — `ui/theme/icons.py` vendors Lucide
+SVGs and returns a QIcon that already carries all three looks: text
+colour off, accent on (a checked action), dim disabled. Tinting works
+because a Lucide file paints itself in `currentColor`, which we swap for
+a token before Qt sees the file — so a caller never picks a colour and
+nobody ships a second file for a second state. The QIcon holds a pixmap
+rendered at each size the app asks for at 1x AND 2x (`TOOLBAR_SIZE`,
+`BUTTON_SIZE`), because a stroke drawing goes soft the moment Qt
+resamples it. Give the ICON to the shared QAction, not to the button:
+the menu item and every button then pick it up, and a flip (play →
+pause) is one `setIcon` on the action. An icon-only button has no label,
+so the tooltip carries the name — and for an action that renames itself
+(the break toggles) the tooltip follows the rename for free, as long as
+nothing calls `setToolTip` on it.
+
 **Two hit paths, on purpose** — selection resolves rule-13 OBJECTS;
 double-click-to-edit has its own resolver that also reaches stage
 texts. Stage texts are editable but never selectable (they carry no

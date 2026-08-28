@@ -1,13 +1,16 @@
 # ScoreAnim — Worklog
 
-**NOW:** everything is on `main` and pushed (no tag since
+**NOW:** the UI facelift is under way on branch `ui-redesign`, working
+through the phases in `docs/UI_REDESIGN.md`: A1 (one dark theme) and A2
+(icons) are on the branch and unmerged, awaiting Marcus's in-app check.
+Everything else is on `main` and pushed (no tag since
 `v0.2-beta.6`). On 2026-08-16, on Marcus's call after his in-app
 check, three branches merged in order: `beta/f-hide-parts` (the
 Staves menu, per-system hides, the region-fill hide fix),
 `f-tuplet-ink-reclaim` (stolen tuplet ink under id reuse) and
 `f-tied-as-one` ("Tied notes as one"). The last merge's conflicts
 were resolved to the byte-identical tree tested on the scratch
-integration branch (full suite 2163 green there). No branch is open.
+integration branch (full suite 2163 green there).
 **Schema is v12** (hidden-parts, system-hides and tied-as-one all
 ride it sparsely), so a project saved from here will not open on
 `v0.2-beta.6` or any older build.
@@ -54,6 +57,17 @@ at start and appends its line at close. Keep entries to one or two
 lines — history lives in git and `docs/history/`.
 
 ---
+
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase A2): **icons**. 13
+  Lucide SVGs vendored under `ui/theme/icons/` (their LICENSE too — it
+  is ISC, with MIT on the Feather-derived ones, not plain MIT), and
+  `ui/theme/icons.py` tints them by swapping `currentColor` for a
+  token: text off, accent on, dim disabled, rendered at each size the
+  app asks for at 1x and 2x. Icons on the three openers (icon+label),
+  prev/next/Fit, undo/redo, the three break buttons and Play — the
+  strip's "▶ Play" text is now an icon-only button whose icon flips to
+  pause. Also fixed a theme bug the icons exposed: a DISABLED toolbar
+  button was the only one drawing a frame. UNMERGED.
 
 - 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase A1): **one dark
   theme**. New `ui/theme/` package — `palette.py` names every chrome

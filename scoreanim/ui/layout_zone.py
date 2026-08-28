@@ -29,12 +29,13 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (QDockWidget, QLabel, QScrollArea, QSizePolicy,
+from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QScrollArea,
                                QToolButton, QVBoxLayout, QWidget)
 
 from scoreanim.core.project import ProjectDoc
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.panels import BreakOverridesList, DeletedElementsList
+from scoreanim.ui.theme import icons
 
 
 class LayoutZone(QDockWidget):
@@ -56,10 +57,18 @@ class LayoutZone(QDockWidget):
         heading.setObjectName("ZoneHeading")
         column.addWidget(heading)
 
+        # three icons in a row, not three long labels down the dock:
+        # each button's tooltip is the action's own label, which renames
+        # itself to what it would actually do
         self.buttons: tuple[QToolButton, ...] = tuple(
             self._button(action, body) for action in actions)
+        button_row = QHBoxLayout()
+        button_row.setContentsMargins(0, 0, 0, 0)
+        button_row.setSpacing(4)
         for button in self.buttons:
-            column.addWidget(button)
+            button_row.addWidget(button)
+        button_row.addStretch(1)
+        column.addLayout(button_row)
 
         column.addSpacing(8)
         overrides_heading = QLabel("Overrides")
@@ -92,16 +101,17 @@ class LayoutZone(QDockWidget):
         """One button over one SHARED action.
 
         `setDefaultAction` is the whole mechanism: the button takes its
-        text, enabled state, status tip and trigger from the action, and
-        keeps taking them as `BreakActionController.sync()` re-derives
-        them. Nothing here needs syncing of its own, which is exactly
-        what "a second surface, not a second implementation" means.
+        icon, tooltip, enabled state, status tip and trigger from the
+        action, and keeps taking them as `BreakActionController.sync()`
+        re-derives them — including the renamed label, which is what the
+        tooltip shows now that the button carries no text. Nothing here
+        needs syncing of its own, which is exactly what "a second
+        surface, not a second implementation" means.
         """
         button = QToolButton(parent)
         button.setDefaultAction(action)
-        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        button.setSizePolicy(QSizePolicy.Policy.Expanding,
-                             QSizePolicy.Policy.Fixed)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        button.setIconSize(icons.BUTTON_SIZE)
         return button
 
     def sync_from_document(self, doc: ProjectDoc) -> None:
