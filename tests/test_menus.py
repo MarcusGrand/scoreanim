@@ -79,13 +79,19 @@ def test_view_menu_holds_dock_toggles(window) -> None:
 
 
 def test_playback_menu_shares_the_component_actions(window) -> None:
-    """Menu, strip button, and shortcut are ONE QAction for Play
-    (brief flag 3)."""
+    """Menu, strip button, and shortcut are ONE QAction for Play and
+    for Go to Start (brief flag 3), and the four arrow seeks are here
+    because a menu is the only place the shortcut sheet looks."""
+    strip = window.lower_zone.strip
     actions = window.menus.playback_menu.actions()
-    assert actions[0] is window.lower_zone.strip.play_action
+    assert actions[0] is strip.play_action
+    assert actions[1] is strip.to_start_action
+    assert actions[2:6] == list(window.seek_keys.actions)
     # the two openers moved to File (B1) and Follow is not an option any
     # more (ruling 2026-08-29); Reload Tempo stayed
-    assert _texts(window.menus.playback_menu) == ["Play", "Reload Tempo"]
+    assert _texts(window.menus.playback_menu) \
+        == ["Play", "Go to Start", "Back 1 Second", "Forward 1 Second",
+            "Back 5 Seconds", "Forward 5 Seconds", "Reload Tempo"]
 
 
 def test_toolbar_shares_the_openers_with_the_file_menu(window) -> None:
@@ -168,14 +174,18 @@ def test_window_level_shortcut_registration(window) -> None:
     strip = window.lower_zone.strip
     registered = window.actions()
     for action in (window.menus.undo_action, window.menus.redo_action,
-                   strip.play_action):
+                   strip.play_action, strip.to_start_action,
+                   *window.seek_keys.actions):
         assert action in registered
     shortcuts = [a.shortcut() for a in registered]
     for expected in (QKeySequence(QKeySequence.StandardKey.Undo),
                      QKeySequence(QKeySequence.StandardKey.Redo),
                      QKeySequence(QKeySequence.StandardKey.Save),
                      QKeySequence(QKeySequence.StandardKey.Open),
-                     QKeySequence("Space"), QKeySequence("F5")):
+                     QKeySequence("Space"), QKeySequence("F5"),
+                     QKeySequence("Home"), QKeySequence("Left"),
+                     QKeySequence("Right"), QKeySequence("Shift+Left"),
+                     QKeySequence("Shift+Right")):
         assert expected in shortcuts
 
 
@@ -196,6 +206,9 @@ def test_shortcut_sweep_assignments(window) -> None:
     assert shortcuts["Next"] \
         == QKeySequence(QKeySequence.StandardKey.MoveToNextPage)
     assert shortcuts["Reload Tempo"] == QKeySequence("F5")
+    assert shortcuts["Go to Start"] == QKeySequence("Home")
+    assert shortcuts["Back 1 Second"] == QKeySequence("Left")
+    assert shortcuts["Forward 5 Seconds"] == QKeySequence("Shift+Right")
 
 
 def test_score_menu_is_the_parts_menu_home(window) -> None:

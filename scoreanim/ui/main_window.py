@@ -49,6 +49,7 @@ from scoreanim.ui.peaks_worker import PeakExtractor
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.score_install import ScoreInstaller
 from scoreanim.ui.score_loader import ScoreLoader
+from scoreanim.ui.seek_keys import SeekKeys
 from scoreanim.ui.selection import SelectionController
 from scoreanim.ui.stage_menu import StageMenu
 from scoreanim.ui.stage_view import StageView
@@ -142,6 +143,9 @@ class MainWindow(QMainWindow):
                                                   self.view, self)
         self.drag_router = DragRouter((self.onset_cursor, self.nudge))
         self.view.nudge_probe = self.drag_router.probe
+        # the arrows both nudge and seek; the stage keeps them while
+        # something nudgeable is selected (ui/seek_keys.py explains)
+        self.view.nudge_target = self.nudge.target
         self.view.drag_started.connect(self.drag_router.start)
         self.view.drag_moved.connect(self.drag_router.move)
         self.view.drag_finished.connect(self.drag_router.finish)
@@ -166,6 +170,10 @@ class MainWindow(QMainWindow):
         # would eat the "f" out of every text field in the app.
         self.stem_flip_action = StemFlipActionController(self.app_state, self)
         self.view.addAction(self.stem_flip_action.action)
+        # arrow-key seeking (D1), replacing the seek slider's own
+        # keyboard steps; the chrome registers these window-level and
+        # the Playback menu shows them
+        self.seek_keys = SeekKeys(self.playback, self)
         self.layout_zone = LayoutZone(self.app_state,
                                       self.break_action.actions, self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea,

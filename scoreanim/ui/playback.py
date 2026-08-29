@@ -141,7 +141,7 @@ class PlaybackController(QObject):
 
     def _emit_duration_if_no_audio(self) -> None:
         # with a recording, the audio backend owns duration; without one,
-        # the score's own length drives the slider and the axis (FIX 2)
+        # the score's own length drives the time axis (FIX 2)
         if not self.transport.has_media():
             self.duration_changed.emit(self._score_duration())
 
@@ -204,6 +204,17 @@ class PlaybackController(QObject):
         else:
             self._wall.seek(audio_seconds)
         self._refresh()
+
+    def seek_by(self, delta_seconds: float) -> None:
+        """Jump relative to where the playhead is now, kept inside the
+        timeline (`ui/seek_keys.py` binds the arrow keys to this).
+
+        It reads the master clock, so it works the same with a
+        recording loaded and without one, and it is a seek and nothing
+        else: playing stays playing, paused stays paused.
+        """
+        target = self._clock.now_seconds() + delta_seconds
+        self.seek(max(0.0, min(target, self._duration())))
 
     # -- internals ---------------------------------------------------------------
 

@@ -9,16 +9,16 @@ replacing the old three-way central splitter (stage-vs-zone sizing
 moves to the dock boundary).
 
 Top to bottom: the transport cluster (go to start, play, timecode) with
-the Systems toggle, the seek bar and the lane gear on the strip, the
-waveform and tempo lanes, then the document's timing fields
-(`ui/timeline_bar.py`) at the very bottom, next to the ticks they move.
+the Systems toggle and the lane gear on the strip, the waveform and
+tempo lanes, then the document's timing fields (`ui/timeline_bar.py`)
+at the very bottom, next to the ticks they move.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QFont, QFontDatabase
-from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QSlider,
-                               QSplitter, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QSplitter,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from scoreanim.core.project import (PresentationMode, ProjectDoc,
                                     SetPresentationMode)
@@ -33,25 +33,28 @@ from scoreanim.ui.timeline_bar import TimelineBar
 from scoreanim.ui.waveform import WaveformView
 
 
-# The seek bar's height: the groove plus room for the handle, and no
-# more — it is a line across the strip, not a widget with a body.
-_SEEK_HEIGHT = 16
-
 # What the timecode reads before anything is loaded, and the text its
 # minimum width is measured from.
 _TIME_ZERO = " 0:00.0 / 0:00.0 "
 
 
 class TransportStrip(QWidget):
-    """The transport cluster, the seek bar, the Systems toggle that says
-    what the stage shows (C2), and the lane gear (C4).
+    """The transport cluster, the Systems toggle that says what the
+    stage shows (C2), and the lane gear (C4).
 
     Left to right: go to start and play/pause as icon buttons, the
-    timecode, Systems, then the seek bar taking every spare pixel, and
-    the gear at the right edge. The controls you press are a cluster in
-    one corner instead of one stock slider across the window (D1) —
-    which is where every media app puts them, so the eye finds them
-    without reading.
+    timecode, Systems, then empty space, and the gear at the right
+    edge. The controls you press are a cluster in one corner instead of
+    one stock slider across the window (D1) — which is where every
+    media app puts them, so the eye finds them without reading.
+
+    **There is no seek bar.** The two lanes below are the seek surface:
+    they already seek on click and scrub on drag, and they show the
+    playhead against the music rather than against a bare line. A
+    slider up here drew a second playhead that moved at a different
+    speed from the lanes' cursor, which read as two clocks disagreeing.
+    Keyboard seeking came off the slider with it and is now
+    `ui/seek_keys.py`, window-level, so it works wherever the focus is.
 
     The timecode is in the system's monospace font and has a floor
     under its width, so a digit changing never moves the text beside
@@ -62,12 +65,11 @@ class TransportStrip(QWidget):
     (`ui/lane_menu.py`). They set `AppState.grid` and never the
     document, which is why they are not in the timing bar below.
 
-    Owns the play QAction — the window registers it window-level so
-    Space fires regardless of focus, and the Playback menu shares the
-    same action, so button, menu item and shortcut state cannot
-    diverge. Observes the playback controller for time and play state.
-    Go to start is the strip's own action: no menu item and no key, so
-    every binding the app already had is untouched.
+    Owns the play and go-to-start QActions — the window registers both
+    window-level so Space and Home fire regardless of focus, and the
+    Playback menu shares the same action objects, so button, menu item
+    and shortcut state cannot diverge. Observes the playback controller
+    for time and play state.
 
     Systems came here from the inspector, where it sat in a Playback &
     Sync section that had nothing else left in it; it belongs next to
@@ -87,14 +89,15 @@ class TransportStrip(QWidget):
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._state = app_state
-        self._playback = playback
 
         # Back to the top. A seek, nothing else: playing stays playing
         # and paused stays paused, so it reads the same way as the same
-        # button on a music player.
+        # button on a music player. Home is its key — one action, so the
+        # button, the menu item and the key cannot disagree.
         self.to_start_action = QAction(icons.icon("skip-back"),
                                        "Go to Start", self)
-        self.to_start_action.setToolTip("Go to start")
+        self.to_start_action.setToolTip("Go to start (Home)")
+        self.to_start_action.setShortcut(Qt.Key.Key_Home)
         self.to_start_action.triggered.connect(lambda: playback.seek(0.0))
 
         # The menu item reads the text; the strip's button is icon-only,
@@ -113,18 +116,6 @@ class TransportStrip(QWidget):
                                        "time; off shows whole pages")
         self.systems_action.toggled.connect(self._on_systems_toggled)
 
-        # A slim bar, not a stock slider: the stylesheet dresses it by
-        # name (`SeekBar`), and the height keeps it a line rather than a
-        # control that competes with the cluster beside it.
-        self._slider = QSlider(Qt.Orientation.Horizontal)
-        self._slider.setObjectName("SeekBar")
-        self._slider.setFixedHeight(_SEEK_HEIGHT)
-        self._slider.setRange(0, 0)
-        self._slider.setSingleStep(100)        # ms
-        self._slider.setPageStep(2000)
-        self._slider.sliderMoved.connect(
-            lambda ms: playback.seek(ms / 1000.0))
-        self._slider.valueChanged.connect(self._on_slider_value)
         self._time_label = _timecode_label()
 
         row = QHBoxLayout(self)
@@ -141,8 +132,9 @@ class TransportStrip(QWidget):
         # after the readout: what the stage shows, not where the
         # playhead is
         row.addWidget(_action_button(self.systems_action))
-        row.addSpacing(panel_style.GROUP_GAP)
-        row.addWidget(self._slider, 1)
+        # nothing between the cluster and the gear: the spare width is
+        # empty now that the seek bar has gone to the lanes
+        row.addStretch(1)
         # the lanes' own view options, at the right edge of their header
         self.lane_options = LaneOptionsButton(app_state, self)
         row.addWidget(self.lane_options)
@@ -170,16 +162,6 @@ class TransportStrip(QWidget):
     def _on_time(self, audio_seconds: float, duration: float) -> None:
         self._time_label.setText(
             f" {format_time(audio_seconds)} / {format_time(duration)} ")
-        if not self._slider.isSliderDown():
-            self._slider.blockSignals(True)
-            self._slider.setRange(0, int(duration * 1000))
-            self._slider.setValue(int(audio_seconds * 1000))
-            self._slider.blockSignals(False)
-
-    def _on_slider_value(self, ms: int) -> None:
-        # keyboard/page-step changes (sliderMoved covers drags)
-        if not self._slider.isSliderDown():
-            self._playback.seek(ms / 1000.0)
 
     def _on_playing(self, playing: bool) -> None:
         self.play_action.setText("Pause" if playing else "Play")

@@ -385,31 +385,8 @@ QSlider::handle:horizontal {
 QSlider::handle:horizontal:hover {
     background: $ACCENT;
 }
-/* The seek bar (D1): the same slider, dressed down to a line. The
-   groove is the time that has not played yet, the filled part is the
-   playhead colour, and the handle is a small pill rather than a knob —
-   the cluster to its left is what the eye should land on. */
-QSlider#SeekBar::groove:horizontal {
-    background: $INSET;
-    border: 1px solid $BORDER;
-    border-radius: 2px;
-    height: 4px;
-}
-QSlider#SeekBar::sub-page:horizontal {
-    background: $PLAYHEAD;
-    border-radius: 2px;
-}
-QSlider#SeekBar::handle:horizontal {
-    background: $TEXT;
-    border: 0px;
-    width: 6px;
-    margin: -4px 0px;
-    border-radius: 3px;
-}
-QSlider#SeekBar::handle:horizontal:hover {
-    background: $ACCENT;
-}
-
+/* The timecode readout beside the transport buttons. There is no seek
+   bar to dress any more — the lanes are the seek surface. */
 QLabel#Timecode {
     color: $TEXT;
     background: transparent;

@@ -133,6 +133,9 @@ class StageView(QGraphicsView):
         self._page_fill = QColor(Qt.GlobalColor.white)   # doc page color
         self._press_pos = None               # viewport px, for click detect
         self.nudge_probe = None              # set by the window (M3.2)
+        # "is anything nudgeable selected right now?" — set by the
+        # window too, and read only by the ShortcutOverride guard below
+        self.nudge_target = None
         self.overlay_painter = None          # drawn AFTER the mask, so
         # it can render outside the system frame (the onset ruler)
         self._drag_origin: QPointF | None = None   # scene pos of the press
@@ -389,6 +392,29 @@ class StageView(QGraphicsView):
         self.context_menu_requested.emit(
             event.globalPos(), self.mapToScene(event.pos()))
         event.accept()
+
+    def event(self, event) -> bool:
+        """Keep the arrow keys for nudging when there is something to
+        nudge.
+
+        The window binds Left and Right to seeking (`ui/seek_keys.py`),
+        and Qt gives a window shortcut the key BEFORE the focused
+        widget ever sees it. ShortcutOverride is the one way back: a
+        widget that accepts it is saying "this key is mine", and the
+        key then arrives as a normal press in `keyPressEvent` below.
+
+        So the arrows nudge while a nudgeable object is selected, and
+        seek the rest of the time. Anything the window has not asked
+        for falls through untouched — this only ever accepts, never
+        blocks.
+        """
+        if (event.type() == QEvent.Type.ShortcutOverride
+                and event.key() in _ARROW_KEYS
+                and self.nudge_target is not None
+                and self.nudge_target() is not None):
+            event.accept()
+            return True
+        return super().event(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         """Esc deselects. View-level, not a window shortcut, so Esc keeps
