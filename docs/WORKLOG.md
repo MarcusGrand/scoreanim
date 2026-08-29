@@ -67,6 +67,35 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-30 — `systems-fixed-frame` (off `ui-e2-tooltips`;
+  SYSTEMS_MODE_REWORK.md stage 1, UNMERGED): **the systems frame is a
+  fixed piece of glass**. It used to be the PAGE's frame slid to centre
+  the band, so the lit rectangle was the band — page-wide but as tall as
+  that system — and its edges jumped on every switch. Now ONE frame is
+  computed per load (`core/engraving/systems.py::systems_frame`, pure:
+  page width by tallest band + 6 % of that height each side, Marcus's
+  number — about the air the engraver leaves between two systems), every
+  system is centred in it with its horizontal position untouched, the
+  whole frame fills with the page's own background so no paper edge is
+  left, and Fit fits the frame (so system mode shows the music bigger
+  than paged mode). Most of it already existed: the video canvas had
+  solved the same problem for its own frame in 2026-08, so the change is
+  mostly generalising "is there a canvas" to "is there a frame" — the
+  solid fill, the two-colour mask and the wobble-free fit now serve
+  both. `_fit_canvas` became `_fit_frame` over a new pure
+  `stage_frame.fit_geometry`. The frame reaches the view once per load
+  (`ViewRouter.bind` → `set_systems_frame`); a switch only moves the
+  band. Checked end to end in the real window offscreen: across all five
+  testscore systems the lit frame lands on the same screen pixels and
+  the same zoom, and paged mode is untouched. Full suite green (2412),
+  no schema bump, no golden movement. **Split commit alongside**:
+  `clamped_factor` and the zoom limits moved to `stage_zoom.py`, which
+  puts `stage_view.py` back at 577 — still over the ceiling, the
+  gesture-handler seam still owed. Unproven under a human's eye — the
+  things to feel are whether 6 % is the right amount of air and whether
+  the bigger-at-Fit system reads well. Stages 2–4 (zoom/pan preserved on
+  a switch, the canvas as the frame, export parity) still to come.
+
 - 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase C2, as amended):
   **Systems on the transport, and Follow is not an option**. Marcus's
   ruling mid-step: playing music always shows the music, so the Follow
