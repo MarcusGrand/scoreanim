@@ -1,4 +1,4 @@
-"""Static chrome (M1.5, B1, B2), offscreen: the five menus in order,
+"""Static chrome (M1.5, B1, B2, B3), offscreen: the six menus in order,
 every opener in File, the toolbar (the same three openers, the page
 steps, and Export on the right edge), shared Play/Follow QActions in
 the Playback menu, dock toggles in View, and window-level shortcut
@@ -43,14 +43,16 @@ def _toolbar(window):
     return window.findChild(QToolBar, "MainToolbar")
 
 
-def test_five_menus_in_roadmap_order(window) -> None:
+def test_six_menus_in_roadmap_order(window) -> None:
+    """Help joined the five in B3, last, as it is everywhere else."""
     menus = window.menus
-    assert [a.text() for a in window.menuBar().actions()] \
-        == ["&File", "&Edit", "&View", "&Score", "&Playback"]
+    order = ["&File", "&Edit", "&View", "&Score", "&Playback", "&Help"]
+    assert [a.text() for a in window.menuBar().actions()] == order
     assert [m.title() for m in (menus.file_menu, menus.edit_menu,
                                 menus.view_menu, menus.score_menu,
-                                menus.playback_menu)] \
-        == ["&File", "&Edit", "&View", "&Score", "&Playback"]
+                                menus.playback_menu, menus.help_menu)] \
+        == order
+    assert [m.title() for m in menus.all_menus] == order
 
 
 def test_file_and_edit_contents(window) -> None:

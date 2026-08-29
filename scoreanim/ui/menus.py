@@ -1,4 +1,4 @@
-"""Static window chrome: the five menus, the toolbar, and the
+"""Static window chrome: the six menus, the toolbar, and the
 window-level shortcut registration (M1.5).
 
 Every way of getting a file in is in the File menu (B1) — Open Score,
@@ -28,6 +28,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QLabel, QMenu, QSizePolicy, QToolButton,
                                QWidget)
 
+from scoreanim.ui import about_dialog, shortcuts_dialog
 from scoreanim.ui.recents import RecentsMenu
 from scoreanim.ui.theme import icons
 
@@ -46,7 +47,7 @@ class MainMenus:
     window-owned, next to the stage it describes), `score_menu`
     (repopulated per load), and `recents_menu` (refilled on open).
 
-    All five menus are kept as attributes on purpose: a QMenu whose
+    All six menus are kept as attributes on purpose: a QMenu whose
     last Python wrapper is garbage-collected can take its C++ object
     with it (PySide6 ownership quirk around `QMenuBar.addMenu` /
     `QAction.menu()`), so the chrome holds strong references for the
@@ -93,11 +94,15 @@ class MainMenus:
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
         self.undo_action.setEnabled(False)
         self.undo_action.triggered.connect(window.app_state.undo)
+        # both rename themselves per document change ("Undo Nudge"), so
+        # the shortcut sheet is told what to call them
+        shortcuts_dialog.set_sheet_name(self.undo_action, "Undo")
 
         self.redo_action = QAction(icons.icon("redo-2"), "Redo", window)
         self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
         self.redo_action.setEnabled(False)
         self.redo_action.triggered.connect(window.app_state.redo)
+        shortcuts_dialog.set_sheet_name(self.redo_action, "Redo")
 
         self.texts_action = QAction("Texts…", window)
         self.texts_action.setEnabled(False)          # needs a loaded score
@@ -127,6 +132,19 @@ class MainMenus:
         reload_tempo = QAction("Reload Tempo", window)
         reload_tempo.setShortcut("F5")
         reload_tempo.triggered.connect(window.files.reload_tempo)
+
+        # -- Help ------------------------------------------------------------
+        # No shortcut on either: the shortcut sheet is the one thing you
+        # go looking for with the mouse, and a key of its own would have
+        # to be listed in itself.
+        shortcuts = QAction(f"{shortcuts_dialog.TITLE}…", window)
+        shortcuts.triggered.connect(
+            lambda: shortcuts_dialog.ShortcutsDialog(
+                self.all_menus, window).exec())
+
+        about = QAction(about_dialog.TITLE, window)
+        about.triggered.connect(
+            lambda: about_dialog.show_about(window))
 
         # -- menubar ---------------------------------------------------------
         strip = window.lower_zone.strip
@@ -176,6 +194,14 @@ class MainMenus:
         self.playback_menu.addAction(window.inspector.follow_action)
         self.playback_menu.addSeparator()
         self.playback_menu.addAction(reload_tempo)
+
+        # Last, where every platform puts it. On macOS Qt lifts "About
+        # ScoreAnim" out of here into the application menu by itself,
+        # which is where a Mac user looks for it — the menu object below
+        # still holds both actions either way.
+        self.help_menu = menubar.addMenu("&Help")
+        self.help_menu.addAction(shortcuts)
+        self.help_menu.addAction(about)
 
         # -- toolbar: the openers · the pager · Export ----------------------
         # Left to right: what you do at the start of a session, then
@@ -232,6 +258,14 @@ class MainMenus:
         for action in (self.undo_action, self.redo_action, save,
                        open_score, strip.play_action, reload_tempo):
             window.addAction(action)
+
+    @property
+    def all_menus(self) -> tuple[QMenu, ...]:
+        """The six menus in bar order — the refs, never re-fetched from
+        the bar with `QAction.menu()` (see the class docstring). The
+        shortcut sheet reads these."""
+        return (self.file_menu, self.edit_menu, self.view_menu,
+                self.score_menu, self.playback_menu, self.help_menu)
 
     def set_position(self, text: str, can_prev: bool, can_next: bool) -> None:
         """The page/system readout and the step actions' enabled state,

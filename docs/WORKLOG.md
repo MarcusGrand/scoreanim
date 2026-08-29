@@ -59,6 +59,20 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase B3): **Help menu**.
+  A sixth menu, last on the bar: Keyboard Shortcuts… and About
+  ScoreAnim. The shortcut sheet is HARVESTED from the menus when it
+  opens, never a hand-kept table — so a key added anywhere shows up in
+  it, and the Score menu's break keys are in it once a score is loaded.
+  An action with no key is skipped; an action that renames itself (Undo,
+  the three break actions) carries a fixed `set_sheet_name` for the
+  sheet. The mouse gestures are the one hand-kept list (`GESTURES`).
+  `harvest` takes the menu objects the chrome holds — calling
+  `QAction.menu()` on them deletes the C++ menu, which emptied the menu
+  bar the first time round. About prints no app version (there is no
+  version constant to read): project format v12, Python and Qt. Suite
+  green (2219).
+
 - 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase B2): **toolbar with
   Export**. The bar now reads left to right as a session: the three
   openers, the page pager, a spring, then Export on the right edge —
