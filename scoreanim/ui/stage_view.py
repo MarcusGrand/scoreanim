@@ -20,7 +20,10 @@ core/engraving/systems.py, page width by tallest band plus even padding
 — with the current system centred in it, so nothing about the frame
 changes when the music moves to a system with more or fewer staves.
 There is no page context in system mode: the whole frame is filled with
-the page's own background, so no paper edge is left to move.
+the page's own background, so no paper edge is left to move. A switch
+never re-fits (stage 2): fitted, the fit it would land on is the one it
+already has, and zoomed in, the camera simply translates with the frame,
+so the user keeps their zoom and their place in the system.
 
 Masking is drawForeground — the view paints the frame's own fill over a
 neighbouring system's ink INSIDE the frame and letterbox OUTSIDE it, so
@@ -39,7 +42,9 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 
 from scoreanim.core.editing import COARSE_NUDGE, NUDGE_STEP
-from scoreanim.ui.stage_frame import StageFraming, fit_geometry
+from scoreanim.ui.stage_frame import (StageFraming, fit_geometry,
+                                      frame_offset, scroll_rect,
+                                      snapped_frame)
 from scoreanim.ui.stage_scrollbars import TransientScrollbars
 from scoreanim.ui.stage_zoom import (FIT_MARGIN, clamped_factor,
                                      fit_scale, percent)
@@ -205,16 +210,68 @@ class StageView(QGraphicsView):
         its content is uniform, so only the music moves. A hard cut,
         exactly like a page flip (ruling R2).
 
+        Zoomed in, the switch is a pure camera TRANSLATION by the delta
+        between the old frame's centre and the new one's (stage 2), so
+        the user's zoom and their place in the system both survive it.
+        Only a fitted view re-fits, and that lands on the same frame it
+        was already showing.
+
         `bounds` is how far the band may show before a neighbouring
         system on the same page would come into view — the only thing
         the mask is for (core/engraving/systems.py::neighbour_bounds)."""
+        was = self._frame_offset()      # where the glass is on screen
         self.setScene(scene)
         page = scene.sceneRect()
         self._framing.set_system_band(page, band, bounds)
         self.setSceneRect(self._framing.scene_rect(page))
         if self._fit_mode:
             self._fit()
+        else:
+            self._translate(was)
         self.viewport().update()
+
+    def _frame_offset(self) -> QPointF | None:
+        """Where the frame is sitting on screen right now, in device
+        pixels — None when there is no frame to measure yet."""
+        frame = self._framing.frame
+        if frame is None or self.scene() is None:
+            return None
+        return frame_offset(frame, self.mapToScene(0, 0),
+                            self.transform().m11())
+
+    def _translate(self, want: QPointF | None) -> None:
+        """Put the frame back where it was on screen, leaving the zoom
+        alone — the zoomed-in half of a system switch, and a pure
+        translation of the camera by the delta between the old band's
+        centre and the new one's (each frame is centred on its band).
+
+        Three things make it exact. The scroll range goes to the same
+        constant overscan rect the fitted path uses, so no system is
+        clamped differently from the one before it. The frame is snapped
+        (`snapped_frame`), so it is a whole number of device pixels away
+        from the frame we are translating from — nothing is left over to
+        drift on the next switch, which is what QGraphicsView.centerOn
+        did here, a pixel at a time, for as long as playback ran. And
+        the correction is measured against where the frame actually
+        lands, so it is right even if Qt has moved the scrollbars itself
+        while the scene was being swapped.
+
+        With nothing to hold on to — the first system shown, or arriving
+        from paged mode, where there was no frame — the frame is centred
+        instead, at whatever zoom the user has."""
+        frame = self._framing.frame
+        if frame is None or self.scene() is None:
+            return
+        scale = self.transform().m11()
+        self._framing.frame = frame = snapped_frame(frame, scale)
+        self.setSceneRect(scroll_rect(frame, self.scene().sceneRect()))
+        if want is None:
+            self.centerOn(frame.center())
+            return
+        have = frame_offset(frame, self.mapToScene(0, 0), scale)
+        hbar, vbar = self.horizontalScrollBar(), self.verticalScrollBar()
+        hbar.setValue(hbar.value() + round(have.x() - want.x()))
+        vbar.setValue(vbar.value() + round(have.y() - want.y()))
 
     def clear_band(self) -> None:
         """Back to paged framing (band mask off; the canvas stays)."""

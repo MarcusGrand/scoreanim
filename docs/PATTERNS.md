@@ -398,3 +398,13 @@ measure/part). Do not merge the paths.
   minimum width taken after the first resync is the minimum of whatever
   happens to be showing. `EffectsPanel` takes its width before the
   first `sync_from_document`, when every row is still on screen.
+- **`QGraphicsView.centerOn` drifts.** It rounds the centre through the
+  integer scrollbars with a bias, so re-centring a stationary frame over
+  and over creeps — one device pixel per system switch, measured, which
+  is invisible for one switch and a mess after a minute of playback. Any
+  camera move that repeats (a system switch, a page flip) has to be a
+  step measured in whole device pixels against where the frame ACTUALLY
+  landed, not a centre handed to Qt. `stage_frame.snapped_frame` is the
+  other half: two frames snapped to the same sub-pixel phase are a whole
+  number of device pixels apart, so the step has no remainder to drift
+  on.

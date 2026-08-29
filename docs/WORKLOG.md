@@ -56,9 +56,10 @@ Three of the standing split debts were paid on the canvas branch
 `serialize.py` 503 → 441 (`serialize_style.py` — still over, but what
 remains is mostly the version-history comment block, which belongs
 with the envelope), `main_window.py` 412 → 326 (`ui/score_install.py`).
-`ui/stage_view.py` is at **443** after the canvas framing and its
-stability fit — the real seam in it is the selection-gesture handlers,
-and it is now the most overdue split. `render/items.py` still wants
+`ui/stage_view.py` is at **641** after the systems-mode rework
+(2026-08-30) — the real seam in it is the selection-gesture handlers,
+and it is by a distance the most overdue split; the camera (fit,
+translate, zoom, scroll) is a second one. `render/items.py` still wants
 its seam.
 
 One dated line per session, newest first. Every session reads this file
@@ -66,6 +67,31 @@ at start and appends its line at close. Keep entries to one or two
 lines — history lives in git and `docs/history/`.
 
 ---
+
+- 2026-08-30 — `systems-fixed-frame` (SYSTEMS_MODE_REWORK.md stage 2,
+  UNMERGED): **a system switch keeps the user's zoom and pan**. It used
+  to re-fit, so any zoom was thrown away on every switch. Now the view
+  reads where the frame is sitting ON SCREEN before the swap
+  (`stage_frame.frame_offset`, device pixels) and puts it back there
+  after — the glass does not move, which is the same thing as
+  translating the camera by the delta between the two band centres.
+  Fitted, nothing changed: the fit it would land on is the one it
+  already has. Manual prev/next and follow-driven switches are the one
+  path, and paged mode never enters it. The trap was
+  **`QGraphicsView.centerOn`, which rounds through the integer
+  scrollbars with a bias and crept exactly one pixel per switch** —
+  measured, and a mess after a minute of playback (now in PATTERNS).
+  The fix is stage 1's own snap, promoted to `stage_frame.snapped_frame`
+  and now used by both paths: two frames snapped to the same sub-pixel
+  phase are a WHOLE number of device pixels apart, so the step between
+  them is exact. `scroll_rect` came out of `fit_geometry` for the same
+  reason — a zoomed switch has to scroll in the same range the fitted
+  one does, or a system near a page edge is clamped short. Pinned by a
+  test that switches 60 times up and down the score and lands on
+  exactly five camera positions, one per system, returning to the first
+  bit-for-bit. 7 new tests; full suite 2426 green, no schema bump, no
+  golden movement. Stages 3 (canvas as the frame) and 4
+  (export parity) still to come. Unproven under a human's eye.
 
 - 2026-08-30 — `systems-fixed-frame` (off `ui-e2-tooltips`;
   SYSTEMS_MODE_REWORK.md stage 1, UNMERGED): **the systems frame is a

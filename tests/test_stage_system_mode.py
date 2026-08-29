@@ -24,7 +24,8 @@ from scoreanim.core.engraving.systems import (  # noqa: E402
 from scoreanim.core.project.stage_config import (  # noqa: E402
     default_stage_config, page_content_top)
 from scoreanim.render.scene import ScoreScenes  # noqa: E402
-from scoreanim.ui.stage_frame import fit_geometry  # noqa: E402
+from scoreanim.ui.stage_frame import (  # noqa: E402
+    fit_geometry, frame_offset, snapped_frame)
 from scoreanim.ui.stage_view import _LETTERBOX, StageView  # noqa: E402
 
 
@@ -283,6 +284,154 @@ def test_clear_band_restores_paged_framing(qapp, scenes, bands,
     color = _pixel(view, neighbour.center.x, neighbour.center.y)
     assert color is not None
     assert color.name() != _LETTERBOX.name()
+
+
+# -- a switch keeps the user's zoom and pan (stage 2) ---------------------
+
+def _glass(view: StageView, frame, band) -> tuple[float, float]:
+    """Where the frame is sitting on screen, in device pixels — "where
+    the glass is". Measured through the view's public surface: the scene
+    point at the viewport's top-left corner, against where this system's
+    frame was placed."""
+    placed = frame.rect_for(band.rect)
+    return tuple(frame_offset(_qrect(placed), view.mapToScene(0, 0),
+                              view.transform().m11()).toTuple())
+
+
+def _zoomed_view(scenes, bands, frame, bounds) -> StageView:
+    """A view zoomed in on one side of system 1, the way Marcus's own
+    check starts."""
+    view = _view(frame)
+    _show(view, scenes, bands[1], bounds)
+    view.zoom_by(2.0)
+    view.scroll_by(300.0, 0.0)           # off to one side of the system
+    return view
+
+
+def test_a_switch_keeps_the_zoom(qapp, scenes, bands, frame,
+                                 bounds) -> None:
+    """Zoomed to 200 %, playback switching systems must not re-fit —
+    that is what threw the user's zoom away before stage 2."""
+    view = _zoomed_view(scenes, bands, frame, bounds)
+    zoom = view.transform().m11()
+    for system in list(bands) + [1]:
+        _show(view, scenes, bands[system], bounds)
+        assert view.transform().m11() == zoom
+
+
+def test_a_switch_keeps_the_place_in_the_system(qapp, scenes, bands,
+                                                frame, bounds) -> None:
+    """The switch is a pure translation by the delta between the old
+    band's centre and the new one's, so the frame does not move on
+    screen: whatever the user was looking at is in the same place at the
+    same size, showing the same part of the new system.
+
+    One device pixel is the whole tolerance, and it is the snap: this
+    reads the frame's UNSNAPPED placement, so each measurement carries
+    its own half-pixel nudge. The camera itself is exact — that is
+    `test_a_long_run_of_switches_does_not_drift` below."""
+    view = _zoomed_view(scenes, bands, frame, bounds)
+    want = _glass(view, frame, bands[1])
+    for system in list(bands) + [1]:
+        _show(view, scenes, bands[system], bounds)
+        at = _glass(view, frame, bands[system])
+        assert at[0] == pytest.approx(want[0], abs=1.0)
+        assert at[1] == pytest.approx(want[1], abs=1.0)
+
+
+def test_a_long_run_of_switches_does_not_drift(qapp, scenes, bands,
+                                               frame, bounds) -> None:
+    """The one that failed first: QGraphicsView.centerOn rounds through
+    the integer scrollbars with a bias, so the picture crept a pixel on
+    every switch — invisible for one switch and a mess after a minute of
+    playback. Snapped frames sit a WHOLE number of device pixels apart,
+    so the camera step between them is exact.
+
+    Play up and down the score many times over, and the camera comes
+    back to a system EXACTLY where it was, not nearly."""
+    view = _zoomed_view(scenes, bands, frame, bounds)
+    _show(view, scenes, bands[1], bounds)
+    first = view.mapToScene(0, 0)
+    order = list(bands) + list(reversed(list(bands)))
+    seen = set()
+    for system in order * 6:
+        _show(view, scenes, bands[system], bounds)
+        seen.add(view.mapToScene(0, 0).toTuple())
+    assert len(seen) == len(bands)       # the camera really does move,
+    _show(view, scenes, bands[1], bounds)   # once per system and no more
+    assert view.mapToScene(0, 0) == first
+
+
+def test_the_switched_system_is_in_view(qapp, scenes, bands, frame,
+                                        bounds) -> None:
+    """Whatever the translation does, the music has to be ON SCREEN:
+    after every switch the system fills most of the window, however tall
+    its band is."""
+    view = _zoomed_view(scenes, bands, frame, bounds)
+    for system in list(bands) + [1]:
+        band = bands[system]
+        _show(view, scenes, band, bounds)
+        shown = view.mapToScene(view.viewport().rect()).boundingRect()
+        on_screen = shown.intersected(_qrect(band.rect))
+        covered = ((on_screen.width() * on_screen.height())
+                   / (shown.width() * shown.height()))
+        assert covered > 0.5, f"system {system} covers {covered:.0%}"
+
+
+def test_fit_still_returns_to_the_whole_frame(qapp, scenes, bands,
+                                              frame, bounds) -> None:
+    """Ctrl+0 after a zoomed run of switches: back to the whole frame,
+    and back to the one fit scale every system shares."""
+    view = _view(frame)
+    _show(view, scenes, bands[1], bounds)
+    fitted = view.transform().m11()
+    view = _zoomed_view(scenes, bands, frame, bounds)
+    _show(view, scenes, bands[3], bounds)
+    view.fit()
+    assert view.transform().m11() == pytest.approx(fitted)
+    placed = view.mapFromScene(
+        _qrect(frame.rect_for(bands[3].rect))).boundingRect()
+    assert (placed.width() == pytest.approx(view.viewport().width(), abs=2)
+            or placed.height() == pytest.approx(view.viewport().height(),
+                                                abs=2))
+
+
+def test_paged_flips_are_untouched(qapp, scenes, bands, frame) -> None:
+    """Stage 2 is system mode only: a zoomed page flip behaves exactly
+    as it did — the scene swaps under an unchanged camera."""
+    view = _view(frame)
+    view.show_scene(scenes.scene_for_page(1))
+    view.zoom_by(2.0)
+    transform, center = view.transform(), view.mapToScene(
+        view.viewport().rect().center())
+    view.show_scene(scenes.scene_for_page(2))
+    assert view.transform() == transform
+    assert view.mapToScene(view.viewport().rect().center()) == center
+
+
+# -- the switch arithmetic, without a window ------------------------------
+
+def test_snapped_frames_are_a_whole_pixel_apart() -> None:
+    """Why a switch can translate exactly: wherever two bands put their
+    frames, the snapped frames are a whole number of device pixels
+    apart, so the camera step between them has no remainder to drift
+    on."""
+    scale = 0.5707458488845834          # the fixture's own fit scale
+    a = snapped_frame(QRectF(0, -175.3, 2095.5, 1694.7), scale)
+    b = snapped_frame(QRectF(0, 1194.9, 2095.5, 1694.7), scale)
+    step = (b.top() - a.top()) * scale
+    assert step == pytest.approx(round(step), abs=1e-9)
+    # and the snap moved each frame less than half a device pixel
+    assert abs(a.top() - -175.3) * scale < 0.5
+    assert abs(b.top() - 1194.9) * scale < 0.5
+
+
+def test_frame_offset_reads_where_the_glass_is() -> None:
+    """Device pixels from the viewport's top-left corner to the
+    frame's."""
+    frame = QRectF(100.0, 200.0, 900.0, 400.0)
+    origin = QPointF(50.0, 150.0)        # scene point at the corner
+    assert frame_offset(frame, origin, 2.0) == QPointF(100.0, 100.0)
 
 
 # -- the fit arithmetic, without a window ---------------------------------

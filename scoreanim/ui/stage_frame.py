@@ -177,6 +177,51 @@ def strips_outside(rect: QRectF, inner: QRectF) -> list[QRectF]:
     return strips
 
 
+def scroll_rect(frame: QRectF, page: QRectF) -> QRectF:
+    """How far the view may scroll: the page with one frame of slack on
+    every side.
+
+    It depends on the page and the frame's SIZE, never on where the
+    frame currently sits, so in system mode it is one rect for the whole
+    load. That is what makes every system's arithmetic identical — a
+    fitted frame cannot wobble on a switch, and a zoomed one cannot be
+    clamped differently from the switch before it."""
+    return page.adjusted(-frame.width(), -frame.height(),
+                         frame.width(), frame.height())
+
+
+def snapped_frame(frame: QRectF, scale: float) -> QRectF:
+    """`frame` nudged so its top-left corner lands a quarter of a device
+    pixel off the whole-pixel grid — at most half a pixel of movement
+    against the band, which is invisible.
+
+    Two things rest on it. Every rounding downstream lands the same side
+    for every system, so a fitted frame cannot wobble on a switch. And
+    two snapped frames are a WHOLE number of device pixels apart, so a
+    zoomed camera can translate from one to the other exactly, with
+    nothing left over to drift on the next switch."""
+    snapped = QRectF(frame)
+    snapped.translate(
+        (round(frame.left() * scale) + 0.25) / scale - frame.left(),
+        (round(frame.top() * scale) + 0.25) / scale - frame.top())
+    return snapped
+
+
+def frame_offset(frame: QRectF, origin: QPointF,
+                 scale: float) -> QPointF:
+    """Where the frame's top-left corner is sitting in the viewport, in
+    device pixels. `origin` is the scene point at the viewport's own
+    top-left corner (`QGraphicsView.mapToScene(0, 0)`).
+
+    This is "where the glass is on screen", and holding it still across
+    a switch is the whole of stage 2: the frame stays put, the music
+    behind it changes, so the user's zoom and their place in the system
+    both survive. Measured rather than remembered — it is a fact about
+    the view, and the user moves it whenever they zoom or scroll."""
+    return QPointF((frame.left() - origin.x()) * scale,
+                   (frame.top() - origin.y()) * scale)
+
+
 def fit_geometry(frame: QRectF, page: QRectF,
                  viewport_w: float, viewport_h: float,
                  ) -> tuple[float, QRectF, QRectF] | None:
@@ -190,19 +235,13 @@ def fit_geometry(frame: QRectF, page: QRectF,
     Three choices pin it, and all three are the arithmetic here: the
     zoom is set directly (no fitInView, no 2 px margin — the frame IS
     the picture); the scroll range is one CONSTANT page-independent
-    overscan rect, so Qt's origin math is identical for every system;
-    and the frame is nudged a quarter device pixel off the integer grid
-    (at most half a pixel against the band — invisible), so every
-    rounding along the way lands the same side for every system.
+    overscan rect (`scroll_rect`), so Qt's origin math is identical for
+    every system; and the frame is nudged a quarter device pixel off
+    the integer grid (`snapped_frame`), so every rounding along the way
+    lands the same side for every system.
 
     Pure, so the constancy can be checked without a window."""
     if viewport_w <= 0 or viewport_h <= 0 or frame.isEmpty():
         return None
     scale = min(viewport_w / frame.width(), viewport_h / frame.height())
-    snapped = QRectF(frame)
-    snapped.translate(
-        (round(frame.left() * scale) + 0.25) / scale - frame.left(),
-        (round(frame.top() * scale) + 0.25) / scale - frame.top())
-    scroll = page.adjusted(-frame.width(), -frame.height(),
-                           frame.width(), frame.height())
-    return scale, snapped, scroll
+    return scale, snapped_frame(frame, scale), scroll_rect(frame, page)

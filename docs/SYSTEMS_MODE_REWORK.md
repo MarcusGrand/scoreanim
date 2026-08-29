@@ -58,7 +58,20 @@ to hide there.
 > appears centered. Systems with different staff counts don't resize
 > anything.
 
-## Stage 2 — switches preserve zoom and pan
+## Stage 2 — switches preserve zoom and pan — BUILT 2026-08-30
+
+Built on `systems-fixed-frame`. A zoomed switch no longer touches the
+zoom: the view remembers where the frame sits ON SCREEN, in device
+pixels, and puts it back there after the swap, which is the camera
+translating by the delta between the two band centres. Fitted, nothing
+changed — the fit it would land on is the one it already has.
+
+The trap was `QGraphicsView.centerOn`, which rounds through the integer
+scrollbars with a bias and crept one pixel per switch. The fix is the
+same snap stage 1 used for the fit: two frames snapped to the same
+sub-pixel phase are a whole number of device pixels apart, so the step
+between them is exact. Pinned by a test that switches 60 times and comes
+back to the same camera, to the bit.
 
 > Systems mode, step 2: a system switch must preserve the user's zoom and
 > pan. Implement the switch as a pure camera translation by the delta
