@@ -10,10 +10,9 @@ first (ruling 2026-07-30).
 Menus are pure wiring — every handler lives on the window or on a
 component it owns; this module declares the chrome and holds the action
 refs the window mutates afterwards (enable-on-load, dynamic undo/redo
-text, the page/system readout). Play and Follow are NOT built here: the
-transport strip owns both (C2), and the Playback menu adds those same
-QActions, so button, menu item, and shortcut state cannot diverge
-(brief flag 3).
+text, the page/system readout). Play is NOT built here: the transport
+strip owns it and the Playback menu adds that same QAction, so button,
+menu item, and shortcut state cannot diverge (brief flag 3).
 
 The Score menu (renamed Parts — brief §1b, content preserved) is
 created empty here and repopulated per load by the window's dynamic
@@ -187,11 +186,11 @@ class MainMenus:
         self.score_menu = QMenu("&Score", window)
         menubar.addMenu(self.score_menu)
 
-        # Open Audio and Import Tempo moved to File (B1); Playback is
-        # Play, Follow and Reload Tempo
+        # Open Audio and Import Tempo moved to File (B1), and Follow is
+        # not an option any more (ruling 2026-08-29), so Playback is
+        # Play and Reload Tempo
         self.playback_menu = menubar.addMenu("&Playback")
         self.playback_menu.addAction(strip.play_action)
-        self.playback_menu.addAction(strip.follow_action)
         self.playback_menu.addSeparator()
         self.playback_menu.addAction(reload_tempo)
 

@@ -1471,11 +1471,14 @@ inspector is a right dock of three tabs — Animate, Stage, Selection
 file/project handlers are components (`ui/menus.py`, `ui/parts_menu.py`,
 `ui/score_loader.py`, `ui/document_sync.py`, `ui/file_actions.py`) that
 receive AppState (plus the playback controller where needed) and never
-reach into each other. The strip owns three QActions of its own
-(C2): Play and Follow are shared with the Playback menu, so button and
-menu item cannot diverge, and Systems runs a `SetPresentationMode`
-command the strip resyncs from the document — transient state next to
-document intent, each keeping its own shape.
+reach into each other. The strip owns two QActions of its own: Play,
+shared with the Playback menu so button and menu item cannot diverge,
+and Systems (C2), which runs a `SetPresentationMode` command the strip
+resyncs from the document. There is deliberately no third: **following
+the playhead is not an option** (ruling 2026-08-29). Playing music
+always shows the music, so `ui/playback.py` emits the position
+unconditionally and pressing play snaps the stage back to the cursor —
+paging around while paused is browsing, and play ends it.
 `ui/live_field.py` is the same kind of small shared piece on the input
 side: it wires a spinbox to AppState's
 preview/commit pair, so every number field previews as you type and a
@@ -1507,7 +1510,7 @@ so does **`ui/layout_zone.py`**, a LEFT dock on the inspector's template
 (BACKLOG 17, built once three actions needed a home). Its buttons take
 those QAction objects as their `defaultAction`, so text, enabled state,
 status tip and trigger all come from ONE object and the two surfaces
-cannot diverge — the `follow_action` precedent, and the reason the zone
+cannot diverge — the `play_action` precedent, and the reason the zone
 syncs nothing of its own. The zone also hosts
 `ui/panels/break_overrides.py`, which lists both override maps in
 measure order with a per-entry clear; the clear needs no new command,

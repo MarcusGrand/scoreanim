@@ -9,7 +9,7 @@ Deliberately an **M1-style re-home of existing commands, not new
 semantics** (D9). Every button here has a `defaultAction`, and that
 action is the SAME `QAction` object the Score menu holds — so enabled
 state, label and status tip cannot diverge between the two surfaces, and
-pressing either one runs the identical command. It is the `follow_action`
+pressing either one runs the identical command. It is the `play_action`
 precedent from M1, where the Playback menu and the transport strip share
 one action. The Score menu keeps everything it had.
 

@@ -296,6 +296,11 @@ the transport. If either feels wrong in use, each is a one-step revert.
 > menu item and transport toggle stay in lockstep; toggling Systems still
 > re-frames the stage; nothing about them remains in the right dock.
 
+*Amended 2026-08-29, Marcus: Follow is not an option at all. Playing music
+always shows the music, so the toggle and the Playback-menu item are both
+gone, `ui/playback.py` reports the position unconditionally, and pressing
+play snaps the stage back to the cursor. Only Systems reached the strip.*
+
 **C3 — Selection tab comes to front on select.**
 > When a stage selection is made, bring the Selection tab to front (and flip
 > back to the previously active tab when the selection clears, if the user
@@ -316,7 +321,8 @@ the transport. If either feels wrong in use, each is a one-step revert.
 **D1 — transport cluster.**
 > Replace "Play + full-width slider" with a transport cluster: go-to-start
 > and play/pause icon buttons, monospace timecode "0:42.8 / 1:40.8", then the
-> Follow/Systems toggles from C2; the seek slider becomes a slim themed bar
+> Systems toggle from C2 (Follow is gone — see the C2 amendment); the seek
+> slider becomes a slim themed bar
 > filling the remaining width. Space and all existing bindings unchanged.
 > Check: seek by click and drag still works; go-to-start seeks to 0 and
 > keeps playing state sensible; timecode digits don't wiggle during playback.

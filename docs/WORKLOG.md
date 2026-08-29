@@ -59,16 +59,19 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
-- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase C2): **Follow and
-  Systems on the transport**. Both are icon toggles on the strip now,
-  after the time readout, each with a tooltip that says what it does.
-  They keep the two different shapes they already had: Follow is the
-  SAME QAction the Playback menu adds (transient controller state, never
-  resynced), Systems runs `SetPresentationMode` and is resynced from the
-  document, so undo and project load push the mode back onto the button
-  without re-running the command. The inspector no longer holds either,
-  and no longer takes the playback controller at all. Two Lucide icons
-  vendored (`locate-fixed`, `rows-3`). Suite green (2225).
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase C2, as amended):
+  **Systems on the transport, and Follow is not an option**. Marcus's
+  ruling mid-step: playing music always shows the music, so the Follow
+  toggle, its Playback-menu item and `PlaybackController.set_follow` are
+  all gone — the controller emits page/system unconditionally, and
+  pressing play now snaps the stage back to the cursor (paging around
+  while paused is browsing, and play ends it). Systems did move to the
+  strip as an icon toggle after the time readout: it runs
+  `SetPresentationMode` and is resynced from the document, so undo and
+  project load push the mode back onto the button without re-running the
+  command. The inspector holds neither now and no longer takes the
+  playback controller at all. One Lucide icon vendored (`rows-3`).
+  Suite green (2228).
 
 - 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase C1): **the right dock
   is three tabs**. Animate (the effects panel), Stage (Page over Video

@@ -1,8 +1,8 @@
 """Inspector dock (M1.4, three tabs since C1), offscreen: the tabs hold
 the panels they should, the resync pass never re-executes a command,
 and the active tab is addressable by a stable key so it can be
-persisted. Follow and Systems left for the transport strip in C2 —
-tests/test_transport.py.
+persisted. Systems left for the transport strip in C2
+(tests/test_transport.py) and Follow stopped being a control at all.
 """
 from __future__ import annotations
 
@@ -84,8 +84,8 @@ def test_the_active_tab_is_addressed_by_key(inspector) -> None:
 
 
 def test_no_playback_state_is_left_in_the_dock(inspector) -> None:
-    """C2: Follow and Systems moved to the transport strip, so the dock
-    holds neither — and needs no playback controller to build."""
+    """C2: Systems moved to the transport strip and Follow is gone, so
+    the dock holds neither — and needs no playback controller."""
     dock, _ = inspector
     assert not hasattr(dock, "follow_action")
     assert not hasattr(dock, "systems_action")

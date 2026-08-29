@@ -1,7 +1,7 @@
 """TransportStrip / LowerZone (M1.3), offscreen: the controller wiring
 that moved out of the window — slider seeks, time feedback, play-text
-flip — behaves exactly as the alpha window did, plus the two stage
-toggles C2 brought over from the inspector.
+flip — behaves exactly as the alpha window did, plus the Systems
+toggle C2 brought over from the inspector.
 
 The strip is exercised against a fake controller QObject (real signals,
 recorded calls); the zone against a real AppState (its lanes observe
@@ -33,10 +33,6 @@ class FakePlayback(QObject):
         super().__init__()
         self.seeks: list[float] = []
         self.toggles = 0
-        self.follow_calls: list[bool] = []
-
-    def set_follow(self, follow: bool) -> None:
-        self.follow_calls.append(follow)
 
     def toggle_play(self) -> None:
         self.toggles += 1
@@ -59,8 +55,8 @@ def strip(qapp):
 
 @pytest.fixture
 def toggles(qapp):
-    """The strip over a real AppState, for the two stage toggles: one
-    is transient controller state, the other is a document command."""
+    """The strip over a real AppState, for the Systems toggle — the one
+    control here that is a document command."""
     state = AppState()
     playback = FakePlayback()
     return TransportStrip(state, playback), state, playback
@@ -120,38 +116,25 @@ def test_the_play_button_is_an_icon_with_a_tooltip(strip) -> None:
     assert button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
 
 
-def test_the_toggles_sit_after_the_time_readout(strip) -> None:
+def test_systems_sits_after_the_time_readout(strip) -> None:
     """C2: play, the slider, the readout, then what the stage shows."""
     widget, _ = strip
     row = widget.layout()
     order = [row.itemAt(i).widget() for i in range(row.count())]
     buttons = [w for w in order if isinstance(w, QToolButton)]
     assert [b.defaultAction() for b in buttons] \
-        == [widget.play_action, widget.follow_action, widget.systems_action]
+        == [widget.play_action, widget.systems_action]
     assert order.index(widget._time_label) < order.index(buttons[1])
-    for action in (widget.follow_action, widget.systems_action):
-        assert action.isCheckable()
-        assert not action.icon().isNull()
-        assert action.toolTip() and action.toolTip() != action.text()
+    assert widget.systems_action.isCheckable()
+    assert not widget.systems_action.icon().isNull()
+    assert widget.systems_action.toolTip() != widget.systems_action.text()
 
 
-def test_follow_is_transient_state_not_a_command(toggles) -> None:
-    """The SAME QAction the Playback menu adds, so the two cannot
-    diverge — and nothing about it reaches the document."""
-    widget, state, playback = toggles
-    assert widget.follow_action.isChecked()      # on by default
-    widget.follow_action.setChecked(False)
-    widget.follow_action.setChecked(True)
-    assert playback.follow_calls == [False, True]
-    assert not state.can_undo
-
-
-def test_follow_never_resynced_from_the_document(toggles) -> None:
-    widget, state, _ = toggles
-    widget.follow_action.setChecked(False)
-    widget.sync_from_document(state.doc)
-    assert not widget.follow_action.isChecked()  # transient state survives
-    assert not state.can_undo                    # and no command ever ran
+def test_there_is_no_follow_toggle(strip) -> None:
+    """Ruling 2026-08-29: playing music always shows the music, so
+    there is nothing to switch off."""
+    widget, _ = strip
+    assert not hasattr(widget, "follow_action")
 
 
 def test_systems_is_one_undoable_command(toggles) -> None:

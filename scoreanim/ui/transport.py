@@ -8,8 +8,8 @@ tabbed; an internal splitter keeps their heights user-adjustable,
 replacing the old three-way central splitter (stage-vs-zone sizing
 moves to the dock boundary).
 
-Top to bottom: play/seek/time and the two view toggles on the strip,
-the waveform and tempo lanes, then the controls that drive the grid
+Top to bottom: play/seek/time and the Systems toggle on the strip, the
+waveform and tempo lanes, then the controls that drive the grid
 (`ui/timeline_bar.py`) at the very bottom, next to the ticks they move.
 """
 from __future__ import annotations
@@ -32,28 +32,26 @@ from scoreanim.ui.waveform import WaveformView
 
 
 class TransportStrip(QWidget):
-    """Play, the seek slider, the time readout, and the two toggles
-    that say what the stage shows: Follow and Systems (C2).
+    """Play, the seek slider, the time readout, and the Systems toggle
+    that says what the stage shows (C2).
 
     Owns the play QAction — the window registers it window-level so
     Space fires regardless of focus, and the Playback menu shares the
     same action, so button, menu item and shortcut state cannot
     diverge. Observes the playback controller for time and play state.
 
-    Follow and Systems came here from the inspector, where they sat in
-    a Playback & Sync section that had nothing else in it. They belong
-    next to the playhead they follow. The two keep the shapes they
-    already had, which are not the same shape:
+    Systems came here from the inspector, where it sat in a Playback &
+    Sync section that had nothing else left in it; it belongs next to
+    the playhead it re-frames. It is document intent, so toggling it
+    runs a `SetPresentationMode` command, and `sync_from_document`
+    pushes the document's mode back onto the button (undo, redo and
+    project load all arrive that way) with the blockSignals idiom, so a
+    resync never re-executes the command.
 
-    - **Follow** is transient controller state — nothing in the
-      document, so no command and nothing to resync. `follow_action` is
-      the SAME QAction the Playback menu adds, so the menu item and the
-      button here cannot diverge.
-    - **Systems** is document intent: toggling it runs a
-      `SetPresentationMode` command, and `sync_from_document` pushes the
-      document's mode back onto the button (undo, redo and project load
-      all arrive that way) with the blockSignals idiom, so a resync
-      never re-executes the command.
+    Follow used to sit beside it and does not exist any more (ruling
+    2026-08-29): playing music always shows the music, so there is
+    nothing to switch off. `ui/playback.py` emits the position
+    unconditionally.
     """
 
     def __init__(self, app_state: AppState, playback: PlaybackController,
@@ -69,17 +67,6 @@ class TransportStrip(QWidget):
         self.play_action.setToolTip("Play / Pause (Space)")
         self.play_action.setShortcut(Qt.Key.Key_Space)
         self.play_action.triggered.connect(playback.toggle_play)
-
-        # Follow: keep the stage on the playhead. Transient controller
-        # state, so it is never resynced — there is nothing in the
-        # document to resync from.
-        self.follow_action = QAction(icons.icon("locate-fixed"),
-                                     "Follow", self)
-        self.follow_action.setCheckable(True)
-        self.follow_action.setChecked(True)
-        self.follow_action.setToolTip("Follow: keep the stage on the "
-                                      "playhead's page (or system)")
-        self.follow_action.toggled.connect(playback.set_follow)
 
         # Systems: one system at a time instead of whole pages. Document
         # intent, so a command — and a resync below.
@@ -107,7 +94,6 @@ class TransportStrip(QWidget):
         row.addWidget(self._time_label)
         # after the readout, at the far end: what the stage shows, not
         # where the playhead is
-        row.addWidget(_action_button(self.follow_action))
         row.addWidget(_action_button(self.systems_action))
 
         playback.time_changed.connect(self._on_time)
@@ -122,8 +108,7 @@ class TransportStrip(QWidget):
     def sync_from_document(self, doc: ProjectDoc) -> None:
         """Push the document's presentation mode onto the Systems
         button (execute, undo, redo and project load all arrive here via
-        the window). Follow is deliberately absent — transient
-        controller state, with nothing in the document to read."""
+        the window)."""
         self.systems_action.blockSignals(True)
         self.systems_action.setChecked(
             doc.stage.mode is PresentationMode.SYSTEM)
