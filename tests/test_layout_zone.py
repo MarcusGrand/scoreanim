@@ -21,17 +21,22 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QSettings, Qt  # noqa: E402
+from PySide6.QtGui import QKeySequence  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from scoreanim.core.editing.page_breaks import (  # noqa: E402
     NO_SELECTION as PAGE_NO_SELECTION)
 from scoreanim.core.score.identity import ElementKind  # noqa: E402
+from scoreanim.ui.break_action import PAGE_SHORTCUT  # noqa: E402
 from scoreanim.ui.main_window import MainWindow  # noqa: E402
 from scoreanim.ui.window_state import (_DOCK_STATE,  # noqa: E402
                                        _STATE_VERSION, restore_window_state,
                                        save_window_state)
 
 TESTSCORE = Path(__file__).parent.parent / "testdata" / "testscore.musicxml"
+# the key as the platform writes it, which is what a tooltip shows
+PAGE_SHORTCUT_NATIVE = QKeySequence(PAGE_SHORTCUT).toString(
+    QKeySequence.SequenceFormat.NativeText)
 
 
 @pytest.fixture(scope="session")
@@ -111,16 +116,20 @@ def test_a_button_mirrors_its_action_without_any_sync_of_its_own(
 
 def test_a_button_is_an_icon_whose_tooltip_renames_itself(window) -> None:
     """A2: the three buttons lost their long labels, so the label the
-    action renames itself to has to reach the user as the tooltip."""
+    action renames itself to has to reach the user as the tooltip —
+    and since E2 the key comes with it, with the reason in its place
+    while the gesture is not on offer."""
     page_button = window.layout_zone.buttons[2]
     assert page_button.toolButtonStyle() \
         == Qt.ToolButtonStyle.ToolButtonIconOnly
     for button in window.layout_zone.buttons:
         assert not button.icon().isNull()
-    assert page_button.toolTip() == "Toggle Page Break Here"
+    # nothing selected: the tooltip is the reason, not the label
+    assert page_button.toolTip() == PAGE_NO_SELECTION
 
     _barline_in(window, 2)
-    assert page_button.toolTip() == "Force Page Break Here"
+    assert page_button.toolTip().startswith("Force Page Break Here")
+    assert PAGE_SHORTCUT_NATIVE in page_button.toolTip()
 
 
 def test_a_button_runs_the_same_command_the_menu_item_does(window) -> None:

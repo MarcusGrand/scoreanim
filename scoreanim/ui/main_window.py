@@ -52,6 +52,7 @@ from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.score_install import ScoreInstaller
 from scoreanim.ui.score_loader import ScoreLoader
 from scoreanim.ui.seek_keys import SeekKeys
+from scoreanim.ui import tips
 from scoreanim.ui.selection import SelectionController
 from scoreanim.ui.stage_menu import StageMenu
 from scoreanim.ui.stage_view import StageView
@@ -336,14 +337,14 @@ class MainWindow(QMainWindow):
         self.hints.sync()
         self.router.sync_presentation_mode(doc.stage.mode)
         self.router.sync_canvas(doc.stage.canvas)
-        undo_text = self.app_state.undo_text()
-        redo_text = self.app_state.redo_text()
-        undo = self.menus.undo_action
-        redo = self.menus.redo_action
-        undo.setEnabled(self.app_state.can_undo)
-        undo.setText(f"Undo {undo_text}" if undo_text else "Undo")
-        redo.setEnabled(self.app_state.can_redo)
-        redo.setText(f"Redo {redo_text}" if redo_text else "Redo")
+        # label and tooltip together (E2), then the enabled state and
+        # the reason each gives while there is no stack behind it
+        self.menus.describe_undo_redo(self.app_state.undo_text(),
+                                      self.app_state.redo_text())
+        tips.gate(self.menus.undo_action, self.app_state.can_undo,
+                  tips.NOTHING_TO_UNDO)
+        tips.gate(self.menus.redo_action, self.app_state.can_redo,
+                  tips.NOTHING_TO_REDO)
         self._sync_title()
 
     def _sync_title(self) -> None:

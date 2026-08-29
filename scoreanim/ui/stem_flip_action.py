@@ -30,6 +30,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 
 from scoreanim.core.editing.stem_flip import ENABLED_TIP, resolve
+from scoreanim.ui import tips
 from scoreanim.core.project import SetStemDirection
 
 if TYPE_CHECKING:
@@ -54,6 +55,7 @@ class StemFlipActionController:
         self.action.setEnabled(False)
         self.action.triggered.connect(self.trigger)
         app_state.selection_changed.connect(self.sync)
+        self.sync()          # a reason on it from the first frame
 
     def bind_layout(self, layout: Layout | None) -> None:
         """Adopt one load's layout — the drawn geometry the current stem
@@ -71,7 +73,10 @@ class StemFlipActionController:
         selection change and on every document change — a flip
         re-engraves, so the direction the tip describes moves under it."""
         resolved = self.current()
-        self.action.setEnabled(resolved.enabled)
+        # the same sentence on both surfaces (E2): the status bar as you
+        # travel the menu, the tooltip where you hover
+        tips.describe_action(self.action, ENABLED_TIP)
+        tips.gate(self.action, resolved.enabled, resolved.reason or "")
         self.action.setStatusTip(ENABLED_TIP if resolved.enabled
                                  else (resolved.reason or ""))
 

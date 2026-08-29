@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QSplitter,
 
 from scoreanim.core.project import (PresentationMode, ProjectDoc,
                                     SetPresentationMode)
-from scoreanim.ui import panel_style
+from scoreanim.ui import panel_style, tips
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.lane_menu import LaneOptionsButton
 from scoreanim.ui.playback import PlaybackController
@@ -96,25 +96,27 @@ class TransportStrip(QWidget):
         # button, the menu item and the key cannot disagree.
         self.to_start_action = QAction(icons.icon("skip-back"),
                                        "Go to Start", self)
-        self.to_start_action.setToolTip("Go to start (Home)")
         self.to_start_action.setShortcut(Qt.Key.Key_Home)
         self.to_start_action.triggered.connect(lambda: playback.seek(0.0))
+        tips.describe_action(self.to_start_action,
+                             "Move the playhead back to the start")
 
         # The menu item reads the text; the strip's button is icon-only,
         # so it reads the tooltip — which says both halves of the toggle
         # and stays put while the text and the icon flip.
         self.play_action = QAction(icons.icon("play"), "Play", self)
-        self.play_action.setToolTip("Play / Pause (Space)")
         self.play_action.setShortcut(Qt.Key.Key_Space)
         self.play_action.triggered.connect(playback.toggle_play)
+        tips.describe_action(self.play_action, "Play / Pause")
 
         # Systems: one system at a time instead of whole pages. Document
         # intent, so a command — and a resync below.
         self.systems_action = QAction(icons.icon("rows-3"), "Systems", self)
         self.systems_action.setCheckable(True)
-        self.systems_action.setToolTip("Systems: stage one system at a "
-                                       "time; off shows whole pages")
         self.systems_action.toggled.connect(self._on_systems_toggled)
+        tips.describe_action(self.systems_action,
+                             "Systems: stage one system at a time; off "
+                             "shows whole pages")
 
         self._time_label = _timecode_label()
 
@@ -221,6 +223,8 @@ def _timecode_label() -> QLabel:
     label.setFont(fonts.monospace())
     label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     label.setMinimumWidth(label.fontMetrics().horizontalAdvance(_TIME_ZERO))
+    tips.describe(label, "Where the playhead is, and how long the "
+                         "recording runs")
     return label
 
 

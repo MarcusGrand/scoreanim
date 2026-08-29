@@ -29,7 +29,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QLabel, QMenu, QSizePolicy, QToolButton,
                                QWidget)
 
-from scoreanim.ui import about_dialog, shortcuts_dialog
+from scoreanim.ui import about_dialog, shortcuts_dialog, tips
 from scoreanim.ui.recents import RecentsMenu
 from scoreanim.ui.theme import icons
 
@@ -60,80 +60,114 @@ class MainMenus:
         open_score = QAction(icons.icon("file-music"), "Open Score…", window)
         open_score.setShortcut(QKeySequence.StandardKey.Open)
         open_score.triggered.connect(window.files.open_score_dialog)
+        tips.describe_action(open_score,
+                             "Open a MusicXML score exported from Dorico")
 
         open_project = QAction("Open Project…", window)
         open_project.setShortcut("Ctrl+Shift+O")
         open_project.triggered.connect(window.files.open_project_dialog)
+        tips.describe_action(
+            open_project,
+            "Open a saved project — its score, timing and every override")
 
         open_audio = QAction(icons.icon("audio-lines"), "Open Audio…",
                              window)
         open_audio.triggered.connect(window.files.open_audio_dialog)
+        tips.describe_action(open_audio,
+                             "Load the recording the score plays against")
         open_tempo = QAction(icons.icon("timer"), "Import Tempo…", window)
         open_tempo.triggered.connect(window.files.open_tempo_dialog)
+        tips.describe_action(
+            open_tempo,
+            "Read a tempo sidecar file, replacing the offset and every "
+            "tempo event")
 
         # last 8 scores and projects; the submenu refills itself from
         # the store each time it opens, so an open in this session shows
         # up without anyone telling the menu
         self.recents_menu = RecentsMenu(window.files.recents,
                                         window.files.open_recent, window)
+        tips.describe(self.recents_menu.menuAction(),
+                      "The scores and projects you opened last")
 
         save = QAction("Save Project", window)
         save.setShortcut(QKeySequence.StandardKey.Save)
         save.triggered.connect(window.files.save_project)
+        tips.describe_action(save, "Save the project")
 
         save_as = QAction("Save Project As…", window)
         save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
         save_as.triggered.connect(window.files.save_project_as)
+        tips.describe_action(save_as, "Save the project under a new name")
 
         self.export_action = QAction("Export Video…", window)
         self.export_action.setShortcut("Ctrl+E")
-        self.export_action.setEnabled(False)         # needs a loaded score
         self.export_action.triggered.connect(window.files.open_export_dialog)
+        tips.describe_action(
+            self.export_action,
+            "Render the animation to a video file with an alpha channel")
+        # needs a loaded score, and says so while it has none
+        tips.gate(self.export_action, False, tips.NEEDS_SCORE)
 
         # -- Edit ------------------------------------------------------------
         self.undo_action = QAction(icons.icon("undo-2"), "Undo", window)
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
-        self.undo_action.setEnabled(False)
         self.undo_action.triggered.connect(window.app_state.undo)
+        # The tooltip follows the label, so it names the edit it would
+        # take back — the window rewrites both on every document change
+        # (`describe_undo_redo` below).
+        tips.describe_action(self.undo_action, "Undo the last change")
+        tips.gate(self.undo_action, False, tips.NOTHING_TO_UNDO)
         # both rename themselves per document change ("Undo Nudge"), so
         # the shortcut sheet is told what to call them
         shortcuts_dialog.set_sheet_name(self.undo_action, "Undo")
 
         self.redo_action = QAction(icons.icon("redo-2"), "Redo", window)
         self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
-        self.redo_action.setEnabled(False)
         self.redo_action.triggered.connect(window.app_state.redo)
+        tips.describe_action(self.redo_action,
+                             "Redo the change you just undid")
+        tips.gate(self.redo_action, False, tips.NOTHING_TO_REDO)
         shortcuts_dialog.set_sheet_name(self.redo_action, "Redo")
 
         self.texts_action = QAction("Texts…", window)
-        self.texts_action.setEnabled(False)          # needs a loaded score
         self.texts_action.triggered.connect(window.text_edit.open_texts_dialog)
+        tips.describe_action(self.texts_action,
+                             "Add, edit and place text on the page")
+        tips.gate(self.texts_action, False, tips.NEEDS_SCORE)
 
         # -- View ------------------------------------------------------------
         # the stage's floating Fit button drives this same object (D2)
         self.fit_action = QAction(icons.icon("maximize"), "Fit", window)
         self.fit_action.setShortcut("Ctrl+0")
         self.fit_action.triggered.connect(window.view.fit)
+        tips.describe_action(self.fit_action,
+                             "Fit the whole page in the stage")
 
         # prev/next step the presentation unit: pages in paged mode,
         # systems in system mode — hence the plain name, and a tooltip
         # that says both rather than promising pages
         self.prev_action = QAction(icons.icon("chevron-left"), "Previous",
                                    window)
-        self.prev_action.setToolTip("Previous page or system")
         self.prev_action.setShortcut(
             QKeySequence.StandardKey.MoveToPreviousPage)
         self.prev_action.triggered.connect(lambda: window.router.step(-1))
+        tips.describe_action(self.prev_action, "Previous page or system")
         self.next_action = QAction(icons.icon("chevron-right"), "Next", window)
-        self.next_action.setToolTip("Next page or system")
         self.next_action.setShortcut(QKeySequence.StandardKey.MoveToNextPage)
         self.next_action.triggered.connect(lambda: window.router.step(+1))
+        tips.describe_action(self.next_action, "Next page or system")
+        # "–/–" until a score arrives: the readout is its own empty state
         self.page_label = QLabel("–/–")
+        tips.describe(self.page_label,
+                      "Which page or system the stage is showing")
 
         # -- Playback --------------------------------------------------------
         reload_tempo = QAction("Reload Tempo", window)
         reload_tempo.setShortcut("F5")
         reload_tempo.triggered.connect(window.files.reload_tempo)
+        tips.describe_action(reload_tempo,
+                             "Read the imported tempo file again from disk")
 
         # -- Help ------------------------------------------------------------
         # No shortcut on either: the shortcut sheet is the one thing you
@@ -143,10 +177,12 @@ class MainMenus:
         shortcuts.triggered.connect(
             lambda: shortcuts_dialog.ShortcutsDialog(
                 self.all_menus, window).exec())
+        tips.describe_action(shortcuts, "Every keyboard shortcut in the app")
 
         about = QAction(about_dialog.TITLE, window)
         about.triggered.connect(
             lambda: about_dialog.show_about(window))
+        tips.describe_action(about, "Version and credits")
 
         # -- menubar ---------------------------------------------------------
         strip = window.lower_zone.strip
@@ -271,6 +307,14 @@ class MainMenus:
                        reload_tempo, *window.seek_keys.actions):
             window.addAction(action)
 
+        # A menu item's tooltip is hidden by default. With these on, an
+        # item that has grayed itself out can say why where the user is
+        # already looking. (macOS draws the menubar itself and ignores
+        # this; the toolbar and the docks are where the tips do the
+        # work there.)
+        for menu in self.all_menus:
+            menu.setToolTipsVisible(True)
+
     @property
     def all_menus(self) -> tuple[QMenu, ...]:
         """The six menus in bar order — the refs, never re-fetched from
@@ -279,10 +323,29 @@ class MainMenus:
         return (self.file_menu, self.edit_menu, self.view_menu,
                 self.score_menu, self.playback_menu, self.help_menu)
 
+    def describe_undo_redo(self, undo_text: str, redo_text: str) -> None:
+        """Rename both actions for the edit they would take back, and
+        keep each tooltip saying the same thing as its label.
+
+        The window calls this on every document change; enabling them is
+        its own job, since only it knows whether there is a stack.
+        """
+        self.undo_action.setText(f"Undo {undo_text}" if undo_text else "Undo")
+        tips.describe_action(
+            self.undo_action,
+            f"Undo {undo_text}" if undo_text else "Undo the last change")
+        self.redo_action.setText(f"Redo {redo_text}" if redo_text else "Redo")
+        tips.describe_action(
+            self.redo_action,
+            f"Redo {redo_text}" if redo_text
+            else "Redo the change you just undid")
+
     def set_position(self, text: str, can_prev: bool, can_next: bool) -> None:
         """The page/system readout and the step actions' enabled state,
         driven by `ui/view_router.py`. The three widgets live here, so
         the update does too — the router never reaches for them."""
         self.page_label.setText(text)
-        self.prev_action.setEnabled(can_prev)
-        self.next_action.setEnabled(can_next)
+        tips.gate(self.prev_action, can_prev,
+                  "You are at the start of the score")
+        tips.gate(self.next_action, can_next,
+                  "You are at the end of the score")

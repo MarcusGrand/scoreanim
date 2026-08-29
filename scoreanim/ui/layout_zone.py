@@ -60,8 +60,9 @@ class LayoutZone(QDockWidget):
         column.addWidget(heading)
 
         # three icons in a row, not three long labels down the dock:
-        # each button's tooltip is the action's own label, which renames
-        # itself to what it would actually do
+        # each button's tooltip is the action's own — the renamed label
+        # and its key while the gesture is offered, the reason it is not
+        # while it is grayed (ui/tips.py)
         self.buttons: tuple[QToolButton, ...] = tuple(
             self._button(action, body) for action in actions)
         button_row = QHBoxLayout()
@@ -107,8 +108,8 @@ class LayoutZone(QDockWidget):
         `setDefaultAction` is the whole mechanism: the button takes its
         icon, tooltip, enabled state, status tip and trigger from the
         action, and keeps taking them as `BreakActionController.sync()`
-        re-derives them — including the renamed label, which is what the
-        tooltip shows now that the button carries no text. Nothing here
+        re-derives them — including the tooltip, which is the only thing
+        the button has to say now that it carries no text. Nothing here
         needs syncing of its own, which is exactly what "a second
         surface, not a second implementation" means.
         """
