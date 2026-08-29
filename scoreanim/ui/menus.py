@@ -25,7 +25,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QLabel, QMenu
+from PySide6.QtWidgets import (QLabel, QMenu, QSizePolicy, QToolButton,
+                               QWidget)
 
 from scoreanim.ui.recents import RecentsMenu
 from scoreanim.ui.theme import icons
@@ -38,7 +39,8 @@ class MainMenus:
     """Menubar + slim toolbar for the main window.
 
     Exposes what the window updates after construction: `export_action`
-    and `texts_action` (enabled once a score loads), `undo_action` and
+    and `texts_action` (enabled once a score loads — `export_button` is
+    the toolbar's face for that same action), `undo_action` and
     `redo_action` (text + enabled per document change), `prev_action`,
     `next_action`, and `page_label` (the page/system readout — stays
     window-owned, next to the stage it describes), `score_menu`
@@ -175,15 +177,21 @@ class MainMenus:
         self.playback_menu.addSeparator()
         self.playback_menu.addAction(reload_tempo)
 
-        # -- toolbar: the three openers · pager · Fit -----------------------
-        # The same three QAction objects the File menu holds — one action
-        # per command, so the toolbar button and the menu item can never
-        # disagree about its state.
+        # -- toolbar: the openers · the pager · Export ----------------------
+        # Left to right: what you do at the start of a session, then
+        # where you are in the score, then — pushed to the far right by
+        # a spring — what the whole session is aimed at (B2). Fit left
+        # the toolbar; it lives in the View menu until the stage takes
+        # it over.
+        #
+        # Every button here drives the same QAction object the menu
+        # holds, so a toolbar button and its menu item can never
+        # disagree about their state.
         toolbar = window.addToolBar("Main")
         toolbar.setObjectName("MainToolbar")   # saveState identity (M1.8)
         toolbar.setMovable(False)
-        # the openers keep their labels; everything else is icon-only,
-        # set per button below
+        # the openers keep their labels; the pager is icon-only, set
+        # per button below
         toolbar.setIconSize(icons.TOOLBAR_SIZE)
         toolbar.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -194,13 +202,31 @@ class MainMenus:
         toolbar.addAction(self.prev_action)
         toolbar.addWidget(self.page_label)
         toolbar.addAction(self.next_action)
-        toolbar.addSeparator()
-        toolbar.addAction(fit)
-        for action in (self.prev_action, self.next_action, fit):
+        for action in (self.prev_action, self.next_action):
             button = toolbar.widgetForAction(action)
             if button is not None:
                 button.setToolButtonStyle(
                     Qt.ToolButtonStyle.ToolButtonIconOnly)
+
+        # the spring: it takes every spare pixel, so Export sits on the
+        # right edge however wide the window is, and it is the first
+        # thing to give way when the window gets narrow
+        spring = QWidget(toolbar)
+        spring.setSizePolicy(QSizePolicy.Policy.Expanding,
+                             QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spring)
+
+        # Export is a widget, not a plain toolbar action, because it is
+        # the one filled button in the app and the stylesheet needs a
+        # name to aim the accent at. It still drives the File menu's
+        # QAction, so it is disabled until a score loads and its Ctrl+E
+        # keeps working.
+        self.export_button = QToolButton(toolbar)
+        self.export_button.setObjectName("ExportButton")
+        self.export_button.setDefaultAction(self.export_action)
+        self.export_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        toolbar.addWidget(self.export_button)
 
         # window-level so these shortcuts fire regardless of focus
         for action in (self.undo_action, self.redo_action, save,

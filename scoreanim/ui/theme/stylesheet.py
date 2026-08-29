@@ -201,6 +201,31 @@ QToolBar QToolButton:disabled {
     border-color: transparent;
 }
 
+/* The one filled button in the app: Export is what the whole session
+   is aimed at, so it is the only thing wearing the accent (B2). It
+   goes flat and grey until a score is loaded. */
+QToolBar QToolButton#ExportButton {
+    background: $ACCENT;
+    color: $WINDOW;
+    border: 1px solid $ACCENT;
+    border-radius: 3px;
+    padding: 3px 12px;
+    font-weight: 600;
+}
+QToolBar QToolButton#ExportButton:hover {
+    background: $ACCENT_HOVER;
+    border-color: $ACCENT_HOVER;
+}
+QToolBar QToolButton#ExportButton:pressed {
+    background: $ACCENT_PRESSED;
+    border-color: $ACCENT_PRESSED;
+}
+QToolBar QToolButton#ExportButton:disabled {
+    background: transparent;
+    color: $DISABLED;
+    border-color: $BORDER;
+}
+
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox,
 QComboBox, QAbstractSpinBox {
     background: $INSET;

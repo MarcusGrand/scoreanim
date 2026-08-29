@@ -59,6 +59,18 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase B2): **toolbar with
+  Export**. The bar now reads left to right as a session: the three
+  openers, the page pager, a spring, then Export on the right edge —
+  the one filled, accent-coloured button in the app. It is a
+  `QToolButton` (a widget, so the QSS has a name to aim at) driving the
+  File menu's `export_action`, so it is dead until a score loads and
+  Ctrl+E is unchanged. Fit left the toolbar; it stays in View until the
+  stage takes it over in D2. Two accent tokens added
+  (`ACCENT_HOVER`, `ACCENT_PRESSED`). The window's own minimum width
+  (753 px with a score loaded) is wider than the bar's contents, so the
+  toolbar never overflows into an extension menu. Suite green (2211).
+
 - 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase B1): **File menu and
   recents**. Every way of getting a file in is in File now — Open
   Score, Open Project, Open Recent, Open Audio, Import Tempo — with

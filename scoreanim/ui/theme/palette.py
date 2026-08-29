@@ -28,6 +28,8 @@ WAVEFORM = "#5b87b8"    # the audio peaks
 
 HOVER = "#303138"       # a surface under the pointer
 PRESSED = "#33343c"     # a surface being clicked
+ACCENT_HOVER = "#ffd782"    # the accent-filled button under the pointer
+ACCENT_PRESSED = "#e6b855"  # that button being clicked
 DISABLED = "#5a5c66"    # text of a control that cannot be used
 HIGHLIGHT = "#3f4652"   # selected row in a list or menu (quiet on
                         # purpose: the accent is reserved for "active")

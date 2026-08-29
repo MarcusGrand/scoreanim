@@ -1,9 +1,10 @@
-"""Static chrome (M1.5, B1), offscreen: the five menus in order, every
-opener in File, the toolbar (the same three openers, then the page
-steps and Fit), shared Play/Follow QActions in the Playback menu, dock
-toggles in View, and window-level shortcut registration — the
-structural half of the brief's click-through/shortcut-sweep verify (the
-interactive half is run by hand).
+"""Static chrome (M1.5, B1, B2), offscreen: the five menus in order,
+every opener in File, the toolbar (the same three openers, the page
+steps, and Export on the right edge), shared Play/Follow QActions in
+the Playback menu, dock toggles in View, and window-level shortcut
+registration — the structural half of the brief's
+click-through/shortcut-sweep verify (the interactive half is run by
+hand).
 
 Menus are read via the refs MainMenus holds, never `QAction.menu()` —
 re-wrapping a menu and letting the wrapper be garbage-collected can
@@ -100,11 +101,42 @@ def test_toolbar_shares_the_openers_with_the_file_menu(window) -> None:
 
 def test_toolbar_holds_the_openers(window) -> None:
     """The three things you do first are in the window, not only up in
-    the OS menu bar (ruling 2026-07-30)."""
-    # the page readout is a widget action, so it carries no text
+    the OS menu bar (ruling 2026-07-30). Fit left the toolbar in B2."""
+    # the page readout, the spring and Export are widget actions, so
+    # they carry no text
     texts = [a.text() for a in _toolbar(window).actions() if a.text()]
     assert texts == ["Open Score…", "Open Audio…", "Import Tempo…",
-                     "Previous", "Next", "Fit"]
+                     "Previous", "Next"]
+    assert "Fit" in _texts(window.menus.view_menu)      # still in View
+
+
+def test_export_button_is_the_file_menu_action(window) -> None:
+    """One QAction behind the menu item, Ctrl+E and the button — so the
+    button is dead until a score loads, and lives after (B2)."""
+    button = window.menus.export_button
+    assert button.defaultAction() is window.menus.export_action
+    assert button.objectName() == "ExportButton"        # the accent hook
+    assert not button.isEnabled()                       # needs a score
+    window.menus.export_action.setEnabled(True)
+    assert button.isEnabled()
+    window.menus.export_action.setEnabled(False)
+
+
+def test_export_sits_on_the_right_edge(window) -> None:
+    """A spring between the pager and Export, so Export is right-aligned
+    at any width — and still visible at a narrow one."""
+    toolbar = _toolbar(window)
+    window.resize(760, 600)
+    window.show()
+    QApplication.processEvents()
+    button = window.menus.export_button
+    assert button.isVisible()
+    # the spring did its job: Export ends within a hair of the right edge
+    assert toolbar.width() - button.geometry().right() < 12
+    # and it is to the right of everything else on the bar
+    pager = toolbar.widgetForAction(window.menus.next_action)
+    assert button.geometry().left() > pager.geometry().right()
+    window.hide()
 
 
 def test_toolbar_is_icons_with_labels_only_on_the_openers(window) -> None:
@@ -153,8 +185,6 @@ def test_shortcut_sweep_assignments(window) -> None:
                  for menu in (menus.file_menu, menus.edit_menu,
                               menus.view_menu, menus.playback_menu)
                  for a in menu.actions() if not a.isSeparator()}
-    shortcuts.update({a.text(): a.shortcut()
-                      for a in _toolbar(window).actions() if a.text()})
     assert shortcuts["Open Score…"] \
         == QKeySequence(QKeySequence.StandardKey.Open)
     assert shortcuts["Open Project…"] == QKeySequence("Ctrl+Shift+O")
