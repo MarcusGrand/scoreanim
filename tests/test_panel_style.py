@@ -24,7 +24,6 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QObject  # noqa: E402
 from PySide6.QtWidgets import (QApplication, QCheckBox,  # noqa: E402
                                QFormLayout, QLabel, QRadioButton, QWidget)
 
@@ -38,11 +37,6 @@ from scoreanim.ui.inspector import Inspector  # noqa: E402
 _TEXT = (QLabel, QCheckBox, QRadioButton)
 
 
-class FakePlayback(QObject):
-    def set_follow(self, follow: bool) -> None:
-        pass
-
-
 @pytest.fixture(scope="session")
 def qapp():
     return QApplication.instance() or QApplication([])
@@ -50,7 +44,7 @@ def qapp():
 
 @pytest.fixture
 def dock(qapp) -> Inspector:
-    inspector = Inspector(AppState(), FakePlayback())
+    inspector = Inspector(AppState())
     # Every preset's block on screen: a block hides itself when nothing
     # is using it, and the promise is that none of them clips.
     panel = inspector.effects_panel

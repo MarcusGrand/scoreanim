@@ -1,6 +1,7 @@
 """TransportStrip / LowerZone (M1.3), offscreen: the controller wiring
 that moved out of the window — slider seeks, time feedback, play-text
-flip — behaves exactly as the alpha window did.
+flip — behaves exactly as the alpha window did, plus the two stage
+toggles C2 brought over from the inspector.
 
 The strip is exercised against a fake controller QObject (real signals,
 recorded calls); the zone against a real AppState (its lanes observe
@@ -19,6 +20,7 @@ from PySide6.QtCore import QObject, Qt, Signal  # noqa: E402
 from PySide6.QtWidgets import (QApplication, QDockWidget,  # noqa: E402
                                QToolButton)
 
+from scoreanim.core.project import PresentationMode  # noqa: E402
 from scoreanim.ui.app_state import AppState  # noqa: E402
 from scoreanim.ui.transport import LowerZone, TransportStrip  # noqa: E402
 
@@ -31,6 +33,10 @@ class FakePlayback(QObject):
         super().__init__()
         self.seeks: list[float] = []
         self.toggles = 0
+        self.follow_calls: list[bool] = []
+
+    def set_follow(self, follow: bool) -> None:
+        self.follow_calls.append(follow)
 
     def toggle_play(self) -> None:
         self.toggles += 1
@@ -46,8 +52,18 @@ def qapp():
 
 @pytest.fixture
 def strip(qapp):
+    state = AppState()
     playback = FakePlayback()
-    return TransportStrip(AppState(), playback), playback
+    return TransportStrip(state, playback), playback
+
+
+@pytest.fixture
+def toggles(qapp):
+    """The strip over a real AppState, for the two stage toggles: one
+    is transient controller state, the other is a document command."""
+    state = AppState()
+    playback = FakePlayback()
+    return TransportStrip(state, playback), state, playback
 
 
 def test_play_action_drives_controller(strip) -> None:
@@ -102,6 +118,64 @@ def test_the_play_button_is_an_icon_with_a_tooltip(strip) -> None:
     assert widget.play_action.toolTip() == "Play / Pause (Space)"
     button = widget.findChild(QToolButton)
     assert button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
+
+
+def test_the_toggles_sit_after_the_time_readout(strip) -> None:
+    """C2: play, the slider, the readout, then what the stage shows."""
+    widget, _ = strip
+    row = widget.layout()
+    order = [row.itemAt(i).widget() for i in range(row.count())]
+    buttons = [w for w in order if isinstance(w, QToolButton)]
+    assert [b.defaultAction() for b in buttons] \
+        == [widget.play_action, widget.follow_action, widget.systems_action]
+    assert order.index(widget._time_label) < order.index(buttons[1])
+    for action in (widget.follow_action, widget.systems_action):
+        assert action.isCheckable()
+        assert not action.icon().isNull()
+        assert action.toolTip() and action.toolTip() != action.text()
+
+
+def test_follow_is_transient_state_not_a_command(toggles) -> None:
+    """The SAME QAction the Playback menu adds, so the two cannot
+    diverge — and nothing about it reaches the document."""
+    widget, state, playback = toggles
+    assert widget.follow_action.isChecked()      # on by default
+    widget.follow_action.setChecked(False)
+    widget.follow_action.setChecked(True)
+    assert playback.follow_calls == [False, True]
+    assert not state.can_undo
+
+
+def test_follow_never_resynced_from_the_document(toggles) -> None:
+    widget, state, _ = toggles
+    widget.follow_action.setChecked(False)
+    widget.sync_from_document(state.doc)
+    assert not widget.follow_action.isChecked()  # transient state survives
+    assert not state.can_undo                    # and no command ever ran
+
+
+def test_systems_is_one_undoable_command(toggles) -> None:
+    widget, state, _ = toggles
+    assert not widget.systems_action.isChecked()
+    widget.systems_action.setChecked(True)
+    assert state.doc.stage.mode is PresentationMode.SYSTEM
+    state.undo()
+    assert state.doc.stage.mode is PresentationMode.PAGED
+
+
+def test_systems_resyncs_without_reexecuting(toggles) -> None:
+    """Undo, redo and project load all arrive through the window's
+    resync; a resync pushes the mode onto the button and stops there."""
+    widget, state, _ = toggles
+    widget.systems_action.setChecked(True)
+    state.undo()                                 # button is now stale
+    widget.sync_from_document(state.doc)
+    assert not widget.systems_action.isChecked()
+    assert state.can_redo                        # the resync ran no command
+    state.redo()
+    widget.sync_from_document(state.doc)
+    assert widget.systems_action.isChecked()
+    assert not state.can_redo
 
 
 def test_lower_zone_is_a_fixed_bottom_dock(qapp) -> None:

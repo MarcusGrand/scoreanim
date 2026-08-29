@@ -1,8 +1,8 @@
 """Inspector dock (M1.4, three tabs since C1), offscreen: the tabs hold
 the panels they should, the resync pass never re-executes a command,
-Follow stays transient — one shared QAction, never resynced from the
-document — and the active tab is addressable by a stable key so it can
-be persisted.
+and the active tab is addressable by a stable key so it can be
+persisted. Follow and Systems left for the transport strip in C2 —
+tests/test_transport.py.
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QObject, Qt  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import (QApplication, QDockWidget,  # noqa: E402
                                QWidget)
 
@@ -23,15 +23,6 @@ from scoreanim.ui.panels import (EffectsPanel, PageColorsPanel,  # noqa: E402
                                  SelectionPanel, VideoCanvasPanel)
 
 
-class FakePlayback(QObject):
-    def __init__(self) -> None:
-        super().__init__()
-        self.follow_calls: list[bool] = []
-
-    def set_follow(self, follow: bool) -> None:
-        self.follow_calls.append(follow)
-
-
 @pytest.fixture(scope="session")
 def qapp():
     return QApplication.instance() or QApplication([])
@@ -40,8 +31,7 @@ def qapp():
 @pytest.fixture
 def inspector(qapp):
     state = AppState()
-    playback = FakePlayback()
-    return Inspector(state, playback), state, playback
+    return Inspector(state), state
 
 
 _PANELS = (EffectsPanel, PageColorsPanel, SelectionPanel, VideoCanvasPanel)
@@ -55,7 +45,7 @@ def _panels(dock: Inspector, key: str) -> list[type]:
 
 
 def test_is_a_fixed_right_dock_of_three_tabs(inspector) -> None:
-    dock, _, _ = inspector
+    dock, _ = inspector
     assert dock.objectName() == "Inspector"      # saveState identity (M1.8)
     assert dock.features() \
         == QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
@@ -68,7 +58,7 @@ def test_is_a_fixed_right_dock_of_three_tabs(inspector) -> None:
 def test_each_tab_holds_its_panels(inspector) -> None:
     """C1: Animate is the effects panel, Stage stacks page colours over
     the video canvas, Selection is the selection panel."""
-    dock, _, _ = inspector
+    dock, _ = inspector
     assert _panels(dock, "animate") == [EffectsPanel]
     assert _panels(dock, "stage") == [PageColorsPanel, VideoCanvasPanel]
     assert _panels(dock, "selection") == [SelectionPanel]
@@ -76,7 +66,7 @@ def test_each_tab_holds_its_panels(inspector) -> None:
 
 def test_only_the_stage_tab_stacks_collapsible_sections(inspector) -> None:
     """A tab with one panel needs no header — the tab label is it."""
-    dock, _, _ = inspector
+    dock, _ = inspector
     assert set(dock.sections) == {"page_colors", "video_canvas"}
     assert all(s.expanded for s in dock.sections.values())
 
@@ -84,7 +74,7 @@ def test_only_the_stage_tab_stacks_collapsible_sections(inspector) -> None:
 def test_the_active_tab_is_addressed_by_key(inspector) -> None:
     """Persisted by key, never by index, so reordering the tabs cannot
     make a stored value point at the wrong one."""
-    dock, _, _ = inspector
+    dock, _ = inspector
     assert dock.active_tab == "animate"
     dock.set_active_tab("selection")
     assert dock.active_tab == "selection"
@@ -93,27 +83,16 @@ def test_the_active_tab_is_addressed_by_key(inspector) -> None:
     assert dock.active_tab == "selection"
 
 
-def test_follow_is_one_shared_action(inspector) -> None:
-    """Menu item and (from C2) transport toggle are the SAME QAction
-    (brief flag 3), so they cannot diverge."""
-    dock, _, playback = inspector
-    assert dock.follow_action.isChecked()
-    dock.follow_action.setChecked(False)
-    assert playback.follow_calls == [False]
-    dock.follow_action.setChecked(True)
-    assert playback.follow_calls == [False, True]
-
-
-def test_follow_never_resynced_from_document(inspector) -> None:
-    dock, state, _ = inspector
-    dock.follow_action.setChecked(False)
-    dock.sync_from_document(state.doc)
-    assert not dock.follow_action.isChecked()    # transient state survives
-    assert not state.can_undo                    # and no command ever ran
+def test_no_playback_state_is_left_in_the_dock(inspector) -> None:
+    """C2: Follow and Systems moved to the transport strip, so the dock
+    holds neither — and needs no playback controller to build."""
+    dock, _ = inspector
+    assert not hasattr(dock, "follow_action")
+    assert not hasattr(dock, "systems_action")
 
 
 def test_sync_from_document_never_reexecutes(inspector) -> None:
-    dock, state, _ = inspector
+    dock, state = inspector
     panel = dock.effects_panel
     panel._sweep_box.setChecked(True)
     panel._floor_spin.setValue(0.1)

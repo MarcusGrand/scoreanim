@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
                            self.lower_zone)
         # right-hand inspector (M1.4, three tabs since C1): Animate,
         # Stage, Selection; resynced in _on_document_changed
-        self.inspector = Inspector(self.app_state, self.playback, self,
+        self.inspector = Inspector(self.app_state, self,
                                    settings=self._settings)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,
                            self.inspector)
@@ -290,6 +290,7 @@ class MainWindow(QMainWindow):
         self.doc_sync.sync_hidden(doc)
         self.doc_sync.sync_offsets(doc)
         self.playback.set_style(doc.style)
+        self.lower_zone.strip.sync_from_document(doc)   # Systems (C2)
         self.lower_zone.bar.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
         # after the reschedule pass above, so both read the rebuilt

@@ -1471,8 +1471,13 @@ inspector is a right dock of three tabs — Animate, Stage, Selection
 file/project handlers are components (`ui/menus.py`, `ui/parts_menu.py`,
 `ui/score_loader.py`, `ui/document_sync.py`, `ui/file_actions.py`) that
 receive AppState (plus the playback controller where needed) and never
-reach into each other. `ui/live_field.py` is the same kind of small
-shared piece on the input side: it wires a spinbox to AppState's
+reach into each other. The strip owns three QActions of its own
+(C2): Play and Follow are shared with the Playback menu, so button and
+menu item cannot diverge, and Systems runs a `SetPresentationMode`
+command the strip resyncs from the document — transient state next to
+document intent, each keeping its own shape.
+`ui/live_field.py` is the same kind of small shared piece on the input
+side: it wires a spinbox to AppState's
 preview/commit pair, so every number field previews as you type and a
 typing session lands as one undo entry (PATTERNS, "A number field
 previews as you type"). M3.0 (BACKLOG 9b) finished the job before adding

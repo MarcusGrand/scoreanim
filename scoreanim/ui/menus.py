@@ -11,9 +11,9 @@ Menus are pure wiring — every handler lives on the window or on a
 component it owns; this module declares the chrome and holds the action
 refs the window mutates afterwards (enable-on-load, dynamic undo/redo
 text, the page/system readout). Play and Follow are NOT built here: the
-transport strip owns Play and the inspector owns Follow, and the
-Playback menu adds those same QActions, so button, menu item, and
-shortcut state cannot diverge (brief flag 3).
+transport strip owns both (C2), and the Playback menu adds those same
+QActions, so button, menu item, and shortcut state cannot diverge
+(brief flag 3).
 
 The Score menu (renamed Parts — brief §1b, content preserved) is
 created empty here and repopulated per load by the window's dynamic
@@ -191,7 +191,7 @@ class MainMenus:
         # Play, Follow and Reload Tempo
         self.playback_menu = menubar.addMenu("&Playback")
         self.playback_menu.addAction(strip.play_action)
-        self.playback_menu.addAction(window.inspector.follow_action)
+        self.playback_menu.addAction(strip.follow_action)
         self.playback_menu.addSeparator()
         self.playback_menu.addAction(reload_tempo)
 

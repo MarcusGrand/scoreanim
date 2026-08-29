@@ -10,8 +10,8 @@ semantics** (D9). Every button here has a `defaultAction`, and that
 action is the SAME `QAction` object the Score menu holds — so enabled
 state, label and status tip cannot diverge between the two surfaces, and
 pressing either one runs the identical command. It is the `follow_action`
-precedent from M1, where the Playback menu and the inspector share one
-action. The Score menu keeps everything it had.
+precedent from M1, where the Playback menu and the transport strip share
+one action. The Score menu keeps everything it had.
 
 The dock itself is the `Inspector` template (M1.4): an `objectName` for
 `saveState` identity, no titlebar chrome, one allowed area, and a

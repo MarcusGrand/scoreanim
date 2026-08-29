@@ -16,9 +16,9 @@ are panel-only, so nothing on the page can read as a second selection).
 
 Unlike EffectsPanel this panel is driven by TRANSIENT state, so it
 subscribes to app_state.selection_changed itself instead of riding the
-window's document pass. The precedent is Inspector.follow_action, which
-is deliberately absent from sync_from_document for the same reason:
-there is nothing in the document to resync from.
+window's document pass. The precedent is the transport strip's
+`follow_action`, which is deliberately absent from sync_from_document
+for the same reason: there is nothing in the document to resync from.
 """
 
 from __future__ import annotations

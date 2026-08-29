@@ -19,30 +19,25 @@ keys M1.8 persists) holds those two alone. The active tab is persisted
 the same way, by key, so a reordering of the tabs cannot make a stored
 value point at the wrong one.
 
-Three sync behaviors meet here, unchanged by the move:
+Two sync behaviors meet here, unchanged by the move:
 
 - Document intent is resynced through `sync_from_document`, which the
   window calls on every document change. The dock composes the panels
   and delegates; a resync never re-executes a command.
-- `follow_action` is transient controller state, so it is never
-  resynced — there is nothing in the document to resync from. It is the
-  SAME action the Playback menu adds, so the two cannot diverge. C2
-  gives it a toggle on the transport strip; until then the menu is its
-  only face.
-- Selection is transient too: the SelectionPanel subscribes to
+- Selection is transient: the SelectionPanel subscribes to
   `AppState.selection_changed` itself and takes no part in
   `sync_from_document`.
 
-The Playback & Sync section is gone with this step. Follow keeps its
-menu item as above; the Systems toggle has no home until C2 puts it on
-the transport strip beside it.
+The Playback & Sync section is gone (C1), and with C2 so is the last
+of it: Follow and Systems now live on the transport strip, next to the
+playhead they describe. Nothing in this dock is playback state any
+more, which is why it no longer needs the playback controller at all.
 """
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (QDockWidget, QScrollArea, QTabWidget,
                                QVBoxLayout, QWidget)
 
@@ -52,7 +47,6 @@ from scoreanim.ui.app_state import AppState
 from scoreanim.ui.collapsible import CollapsibleSection
 from scoreanim.ui.panels import (EffectsPanel, PageColorsPanel,
                                  SelectionPanel, VideoCanvasPanel)
-from scoreanim.ui.playback import PlaybackController
 
 # Tab order, and the key each tab is stored under. The stored value is
 # the key, never the index (M1.8 + C1).
@@ -70,7 +64,7 @@ class Inspector(QDockWidget):
     rule 5).
     """
 
-    def __init__(self, app_state: AppState, playback: PlaybackController,
+    def __init__(self, app_state: AppState,
                  parent: QWidget | None = None, settings=None) -> None:
         super().__init__("Inspector", parent)
         self.setObjectName("Inspector")      # saveState identity (M1.8)
@@ -78,14 +72,6 @@ class Inspector(QDockWidget):
         self.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
         self.toggleViewAction().setText("Inspector")
         self._state = app_state
-
-        # Follow: transient controller state, NOT doc intent — survives
-        # nothing, so no command and no resync. The Playback menu adds
-        # this very action; C2 adds a transport toggle to it.
-        self.follow_action = QAction("Follow", self)
-        self.follow_action.setCheckable(True)
-        self.follow_action.setChecked(True)
-        self.follow_action.toggled.connect(playback.set_follow)
 
         # Animate: the M4.8 panel owns its commit handlers and resync;
         # the dock only composes and delegates.
@@ -183,8 +169,7 @@ class Inspector(QDockWidget):
     def sync_from_document(self, doc: ProjectDoc) -> None:
         """Resync the document-intent panels (execute, undo, redo, and
         project load all arrive here via the window); each panel resyncs
-        its own controls. Follow is deliberately absent — transient
-        controller state."""
+        its own controls."""
         self.effects_panel.sync_from_document(doc)
         self.page_colors_panel.sync_from_document(doc)
         self.video_canvas_panel.sync_from_document(doc)

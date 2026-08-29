@@ -80,10 +80,10 @@ def test_view_menu_holds_dock_toggles(window) -> None:
 
 def test_playback_menu_shares_the_component_actions(window) -> None:
     """Menu, strip button, and shortcut are ONE QAction for Play; menu
-    and inspector toggle likewise for Follow (brief flag 3)."""
+    and strip toggle likewise for Follow (brief flag 3, C2)."""
     actions = window.menus.playback_menu.actions()
     assert actions[0] is window.lower_zone.strip.play_action
-    assert actions[1] is window.inspector.follow_action
+    assert actions[1] is window.lower_zone.strip.follow_action
     # the two openers moved to File (B1); Reload Tempo stayed
     assert _texts(window.menus.playback_menu) \
         == ["Play", "Follow", "Reload Tempo"]
