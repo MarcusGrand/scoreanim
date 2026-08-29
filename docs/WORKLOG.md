@@ -95,6 +95,18 @@ lines — history lives in git and `docs/history/`.
   things to feel are whether 6 % is the right amount of air and whether
   the bigger-at-Fit system reads well. Stages 2–4 (zoom/pan preserved on
   a switch, the canvas as the frame, export parity) still to come.
+  **Follow-up the same day, Marcus's report — "it clips the title"**:
+  the title sits above the top staff (y 20–69) and system 1's band
+  starts at y 42, so masking to the BAND cut straight through the
+  capitals. It was doing that before the rework too; the white fill is
+  what made it read as a cut. The mask hides NEIGHBOURS now, not the
+  band — `neighbour_bounds` (pure) runs it to the previous system's
+  bottom and the next system's top and opens it to the frame where
+  there is no neighbour, which is above the first system on a page and
+  below the last. Between two systems nothing changed, so a neighbour
+  still cannot bleed in (pinned at both aspects). The frame is
+  untouched and still derives from the engraved bands only, so editing
+  a title cannot resize it. Suite 2418.
 
 - 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase C2, as amended):
   **Systems on the transport, and Follow is not an option**. Marcus's
