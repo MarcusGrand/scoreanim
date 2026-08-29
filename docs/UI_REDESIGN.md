@@ -309,6 +309,17 @@ play snaps the stage back to the cursor. Only Systems reached the strip.*
 > fronts with the readout; Esc/deselect → previous tab returns; manual tab
 > choice while something is selected is respected.
 
+*Built 2026-08-29 (`ecb20f3`) — the note was written up in the worklog
+and missed here. The rule is a pure state machine, `ui/tab_focus.py`,
+over one episode: the stretch from "nothing selected" to "nothing
+selected again". Fronting happens once per episode, so clicking a
+second note does not yank a tab you just chose, and **your own choice
+always wins** — switching tabs while something is selected clears the
+tab to return to, so clearing the selection leaves it where you put it.
+The dock only reports the two events to it, and a tab switch the dock
+makes ITSELF is flagged, or it would read back as the user's choice.
+Empty state as written. 9 headless tests.*
+
 **C4 — timeline bar split.**
 > The bottom bar keeps only document timing, grouped under a "Timing" label:
 > Tempo, Offset, Swing. Lane, the grid dropdown and Flatten move into a small
