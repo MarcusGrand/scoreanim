@@ -20,8 +20,9 @@ from PySide6.QtWidgets import QApplication, QGraphicsScene  # noqa: E402
 
 from scoreanim.ui.stage_scrollbars import (  # noqa: E402
     HORIZONTAL, VERTICAL)
-from scoreanim.ui.stage_view import (  # noqa: E402
-    _ZOOM_MAX, _ZOOM_MIN, StageView, clamped_factor)
+from scoreanim.ui.stage_view import StageView  # noqa: E402
+from scoreanim.ui.stage_zoom import (  # noqa: E402
+    _ZOOM_MAX, _ZOOM_MIN, clamped_factor)
 
 
 @pytest.fixture(scope="session")

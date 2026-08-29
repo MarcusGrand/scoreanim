@@ -41,7 +41,8 @@ from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 from scoreanim.core.editing import COARSE_NUDGE, NUDGE_STEP
 from scoreanim.ui.stage_frame import StageFraming, fit_geometry
 from scoreanim.ui.stage_scrollbars import TransientScrollbars
-from scoreanim.ui.stage_zoom import FIT_MARGIN, fit_scale, percent
+from scoreanim.ui.stage_zoom import (FIT_MARGIN, clamped_factor,
+                                     fit_scale, percent)
 from scoreanim.ui.theme import palette
 
 _LETTERBOX = QColor(palette.WINDOW)
@@ -51,27 +52,12 @@ _FRAME_EDGE = QColor(palette.DIM)
 # Arrow key → unit direction (M3.2). Page y grows downward, as in SVG.
 _ARROW_KEYS = {Qt.Key.Key_Left: (-1.0, 0.0), Qt.Key.Key_Right: (1.0, 0.0),
                Qt.Key.Key_Up: (0.0, -1.0), Qt.Key.Key_Down: (0.0, 1.0)}
-_ZOOM_MIN = 0.05
-_ZOOM_MAX = 40.0
 # Same zoom CURVE as the timeline views (ui/app_state.apply_wheel — keep
 # the numbers in step), but a different trigger on purpose: there a bare
 # vertical scroll zooms the time axis, here it scrolls the page and zoom
 # needs a pinch or Cmd/Ctrl. One wheel notch (≈40 px) = ×1.1.
 _ZOOM_PER_PIXEL = math.log(1.1) / 40.0
 _PIXELS_PER_NOTCH = 40.0
-
-
-def clamped_factor(factor: float, current: float) -> float:
-    """Trim a zoom step so it cannot leave the [_ZOOM_MIN, _ZOOM_MAX]
-    range, and never moves AGAINST the gesture.
-
-    A fit scale can legitimately sit below _ZOOM_MIN (a big score in a
-    small window), so zooming out from there has to hold still rather
-    than snap upward into range. Pure, so the limits can be tested
-    without a view."""
-    if factor < 1.0:
-        return max(factor, min(1.0, _ZOOM_MIN / current))
-    return min(factor, max(1.0, _ZOOM_MAX / current))
 
 
 class StageView(QGraphicsView):

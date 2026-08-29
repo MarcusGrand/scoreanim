@@ -1207,7 +1207,7 @@ selection + shared time-axis zoom/scroll):
   **nothing pans by dragging** — so the cursor over the page is the
   plain arrow, with no `setCursor` call anywhere. All three zoom paths
   go through `StageView.zoom_by`, which clamps with the pure
-  `clamped_factor` and leaves fit mode. Zoom is always a change to the
+  `clamped_factor` (`ui/stage_zoom.py`) and leaves fit mode. Zoom is always a change to the
   VIEW transform, never to items (see the reveal-cache trap below).
   Qt's own scrollbars are switched off: the macOS style here reports
   `SH_ScrollBar_Transient = False`, so showing them reserves space and
