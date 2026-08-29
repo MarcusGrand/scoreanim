@@ -138,8 +138,13 @@ def test_go_to_start_seeks_to_zero_and_nothing_else(strip) -> None:
     assert playback.seeks == [0.0]
     assert playback.toggles == 0
     assert not widget.to_start_action.icon().isNull()
-    assert widget.to_start_action.toolTip() == "Go to start (Home)"
+    # E2: the sentence is written by hand, the key is read off the
+    # action — an icon-only button has nothing else to go on
     assert widget.to_start_action.shortcut() == QKeySequence(Qt.Key.Key_Home)
+    tip = widget.to_start_action.toolTip()
+    assert tip.startswith("Move the playhead back to the start")
+    assert QKeySequence(Qt.Key.Key_Home).toString(
+        QKeySequence.SequenceFormat.NativeText) in tip
 
 
 def test_the_timecode_is_monospace_and_cannot_shrink(strip) -> None:

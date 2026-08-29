@@ -202,7 +202,8 @@ scoreanim/
                    # inspector + panels/ · selection · text_edit ·
                    # nudge · break_action · layout_zone · transport ·
                    # file_actions · score_loader · document_sync ·
-                   # window_state · recents · hint_bar · stage view,
+                   # window_state · recents · hint_bar · tips (tooltips
+                   # and why a control is dead) · stage view,
                    # lanes, playback, app_state, dialogs
   app.py
 tests/             # headless; tests/goldens/ pins fixture loads

@@ -51,6 +51,22 @@ such a list is really the one switch is a scope change costing one
 frozenset: widening the glow from head-and-accidental to the whole note
 on 2026-08-06 cost that plus two test expectations, nothing else.
 
+**A control's tooltip, and the reason it is dead** — every interactive
+control goes through `ui/tips.py`. `describe(widget, text)` writes the
+sentence it shows while it is live and parks it on the widget itself;
+`describe_action(action, text)` adds the action's own shortcut in the
+platform's notation, read off the QAction so it cannot go stale;
+`gate(widget, enabled, reason)` replaces `setEnabled` wherever the
+reason for graying is not already on screen, and swaps the tooltip for
+that reason. `tips.label(text, field)` makes a form label say what its
+field says. A live number field goes through `LiveField.set_enabled`,
+which keeps the never-gray-a-field-being-typed-in guard in one place.
+Reasons that several panels give (no score, no selection, nothing to
+undo) are constants in `tips.py`; a reason belonging to one control is
+written where the control is. `tests/test_tooltips.py` walks a real
+window and fails on a control with nothing to say — so the pass cannot
+quietly rot.
+
 **Spike-first, whole-pipeline** — uncertain Verovio/music21 behavior
 gets a script in `spikes/` before integration; spikes are kept as
 library documentation. Measure through the WHOLE pipeline (monkeypatch

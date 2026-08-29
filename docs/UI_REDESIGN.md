@@ -524,6 +524,54 @@ points at it (a segfault, found writing them).*
 > why it is disabled. Check: hover any control in every panel — no tooltip
 > gaps; fresh launch shows helpful empty states, not blank space.
 
+*Built 2026-08-29. One module owns the mechanism (`ui/tips.py`):
+`describe` writes a control's sentence and parks it on the widget,
+`describe_action` adds the shortcut read off the QAction itself, and
+`gate` replaces `setEnabled` wherever the reason for graying is not
+already on screen — the tooltip becomes that reason and goes back to
+the sentence when the control comes alive. `tips.label` came out of the
+five panels each writing the same three lines to make a form label say
+what its field says.
+
+The gaps this closed were mostly the disabled ones. Export and Texts,
+Undo and Redo, the pager, Reset, Restore all, Width and Height without
+a frame, the re-time steppers, a part scope on score-level ink, a
+colour on ink that is always the page's own — all of them grayed
+silently before. So did the four different reasons the stage's Staves
+menu refuses to hide a staff, which are now one pure function
+(`StageMenu.hide_reason`). The Animate tab's grayed knobs generate
+their own reason from the knob table (`knob_types.knob_name` plus three
+phrases), so a new dependency gets one without anybody writing it —
+effects stay data (rule 6).
+
+Two behavior notes. Nothing was newly disabled: the pass adds reasons
+to controls that already grayed themselves, and Offset and Swing keep
+working with no audio and no score, as they did. And the break, delete
+and flip actions now sync once at construction, so they carry their
+reason from the first frame rather than from the first selection
+change — which is what the layout zone's icon-only buttons show.
+
+Empty states: the tempo lane was a blank rectangle on a fresh launch
+next to a waveform that has said "No audio" since FIX 2, and now says
+what it is missing. The two layout-zone lists say what would fill them
+rather than only that they are empty.
+
+`tests/test_tooltips.py` is the guard, and it is a sweep, not a
+spot-check: it walks a real window and fails on an action with no
+sentence, a control with no tooltip, or a control that grayed itself
+out while still describing a gesture it will not run. 83 controls and
+33 actions on an empty window, then again with a score loaded and a
+note picked. It checks the dynamic property `describe` writes, not the
+tooltip — Qt fills a bare action's tooltip in from its own label, so a
+tooltip alone proves nothing. Two Qt facts it had to be built around: a
+scroll area parents its content under a `qt_scrollarea_viewport`, so
+skipping every widget with a `qt_`-named ANCESTOR would have quietly
+excused two of the three docks; and a control disabled only because
+its container is has its own enabled flag still set, which
+`isEnabledTo(parent)` is how you tell apart — a block switched off as a
+unit is covered by its panel's empty state and must not be asked to
+repeat the reason on every widget in it.*
+
 **E3 — identity.**
 > App icon (matches the accent-on-dark look), window title unchanged, About
 > dialog with version, and a pass to make sure the app name/casing is
