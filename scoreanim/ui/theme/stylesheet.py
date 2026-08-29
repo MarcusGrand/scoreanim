@@ -421,6 +421,41 @@ QLabel#ZoomPercent {
     padding: 0px 2px;
 }
 
+/* -- the welcome pane (E1) ---------------------------------------- */
+
+QWidget#WelcomePane {
+    background: $WINDOW;
+}
+QWidget#WelcomePane QLabel {
+    background: transparent;
+}
+QLabel#WelcomeTitle {
+    color: $TEXT;
+    font-size: 26px;
+    font-weight: 600;
+}
+QLabel#WelcomeTagline {
+    color: $DIM;
+}
+QLabel#WelcomeHeading {
+    color: $DIM;
+    font-weight: 600;
+}
+QLabel#WelcomeDim {
+    color: $DIM;
+}
+QListWidget#WelcomeRecents {
+    background: $INSET;
+    border: 1px solid $BORDER;
+}
+QListWidget#WelcomeRecents::item {
+    padding: 3px 6px;
+}
+QListWidget#WelcomeRecents::item:hover {
+    background: $HOVER;
+    color: $ACCENT;
+}
+
 QSlider::groove:vertical {
     background: $INSET;
     border: 1px solid $BORDER;

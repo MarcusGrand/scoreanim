@@ -479,6 +479,44 @@ window's minimum width does not depend on which note you clicked.*
 > drop a file → pane gone, score loads; drop while a score is loaded asks
 > before replacing.
 
+*Built 2026-08-29. The pane (`ui/welcome_pane.py`) is a child of the
+stage VIEW, sized to `viewport().geometry()` — the same parenting D2
+had to be fixed into, since a child of the viewport scrolls away with
+the picture. It shows exactly while `doc.score is None`, decided in the
+window's document-changed pass beside every other sync, so nothing has
+to be told about an open. The recent list is a second view of the store
+the File menu reads (B1), the newest six of the eight; with an empty
+store the heading and the box go and one line says "Nothing opened
+yet."
+
+One thing worth knowing about the layout: a Qt layout pushes its own
+minimum size onto the widget it is in, so the card's 360 px would have
+become a floor under the whole window's width. The outer layout is
+`SetNoConstraint` — the stage sizes the pane, never the other way
+round, and a stage too small for the card simply clips it.
+
+Drops are the window's own `dragEnterEvent`/`dropEvent`
+(`ui/file_drop.py` holds the policy). Two things had to be true for a
+drag to arrive at all. `StageView` has drops turned OFF, because
+QGraphicsView turns them on in its own constructor, and a drag that
+stops at a widget which ignores it is never offered to the parent —
+without that, the whole middle of the window would have been a dead
+zone. And accepting the ENTER is enough: Qt carries that answer to the
+moves that follow. What counts as openable is one pure rule
+(`core/project/file_kinds.py`), which Open Recent now dispatches
+through too, so the drag, the list and the dialogs cannot start
+disagreeing about what a `.xml` is.
+
+A drop onto a score that is already open asks first, and says so louder
+when there are unsaved changes: opening is not undoable (ruling
+2026-07-11), so a mis-aimed drag would otherwise throw the session
+away. 18 new tests. Two Qt facts they had to be built around: a
+programmatic `sendEvent` of a drag never reaches the widget — the
+application discards drag events with no real drag behind them, so the
+tests call the handlers the way Qt does — and a drag event does not own
+its `QMimeData`, so a temporary one is freed while the event still
+points at it (a segfault, found writing them).*
+
 **E2 — tooltip and empty-state pass.**
 > A finish pass over every interactive control: each gets a tooltip (what it
 > does, plus shortcut if it has one); every list/readout gets an empty state

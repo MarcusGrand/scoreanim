@@ -38,6 +38,7 @@ from scoreanim.ui.delete_action import DeleteActionController
 from scoreanim.ui.stem_flip_action import StemFlipActionController
 from scoreanim.ui.document_sync import DocumentSync
 from scoreanim.ui.file_actions import FileActions
+from scoreanim.ui.file_drop import FileDrops
 from scoreanim.ui.hint_bar import HintBar
 from scoreanim.ui.inspector import Inspector
 from scoreanim.ui.layout_zone import LayoutZone
@@ -57,6 +58,7 @@ from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.text_edit import InlineTextEditor
 from scoreanim.ui.transport import LowerZone
 from scoreanim.ui.view_router import ViewRouter
+from scoreanim.ui.welcome_pane import WelcomePane
 from scoreanim.ui.zoom_overlay import ZoomOverlay
 from scoreanim.ui.window_state import (default_settings,
                                        restore_window_state,
@@ -196,6 +198,12 @@ class MainWindow(QMainWindow):
         # view's viewport, so it needs both the view and the View
         # menu's Fit action, and is built once the menus exist
         self.zoom_overlay = ZoomOverlay(self.view, self.menus.fit_action)
+        # the empty stage's front door (E1): built after the overlay so
+        # it sits above it, and shown/hidden by the document-changed
+        # pass. A drop of a score or a project anywhere on the window
+        # opens it, whether the pane is showing or not.
+        self.welcome = WelcomePane(self.view, self.files)
+        self.drops = FileDrops(self)
         self.router = ViewRouter(self.view, self.menus)
         # follow reports page AND system; the router picks by the
         # document's presentation mode (Phase 7.4)
@@ -318,6 +326,7 @@ class MainWindow(QMainWindow):
             doc)
         self.onset_cursor.sync_from_document(doc)
         self.layout_zone.sync_from_document(doc)
+        self.welcome.sync_from_document(doc)   # gone once a score is in
         self.parts_menu.sync_from_document(doc)
         self.break_action.sync()      # overrides move the action's label
         self.delete_action.sync()     # a delete disables its own action
@@ -366,6 +375,18 @@ class MainWindow(QMainWindow):
             self._scenes.set_page_background_visible(not active)
         if color is not None:
             self.view.set_overlay_preview(active, color)
+
+    # -- drag and drop (E1) -----------------------------------------------------
+
+    # Qt offers no other route: a widget takes a drop by overriding
+    # these. The policy is `ui/file_drop.py`; accepting the enter is
+    # enough, and Qt carries that answer to the moves that follow.
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        self.drops.offer(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        self.drops.drop(event)
 
     # -- close ---------------------------------------------------------------------
 
