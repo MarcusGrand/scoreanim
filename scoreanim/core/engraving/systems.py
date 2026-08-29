@@ -49,6 +49,32 @@ def system_bands(layout: Layout) -> tuple[SystemBand, ...]:
     return tuple(bands)
 
 
+def neighbour_bounds(bands: tuple[SystemBand, ...],
+                     ) -> dict[int, tuple[float | None, float | None]]:
+    """How far each system may show before it would reveal a NEIGHBOUR
+    on the same page: (the previous system's bottom, the next system's
+    top), and None on a side with no neighbour there.
+
+    That is the whole job of the system mask — hiding the OTHER systems
+    sharing the paper. Above the first system on a page and below the
+    last one there is nothing to hide, so the frame opens all the way,
+    and the page's title block is shown whole instead of being sliced
+    where the first system's ink happens to start (Marcus, 2026-08-30).
+
+    Derived from the bands on demand, never stored (rule 5)."""
+    by_page: dict[int, list[SystemBand]] = {}
+    for band in bands:
+        by_page.setdefault(band.page, []).append(band)
+    bounds: dict[int, tuple[float | None, float | None]] = {}
+    for page_bands in by_page.values():
+        ordered = sorted(page_bands, key=lambda b: b.rect.y)
+        for i, band in enumerate(ordered):
+            above = ordered[i - 1].rect.y2 if i > 0 else None
+            below = ordered[i + 1].rect.y if i + 1 < len(ordered) else None
+            bounds[band.system] = (above, below)
+    return bounds
+
+
 # How much air the systems-mode frame leaves above and below the tallest
 # system, as a fraction of that system's own height. Marcus's call
 # (2026-08-30): 6 % is about 91 page units on testscore, which is the

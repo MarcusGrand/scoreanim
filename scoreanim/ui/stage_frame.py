@@ -34,6 +34,9 @@ class StageFraming:
 
     def __init__(self) -> None:
         self.band: QRectF | None = None
+        # how far the band may show before a NEIGHBOUR system would come
+        # into view: (above, below), None on a side with no neighbour
+        self.bounds: tuple[float | None, float | None] = (None, None)
         self.frame: QRectF | None = None
         self.canvas: VideoCanvas | None = None
         self.systems: SystemsFrame | None = None
@@ -50,10 +53,14 @@ class StageFraming:
 
     def set_page(self, page: QRectF) -> None:
         self.band = None
+        self.bounds = (None, None)
         self.frame = self._canvas_frame(page)
 
-    def set_system_band(self, page: QRectF, band: QRectF) -> None:
+    def set_system_band(self, page: QRectF, band: QRectF,
+                        bounds: tuple[float | None, float | None]
+                        = (None, None)) -> None:
         self.band = QRectF(band)
+        self.bounds = bounds
         if self.canvas is not None:
             self.frame = self._canvas_frame(page,
                                             center_y=band.center().y())
@@ -95,13 +102,35 @@ class StageFraming:
 
     def visible_rect(self) -> QRectF | None:
         """The scene region actually on show, or None for everything.
-        A frame crops to itself; a band crops to the system; with both,
-        what shows is their intersection."""
+        A frame crops to itself; a band crops to the system it owns;
+        with both, what shows is their intersection."""
         if self.frame is None:
             return self.band
         if self.band is None:
             return self.frame
-        return self.band.intersected(self.frame)
+        return self.owned_band().intersected(self.frame)
+
+    def owned_band(self) -> QRectF:
+        """The band widened to everything this system owns.
+
+        The mask has one job: hide the OTHER systems on the same paper.
+        So it stops at a neighbour's edge rather than at this system's
+        own ink, and where there is no neighbour — above the first
+        system on a page, below the last — it opens to the frame. That
+        is what shows the page's title block whole instead of slicing it
+        where the first system's ink happens to start (Marcus,
+        2026-08-30). Between two systems the mask still covers the whole
+        gap: the neighbour's own bound IS the edge."""
+        assert self.band is not None and self.frame is not None
+        above, below = self.bounds
+        top = self.frame.top() if above is None else max(above,
+                                                         self.frame.top())
+        bottom = self.frame.bottom() if below is None \
+            else min(below, self.frame.bottom())
+        if bottom <= top:                    # degenerate: trust the band
+            return QRectF(self.band)
+        return QRectF(self.band.left(), top, self.band.width(),
+                      bottom - top)
 
     def contains(self, scene_pos: QPointF) -> bool:
         """Is this scene point inside the visible region? Ink cropped
@@ -125,7 +154,7 @@ class StageFraming:
         if self.band is None or exposed_frame.isEmpty():
             return [], outside
         inside = strips_outside(exposed_frame,
-                                self.band.intersected(self.frame))
+                                self.owned_band().intersected(self.frame))
         return inside, outside
 
 

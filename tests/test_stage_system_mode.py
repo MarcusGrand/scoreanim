@@ -19,8 +19,8 @@ from PySide6.QtCore import QPoint, QPointF, QRectF  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from scoreanim.core.engraving.systems import (system_bands,  # noqa: E402
-                                              systems_frame)
+from scoreanim.core.engraving.systems import (  # noqa: E402
+    neighbour_bounds, system_bands, systems_frame)
 from scoreanim.core.project.stage_config import (  # noqa: E402
     default_stage_config, page_content_top)
 from scoreanim.render.scene import ScoreScenes  # noqa: E402
@@ -50,6 +50,12 @@ def frame(bands):
     return systems_frame(tuple(bands.values()))
 
 
+@pytest.fixture(scope="module")
+def bounds(bands):
+    """How far each system may show — what ViewRouter.bind computes."""
+    return neighbour_bounds(tuple(bands.values()))
+
+
 # the page's own background, which is what a frame fills with while the
 # overlay preview is off — the stage's default light paper
 _FILL = "#ffffff"
@@ -76,9 +82,10 @@ def _view(frame, size=(600, 850)) -> StageView:
     return view
 
 
-def _show(view, scenes, band) -> None:
+def _show(view, scenes, band, bounds=None) -> None:
     view.show_system_band(scenes.scene_for_page(band.page),
-                          _qrect(band.rect))
+                          _qrect(band.rect),
+                          (bounds or {}).get(band.system, (None, None)))
 
 
 # -- the constant frame ---------------------------------------------------
@@ -102,7 +109,7 @@ def _lit_column(view: StageView) -> tuple[int, int]:
 
 
 def test_the_frame_never_changes_size_or_position(qapp, scenes, bands,
-                                                  frame) -> None:
+                                                  frame, bounds) -> None:
     """Stage 1's whole point, and the headless form of Marcus's own
     check: play across every system and the lit frame occupies exactly
     the same screen pixels each time, however tall the system is.
@@ -114,7 +121,7 @@ def test_the_frame_never_changes_size_or_position(qapp, scenes, bands,
     view = _view(frame)
     seen = set()
     for band in bands.values():
-        _show(view, scenes, band)
+        _show(view, scenes, band, bounds)
         seen.add(_lit_column(view))
     assert len(seen) == 1, f"the frame moved between systems: {seen}"
     # and it is the FRAME that is lit, not the band: the lit span is the
@@ -129,26 +136,27 @@ def test_the_frame_never_changes_size_or_position(qapp, scenes, bands,
 
 
 def test_live_zoom_is_constant_across_systems(qapp, scenes, bands,
-                                              frame) -> None:
+                                              frame, bounds) -> None:
     """One frame means one fit: the view zoom is IDENTICAL for every
     system however its band height differs — the system is singled out
     and centred, nothing resizes."""
     view = _view(frame)
     zooms = set()
     for band in bands.values():
-        _show(view, scenes, band)
+        _show(view, scenes, band, bounds)
         zooms.add(round(view.transform().m11(), 6))
     assert len(zooms) == 1, f"zoom varied across systems: {zooms}"
 
 
-def test_band_is_centred_in_the_frame(qapp, scenes, bands, frame) -> None:
+def test_band_is_centred_in_the_frame(qapp, scenes, bands, frame,
+                                      bounds) -> None:
     """Each system sits in the middle of the frame vertically and keeps
     the horizontal position it was engraved with — so at Fit the band's
     centre is the viewport's centre."""
     view = _view(frame)
     page = scenes.scene_for_page(bands[2].page).sceneRect()
     for band in bands.values():
-        _show(view, scenes, band)
+        _show(view, scenes, band, bounds)
         centre = view.mapFromScene(QPointF(page.center().x(),
                                            band.rect.center.y))
         assert centre.x() == pytest.approx(view.viewport().width() / 2,
@@ -158,7 +166,7 @@ def test_band_is_centred_in_the_frame(qapp, scenes, bands, frame) -> None:
 
 
 def test_fit_targets_the_frame_not_the_page(qapp, scenes, bands,
-                                            frame) -> None:
+                                            frame, bounds) -> None:
     """Fit fits the FRAME. The frame is shorter than the page (tallest
     band plus padding, against a whole page), so system mode shows the
     music bigger than paged mode does, and the two no longer share a
@@ -167,7 +175,7 @@ def test_fit_targets_the_frame_not_the_page(qapp, scenes, bands,
     view = _view(frame)
     view.show_scene(scene)
     paged = view.transform().m11()
-    _show(view, scenes, bands[2])
+    _show(view, scenes, bands[2], bounds)
     assert view.transform().m11() > paged
     # and it really is the frame that fits: the frame's height fills the
     # viewport (this viewport is taller than the frame's aspect)
@@ -182,14 +190,14 @@ def test_fit_targets_the_frame_not_the_page(qapp, scenes, bands,
 
 @pytest.mark.parametrize("system", [2, 4])
 def test_no_paper_edge_inside_the_frame(qapp, scenes, bands, frame,
-                                        system) -> None:
+                                        bounds, system) -> None:
     """Hide all page context: the whole frame is one uniform colour, so
     a short system and a tall one look the same everywhere except where
     the music is. Before the rework the lit area WAS the band, so its
     top and bottom edges jumped on every switch."""
     view = _view(frame)
     band = bands[system]
-    _show(view, scenes, band)
+    _show(view, scenes, band, bounds)
     placed = frame.rect_for(band.rect)
     seen = set()
     for x_frac in (0.005, 0.02):          # left margin: no ink at any y
@@ -201,16 +209,44 @@ def test_no_paper_edge_inside_the_frame(qapp, scenes, bands, frame,
     assert seen == {_FILL}, f"the frame is not uniform: {seen}"
 
 
+def test_the_title_block_is_not_sliced(qapp, scenes, bands, frame,
+                                       bounds) -> None:
+    """Marcus, 2026-08-30: system mode cut the title in half.
+
+    The title sits above the top staff (scene y 20-69) and system 1's
+    band starts at y 42, so masking to the BAND painted over the top of
+    the capitals. The mask only has to hide the other systems sharing
+    the paper, and nothing shares the paper above the first system on a
+    page — so it opens to the frame there, and the title draws whole.
+    """
+    view = _view(frame)
+    _show(view, scenes, bands[1], bounds)
+    title = scenes.items["stage:title"].sceneBoundingRect()
+    band_top = bands[1].rect.y
+    assert title.top() < band_top < title.bottom()   # it really straddles
+
+    image = view.viewport().grab().toImage()
+    left = view.mapFromScene(QPointF(title.left(), 0.0)).x()
+    right = view.mapFromScene(QPointF(title.right(), 0.0)).x()
+    # ink drawn ABOVE where the band starts is ink the old mask ate
+    above = 0
+    for scene_y in range(int(title.top()), int(band_top)):
+        y = view.mapFromScene(QPointF(0.0, float(scene_y))).y()
+        above += sum(1 for x in range(left, right + 1)
+                     if image.pixelColor(x, y).name() != _FILL)
+    assert above > 0, "the title is still cut where the band starts"
+
+
 @pytest.mark.parametrize("size", [(1920, 400), (400, 1000)])
 def test_neighbour_system_never_bleeds(qapp, scenes, bands, frame,
-                                       size) -> None:
+                                       bounds, size) -> None:
     """Page 2 carries systems 2 and 3: with system 2 framed, system 3's
     ink must never show — as letterbox where it falls outside the frame,
     as the frame's own fill where it falls inside — at a wide AND a tall
     aspect."""
     assert bands[2].page == bands[3].page == 2
     view = _view(frame, size=size)
-    _show(view, scenes, bands[2])
+    _show(view, scenes, bands[2], bounds)
     placed = frame.rect_for(bands[2].rect)
 
     own = bands[2].rect
@@ -238,9 +274,9 @@ def test_neighbour_system_never_bleeds(qapp, scenes, bands, frame,
 
 
 def test_clear_band_restores_paged_framing(qapp, scenes, bands,
-                                           frame) -> None:
+                                           frame, bounds) -> None:
     view = _view(frame, size=(400, 1000))
-    _show(view, scenes, bands[2])
+    _show(view, scenes, bands[2], bounds)
     view.clear_band()
     # neighbour ink is visible again (white page, not letterbox)
     neighbour = bands[3].rect

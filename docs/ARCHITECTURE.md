@@ -1196,7 +1196,19 @@ selection + shared time-axis zoom/scroll):
   the frame, so system mode shows the music bigger than paged mode
   does. The frame reaches the view once per load, through
   `ViewRouter.bind` → `StageView.set_systems_frame`; a switch only
-  moves the band inside it. Stage 2 will make a switch preserve zoom
+  moves the band inside it.
+
+  **The mask stops at a neighbour, not at the band.** Its one job is
+  hiding the OTHER systems sharing the paper, so it runs to the
+  previous system's bottom and the next system's top
+  (`systems.py::neighbour_bounds`, pure) and opens to the frame where
+  there is no neighbour — above the first system on a page, below the
+  last. Masking to the band itself sliced the page's title block
+  through the capitals, because the title sits above the first system's
+  ink (Marcus, 2026-08-30). Between two systems nothing changes: the
+  neighbour's own edge IS the boundary.
+
+  Stage 2 will make a switch preserve zoom
   and pan, stage 3 will let the video canvas be the frame, stage 4
   audits export against the same rule.
 

@@ -36,6 +36,11 @@ plus 6 % of that height each side, Marcus's number. Everything else in
 the view generalised from "is there a canvas" to "is there a frame",
 so the canvas path's solid fill and wobble-free fit now serve both.
 
+Follow-up the same day, on Marcus's report: the mask was slicing the
+title block. It masks to a NEIGHBOUR now, not to the band — nothing
+shares the paper above the first system on a page, so there was nothing
+to hide there.
+
 > Work on a branch, commit when done. Use plan mode first.
 >
 > Systems mode, step 1 of a rework (docs/SYSTEMS_MODE_REWORK.md has the

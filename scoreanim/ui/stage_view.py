@@ -157,7 +157,8 @@ class StageView(QGraphicsView):
         if scene is not None:
             page = scene.sceneRect()
             if self._framing.band is not None:
-                self._framing.set_system_band(page, self._framing.band)
+                self._framing.set_system_band(page, self._framing.band,
+                                              self._framing.bounds)
             else:
                 self._framing.set_page(page)
             self.setSceneRect(self._framing.scene_rect(page))
@@ -195,15 +196,21 @@ class StageView(QGraphicsView):
         self.viewport().update()
         self.zoom_changed.emit()      # first scene: there is a size now
 
-    def show_system_band(self, scene: QGraphicsScene, band: QRectF) -> None:
+    def show_system_band(self, scene: QGraphicsScene, band: QRectF,
+                         bounds: tuple[float | None, float | None]
+                         = (None, None)) -> None:
         """System flip (Phase 7.4; reworked 2026-08-30): swap to the
         band's page scene and place the band in the load's constant
         frame, centred vertically. The frame's size never changes and
         its content is uniform, so only the music moves. A hard cut,
-        exactly like a page flip (ruling R2)."""
+        exactly like a page flip (ruling R2).
+
+        `bounds` is how far the band may show before a neighbouring
+        system on the same page would come into view — the only thing
+        the mask is for (core/engraving/systems.py::neighbour_bounds)."""
         self.setScene(scene)
         page = scene.sceneRect()
-        self._framing.set_system_band(page, band)
+        self._framing.set_system_band(page, band, bounds)
         self.setSceneRect(self._framing.scene_rect(page))
         if self._fit_mode:
             self._fit()

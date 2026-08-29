@@ -11,23 +11,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scoreanim.core.engraving.systems import SystemsFrame
+from scoreanim.core.engraving.systems import (SystemBand,
+                                              SystemsFrame)
+from scoreanim.core.engraving.types import Rect
 from scoreanim.core.project import PresentationMode
 from scoreanim.ui.view_router import ViewRouter
-
-
-@dataclass(frozen=True)
-class _Rect:
-    x: float
-    y: float
-    w: float
-    h: float
-
-
-@dataclass(frozen=True)
-class _Band:
-    page: int
-    rect: _Rect
 
 
 class _Scenes:
@@ -48,8 +36,9 @@ class _View:
     def show_scene(self, scene) -> None:
         self.calls.append(("scene", scene))
 
-    def show_system_band(self, scene, band) -> None:
+    def show_system_band(self, scene, band, bounds=(None, None)) -> None:
         self.calls.append(("band", scene, round(band.y())))
+        self.bounds = bounds
 
     def clear_band(self) -> None:
         self.calls.append(("clear",))
@@ -77,9 +66,11 @@ class _Applier:
         return self._system
 
 
-BANDS = {1: _Band(1, _Rect(0.0, 0.0, 100.0, 40.0)),
-         2: _Band(1, _Rect(0.0, 50.0, 100.0, 40.0)),
-         3: _Band(2, _Rect(0.0, 0.0, 100.0, 40.0))}
+# real core types, not fakes: the router hands them to pure functions
+# (neighbour_bounds) that read more of a band than a stand-in carries
+BANDS = {1: SystemBand(1, 1, Rect(0.0, 0.0, 100.0, 40.0)),
+         2: SystemBand(2, 1, Rect(0.0, 50.0, 100.0, 40.0)),
+         3: SystemBand(3, 2, Rect(0.0, 0.0, 100.0, 40.0))}
 
 
 def _router(pages: int = 2, applier=None, systems_frame=None) -> tuple:
@@ -97,8 +88,22 @@ def test_bind_hands_the_view_the_loads_systems_frame() -> None:
     frame = SystemsFrame(width=100.0, height=60.0)
     _, view, _ = _router(systems_frame=frame)
     assert view.systems_frame is frame
-    before = list(view.calls)
-    assert before == []                  # binding shows nothing by itself
+    assert view.calls == []              # binding shows nothing by itself
+
+
+def test_a_system_is_told_how_far_it_may_show() -> None:
+    """Page 1 carries systems 1 and 2, page 2 carries system 3 alone.
+    So system 1 is open above and stops at system 2's top; system 2
+    stops at system 1's bottom and is open below; system 3 is open both
+    ways — nothing shares its page, so nothing needs hiding and the
+    page's title block is not sliced."""
+    router, view, _ = _router()
+    router.show_system(1)
+    assert view.bounds == (None, 50.0)
+    router.show_system(2)
+    assert view.bounds == (40.0, None)
+    router.show_system(3)
+    assert view.bounds == (None, None)
 
 
 # -- unbound -------------------------------------------------------------

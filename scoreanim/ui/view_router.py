@@ -21,7 +21,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QRectF
 
-from scoreanim.core.engraving.systems import SystemsFrame
+from scoreanim.core.engraving.systems import (SystemsFrame,
+                                              neighbour_bounds)
 from scoreanim.core.project import PresentationMode, VideoCanvas
 
 if TYPE_CHECKING:
@@ -45,6 +46,8 @@ class ViewRouter:
         self._menus = menus
         self._scenes: ScoreScenes | None = None
         self._band_by_system: dict = {}          # derived, never saved
+        self._bounds_by_system: dict = {}        # ditto — how far each
+                                                 # system may show
         self._system_of_measure: dict = {}       # ditto (M5.5, D8)
         self._applier: AnimationApplier | None = None
         self._page = 1
@@ -65,6 +68,8 @@ class ViewRouter:
         only moves the band inside it."""
         self._scenes = scenes
         self._band_by_system = band_by_system
+        self._bounds_by_system = neighbour_bounds(
+            tuple(band_by_system.values()))
         self._applier = applier
         self._system_of_measure = dict(system_of_measure or {})
         self._view.set_systems_frame(systems_frame)
@@ -108,7 +113,8 @@ class ViewRouter:
         rect = band.rect
         self._view.show_system_band(
             self._scenes.scene_for_page(band.page),
-            QRectF(rect.x, rect.y, rect.w, rect.h))
+            QRectF(rect.x, rect.y, rect.w, rect.h),
+            self._bounds_by_system.get(self._system, (None, None)))
         self._menus.set_position(
             f" sys {self._system}/{len(self._band_by_system)} ",
             self._system > 1,
