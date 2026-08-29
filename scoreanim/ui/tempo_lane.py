@@ -27,7 +27,7 @@ everything else live.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
@@ -36,6 +36,12 @@ from scoreanim.core.timing import TempoMap
 from scoreanim.ui.app_state import AppState, apply_wheel
 from scoreanim.ui.grid_options import LaneDisplay
 from scoreanim.ui.lane_style import BG, GRID, GRID_TEXT, PLAYHEAD, TOP_PAD
+
+# What the lane says with no score in it (E2). The waveform above has
+# had its own no-audio line since FIX 2; this is the same idea one lane
+# down, so an empty launch has no blank rectangle in it.
+_EMPTY = "No score — open one to line it up against the recording"
+
 from scoreanim.ui.lane_tempo import TempoPointsMode
 from scoreanim.ui.lane_ticks import TickAlignMode
 
@@ -106,6 +112,12 @@ class TempoLaneView(QWidget):
         painter = QPainter(self)
         painter.fillRect(self.rect(), BG)
         w, h = self.width(), self.height()
+        if not self._state.measures:
+            painter.setPen(QPen(GRID_TEXT, 1))
+            painter.drawText(QRectF(0, 0, w, h),
+                             Qt.AlignmentFlag.AlignCenter, _EMPTY)
+            painter.end()
+            return
         self._draw_measure_grid(painter, w, h)
         self._mode.paint(painter)
         x = self._state.axis.x_of(self._state.playhead, w)

@@ -218,9 +218,17 @@ class MainMenus:
         self.view_menu.addAction(self.prev_action)
         self.view_menu.addAction(self.next_action)
         self.view_menu.addSeparator()
-        self.view_menu.addAction(window.layout_zone.toggleViewAction())
-        self.view_menu.addAction(window.inspector.toggleViewAction())
-        self.view_menu.addAction(window.lower_zone.toggleViewAction())
+        # Qt makes these three itself, so they arrive with no tooltip of
+        # their own — one each, naming what the dock holds.
+        for dock, what in ((window.layout_zone,
+                            "the break actions and what they wrote"),
+                           (window.inspector,
+                            "Animate, Stage and Selection"),
+                           (window.lower_zone,
+                            "the transport, the lanes and the timing")):
+            action = dock.toggleViewAction()
+            tips.describe_action(action, f"Show or hide {what}")
+            self.view_menu.addAction(action)
 
         self.score_menu = QMenu("&Score", window)
         menubar.addMenu(self.score_menu)

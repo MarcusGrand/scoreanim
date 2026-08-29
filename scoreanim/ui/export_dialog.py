@@ -30,9 +30,13 @@ from scoreanim.render.encode import (AlphaMode, PngSequenceSink,
 from scoreanim.render.export import (AnimationInputs, ExportFormat,
                                      ExportSpec, FrameRenderer, even_size,
                                      frame_count, measure_span_seconds)
+from scoreanim.ui import tips
 from scoreanim.ui.export_run import ExportRun
 
 _FPS_CHOICES = (24, 25, 30, 50, 60)
+
+# Why the two bar numbers are dead: the other radio is chosen.
+_WHOLE_CHOSEN = "Choose Measures above to set a range"
 
 
 class ExportDialog(QDialog):
@@ -90,19 +94,26 @@ class ExportDialog(QDialog):
         for fps in _FPS_CHOICES:
             self._fps.addItem(str(fps), fps)
         self._fps.setCurrentText("60")
-        form.addRow("Frame rate:", self._fps)
+        tips.describe(self._fps,
+                      "Frames per second the file is written at — match "
+                      "the video you will lay it over")
+        form.addRow(tips.label("Frame rate:", self._fps), self._fps)
 
         self._format = QComboBox()
         self._format.addItem("ProRes 4444 (.mov, alpha)",
                              ExportFormat.PRORES_4444)
         self._format.addItem("PNG sequence (alpha)",
                              ExportFormat.PNG_SEQUENCE)
+        tips.describe(self._format,
+                      "One movie file, or one PNG per frame — both carry "
+                      "an alpha channel")
         if find_ffmpeg() is None:
             self._format.model().item(0).setEnabled(False)
             self._format.setCurrentIndex(1)
-            self._format.setToolTip("ProRes needs ffmpeg on PATH "
-                                    "(brew install ffmpeg)")
-        form.addRow("Format:", self._format)
+            tips.describe(self._format,
+                          "ProRes needs ffmpeg on PATH "
+                          "(brew install ffmpeg)")
+        form.addRow(tips.label("Format:", self._format), self._format)
 
         # How the file writes colour beside alpha. Getting this wrong
         # does not break the export — it makes every soft edge, and a
@@ -112,10 +123,12 @@ class ExportDialog(QDialog):
         self._alpha.addItem("Premultiplied — Premiere, most NLEs",
                             AlphaMode.PREMULTIPLIED)
         self._alpha.addItem("Straight (unmatted)", AlphaMode.STRAIGHT)
-        self._alpha.setToolTip(
-            "If soft edges and glows look too solid over the video "
-            "underneath, try the other one.")
-        form.addRow("Alpha:", self._alpha)
+        tips.describe(
+            self._alpha,
+            "How colour is written beside the alpha channel. If soft "
+            "edges and glows look too solid over the video underneath, "
+            "try the other one.")
+        form.addRow(tips.label("Alpha:", self._alpha), self._alpha)
 
         geo = self._inputs.layout.pages[0]
         self._page_aspect = (geo.width, geo.height)
@@ -128,7 +141,13 @@ class ExportDialog(QDialog):
         self._height.setSingleStep(2)
         self._height.setValue(2160)
         self._height.setSuffix(" px high")
+        tips.describe(self._height,
+                      "How tall the exported frame is; the width follows "
+                      "the page's own shape")
         self._width_label = QLabel()
+        tips.describe(self._width_label,
+                      "The width the height above works out to — the page "
+                      "aspect is locked")
         if self._canvas is not None:
             c = self._canvas
             form.addRow("Size:", QLabel(
@@ -147,39 +166,57 @@ class ExportDialog(QDialog):
         self._whole = QRadioButton(
             f"Whole recording ({self._duration:.2f} s)")
         self._whole.setChecked(True)
+        tips.describe(self._whole,
+                      "Render from the start of the recording to its end")
         self._span = QRadioButton("Measures:")
+        tips.describe(self._span,
+                      "Render only the bars between the two numbers")
         numbers = [m.number for m in self._measures]
         self._span_from = QSpinBox()
         self._span_to = QSpinBox()
-        for spin, value in ((self._span_from, numbers[0]),
-                            (self._span_to, numbers[-1])):
+        for spin, value, edge in ((self._span_from, numbers[0], "first"),
+                                  (self._span_to, numbers[-1], "last")):
             spin.setRange(numbers[0], numbers[-1])
             spin.setValue(value)
-            spin.setEnabled(False)
+            tips.describe(spin, f"The {edge} bar to render")
+            tips.gate(spin, False, _WHOLE_CHOSEN)
         span_row = QHBoxLayout()
         span_row.addWidget(self._span)
         span_row.addWidget(self._span_from)
         span_row.addWidget(QLabel("to"))
         span_row.addWidget(self._span_to)
-        form.addRow("Range:", self._whole)
+        form.addRow(tips.label("Range:", self._whole), self._whole)
         form.addRow("", span_row)
 
         self._path = QLineEdit()
+        tips.describe(self._path,
+                      "Where the file is written — a .mov for ProRes, a "
+                      "folder for a PNG sequence")
         browse = QPushButton("Browse…")
+        tips.describe(browse, "Choose where to write it")
         browse.clicked.connect(self._browse)
         path_row = QHBoxLayout()
         path_row.addWidget(self._path)
         path_row.addWidget(browse)
-        form.addRow("Output:", path_row)
+        form.addRow(tips.label("Output:", self._path), path_row)
 
         self._summary = QLabel()
+        tips.describe(self._summary,
+                      "What these settings add up to: how many frames, "
+                      "how big, and where video time zero lands")
         self._progress = QProgressBar()
         self._progress.setTextVisible(True)
+        tips.describe(self._progress, "How far through the render it is")
         self._status = QLabel("")
+        tips.describe(self._status, "What the render is doing right now")
         self._export_btn = QPushButton("Export")
         self._export_btn.setDefault(True)
+        tips.describe(self._export_btn, "Start writing the file")
         self._export_btn.clicked.connect(self._start)
         self._cancel_btn = QPushButton("Close")
+        tips.describe(self._cancel_btn,
+                      "Close this dialog — it stops a render in progress "
+                      "first")
         self._cancel_btn.clicked.connect(self._cancel_or_close)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -214,8 +251,8 @@ class ExportDialog(QDialog):
         return even_size(*self._page_aspect, self._height.value())
 
     def _on_span_toggled(self, span: bool) -> None:
-        self._span_from.setEnabled(span)
-        self._span_to.setEnabled(span)
+        tips.gate(self._span_from, span, _WHOLE_CHOSEN)
+        tips.gate(self._span_to, span, _WHOLE_CHOSEN)
         self._refresh_summary()
 
     def _on_format_changed(self) -> None:
@@ -262,11 +299,14 @@ class ExportDialog(QDialog):
             frames = frame_count(start, end, self._fps.currentData())
         except ValueError:
             self._summary.setText("empty range")
-            self._export_btn.setEnabled(False)
+            tips.gate(self._export_btn, False,
+                      "That range holds no frames — check the two bar "
+                      "numbers")
             return
         self._summary.setText(f"{frames} frames · {w}×{h} · video t=0 is "
                               f"recording t={start:.2f} s")
-        self._export_btn.setEnabled(not self._running)
+        tips.gate(self._export_btn, not self._running,
+                  "A render is already running")
 
     def _restore(self, settings: dict) -> None:
         self._fps.setCurrentText(str(settings.get("fps", 60)))

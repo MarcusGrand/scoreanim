@@ -20,6 +20,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (QGraphicsView, QHBoxLayout, QLabel,
                                QToolButton, QWidget)
 
+from scoreanim.ui import tips
 from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.stage_zoom import percent_text
 from scoreanim.ui.theme import fonts, icons
@@ -75,6 +76,9 @@ class ZoomOverlay(QWidget):
         self._readout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._readout.setMinimumWidth(
             self._readout.fontMetrics().horizontalAdvance(_WIDEST))
+        tips.describe(self._readout,
+                      "How big the page is drawn — scroll or pinch over "
+                      "the stage to change it")
         self._fit = QToolButton(self)
         self._fit.setDefaultAction(fit_action)   # the View menu's own
         self._fit.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
@@ -170,7 +174,7 @@ def _button(icon, tip: str, on_click) -> QToolButton:
     its own (the wheel and the pinch are the fast paths)."""
     button = QToolButton()
     button.setIcon(icon)
-    button.setToolTip(tip)
+    tips.describe(button, tip)
     button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
     button.setIconSize(icons.BUTTON_SIZE)
     button.setFocusPolicy(Qt.FocusPolicy.NoFocus)

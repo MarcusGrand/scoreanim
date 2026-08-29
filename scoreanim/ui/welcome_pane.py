@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QLabel,
                                QPushButton, QVBoxLayout, QWidget)
 
 from scoreanim.core.project import ProjectDoc
+from scoreanim.ui import tips
 from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.theme import icons
 
@@ -63,8 +64,13 @@ class WelcomePane(QWidget):
 
         open_score = QPushButton(icons.icon("file-music"), "Open Score…")
         open_score.clicked.connect(files.open_score_dialog)
+        tips.describe(open_score,
+                      "Open a MusicXML score exported from Dorico")
         open_project = QPushButton("Open Project…")
         open_project.clicked.connect(files.open_project_dialog)
+        tips.describe(open_project,
+                      "Open a saved project — its score, timing and every "
+                      "override")
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
         buttons.addWidget(open_score)
@@ -84,6 +90,7 @@ class WelcomePane(QWidget):
         self._recents.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._recents.itemClicked.connect(self._open_item)
+        tips.describe(self._recents, "Click one to open it")
         self._empty = QLabel(NO_RECENTS)
         self._empty.setObjectName("WelcomeDim")
 

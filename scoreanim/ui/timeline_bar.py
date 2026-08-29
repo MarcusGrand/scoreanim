@@ -88,10 +88,9 @@ class TimelineBar(QWidget):
         # the tuple is what holds the fields alive, and the test scans it
         self.live_fields = (self._bpm, self._offset, self._swing)
 
-        self._bpm_label = QLabel("Tempo")
         # the label retitles itself for the selected grid line
         # ("Tempo from m3"), so it carries the field's own sentence
-        tips.describe(self._bpm_label, tips.live_tip(self._bpm_spin))
+        self._bpm_label = tips.label("Tempo", self._bpm_spin)
         # One field and its label are a group; the 12 px gaps below are
         # what keep "Swing" reading as the swing field's own label and
         # not as something that belongs to the field before it.
@@ -110,11 +109,7 @@ class TimelineBar(QWidget):
         for text, spin in (("Offset", self._offset_spin),
                            ("Swing", self._swing_spin)):
             row.addSpacing(panel_style.GROUP_GAP)
-            label = QLabel(text)
-            # a label says what its field says: the pointer lands on one
-            # or the other and the answer must not depend on which
-            tips.describe(label, tips.live_tip(spin))
-            row.addWidget(label)
+            row.addWidget(tips.label(text, spin))
             row.addWidget(spin)
         row.addStretch(1)                # left-aligned: the gap goes right
         self._sync_from_grid()

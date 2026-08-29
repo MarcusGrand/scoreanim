@@ -112,11 +112,7 @@ class SelectionTriggerControls(QWidget):
         form = QFormLayout(self)
         # the padding is paid at the Selection panel's own edge
         panel_style.style_form(form, padding=False)
-        # the label says what its readout says: the pointer lands on one
-        # or the other and the answer must not depend on which
-        fires_label = QLabel("Fires")
-        tips.describe(fires_label, tips.live_tip(self._fires))
-        form.addRow(fires_label, fires_box)
+        form.addRow(tips.label("Fires", self._fires), fires_box)
         form.addRow("", buttons_box)
         panel_style.fix_label_column(form)
 

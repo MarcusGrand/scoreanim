@@ -32,6 +32,7 @@ sentence.
 from __future__ import annotations
 
 from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtWidgets import QLabel
 
 # Where a control's live sentence is parked while a reason is showing in
 # its place. A dynamic property, so nothing has to keep a side table of
@@ -77,6 +78,18 @@ def gate(target, enabled: bool, reason: str) -> None:
     target.setEnabled(enabled)
     live = target.property(_LIVE_TIP) or ""
     target.setToolTip(live if enabled or not reason else reason)
+
+
+def label(text: str, field) -> QLabel:
+    """A form label that says what the field beside it says.
+
+    The pointer lands on the name or on the box, and the answer must
+    not depend on which. Build the field first — the sentence is copied
+    from it here, not shared by reference.
+    """
+    widget = QLabel(text)
+    describe(widget, live_tip(field))
+    return widget
 
 
 def live_tip(target) -> str:

@@ -21,6 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMenu, QToolButton, QWidget
 
 from scoreanim.core.timing import GRID_UNITS
+from scoreanim.ui import tips
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.grid_options import LaneDisplay
 from scoreanim.ui.theme import icons
@@ -30,6 +31,16 @@ _SHAPE_TIP = ("Flatten: a dragged span comes out evenly spaced, at one "
               "Off: it stretches instead, so tempo detail already inside "
               "survives.\n"
               "Alt while dragging flips whichever is set.")
+
+# One sentence per lane, and one for the grid step. Both only mean
+# something in the ticks lane, so both say so while they are grayed.
+_LANE_TIPS = {
+    LaneDisplay.TEMPO: "Show the tempo as draggable points — the red "
+                       "step line",
+    LaneDisplay.TICKS: "Show the grid lines, and drag them onto the "
+                       "recording",
+}
+_TICKS_ONLY = "Only the ticks lane has a grid to set"
 
 
 class LaneOptionsButton(QToolButton):
@@ -63,6 +74,7 @@ class LaneOptionsButton(QToolButton):
         self.lane_actions: dict[LaneDisplay, QAction] = {}
         for display in LaneDisplay:
             action = self._checkable(display.value, self._lane_group)
+            tips.describe(action, _LANE_TIPS[display])
             action.triggered.connect(
                 lambda _checked, d=display: self._set_display(d))
             self.lane_actions[display] = action
@@ -75,6 +87,8 @@ class LaneOptionsButton(QToolButton):
         self.unit_actions = []
         for unit in GRID_UNITS:
             action = self._checkable(unit.label, self._unit_group)
+            tips.describe(action,
+                          f"Draw a grid line every {unit.label}")
             action.triggered.connect(
                 lambda _checked, u=unit: self._state.grid.set_unit(u))
             self.unit_actions.append(action)
@@ -82,7 +96,7 @@ class LaneOptionsButton(QToolButton):
         self.menu_widget.addSeparator()
         self.flatten_action = QAction("Flatten dragged spans", self)
         self.flatten_action.setCheckable(True)
-        self.flatten_action.setToolTip(_SHAPE_TIP)
+        tips.describe(self.flatten_action, _SHAPE_TIP)
         self.flatten_action.toggled.connect(self._state.grid.set_flatten)
         self.menu_widget.addAction(self.flatten_action)
 
@@ -126,10 +140,11 @@ class LaneOptionsButton(QToolButton):
             action.blockSignals(True)
             action.setChecked(unit == grid.unit)
             action.blockSignals(False)
-            action.setEnabled(ticks)
+            tips.gate(action, ticks, _TICKS_ONLY)
         self.flatten_action.blockSignals(True)
         self.flatten_action.setChecked(grid.flatten)
         self.flatten_action.blockSignals(False)
-        self.flatten_action.setEnabled(ticks)
+        tips.gate(self.flatten_action, ticks,
+                  "Only a tick drag has a shape to flatten")
         # the state you can read without opening the menu
         self.setToolTip(f"Lane options — showing {grid.display.value}")

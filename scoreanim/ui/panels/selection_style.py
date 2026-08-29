@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QButtonGroup, QColorDialog, QComboBox,
-                               QFormLayout, QHBoxLayout, QLabel, QPushButton,
+                               QFormLayout, QHBoxLayout, QPushButton,
                                QRadioButton, QVBoxLayout, QWidget)
 
 from scoreanim.core.animation import PRESETS, ElementStyle
@@ -60,7 +60,6 @@ class SelectionStyleControls(QWidget):
         super().__init__(parent)
         self._state = app_state
         self._scenes = None                 # bound per load, for the family
-        self._labels: list[QLabel] = []
 
         self._element_radio = QRadioButton("This element")
         self._part_radio = QRadioButton("This part")
@@ -119,16 +118,10 @@ class SelectionStyleControls(QWidget):
         form = QFormLayout()
         # the padding is paid at the Selection panel's own edge
         panel_style.style_form(form, padding=False)
-        # a label says what its field says (E2)
-        for text, widget in (("Apply to", self._part_radio),
-                             ("Color", self._color_button),
-                             ("Effect", self._effect)):
-            label = QLabel(text)
-            tips.describe(label, tips.live_tip(widget))
-            self._labels.append(label)
-        form.addRow(self._labels[0], scope_box)
-        form.addRow(self._labels[1], color_box)
-        form.addRow(self._labels[2], self._effect)
+        # each label says what its field says (E2)
+        form.addRow(tips.label("Apply to", self._part_radio), scope_box)
+        form.addRow(tips.label("Color", self._color_button), color_box)
+        form.addRow(tips.label("Effect", self._effect), self._effect)
         panel_style.fix_label_column(form)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
