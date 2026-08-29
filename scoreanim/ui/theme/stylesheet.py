@@ -34,9 +34,9 @@ QMainWindow::separator {
     height: 1px;
 }
 QToolTip {
-    background: $PANEL;
-    color: $TEXT;
-    border: 1px solid $BORDER;
+    background: $TIP;
+    color: $TIP_TEXT;
+    border: 1px solid $TIP_BORDER;
     padding: 3px 6px;
 }
 

@@ -65,7 +65,12 @@ Reasons that several panels give (no score, no selection, nothing to
 undo) are constants in `tips.py`; a reason belonging to one control is
 written where the control is. `tests/test_tooltips.py` walks a real
 window and fails on a control with nothing to say — so the pass cannot
-quietly rot.
+quietly rot. The box itself is two other files: the three `TIP` tokens
+and the `QToolTip` rule give it a light ground and near-black text (the
+one surface in the app that runs the other way), and
+`ui/tip_placement.py` takes its horizontal placement off Qt — the box
+starts at the pointer and runs right, sliding left only far enough to
+fit, where Qt would flip it to the other side of the pointer.
 
 **Spike-first, whole-pipeline** — uncertain Verovio/music21 behavior
 gets a script in `spikes/` before integration; spikes are kept as

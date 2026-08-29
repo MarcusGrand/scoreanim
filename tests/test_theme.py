@@ -66,6 +66,31 @@ def test_apply_theme_sets_fusion_and_the_sheet(qapp):
         QPalette.ColorRole.Window).name() == tokens.PANEL
 
 
+def test_the_hover_box_runs_the_other_way(qapp):
+    """Marcus, 2026-08-30: the one light surface in the app. A tooltip
+    is a note laid ON the interface, not part of it, and it has to read
+    over a dark panel and over the white score page both.
+
+    Both halves are checked because Qt uses both: the QSS paints the
+    box, and the palette is what a tooltip drawn without the sheet
+    would use.
+    """
+    tip = QColor(tokens.TIP)
+    ink = QColor(tokens.TIP_TEXT)
+    assert tip.lightness() > 180
+    assert ink.lightness() < 60
+    assert QColor(tokens.TIP_BORDER).lightness() < tip.lightness()
+
+    pal = build_palette()
+    assert pal.color(QPalette.ColorRole.ToolTipBase).name() == tokens.TIP
+    assert pal.color(QPalette.ColorRole.ToolTipText).name() == tokens.TIP_TEXT
+
+    css = stylesheet()
+    rule = css.split("QToolTip {", 1)[1].split("}", 1)[0]
+    assert f"background: {tokens.TIP};" in rule
+    assert f"color: {tokens.TIP_TEXT};" in rule
+
+
 def test_painting_views_read_the_tokens(qapp):
     from scoreanim.ui import lane_style, lane_tempo, lane_ticks
     from scoreanim.ui import stage_scrollbars, stage_view, waveform

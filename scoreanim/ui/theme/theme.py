@@ -53,8 +53,11 @@ def build_palette() -> QPalette:
     pal.setColor(QPalette.ColorRole.Button, panel)
     pal.setColor(QPalette.ColorRole.ButtonText, text)
     pal.setColor(QPalette.ColorRole.BrightText, QColor(tokens.ACCENT))
-    pal.setColor(QPalette.ColorRole.ToolTipBase, panel)
-    pal.setColor(QPalette.ColorRole.ToolTipText, text)
+    # the one light surface in the app — the QSS says the same thing,
+    # and these two are what a tooltip Qt draws without the stylesheet
+    # would use
+    pal.setColor(QPalette.ColorRole.ToolTipBase, QColor(tokens.TIP))
+    pal.setColor(QPalette.ColorRole.ToolTipText, QColor(tokens.TIP_TEXT))
     pal.setColor(QPalette.ColorRole.Link, QColor(tokens.ACCENT))
     pal.setColor(QPalette.ColorRole.LinkVisited, dim)
     pal.setColor(QPalette.ColorRole.Highlight, QColor(tokens.HIGHLIGHT))

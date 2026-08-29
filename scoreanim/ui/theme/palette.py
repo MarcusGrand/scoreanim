@@ -34,6 +34,14 @@ DISABLED = "#5a5c66"    # text of a control that cannot be used
 HIGHLIGHT = "#3f4652"   # selected row in a list or menu (quiet on
                         # purpose: the accent is reserved for "active")
 
+# The hover box (Marcus, 2026-08-30) is the one surface in the app that
+# runs the other way: light ground, near-black text. It is a note laid
+# ON the interface rather than part of it, and it has to be readable
+# over a dark panel and over the score page both.
+TIP = "#dcdde1"         # the hover box's ground
+TIP_TEXT = "#1b1c1f"    # its text: dark gray, not quite black
+TIP_BORDER = "#a9abb3"  # its edge, a muted gray of the same family
+
 # The floating stage controls (D2) are the only chrome that sits ON the
 # score, so they are see-through: the same surfaces as everywhere else
 # with an alpha in front (#AARRGGBB — Qt reads it, and so does QSS).

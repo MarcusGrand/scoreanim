@@ -572,6 +572,32 @@ its container is has its own enabled flag still set, which
 unit is covered by its panel's empty state and must not be asked to
 repeat the reason on every widget in it.*
 
+*Followed up 2026-08-30 on Marcus's look, on the box itself. It is
+**light now** — a muted grey ground with near-black text, the one
+surface in the app that runs the other way, because a tooltip is a note
+laid ON the interface rather than part of it and it has to read over a
+dark panel and over the white score page both. Three tokens (`TIP`,
+`TIP_TEXT`, `TIP_BORDER`), the `QToolTip` rule, and the two palette
+roles Qt would use without the sheet.
+
+And it **always reads rightward from the pointer**: the box starts at
+the cursor and runs right, and near the right edge it slides left only
+far enough to fit, so the pointer ends up somewhere along it. Qt does
+not do that — `QTipLabel::placeTip` moves the whole box to the OTHER
+side of the cursor when it would overrun, so the same gesture puts the
+text in two different places depending on where you were. So the
+horizontal placement is ours: `tip_left` is the rule, pure and
+headless, and an application-wide event filter applies it to Qt's own
+tooltip window (`ui/tip_placement.py`). Only the x — Qt's vertical
+behaviour is already right. Three events have to be watched, not one:
+Qt places the box before showing it, places it AGAIN with no second
+show when the pointer travels to another control while a box is up
+(`reuseTip`), and applies the stylesheet's padding AFTER placing it, so
+a correction made before that resize lands two pixels out — measured,
+not guessed. 12 new tests, two of which drive Qt's real tooltip window,
+including one that pins the flip Qt does without the filter so nobody
+removes it thinking Qt would behave.*
+
 **E3 — identity.**
 > App icon (matches the accent-on-dark look), window title unchanged, About
 > dialog with version, and a pass to make sure the app name/casing is
