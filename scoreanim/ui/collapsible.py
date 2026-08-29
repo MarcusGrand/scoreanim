@@ -13,13 +13,21 @@ can be pinned to the left; everything that makes it look like a band is
 in the app-wide QSS, under the name `SectionHeader`.
 
 The band is also the seam between two sections: it is a shade darker
-than the body under it and carries a 1px line above and below, so a
-dock with every section open still reads as a stack of blocks. That is
-one rule in the theme, so every section gets it — nothing here, and
-nothing in a panel, paints a divider of its own.
+than the body under it and carries a 1px line along its top, so a dock
+with every section open still reads as a stack of blocks. That is one
+rule in the theme, so every section gets it — nothing here, and nothing
+in a panel, paints a divider of its own.
+
+The one thing this widget decides is whether to draw that line at all.
+It is a separator, so the section sitting at the top of its stack does
+not get one: there is nothing above it to divide it from, and in a dock
+the line would land straight on the title bar's own. The section works
+that out from its place in its parent's layout and hands the answer to
+the theme as the `topmost` property.
 """
 from __future__ import annotations
 
+from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (QPushButton, QSizePolicy, QVBoxLayout,
                                QWidget)
 
@@ -51,6 +59,9 @@ class CollapsibleSection(QWidget):
                                    QSizePolicy.Policy.Fixed)
         self._header.toggled.connect(self._on_toggled)
         self._show_chevron(True)
+        # Written before the theme ever reads it, so the selector that
+        # drops the separator has something to match on from the start.
+        self._header.setProperty("topmost", False)
 
         self._content: QWidget | None = None
         self._layout = QVBoxLayout(self)
@@ -73,6 +84,47 @@ class CollapsibleSection(QWidget):
 
     def set_expanded(self, expanded: bool) -> None:
         self._header.setChecked(expanded)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """Last chance to see where we ended up: by now the section is
+        in its parent's layout, so it can tell whether it is the one at
+        the top of the stack."""
+        super().showEvent(event)
+        self._refresh_separator()
+
+    # -- the line above the band ----------------------------------------------
+
+    def _refresh_separator(self) -> None:
+        """Tell the theme whether to draw our separator.
+
+        Qt reads a dynamic property in a selector once, when it polishes
+        the widget — changing the value later does nothing until the
+        widget is polished again, which is what the two calls below are
+        for.
+        """
+        topmost = self._is_first_in_parent()
+        if self._header.property("topmost") == topmost:
+            return
+        self._header.setProperty("topmost", topmost)
+        self._header.style().unpolish(self._header)
+        self._header.style().polish(self._header)
+
+    def _is_first_in_parent(self) -> bool:
+        """Are we the first widget in the layout we were put in?
+
+        A section with no parent layout says no: on its own it cannot
+        know what sits above it, and drawing the line is the safe answer
+        — one line too many is tidier than a stack with no seam in it.
+        """
+        parent = self.parentWidget()
+        layout = parent.layout() if parent is not None else None
+        if layout is None:
+            return False
+        for index in range(layout.count()):
+            widget = layout.itemAt(index).widget()
+            if widget is not None:          # skip spacers and stretches
+                return widget is self
+        return False
 
     def _on_toggled(self, checked: bool) -> None:
         self._show_chevron(checked)

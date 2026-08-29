@@ -115,21 +115,30 @@ QDockWidget > QWidget {
    rounding, text pinned left beside its chevron, and a highlight that
    runs edge to edge under the pointer.
 
-   The band is also where one section ends and the next begins. It sits
-   a shade darker than the body below it, with a 1px line above and
-   below, so a dock with everything expanded still reads as a stack of
-   separate blocks instead of one long form. The same darker ground as
-   a dock title bar, for the same reason. */
+   The band is also where one section ends and the next begins: it sits
+   a shade darker than the body below it — the same darker ground a
+   dock title bar uses — with a single 1px line along its top.
+
+   One line, not two. A line above AND below would draw a box around
+   the heading, which reads as enclosing the title rather than dividing
+   the sections; the whole job of the line is to say "the section above
+   ended here". The band's own edge against the lighter body is what
+   closes it off at the bottom. */
 QPushButton#SectionHeader {
     background: $WINDOW;
     color: $DIM;
     border: 0px solid $BORDER;
     border-top-width: 1px;
-    border-bottom-width: 1px;
     border-radius: 0px;
     padding: 6px 8px;
     font-weight: 600;
     text-align: left;
+}
+QPushButton#SectionHeader[topmost="true"] {
+    /* the section at the top of a stack has nothing above it to be
+       separated from, and in a dock its line would land straight on
+       the title bar's own */
+    border-top-width: 0px;
 }
 QPushButton#SectionHeader:hover {
     background: $HOVER;
@@ -140,7 +149,7 @@ QPushButton#SectionHeader:pressed {
 }
 QPushButton#SectionHeader:checked {
     /* expanded, not "active": a header must not take the accent, and
-       it keeps its lines — they are what close the block off */
+       it keeps its line — that is the divider */
     background: $WINDOW;
     color: $TEXT;
 }
