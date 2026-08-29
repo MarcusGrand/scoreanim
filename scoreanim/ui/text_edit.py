@@ -147,6 +147,20 @@ class InlineTextEditor(QObject):
         self._open(target, item, initial)
         return True
 
+    def can_edit(self, element_id: ElementId) -> bool:
+        """Would a double-click on this element open an editor? The hint
+        bar asks (D3), and the answer is the gesture's own route rather
+        than a second guess about which texts are editable."""
+        if self._scenes is None:
+            return False
+        item = self._scenes.items.get(element_id)
+        if item is None:
+            return False
+        target = route_for(item.identity, element_id,
+                           self._text_class(element_id), self._condensed())
+        return (target is not None
+                and self._current_content(target, element_id) is not None)
+
     def _text_item_at(self, scene_pos: QPointF,
                       scene: QGraphicsScene | None
                       ) -> tuple[ElementItem, ElementId] | None:

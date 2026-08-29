@@ -1,7 +1,9 @@
 """TransportStrip / LowerZone (M1.3), offscreen: the controller wiring
-that moved out of the window — slider seeks, time feedback, play-text
-flip — behaves exactly as the alpha window did, plus the Systems
-toggle C2 brought over from the inspector.
+that moved out of the window — time feedback, play-text flip — behaves
+exactly as the alpha window did, plus the Systems toggle C2 brought
+over from the inspector and D1's transport cluster. The seek bar is
+gone (D1 revision); seeking by key is tests/test_seek_keys.py, and
+seeking by mouse is the lanes' own tests.
 
 The strip is exercised against a fake controller QObject (real signals,
 recorded calls); the zone against a real AppState (its lanes observe
@@ -17,8 +19,9 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QObject, Qt, Signal  # noqa: E402
+from PySide6.QtGui import QKeySequence  # noqa: E402
 from PySide6.QtWidgets import (QApplication, QDockWidget,  # noqa: E402
-                               QToolButton)
+                               QSlider, QToolButton)
 
 from scoreanim.core.project import PresentationMode  # noqa: E402
 from scoreanim.ui.app_state import AppState  # noqa: E402
@@ -68,31 +71,10 @@ def test_play_action_drives_controller(strip) -> None:
     assert playback.toggles == 1
 
 
-def test_time_feedback_updates_label_and_slider(strip) -> None:
+def test_time_feedback_updates_the_timecode(strip) -> None:
     widget, playback = strip
     playback.time_changed.emit(65.4, 120.0)
     assert widget._time_label.text() == " 1:05.4 / 2:00.0 "
-    assert widget._slider.maximum() == 120000
-    assert widget._slider.value() == 65400
-
-
-def test_slider_untouched_while_user_drags(strip) -> None:
-    widget, playback = strip
-    playback.time_changed.emit(10.0, 120.0)
-    widget._slider.setSliderDown(True)
-    playback.time_changed.emit(50.0, 120.0)
-    assert widget._slider.value() == 10000       # no fight with the drag
-    assert widget._time_label.text().startswith(" 0:50.0")
-
-
-def test_drag_and_keyboard_step_seek(strip) -> None:
-    widget, playback = strip
-    widget._slider.setRange(0, 120000)
-    widget._slider.setSliderDown(True)
-    widget._slider.sliderMoved.emit(2500)        # drag → seek
-    widget._slider.setSliderDown(False)
-    widget._slider.setValue(4000)                # keyboard/page step → seek
-    assert playback.seeks == [2.5, 4.0]
 
 
 def test_playing_flips_the_play_text_and_icon(strip) -> None:
@@ -116,20 +98,60 @@ def test_the_play_button_is_an_icon_with_a_tooltip(strip) -> None:
     assert button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
 
 
-def test_systems_sits_after_the_time_readout(strip) -> None:
-    """C2: play, the slider, the readout, then what the stage shows —
-    and C4's lane gear last of all, at the right edge."""
+def test_the_strip_reads_left_to_right_as_a_cluster(strip) -> None:
+    """D1: go to start, play, the timecode, then what the stage shows —
+    and C4's lane gear last of all, at the right edge, with nothing but
+    space between."""
     widget, _ = strip
     row = widget.layout()
     order = [row.itemAt(i).widget() for i in range(row.count())]
     buttons = [w for w in order if isinstance(w, QToolButton)]
     assert [b.defaultAction() for b in buttons] \
-        == [widget.play_action, widget.systems_action, None]
+        == [widget.to_start_action, widget.play_action,
+            widget.systems_action, None]
     assert buttons[-1] is widget.lane_options
-    assert order.index(widget._time_label) < order.index(buttons[1])
+    assert order.index(widget._time_label) < order.index(buttons[2])
+    assert order.index(buttons[2]) < order.index(widget.lane_options)
     assert widget.systems_action.isCheckable()
     assert not widget.systems_action.icon().isNull()
     assert widget.systems_action.toolTip() != widget.systems_action.text()
+
+
+def test_the_seek_bar_is_gone(strip) -> None:
+    """D1 revision: the lanes are the seek surface. Two playheads
+    moving at different speeds read as two clocks disagreeing."""
+    widget, _ = strip
+    assert widget.findChild(QSlider) is None
+    # and the spare width is plain space, not a control
+    row = widget.layout()
+    stretches = [row.stretch(i) for i in range(row.count())
+                 if row.itemAt(i).widget() is not None]
+    assert set(stretches) == {0}
+
+
+def test_go_to_start_seeks_to_zero_and_nothing_else(strip) -> None:
+    """It rewinds; it does not start or stop anything — playing stays
+    playing and paused stays paused."""
+    widget, playback = strip
+    playback.time_changed.emit(42.0, 120.0)
+    widget.to_start_action.trigger()
+    assert playback.seeks == [0.0]
+    assert playback.toggles == 0
+    assert not widget.to_start_action.icon().isNull()
+    assert widget.to_start_action.toolTip() == "Go to start (Home)"
+    assert widget.to_start_action.shortcut() == QKeySequence(Qt.Key.Key_Home)
+
+
+def test_the_timecode_is_monospace_and_cannot_shrink(strip) -> None:
+    """D1: a running clock must not shuffle the cluster beside it."""
+    widget, playback = strip
+    label = widget._time_label
+    assert label.fontMetrics().horizontalAdvance("0") \
+        == label.fontMetrics().horizontalAdvance("1")
+    floor = label.minimumWidth()
+    assert floor > 0
+    playback.time_changed.emit(1.0, 2.0)         # the shortest text there is
+    assert label.minimumWidth() == floor
 
 
 def test_the_lane_gear_is_the_only_view_state_on_the_strip(strip) -> None:

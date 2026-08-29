@@ -154,4 +154,4 @@ class ScoreInstaller:
         # fresh scenes rebuild their paper rects visible, so the
         # overlay preview's paper-hiding half is re-applied per load
         w.apply_overlay_preview()
-        w.statusBar().showMessage(loaded.status_line)
+        w.hints.message(loaded.status_line)

@@ -334,6 +334,35 @@ line and ate the words.*
 > Check: seek by click and drag still works; go-to-start seeks to 0 and
 > keeps playing state sensible; timecode digits don't wiggle during playback.
 
+*Built 2026-08-29. Order on the strip: go to start, play, timecode,
+Systems, then the seek bar taking the spare width, then C4's gear at
+the right edge. Go-to-start only seeks — it never starts or stops
+anything, so playing stays playing. The timecode needed two fixes, not
+one: `QFontDatabase.systemFont(FixedFont)` comes back naming a family
+called "monospace" that no machine has, so Qt fell back to the
+proportional UI font and the digits still wiggled — a Monospace style
+hint is what lands it on a real fixed-width face. The label also keeps
+a minimum width, so the first two-digit minute does not shove the
+cluster sideways. The slider is dressed by name (`QSlider#SeekBar`) in
+the stylesheet.*
+
+*Revised 2026-08-29, same day, on Marcus's call: **the seek bar is
+gone.** The waveform and ticks lanes already seek on click and scrub on
+drag, so the strip's slider was a second playhead moving at a different
+speed from the lanes' cursor — two clocks disagreeing. The strip is now
+just the cluster (go to start · play · timecode), Systems, empty space,
+and the gear. `QSlider#SeekBar` came out of the stylesheet with it. The
+keyboard seeking a QSlider gives away for free is rebuilt as
+`ui/seek_keys.py`: Left/Right = 1 s, Shift+Left/Right = 5 s, on
+`PlaybackController.seek_by` (clamped to the timeline, play state
+untouched), and Home went onto the strip's existing Go to Start action.
+All five are window-level, so they fire wherever the focus is, and all
+five are in the Playback menu, which is where the shortcut sheet finds
+them. Two things still get an arrow ahead of them, both through Qt's
+ShortcutOverride path rather than a focus test here: a text field or
+spin box claims Left/Right/Home for its own caret by itself, and the
+stage claims the arrows while something nudgeable is selected.*
+
 **D2 — stage overlay controls.**
 > Add floating overlay controls in the stage's bottom-right: zoom out, zoom
 > percent readout, zoom in, and Fit (the same fit QAction). Subtle
@@ -349,6 +378,21 @@ line and ate the words.*
 > file and transient status messages as today. One small module owns the
 > wording. Check: hints update on select/deselect; status messages (export
 > progress, re-engrave failures) still show and then give the hint back.
+
+*Built 2026-08-29. The wording is `core/editing/hints.py`, pure and
+next to the other status-tip modules (deletion, stem flip, breaks): one
+table of plain kind names, one phrase per gesture, at most three of
+them on the line. `ui/hint_bar.py` gathers the answers, each from the
+controller that owns that gesture, so the bar cannot offer a key the
+app would ignore — which is why a NOTE reads "Note · Tpts · m. 19 — F
+flips the stem" and not the brief's onset-line example: a notehead is a
+reveal anchor, so it has no onset line to drag. The measure is the
+PRINTED number. Two mechanisms behind it: the hint is a normal widget
+on the status bar, which Qt hides under a temporary message and shows
+again when the message expires — so every status message now goes
+through `HintBar.message`, which supplies the timeout an untimed
+`showMessage` never had — and the label elides its own text, so the
+window's minimum width does not depend on which note you clicked.*
 
 ### Phase E — front door and release readiness
 

@@ -106,6 +106,13 @@ class OnsetCursorController(QObject):
                                self._state.measures, ordinals,
                                system_end_x(self._layout, system))
 
+    @property
+    def showing(self) -> bool:
+        """Is the onset line on the page right now? The one honest
+        answer to "can this selection be dragged in time" — the hint bar
+        asks it rather than re-deriving the gate (D3)."""
+        return self._item is not None
+
     def sync(self) -> None:
         ctx = self._context()
         band = None if ctx is None else self._bands.get(ctx[0].system)

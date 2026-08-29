@@ -10,9 +10,11 @@ first (ruling 2026-07-30).
 Menus are pure wiring — every handler lives on the window or on a
 component it owns; this module declares the chrome and holds the action
 refs the window mutates afterwards (enable-on-load, dynamic undo/redo
-text, the page/system readout). Play is NOT built here: the transport
-strip owns it and the Playback menu adds that same QAction, so button,
-menu item, and shortcut state cannot diverge (brief flag 3).
+text, the page/system readout). Play and Go to Start are NOT built
+here: the transport strip owns them and the Playback menu adds those
+same QActions, so button, menu item, and shortcut state cannot diverge
+(brief flag 3). The four arrow seeks come the same way, from
+`ui/seek_keys.py`.
 
 The Score menu (renamed Parts — brief §1b, content preserved) is
 created empty here and repopulated per load by the window's dynamic
@@ -191,6 +193,13 @@ class MainMenus:
         # Play and Reload Tempo
         self.playback_menu = menubar.addMenu("&Playback")
         self.playback_menu.addAction(strip.play_action)
+        # the same action objects the strip button and the arrow keys
+        # drive; they are in a menu so the shortcut sheet can find them,
+        # which is the only place a key that belongs to no button is
+        # written down
+        self.playback_menu.addAction(strip.to_start_action)
+        for action in window.seek_keys.actions:
+            self.playback_menu.addAction(action)
         self.playback_menu.addSeparator()
         self.playback_menu.addAction(reload_tempo)
 
@@ -253,9 +262,12 @@ class MainMenus:
             Qt.ToolButtonStyle.ToolButtonTextOnly)
         toolbar.addWidget(self.export_button)
 
-        # window-level so these shortcuts fire regardless of focus
+        # window-level so these shortcuts fire regardless of focus. The
+        # arrow seeks are here too: Qt still lets a text field or the
+        # stage claim an arrow ahead of them (ui/seek_keys.py says how).
         for action in (self.undo_action, self.redo_action, save,
-                       open_score, strip.play_action, reload_tempo):
+                       open_score, strip.play_action, strip.to_start_action,
+                       reload_tempo, *window.seek_keys.actions):
             window.addAction(action)
 
     @property

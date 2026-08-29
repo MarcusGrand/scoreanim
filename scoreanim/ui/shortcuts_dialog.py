@@ -90,6 +90,7 @@ GESTURES = Group("The stage", (
     Row("Move the selected object", "Drag"),
     Row("Nudge it", "Arrow keys"),
     Row("Nudge it further", "Shift + Arrow keys"),
+    Row("Seek instead, with nothing selected", "Arrow keys"),
     Row("Edit a text where it sits", "Double-click"),
     Row("Hide a stave, in this system or everywhere", "Right-click"),
     Row("Pan the page", "Scroll"),

@@ -92,6 +92,9 @@ QStatusBar {
     color: $DIM;
 }
 QStatusBar::item { border: 0px; }
+/* the hint (D3) rests at the bar's own tone — the palette calls DIM
+   the hint colour, and a transient message reads at the same weight */
+QStatusBar QLabel#HintBar { color: $DIM; }
 
 QDockWidget {
     background: $PANEL;
@@ -385,6 +388,13 @@ QSlider::handle:horizontal {
 QSlider::handle:horizontal:hover {
     background: $ACCENT;
 }
+/* The timecode readout beside the transport buttons. There is no seek
+   bar to dress any more — the lanes are the seek surface. */
+QLabel#Timecode {
+    color: $TEXT;
+    background: transparent;
+}
+
 QSlider::groove:vertical {
     background: $INSET;
     border: 1px solid $BORDER;
