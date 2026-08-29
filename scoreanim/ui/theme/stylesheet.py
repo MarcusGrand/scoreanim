@@ -303,6 +303,37 @@ QTabBar::tab:hover {
     color: $TEXT;
 }
 
+/* The inspector's three tabs (C1) sit right under the dock title bar,
+   so they are drawn as a row of headings rather than as folder tabs:
+   no frames, no pane border, the selected one lit by the body colour
+   under it and an underline. This is the one place the accent marks a
+   heading, because here it is answering "which tab am I in" — the same
+   question the glow answers on the stage. */
+QTabWidget#InspectorTabs::pane {
+    background: $PANEL;
+    border: 0px;
+}
+QTabWidget#InspectorTabs > QTabBar {
+    background: $WINDOW;
+}
+QTabWidget#InspectorTabs > QTabBar::tab {
+    background: $WINDOW;
+    color: $DIM;
+    border: 0px;
+    border-bottom: 2px solid transparent;
+    padding: 6px 12px;
+    font-weight: 600;
+}
+QTabWidget#InspectorTabs > QTabBar::tab:hover {
+    background: $HOVER;
+    color: $TEXT;
+}
+QTabWidget#InspectorTabs > QTabBar::tab:selected {
+    background: $PANEL;
+    color: $TEXT;
+    border-bottom: 2px solid $ACCENT;
+}
+
 QScrollArea, QAbstractScrollArea {
     background: $PANEL;
     border: 0px;

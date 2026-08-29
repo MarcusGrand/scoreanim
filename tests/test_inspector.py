@@ -1,7 +1,8 @@
-"""Inspector dock (M1.4), offscreen: the toggles/field that moved off
-the interim toolbar commit the same commands as before, the resync pass
-never re-executes a command, and Follow stays transient — one shared
-QAction, never resynced from the document.
+"""Inspector dock (M1.4, three tabs since C1), offscreen: the tabs hold
+the panels they should, the resync pass never re-executes a command,
+Follow stays transient — one shared QAction, never resynced from the
+document — and the active tab is addressable by a stable key so it can
+be persisted.
 """
 from __future__ import annotations
 
@@ -12,12 +13,14 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QObject, Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication, QDockWidget  # noqa: E402
+from PySide6.QtWidgets import (QApplication, QDockWidget,  # noqa: E402
+                               QWidget)
 
 from scoreanim.core.animation import RevealMode  # noqa: E402
-from scoreanim.core.project import PresentationMode  # noqa: E402
 from scoreanim.ui.app_state import AppState  # noqa: E402
-from scoreanim.ui.inspector import Inspector  # noqa: E402
+from scoreanim.ui.inspector import TAB_KEYS, Inspector  # noqa: E402
+from scoreanim.ui.panels import (EffectsPanel, PageColorsPanel,  # noqa: E402
+                                 SelectionPanel, VideoCanvasPanel)
 
 
 class FakePlayback(QObject):
@@ -41,65 +44,77 @@ def inspector(qapp):
     return Inspector(state, playback), state, playback
 
 
-def test_is_a_fixed_right_dock_with_five_sections(inspector) -> None:
+_PANELS = (EffectsPanel, PageColorsPanel, SelectionPanel, VideoCanvasPanel)
+
+
+def _panels(dock: Inspector, key: str) -> list[type]:
+    """The panel classes the named tab holds, top to bottom."""
+    page = dock.tabs.widget(TAB_KEYS.index(key)).widget()
+    return [type(child) for child in page.findChildren(QWidget)
+            if isinstance(child, _PANELS)]
+
+
+def test_is_a_fixed_right_dock_of_three_tabs(inspector) -> None:
     dock, _, _ = inspector
     assert dock.objectName() == "Inspector"      # saveState identity (M1.8)
     assert dock.features() \
         == QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
     assert dock.allowedAreas() == Qt.DockWidgetArea.RightDockWidgetArea
-    assert set(dock.sections) == {"playback", "appearance",
-                                 "page_colors", "video_canvas",
-                                 "selection"}
+    assert [dock.tabs.tabText(i) for i in range(dock.tabs.count())] \
+        == ["Animate", "Stage", "Selection"]
+    assert len(TAB_KEYS) == dock.tabs.count()
+
+
+def test_each_tab_holds_its_panels(inspector) -> None:
+    """C1: Animate is the effects panel, Stage stacks page colours over
+    the video canvas, Selection is the selection panel."""
+    dock, _, _ = inspector
+    assert _panels(dock, "animate") == [EffectsPanel]
+    assert _panels(dock, "stage") == [PageColorsPanel, VideoCanvasPanel]
+    assert _panels(dock, "selection") == [SelectionPanel]
+
+
+def test_only_the_stage_tab_stacks_collapsible_sections(inspector) -> None:
+    """A tab with one panel needs no header — the tab label is it."""
+    dock, _, _ = inspector
+    assert set(dock.sections) == {"page_colors", "video_canvas"}
     assert all(s.expanded for s in dock.sections.values())
 
 
+def test_the_active_tab_is_addressed_by_key(inspector) -> None:
+    """Persisted by key, never by index, so reordering the tabs cannot
+    make a stored value point at the wrong one."""
+    dock, _, _ = inspector
+    assert dock.active_tab == "animate"
+    dock.set_active_tab("selection")
+    assert dock.active_tab == "selection"
+    assert dock.tabs.currentIndex() == TAB_KEYS.index("selection")
+    dock.set_active_tab("no-such-tab")           # a stale stored value
+    assert dock.active_tab == "selection"
+
+
 def test_follow_is_one_shared_action(inspector) -> None:
-    """Menu item and inspector toggle are the SAME QAction (brief flag
-    3) — the checkbox is bound both ways and cannot diverge."""
+    """Menu item and (from C2) transport toggle are the SAME QAction
+    (brief flag 3), so they cannot diverge."""
     dock, _, playback = inspector
     assert dock.follow_action.isChecked()
-    dock._follow_box.setChecked(False)           # inspector side
-    assert not dock.follow_action.isChecked()
+    dock.follow_action.setChecked(False)
     assert playback.follow_calls == [False]
-    dock.follow_action.setChecked(True)          # menu side
-    assert dock._follow_box.isChecked()
+    dock.follow_action.setChecked(True)
     assert playback.follow_calls == [False, True]
 
 
 def test_follow_never_resynced_from_document(inspector) -> None:
     dock, state, _ = inspector
-    dock._follow_box.setChecked(False)
+    dock.follow_action.setChecked(False)
     dock.sync_from_document(state.doc)
     assert not dock.follow_action.isChecked()    # transient state survives
     assert not state.can_undo                    # and no command ever ran
 
 
-def test_systems_commits_presentation_mode(inspector) -> None:
-    dock, state, _ = inspector
-    dock._systems_box.setChecked(True)
-    assert state.doc.stage.mode is PresentationMode.SYSTEM
-    assert state.undo_text() == "set presentation mode"
-    state.undo()
-    assert state.doc.stage.mode is PresentationMode.PAGED
-    dock.sync_from_document(state.doc)           # undo restores the toggle
-    assert not dock._systems_box.isChecked()
-    assert not state.can_undo
-
-
-def test_appearance_body_is_the_effects_panel(inspector) -> None:
-    """M4.8: Floor opacity and Sweep moved into the EffectsPanel; the
-    dock composes it and delegates its resync."""
-    from scoreanim.ui.panels import EffectsPanel
-    dock, _, _ = inspector
-    assert isinstance(dock.effects_panel, EffectsPanel)
-    assert not hasattr(dock, "_floor_spin")
-    assert not hasattr(dock, "_sweep_box")
-
-
 def test_sync_from_document_never_reexecutes(inspector) -> None:
     dock, state, _ = inspector
     panel = dock.effects_panel
-    dock._systems_box.setChecked(True)
     panel._sweep_box.setChecked(True)
     panel._floor_spin.setValue(0.1)
     panel._floor.commit()
@@ -109,12 +124,11 @@ def test_sync_from_document_never_reexecutes(inspector) -> None:
         depth += 1
     for _ in range(depth):
         state.redo()
-    dock.sync_from_document(state.doc)           # delegates to the panel
-    assert dock._systems_box.isChecked()
+    dock.sync_from_document(state.doc)           # delegates to the panels
     assert panel._sweep_box.isChecked()
     assert panel._floor_spin.value() == 0.1
     assert state.doc.style.reveal_mode is RevealMode.CONTINUOUS
     for _ in range(depth):                       # resync added no command
         state.undo()
     assert not state.can_undo
-    assert depth == 3
+    assert depth == 2

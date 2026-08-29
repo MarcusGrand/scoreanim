@@ -153,13 +153,13 @@ def test_a_stored_layout_predating_the_zone_still_places_it(qapp, tmp_path):
     settings = QSettings(str(tmp_path / "ui.ini"), QSettings.Format.IniFormat)
     old = MainWindow(settings=settings)
     old.removeDockWidget(old.layout_zone)          # a store without it
-    save_window_state(old, old.inspector.sections, settings)
+    save_window_state(old, old.inspector, settings)
     stored = settings.value(_DOCK_STATE)
     assert stored is not None
     assert b"LayoutZone" not in bytes(stored)
 
     fresh = MainWindow(settings=settings)          # restores in __init__
-    restore_window_state(fresh, fresh.inspector.sections, settings)
+    restore_window_state(fresh, fresh.inspector, settings)
     assert fresh.dockWidgetArea(fresh.layout_zone) \
         == Qt.DockWidgetArea.LeftDockWidgetArea
     assert not fresh.layout_zone.isHidden()
@@ -185,12 +185,12 @@ def test_the_zone_round_trips_through_the_existing_persistence(qapp,
     settings = QSettings(str(tmp_path / "ui.ini"), QSettings.Format.IniFormat)
     first = MainWindow(settings=settings)
     first.layout_zone.hide()                            # what the toggle does
-    save_window_state(first, first.inspector.sections, settings)
+    save_window_state(first, first.inspector, settings)
 
     second = MainWindow(settings=settings)              # restores in __init__
     assert second.layout_zone.isHidden()
     second.layout_zone.show()
-    save_window_state(second, second.inspector.sections, settings)
+    save_window_state(second, second.inspector, settings)
 
     third = MainWindow(settings=settings)
     assert not third.layout_zone.isHidden()

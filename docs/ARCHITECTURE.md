@@ -1465,9 +1465,9 @@ an element the selection's own orange still sees it selected via the
 
 Since M1 Shell (2026-07-24) the window is a composition root, not a
 widget owner: the stage alone is central, the transport strip + lanes
-live in a bottom-dock lower zone (`ui/transport.py`), the collapsible
-inspector is a right dock (`ui/inspector.py`), and static chrome, the
-dynamic Score menu, the load pipeline, document→scene diff-sync, and
+live in a bottom-dock lower zone (`ui/transport.py`), the
+inspector is a right dock of three tabs — Animate, Stage, Selection
+(`ui/inspector.py`, C1) — and static chrome, the dynamic Score menu, the load pipeline, document→scene diff-sync, and
 file/project handlers are components (`ui/menus.py`, `ui/parts_menu.py`,
 `ui/score_loader.py`, `ui/document_sync.py`, `ui/file_actions.py`) that
 receive AppState (plus the playback controller where needed) and never
@@ -1482,10 +1482,12 @@ load like `DocumentSync`, and driving the chrome through
 `MainMenus.set_position` rather than reaching for its widgets; the
 part-shaped dialogs moved to `ui/parts_menu.py`, which is already handed
 the parts on every load, and the Texts… dialog to `ui/text_edit.py`,
-which owns the engraved layout it reads. QSettings (`ui/window_state.py`) persists window
-geometry, dock layout, and section expansion — UI state only, saved on
-accepted close; nothing document-derived enters it and nothing of it
-enters the document (rule 5). `ui/recents.py` rides the same store with
+which owns the engraved layout it reads. QSettings
+(`ui/window_state.py`) persists window geometry, dock layout, which
+inspector tab is showing (by key, never by index) and its section
+expansion — UI state only, saved on accepted close; nothing
+document-derived enters it and nothing of it enters the document
+(rule 5). `ui/recents.py` rides the same store with
 the Open Recent list (last 8 scores and projects, written by every
 successful open), and the same rule holds: a remembered path is where a
 file was, never anything about the document inside it.

@@ -59,6 +59,18 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase C1): **the right dock
+  is three tabs**. Animate (the effects panel), Stage (Page over Video
+  canvas) and Selection, instead of one column of five sections. A tab
+  holding one panel gets no section header — the tab label is the
+  heading — so only Stage still stacks collapsible sections, and
+  `sections` holds those two. Each tab scrolls and locks its own minimum
+  width, so nothing clips in any of them. The active tab is persisted by
+  KEY, never by index; `window_state` now takes the inspector itself
+  rather than its sections. Playback & Sync is gone: Follow keeps its
+  Playback-menu item (the same shared QAction), and the Systems toggle
+  has NO home until C2 puts it on the transport. Suite green (2221).
+
 - 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase B3): **Help menu**.
   A sixth menu, last on the bar: Keyboard Shortcuts… and About
   ScoreAnim. The shortcut sheet is HARVESTED from the menus when it

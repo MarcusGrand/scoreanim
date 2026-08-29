@@ -74,12 +74,27 @@ def _clipped(root: QWidget) -> list[tuple[str, int, int]]:
     return out
 
 
+def _clipped_in_every_tab(dock, qapp) -> list[tuple[str, int, int]]:
+    """Everything clipped anywhere in the dock.
+
+    A tab shows one page at a time and `_clipped` only measures what is
+    visible, so the check walks the tabs itself (C1) — otherwise it
+    would only ever look at whichever page happens to be in front.
+    """
+    out = []
+    for index in range(dock.tabs.count()):
+        dock.tabs.setCurrentIndex(index)
+        qapp.processEvents()
+        out += _clipped(dock)
+    return out
+
+
 def test_nothing_clips_at_the_narrowest_the_dock_allows(dock, qapp) -> None:
     narrowest = dock.minimumSizeHint().width()
     dock.resize(narrowest, 1600)
     dock.show()
     qapp.processEvents()
-    assert _clipped(dock) == []
+    assert _clipped_in_every_tab(dock, qapp) == []
 
 
 def test_the_dock_cannot_be_squeezed_below_that(dock, qapp) -> None:
@@ -90,7 +105,7 @@ def test_the_dock_cannot_be_squeezed_below_that(dock, qapp) -> None:
     dock.resize(narrowest // 2, 1600)
     qapp.processEvents()
     assert dock.width() >= narrowest
-    assert _clipped(dock) == []
+    assert _clipped_in_every_tab(dock, qapp) == []
 
 
 def test_every_label_in_a_form_shares_one_width(dock) -> None:

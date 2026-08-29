@@ -1,6 +1,6 @@
 """Shell-layout persistence (M1.8), offscreen: an accepted close saves
-geometry + dock layout + section expansion into QSettings and a fresh
-window restores them; a cancelled close saves nothing; an empty store
+geometry + dock layout + the inspector's active tab + section expansion
+into QSettings and a fresh window restores them; a cancelled close saves nothing; an empty store
 falls back to the first-run default size.
 
 Each test injects its own ini-backed QSettings (tmp_path), so nothing
@@ -46,16 +46,17 @@ def test_accepted_close_round_trips_layout(qapp, settings) -> None:
     # size the first window settled at, not the requested literal
     first.resize(780, 560)
     saved_size = (first.width(), first.height())
-    first.inspector.sections["appearance"].set_expanded(False)
+    first.inspector.sections["video_canvas"].set_expanded(False)
+    first.inspector.set_active_tab("selection")
     first.inspector.hide()               # dock visibility is saveState's
     assert first.close()                 # clean doc → accepted → saved
 
     second = MainWindow(settings=settings)
     second.show()
     assert (second.width(), second.height()) == saved_size
-    assert not second.inspector.sections["appearance"].expanded
-    assert second.inspector.sections["playback"].expanded
-    assert second.inspector.sections["selection"].expanded
+    assert not second.inspector.sections["video_canvas"].expanded
+    assert second.inspector.sections["page_colors"].expanded
+    assert second.inspector.active_tab == "selection"
     assert second.inspector.isHidden()
     assert not second.lower_zone.isHidden()
     second.close()

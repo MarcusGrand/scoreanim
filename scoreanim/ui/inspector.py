@@ -1,43 +1,52 @@
-"""Inspector dock: right-hand panel of collapsible sections (M1.4).
+"""Inspector dock: the right-hand panel, three tabs (C1).
 
-Three sections per the roadmap, amended by the time-fields ruling
-(Marcus, 2026-07-24): Tempo/Offset/Swing live on the transport strip
-with the transport they configure, so *Playback & Sync* here holds only
-the Follow/Systems toggles.
+The dock used to be one long stack of collapsible sections. Five of them
+in a column meant a lot of scrolling, and three of the five had nothing
+to do with each other. So the stack became three tabs, one per job:
 
-Two sync behaviors share the first section (brief flag 3): Follow is
-transient controller state exposed as `follow_action` — the Playback
-menu adds the SAME action, so the menu item and the inspector toggle
-cannot diverge — and is never resynced from the document (there is
-nothing to resync from). Systems is document intent (a command),
-resynced with the blockSignals idiom via `sync_from_document`, which
-the window calls on every document change — a resync never re-executes
-a command.
+- **Animate** — the EffectsPanel (M4.8, ui/panels/effects_panel.py):
+  which effect runs, its options, the volume response, Floor opacity,
+  Sweep, Tied notes as one.
+- **Stage** — what the page is drawn in and what the export frame looks
+  like: PageColorsPanel over VideoCanvasPanel, still two collapsible
+  sections, because both belong to the same tab but are separate jobs.
+- **Selection** — the SelectionPanel (M2.5): what is selected, and what
+  can be done to it.
 
-The *Appearance & Effects* body is the EffectsPanel (M4.8,
-ui/panels/effects_panel.py) — Floor opacity and Sweep moved there with
-the effect controls; this dock composes it and delegates its resync.
+A tab with one panel in it gets no section header — the tab label is
+already that heading. Only the Stage tab stacks two, so `sections` (the
+keys M1.8 persists) holds those two alone. The active tab is persisted
+the same way, by key, so a reordering of the tabs cannot make a stored
+value point at the wrong one.
 
-*Page* (2026-08-02) is the PageColorsPanel: light mode or dark mode,
-which is what the whole score is drawn in. Its own section rather than
-another row above, because it applies whether anything animates or not —
-and because the effects panel was already at the module size ceiling.
+Three sync behaviors meet here, unchanged by the move:
 
-The *Selection* body is the SelectionPanel (M2.5,
-ui/panels/selection_panel.py) — a third sync behavior: it reads
-TRANSIENT selection state, so it subscribes to
-`AppState.selection_changed` itself and, like Follow, takes no part in
-`sync_from_document`.
+- Document intent is resynced through `sync_from_document`, which the
+  window calls on every document change. The dock composes the panels
+  and delegates; a resync never re-executes a command.
+- `follow_action` is transient controller state, so it is never
+  resynced — there is nothing in the document to resync from. It is the
+  SAME action the Playback menu adds, so the two cannot diverge. C2
+  gives it a toggle on the transport strip; until then the menu is its
+  only face.
+- Selection is transient too: the SelectionPanel subscribes to
+  `AppState.selection_changed` itself and takes no part in
+  `sync_from_document`.
+
+The Playback & Sync section is gone with this step. Follow keeps its
+menu item as above; the Systems toggle has no home until C2 puts it on
+the transport strip beside it.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (QCheckBox, QDockWidget, QScrollArea,
+from PySide6.QtWidgets import (QDockWidget, QScrollArea, QTabWidget,
                                QVBoxLayout, QWidget)
 
-from scoreanim.core.project import (PresentationMode, ProjectDoc,
-                                    SetPresentationMode)
+from scoreanim.core.project import ProjectDoc
 from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.collapsible import CollapsibleSection
@@ -45,15 +54,20 @@ from scoreanim.ui.panels import (EffectsPanel, PageColorsPanel,
                                  SelectionPanel, VideoCanvasPanel)
 from scoreanim.ui.playback import PlaybackController
 
+# Tab order, and the key each tab is stored under. The stored value is
+# the key, never the index (M1.8 + C1).
+TAB_KEYS = ("animate", "stage", "selection")
+
 
 class Inspector(QDockWidget):
-    """Right dock: Playback & Sync, Appearance & Effects, Selection.
+    """Right dock: Animate, Stage, Selection.
 
     A fixed-feeling zone like the lower zone (ruling 2026-07-24): no
     close/float/move titlebar chrome; its show/hide surface is the
-    dock's `toggleViewAction()`, which the View menu picks up in M1.5.
-    `sections` maps stable keys to the CollapsibleSections so M1.8 can
-    persist their expanded states (UI state only — rule 5).
+    dock's `toggleViewAction()`, which the View menu picks up.
+    `sections` maps stable keys to the CollapsibleSections the Stage tab
+    stacks, so M1.8 can persist their expanded states (UI state only —
+    rule 5).
     """
 
     def __init__(self, app_state: AppState, playback: PlaybackController,
@@ -66,84 +80,79 @@ class Inspector(QDockWidget):
         self._state = app_state
 
         # Follow: transient controller state, NOT doc intent — survives
-        # nothing, so no command and no resync. Checkbox and action are
-        # bound both ways (setChecked no-ops on an unchanged value, so
-        # the binding cannot loop).
+        # nothing, so no command and no resync. The Playback menu adds
+        # this very action; C2 adds a transport toggle to it.
         self.follow_action = QAction("Follow", self)
         self.follow_action.setCheckable(True)
         self.follow_action.setChecked(True)
         self.follow_action.toggled.connect(playback.set_follow)
-        self._follow_box = QCheckBox("Follow")
-        self._follow_box.setToolTip("Keep the stage on the playhead's "
-                                    "page (or system)")
-        self._follow_box.setChecked(self.follow_action.isChecked())
-        self._follow_box.toggled.connect(self.follow_action.setChecked)
-        self.follow_action.toggled.connect(self._follow_box.setChecked)
 
-        # PresentationMode toggle (Phase 7.4): checked = one system at a
-        # time. Document intent → command, like Sweep.
-        self._systems_box = QCheckBox("Systems")
-        self._systems_box.setToolTip("Stage one system at a time; "
-                                     "unchecked shows whole pages")
-        self._systems_box.toggled.connect(
-            lambda checked: app_state.execute(SetPresentationMode(
-                PresentationMode.SYSTEM if checked
-                else PresentationMode.PAGED)))
-
-        playback_body = QWidget()
-        playback_col = QVBoxLayout(playback_body)
-        playback_col.setContentsMargins(panel_style.PADDING,
-                                        panel_style.PADDING,
-                                        panel_style.PADDING,
-                                        panel_style.PADDING)
-        playback_col.setSpacing(panel_style.ROW_GAP)
-        playback_col.addWidget(self._follow_box)
-        playback_col.addWidget(self._systems_box)
-
-        # Appearance & Effects body: the M4.8 panel owns its commit
-        # handlers and resync; the dock only composes and delegates.
+        # Animate: the M4.8 panel owns its commit handlers and resync;
+        # the dock only composes and delegates.
         self.effects_panel = EffectsPanel(app_state)
 
-        # Page: light mode or dark mode. What the page is drawn in,
-        # whether anything animates or not — so its own section rather
-        # than another row under Appearance & Effects.
+        # Stage, first section: light mode or dark mode. What the whole
+        # page is drawn in, whether anything animates or not.
         self.page_colors_panel = PageColorsPanel(app_state)
 
-        # Video canvas (2026-08-06): the export frame previewed live —
-        # preset/size/scale are document intent; the preview background
-        # is view state the window subscribes to, riding the window's
-        # own settings store (injectable, so tests stay isolated).
+        # Stage, second section (2026-08-06): the export frame previewed
+        # live — preset/size/scale are document intent; the preview
+        # background is view state the window subscribes to, riding the
+        # window's own settings store (injectable, so tests stay
+        # isolated).
         self.video_canvas_panel = VideoCanvasPanel(app_state,
                                                    settings=settings)
 
-        # Selection body (M2.5): transient-state driven, so it observes
-        # app_state.selection_changed itself and takes no part in
-        # sync_from_document.
+        # Selection: transient-state driven, so it observes
+        # app_state.selection_changed itself.
         self.selection_panel = SelectionPanel(app_state)
 
-        body = QWidget(self)
+        self.sections: dict[str, CollapsibleSection] = {}
+        self.tabs = QTabWidget(self)
+        # the app-wide theme styles this tab bar by name (ui/theme)
+        self.tabs.setObjectName("InspectorTabs")
+        self.tabs.setDocumentMode(True)
+        # three short labels always fit; arrows would only ever be noise
+        self.tabs.setUsesScrollButtons(False)
+        self.tabs.addTab(self._tab([self.effects_panel]), "Animate")
+        self.tabs.addTab(self._tab([self._section("page_colors", "Page",
+                                                  self.page_colors_panel),
+                                    self._section("video_canvas",
+                                                  "Video canvas",
+                                                  self.video_canvas_panel)]),
+                         "Stage")
+        self.tabs.addTab(self._tab([self.selection_panel]), "Selection")
+        self.setWidget(self.tabs)
+
+    # -- building the tabs -----------------------------------------------------
+
+    def _section(self, key: str, title: str,
+                 content: QWidget) -> CollapsibleSection:
+        """A collapsible section, registered under `key` so its expanded
+        state is persisted."""
+        section = CollapsibleSection(title)
+        section.set_content(content)
+        self.sections[key] = section
+        return section
+
+    def _tab(self, widgets: Sequence[QWidget]) -> QScrollArea:
+        """One tab page: the widgets in a column, scrolled.
+
+        Scrolled, so the dock's content NEVER dictates the window's
+        minimum height — a tab keeps accruing controls and without this
+        each addition would raise the smallest usable window.
+        """
+        body = QWidget()
         column = QVBoxLayout(body)
         # No padding of its own: a section header is a band that runs
         # the full width of the dock, and each body pays its own 8 px
         # inside. The gap here is the one between two groups.
         column.setContentsMargins(0, 0, 0, panel_style.GROUP_GAP)
         column.setSpacing(panel_style.GROUP_GAP)
-        self.sections: dict[str, CollapsibleSection] = {}
-        for key, title, content in (
-                ("playback", "Playback && Sync", playback_body),
-                ("appearance", "Appearance && Effects", self.effects_panel),
-                ("page_colors", "Page", self.page_colors_panel),
-                ("video_canvas", "Video canvas", self.video_canvas_panel),
-                ("selection", "Selection", self.selection_panel)):
-            section = CollapsibleSection(title)
-            section.set_content(content)
-            self.sections[key] = section
-            column.addWidget(section)
+        for widget in widgets:
+            column.addWidget(widget)
         column.addStretch(1)
-        # Scrolled, so the dock's content NEVER dictates the window's
-        # minimum height: sections keep accruing controls (M4 grew
-        # Appearance, M2 added Selection, M3 will grow it again) and
-        # without this each addition raises the smallest usable window.
+
         scroller = QScrollArea(self)
         scroller.setWidgetResizable(True)
         scroller.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -155,19 +164,27 @@ class Inspector(QDockWidget):
         # "Loud" row were the two that showed it. This is the width
         # below which the dock will not go.
         panel_style.lock_min_width(scroller, body)
-        self.setWidget(scroller)
+        return scroller
+
+    # -- which tab is showing (persisted by M1.8) ------------------------------
+
+    @property
+    def active_tab(self) -> str:
+        return TAB_KEYS[self.tabs.currentIndex()]
+
+    def set_active_tab(self, key: str) -> None:
+        """Show the tab stored under `key`; an unknown key is ignored,
+        so a stale or hand-edited settings value cannot break startup."""
+        if key in TAB_KEYS:
+            self.tabs.setCurrentIndex(TAB_KEYS.index(key))
 
     # -- document sync ---------------------------------------------------------
 
     def sync_from_document(self, doc: ProjectDoc) -> None:
-        """Resync the document-intent controls (execute, undo, redo, and
-        project load all arrive here via the window); the effects panel
-        resyncs its own controls. Follow is deliberately absent —
-        transient controller state."""
-        self._systems_box.blockSignals(True)
-        self._systems_box.setChecked(doc.stage.mode
-                                     is PresentationMode.SYSTEM)
-        self._systems_box.blockSignals(False)
+        """Resync the document-intent panels (execute, undo, redo, and
+        project load all arrive here via the window); each panel resyncs
+        its own controls. Follow is deliberately absent — transient
+        controller state."""
         self.effects_panel.sync_from_document(doc)
         self.page_colors_panel.sync_from_document(doc)
         self.video_canvas_panel.sync_from_document(doc)
