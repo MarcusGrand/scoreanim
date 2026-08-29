@@ -1,13 +1,14 @@
-"""TimelineBar: the controls that drive the timeline lanes.
+"""TimelineBar: the document's own timing, under the lanes.
 
-Tempo, Offset, Swing, and the lane's own view controls (which lane,
-which grid lines, Flatten or Keep shape). Split out of the transport
-strip: these configure the ticks grid, so they sit UNDER the lanes they
-move, left-aligned, while the strip above keeps play, seek and time.
+Tempo, Offset and Swing — the three numbers that say where the score
+sits against the recording, grouped under one "Timing" label. Nothing
+else: the lane's view options (which lane, which grid lines, Flatten)
+moved up to the gear on the strip above (`ui/lane_menu.py`) in C4,
+because a bar that mixed three document fields with three view controls
+gave no clue which was which.
 
 Ruling (Marcus, 2026-07-24): everything time-related lives in the lower
-zone, not in the inspector. The inspector keeps the non-time controls
-(Follow/Systems, appearance).
+zone, not in the inspector.
 
 All three number fields preview as you type (`ui/live_field.py`): the
 ticks move with the number, so you can see whether a tempo, an offset
@@ -15,16 +16,19 @@ or a swing ratio fits the recording while you are still setting it.
 Each supplies the one `_*_edit` function its preview and its commit both
 call, and each resyncs through `sync_from_document` — the window calls
 that on every document change, so a resync never re-executes a command.
+
+The Tempo field still watches `AppState.grid`, even with the lane
+controls gone: it retitles itself for the grid line the user has
+selected ("Tempo from m3"), so what it would set is readable before
+typing.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout,
-                               QLabel, QToolButton, QWidget)
+from PySide6.QtWidgets import (QDoubleSpinBox, QHBoxLayout, QLabel,
+                               QWidget)
 
 from scoreanim.core.project import (Command, ProjectDoc, SetGlobalSwing,
                                     SetOffset)
-from scoreanim.core.timing import GRID_UNITS
 from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.grid_options import LaneDisplay
@@ -34,7 +38,7 @@ from scoreanim.ui.readouts import (global_swing_ratio, tempo_command,
 
 
 class TimelineBar(QWidget):
-    """The time fields and the lane controls, in one left-aligned row."""
+    """The three document timing fields, in one left-aligned row."""
 
     def __init__(self, app_state: AppState,
                  parent: QWidget | None = None) -> None:
@@ -74,32 +78,6 @@ class TimelineBar(QWidget):
         # the tuple is what holds the fields alive, and the test scans it
         self.live_fields = (self._bpm, self._offset, self._swing)
 
-        # what the lane shows, and how a tick drag behaves (view state, so
-        # no command and nothing in sync_from_document)
-        self._lane_mode = QComboBox()
-        for display in LaneDisplay:
-            self._lane_mode.addItem(display.value, display)
-        self._lane_mode.setToolTip("Tempo: the tempo line, as points.\n"
-                                   "Ticks: drag the grid onto the waveform.")
-        self._lane_mode.currentIndexChanged.connect(self._commit_lane_mode)
-
-        self._grid_unit = QComboBox()
-        for unit in GRID_UNITS:
-            self._grid_unit.addItem(unit.label, unit)
-        self._grid_unit.setToolTip("Which lines the grid shows")
-        self._grid_unit.currentIndexChanged.connect(self._commit_grid_unit)
-
-        self._shape_button = QToolButton()
-        self._shape_button.setCheckable(True)
-        self._shape_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._shape_button.setToolTip(
-            "Flatten: a dragged span comes out evenly spaced, at one "
-            "tempo.\n"
-            "Keep shape: it stretches instead, so tempo detail already "
-            "inside survives.\n"
-            "Alt while dragging flips whichever is set.")
-        self._shape_button.toggled.connect(self._commit_shape)
-
         self._bpm_label = QLabel("Tempo")
         # One field and its label are a group; the 12 px gaps below are
         # what keep "Swing" reading as the swing field's own label and
@@ -108,6 +86,10 @@ class TimelineBar(QWidget):
         row.setContentsMargins(panel_style.PADDING, panel_style.ROW_GAP,
                                panel_style.PADDING, panel_style.ROW_GAP)
         row.setSpacing(panel_style.COLUMN_GAP)
+        heading = QLabel("Timing")
+        heading.setObjectName("ZoneHeading")
+        row.addWidget(heading)
+        row.addSpacing(panel_style.GROUP_GAP)
         row.addWidget(self._bpm_label)
         row.addWidget(self._bpm_spin)
         for text, spin in (("Offset", self._offset_spin),
@@ -115,11 +97,6 @@ class TimelineBar(QWidget):
             row.addSpacing(panel_style.GROUP_GAP)
             row.addWidget(QLabel(text))
             row.addWidget(spin)
-        row.addSpacing(panel_style.GROUP_GAP)
-        row.addWidget(QLabel("Lane"))
-        row.addWidget(self._lane_mode)
-        row.addWidget(self._grid_unit)
-        row.addWidget(self._shape_button)
         row.addStretch(1)                # left-aligned: the gap goes right
         self._sync_from_grid()
 
@@ -135,39 +112,17 @@ class TimelineBar(QWidget):
         self._sync_from_grid()           # the Tempo field lives there now
         self._swing.resync(global_swing_ratio(doc))
 
-    # -- the lane's own controls -----------------------------------------------
+    # -- the lane's selected line ----------------------------------------------
 
     def _sync_from_grid(self) -> None:
-        """Label and enable the lane controls for the mode showing, and
-        retitle the Tempo field for whatever line is selected. Grid step
-        and Flatten only mean anything in ticks mode."""
-        grid = self._state.grid
-        ticks = grid.display is LaneDisplay.TICKS
-        if self._lane_mode.currentData() is not grid.display:
-            self._lane_mode.blockSignals(True)
-            self._lane_mode.setCurrentIndex(
-                self._lane_mode.findData(grid.display))
-            self._lane_mode.blockSignals(False)
+        """Retitle the Tempo field for whatever grid line is selected,
+        and show that line's tempo. The lane's own view options live in
+        the gear now (`ui/lane_menu.py`); this is all the bar still
+        wants from the grid."""
         label, bpm = tempo_scope(self._state.doc, self._selected_beat(),
                                  self._state.measures)
         self._bpm_label.setText(label)
         self._bpm.resync(bpm)            # skipped while the edit is live
-        self._grid_unit.setEnabled(ticks)
-        self._shape_button.setEnabled(ticks)
-        self._shape_button.setText("Flatten" if grid.flatten
-                                   else "Keep shape")
-
-    def _commit_lane_mode(self) -> None:
-        self._state.grid.set_display(self._lane_mode.currentData())
-        self._sync_from_grid()
-
-    def _commit_grid_unit(self) -> None:
-        self._state.grid.set_unit(self._grid_unit.currentData())
-
-    def _commit_shape(self, keep_shape: bool) -> None:
-        # the button is CHECKED for "keep shape", so the flag inverts
-        self._state.grid.set_flatten(not keep_shape)
-        self._sync_from_grid()
 
     # -- what each field means by a number -------------------------------------
     #

@@ -1,5 +1,6 @@
-"""TimelineBar, offscreen: the time fields (Tempo, Offset, Swing) and
-the lane controls that used to sit on the transport strip.
+"""TimelineBar, offscreen: the document timing fields (Tempo, Offset,
+Swing). The lane's view options moved to the gear (C4) and are tested
+in tests/test_lane_menu.py.
 
 All three fields preview as you type and commit when the edit ends
 (`ui/live_field.py`): one command each, an epsilon no-op guard, a resync
@@ -65,37 +66,34 @@ def test_sync_from_document_never_reexecutes(qapp) -> None:
     assert widget._offset_spin.value() == 0.0
 
 
-def test_lane_controls_drive_the_view_state_and_no_command(qapp) -> None:
-    """Which lines the lane shows is view state (rule 5): the controls set
-    AppState.grid and never touch the document or the undo stack."""
-    from scoreanim.core.timing import EIGHTH, GRID_UNITS
-    from scoreanim.ui.grid_options import LaneDisplay
+def test_the_bar_holds_only_document_timing(qapp) -> None:
+    """C4: the lane's view options left for the gear. What is still here
+    is three fields, and all three edit the document."""
+    from PySide6.QtWidgets import QComboBox, QToolButton
 
     state = AppState()
     widget = TimelineBar(state)
-    changes = []
-    state.grid.changed.connect(lambda: changes.append(state.grid.display))
+    assert not widget.findChildren(QComboBox)
+    assert not widget.findChildren(QToolButton)
+    assert len(widget.live_fields) == 3
 
-    # ticks is the default now, so the grid controls start live
-    assert state.grid.display is LaneDisplay.TICKS
-    assert widget._lane_mode.currentData() is LaneDisplay.TICKS
-    assert widget._grid_unit.isEnabled() and widget._shape_button.isEnabled()
-    widget._lane_mode.setCurrentIndex(
-        widget._lane_mode.findData(LaneDisplay.TEMPO))
-    assert state.grid.display is LaneDisplay.TEMPO
-    assert not widget._grid_unit.isEnabled()
-    widget._lane_mode.setCurrentIndex(
-        widget._lane_mode.findData(LaneDisplay.TICKS))
 
-    widget._grid_unit.setCurrentIndex(GRID_UNITS.index(EIGHTH))
-    assert state.grid.unit == EIGHTH
+def test_the_tempo_field_still_follows_the_lane(qapp) -> None:
+    """The bar dropped the lane CONTROLS, not the lane signal: switching
+    to the tempo lane drops the selected line, so the field goes back to
+    saying "Tempo"."""
+    from scoreanim.core.score.model import MeasureInfo
+    from scoreanim.ui.grid_options import LaneDisplay
 
-    # the button is CHECKED for "keep shape", so the flag inverts
-    assert widget._shape_button.text() == "Flatten" and state.grid.flatten
-    widget._shape_button.setChecked(True)
-    assert not state.grid.flatten
-    assert widget._shape_button.text() == "Keep shape"
-
+    state = AppState()
+    state.set_measures(tuple(MeasureInfo(number=n + 1, start=n * 4.0,
+                                         quarter_length=4.0)
+                             for n in range(8)))
+    widget = TimelineBar(state)
+    state.grid.set_selected_beat(8.0)
+    assert widget._bpm_label.text() == "Tempo from m3"
+    state.grid.set_display(LaneDisplay.TEMPO)     # what the gear does
+    assert widget._bpm_label.text() == "Tempo"
     assert not state.can_undo and not state.is_dirty
 
 

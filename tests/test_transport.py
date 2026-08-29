@@ -117,17 +117,29 @@ def test_the_play_button_is_an_icon_with_a_tooltip(strip) -> None:
 
 
 def test_systems_sits_after_the_time_readout(strip) -> None:
-    """C2: play, the slider, the readout, then what the stage shows."""
+    """C2: play, the slider, the readout, then what the stage shows —
+    and C4's lane gear last of all, at the right edge."""
     widget, _ = strip
     row = widget.layout()
     order = [row.itemAt(i).widget() for i in range(row.count())]
     buttons = [w for w in order if isinstance(w, QToolButton)]
     assert [b.defaultAction() for b in buttons] \
-        == [widget.play_action, widget.systems_action]
+        == [widget.play_action, widget.systems_action, None]
+    assert buttons[-1] is widget.lane_options
     assert order.index(widget._time_label) < order.index(buttons[1])
     assert widget.systems_action.isCheckable()
     assert not widget.systems_action.icon().isNull()
     assert widget.systems_action.toolTip() != widget.systems_action.text()
+
+
+def test_the_lane_gear_is_the_only_view_state_on_the_strip(strip) -> None:
+    """C4: the lane's view options are a menu on the lanes' own header,
+    and opening one never touches the document."""
+    widget, _ = strip
+    gear = widget.lane_options
+    assert gear.menu() is gear.menu_widget
+    assert not gear.icon().isNull()
+    assert gear.menu_widget.actions()          # lane, grid, flatten
 
 
 def test_there_is_no_follow_toggle(strip) -> None:

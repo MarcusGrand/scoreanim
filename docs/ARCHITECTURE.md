@@ -1479,6 +1479,16 @@ the playhead is not an option** (ruling 2026-08-29). Playing music
 always shows the music, so `ui/playback.py` emits the position
 unconditionally and pressing play snaps the stage back to the cursor —
 paging around while paused is browsing, and play ends it.
+
+The lower zone splits its controls by what they change (C4). The strip
+is the lanes' header, so the lane's view options — which lane, which
+grid lines, Flatten — sit at its right edge behind one gear
+(`ui/lane_menu.py`); they set `AppState.grid`, so nothing there is
+undoable or saved (rule 5). The bar under the lanes
+(`ui/timeline_bar.py`) then holds document timing alone: Tempo, Offset
+and Swing under one "Timing" label, three live fields and nothing
+else.
+
 `ui/live_field.py` is the same kind of small shared piece on the input
 side: it wires a spinbox to AppState's
 preview/commit pair, so every number field previews as you type and a

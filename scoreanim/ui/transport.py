@@ -8,9 +8,10 @@ tabbed; an internal splitter keeps their heights user-adjustable,
 replacing the old three-way central splitter (stage-vs-zone sizing
 moves to the dock boundary).
 
-Top to bottom: play/seek/time and the Systems toggle on the strip, the
-waveform and tempo lanes, then the controls that drive the grid
-(`ui/timeline_bar.py`) at the very bottom, next to the ticks they move.
+Top to bottom: play/seek/time, the Systems toggle and the lane gear on
+the strip, the waveform and tempo lanes, then the document's timing
+fields (`ui/timeline_bar.py`) at the very bottom, next to the ticks
+they move.
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ from scoreanim.core.project import (PresentationMode, ProjectDoc,
                                     SetPresentationMode)
 from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
+from scoreanim.ui.lane_menu import LaneOptionsButton
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.readouts import format_time
 from scoreanim.ui.tempo_lane import TempoLaneView
@@ -32,8 +34,13 @@ from scoreanim.ui.waveform import WaveformView
 
 
 class TransportStrip(QWidget):
-    """Play, the seek slider, the time readout, and the Systems toggle
-    that says what the stage shows (C2).
+    """Play, the seek slider, the time readout, the Systems toggle that
+    says what the stage shows (C2), and the lane gear (C4).
+
+    It is the lanes' header, so the view options that only change what
+    the lanes draw sit at its right edge, behind one gear
+    (`ui/lane_menu.py`). They set `AppState.grid` and never the
+    document, which is why they are not in the timing bar below.
 
     Owns the play QAction — the window registers it window-level so
     Space fires regardless of focus, and the Playback menu shares the
@@ -95,6 +102,9 @@ class TransportStrip(QWidget):
         # after the readout, at the far end: what the stage shows, not
         # where the playhead is
         row.addWidget(_action_button(self.systems_action))
+        # the lanes' own view options, at the right edge of their header
+        self.lane_options = LaneOptionsButton(app_state, self)
+        row.addWidget(self.lane_options)
 
         playback.time_changed.connect(self._on_time)
         playback.playing_changed.connect(self._on_playing)

@@ -316,6 +316,13 @@ play snaps the stage back to the cursor. Only Systems reached the strip.*
 > options still work from the gear menu; the timing fields still live-preview
 > and land one undo entry per edit.
 
+*Built 2026-08-29. The lane header is the transport strip — it is the row
+directly above the lanes — so the gear sits at its right edge, after Systems,
+exactly as the §3 sketch draws it. The three view options live in
+`ui/lane_menu.py`; the group labels inside the menu are disabled items, not
+`QMenu.addSection`, because the app's stylesheet paints a section as a plain
+line and ate the words.*
+
 ### Phase D — transport and stage polish
 
 **D1 — transport cluster.**
