@@ -110,9 +110,10 @@ class MainMenus:
         self.texts_action.triggered.connect(window.text_edit.open_texts_dialog)
 
         # -- View ------------------------------------------------------------
-        fit = QAction(icons.icon("maximize"), "Fit", window)
-        fit.setShortcut("Ctrl+0")
-        fit.triggered.connect(window.view.fit)
+        # the stage's floating Fit button drives this same object (D2)
+        self.fit_action = QAction(icons.icon("maximize"), "Fit", window)
+        self.fit_action.setShortcut("Ctrl+0")
+        self.fit_action.triggered.connect(window.view.fit)
 
         # prev/next step the presentation unit: pages in paged mode,
         # systems in system mode — hence the plain name, and a tooltip
@@ -177,7 +178,7 @@ class MainMenus:
         self.edit_menu.addAction(self.texts_action)
 
         self.view_menu = menubar.addMenu("&View")
-        self.view_menu.addAction(fit)
+        self.view_menu.addAction(self.fit_action)
         self.view_menu.addAction(self.prev_action)
         self.view_menu.addAction(self.next_action)
         self.view_menu.addSeparator()

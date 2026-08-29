@@ -34,6 +34,13 @@ DISABLED = "#5a5c66"    # text of a control that cannot be used
 HIGHLIGHT = "#3f4652"   # selected row in a list or menu (quiet on
                         # purpose: the accent is reserved for "active")
 
+# The floating stage controls (D2) are the only chrome that sits ON the
+# score, so they are see-through: the same surfaces as everywhere else
+# with an alpha in front (#AARRGGBB — Qt reads it, and so does QSS).
+OVERLAY = "#d626272b"          # the floating panel's ground: PANEL at 84%
+OVERLAY_BORDER = "#d63a3b40"   # its edge: BORDER, same alpha
+OVERLAY_HOVER = "#f0303138"    # a button in it under the pointer
+
 GRID = "#2e3037"        # lane grid lines and the waveform's midline
 WAVEFORM_SOFT = "#7fa8d4"   # the RMS body inside the peaks
 BAR_LINE = "#5b6472"    # a barline in the ticks lane

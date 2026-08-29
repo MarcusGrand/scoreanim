@@ -16,7 +16,7 @@ at the very bottom, next to the ticks they move.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QFont, QFontDatabase
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QSplitter,
                                QToolButton, QVBoxLayout, QWidget)
 
@@ -28,7 +28,7 @@ from scoreanim.ui.lane_menu import LaneOptionsButton
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.readouts import format_time
 from scoreanim.ui.tempo_lane import TempoLaneView
-from scoreanim.ui.theme import icons
+from scoreanim.ui.theme import fonts, icons
 from scoreanim.ui.timeline_bar import TimelineBar
 from scoreanim.ui.waveform import WaveformView
 
@@ -218,25 +218,10 @@ def _timecode_label() -> QLabel:
     """
     label = QLabel(_TIME_ZERO)
     label.setObjectName("Timecode")
-    label.setFont(_monospace())
+    label.setFont(fonts.monospace())
     label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     label.setMinimumWidth(label.fontMetrics().horizontalAdvance(_TIME_ZERO))
     return label
-
-
-def _monospace() -> QFont:
-    """The system's monospace face.
-
-    `systemFont(FixedFont)` alone is not enough: on this platform it
-    comes back naming a family called "monospace", which no machine
-    actually has, so Qt quietly falls back to the proportional UI font
-    and the digits wiggle again. The style hint is what makes the
-    fallback land on a real fixed-width face.
-    """
-    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-    font.setStyleHint(QFont.StyleHint.Monospace)
-    font.setFixedPitch(True)
-    return font
 
 
 def _action_button(action: QAction) -> QToolButton:

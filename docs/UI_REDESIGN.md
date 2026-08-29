@@ -382,6 +382,35 @@ stage claims the arrows while something nudgeable is selected.*
 > meant for the score (it sits outside the page area), Fit restores fit mode,
 > percent tracks pinch zoom.
 
+*Built 2026-08-29. **100 % means fitted** — the size the Fit button
+gives you. There is no other honest anchor: a page is about 2095 x 2967
+in the engraving's own units (tenths of a millimetre), so an
+"actual size" percentage would be a number about nothing, while Fit is
+a size the user can always get back to in one click. The fit scale is
+therefore worked out on every reading (`ui/stage_zoom.py`, pure) rather
+than remembered from the last fit, because resizing the window changes
+what fitted means — a view left at twice fit size is not twice fit size
+once the window grows. The pure part also pins Qt's undocumented 2 px
+fitInView margin against a real fit, so a Qt release that changes it
+fails a test instead of drifting the readout.
+
+The controls (`ui/zoom_overlay.py`) are a child of the view's viewport
+and the only chrome in the app that sits ON the score, so they are
+see-through (three OVERLAY tokens) and only there while the pointer is
+over the stage. Hidden means hidden, never transparent-but-present, so
+nothing of theirs is in the way of a click when they are not showing.
+They take no keyboard focus, so clicking one leaves Esc, the arrows and
+Space where they were, and a button zoom anchors on the middle of the
+stage rather than the pointer — the pointer is on a button in the
+corner at that moment, so the pinch's under-the-cursor anchor would
+throw the score away from it. Fit is the View menu's own QAction.
+
+One honest limit: while the controls ARE showing they cover their own
+corner, like every floating control does. Two things keep that cheap —
+the page is letterboxed in a wide window, so the corner is usually
+beside the page rather than on it, and the controls fade in before the
+click, not under it. Marcus's call if it ever gets in the way.*
+
 **D3 — hint bar.**
 > Turn the status bar into a hint bar: with a selection it shows what is
 > selected and the available gestures ("Note · Tpts · m. 19 — drag to move

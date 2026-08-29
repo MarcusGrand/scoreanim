@@ -57,6 +57,7 @@ from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.text_edit import InlineTextEditor
 from scoreanim.ui.transport import LowerZone
 from scoreanim.ui.view_router import ViewRouter
+from scoreanim.ui.zoom_overlay import ZoomOverlay
 from scoreanim.ui.window_state import (default_settings,
                                        restore_window_state,
                                        save_window_state)
@@ -191,6 +192,10 @@ class MainWindow(QMainWindow):
         # prev/next/follow/mode paths; needs the chrome for its readout,
         # so it is built after the menus and the two follow signals
         # connect here rather than above
+        # the stage's floating zoom controls (D2): a child of the
+        # view's viewport, so it needs both the view and the View
+        # menu's Fit action, and is built once the menus exist
+        self.zoom_overlay = ZoomOverlay(self.view, self.menus.fit_action)
         self.router = ViewRouter(self.view, self.menus)
         # follow reports page AND system; the router picks by the
         # document's presentation mode (Phase 7.4)

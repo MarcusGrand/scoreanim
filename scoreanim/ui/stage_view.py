@@ -36,6 +36,7 @@ from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 from scoreanim.core.editing import COARSE_NUDGE, NUDGE_STEP
 from scoreanim.ui.stage_frame import StageFraming
 from scoreanim.ui.stage_scrollbars import TransientScrollbars
+from scoreanim.ui.stage_zoom import FIT_MARGIN, fit_scale, percent
 from scoreanim.ui.theme import palette
 
 _LETTERBOX = QColor(palette.WINDOW)
@@ -107,6 +108,10 @@ class StageView(QGraphicsView):
     # lives in ui/stage_menu.py, the "view emits, controller decides"
     # contract every other gesture here follows.
     context_menu_requested = Signal(object, QPointF)
+    # D2: the page changed size on screen — zoomed, fitted, or the
+    # window resized under a fitted view. Carries nothing; whoever
+    # cares reads `zoom_percent()`.
+    zoom_changed = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -156,6 +161,7 @@ class StageView(QGraphicsView):
             if self._fit_mode:
                 self._fit()
         self.viewport().update()
+        self.zoom_changed.emit()      # a canvas reshapes what "fit" means
 
     def set_overlay_preview(self, active: bool, color: QColor) -> None:
         """View-only composite preview: fill the frame with `color`
@@ -184,6 +190,7 @@ class StageView(QGraphicsView):
         if self._fit_mode:
             self._fit()
         self.viewport().update()
+        self.zoom_changed.emit()      # first scene: there is a size now
 
     def show_system_band(self, scene: QGraphicsScene, band: QRectF) -> None:
         """System flip (Phase 7.4; framing revised Phase 10R): swap to
@@ -223,8 +230,28 @@ class StageView(QGraphicsView):
         target = self._framing.fit_target(self.scene().sceneRect())
         if self._framing.canvas is not None:
             self._fit_canvas(target)
-            return
-        self.fitInView(target, Qt.AspectRatioMode.KeepAspectRatio)
+        else:
+            self.fitInView(target, Qt.AspectRatioMode.KeepAspectRatio)
+        self.zoom_changed.emit()
+
+    def fit_scale(self) -> float:
+        """The scale a fit would land on right now — what `zoom_percent`
+        is a percentage of. Worked out, never remembered, so it is still
+        right after the window is resized under a zoomed-in view."""
+        if self.scene() is None:
+            return 0.0
+        target = self._framing.fit_target(self.scene().sceneRect())
+        viewport = self.viewport().rect()
+        # the canvas path sets the scale itself and keeps no margin;
+        # every other fit goes through fitInView, which keeps one
+        return fit_scale(viewport.width(), viewport.height(),
+                         target.width(), target.height(),
+                         0.0 if self._framing.canvas is not None
+                         else FIT_MARGIN)
+
+    def zoom_percent(self) -> int:
+        """How big the page is on screen, as a percentage of fitted."""
+        return percent(self.transform().m11(), self.fit_scale())
 
     def _fit_canvas(self, frame: QRectF) -> None:
         """Fit the canvas frame so it CANNOT move between systems.
@@ -440,6 +467,10 @@ class StageView(QGraphicsView):
         super().resizeEvent(event)
         if self._fit_mode:
             self._fit()
+        else:
+            # the transform did not move, but a fit would land somewhere
+            # else now, so the percentage of it did
+            self.zoom_changed.emit()
 
     # -- zoom and scroll ---------------------------------------------------
 
@@ -456,6 +487,7 @@ class StageView(QGraphicsView):
         self._fit_mode = False
         self.scale(factor, factor)
         self._scrollbars.poke()
+        self.zoom_changed.emit()
 
     def scroll_by(self, dx: float, dy: float) -> None:
         """Move the view by a delta in device pixels."""
