@@ -1203,3 +1203,4 @@ lines — history lives in git and `docs/history/`.
   (`v0.2-beta.2`).
 - 2026-07-24 — **Shell CLOSED** (`v0.2-beta.1`). Alpha frozen at
   `v0.1-alpha`.
+- 2026-08-29 — C3: the Inspector follows the selection. Picking something on the stage brings the Selection tab to the front and remembers the tab you were on; clearing puts it back, unless you chose a tab yourself while the selection was up, in which case yours stands and no flip back happens. The rule is a pure state machine in `ui/tab_focus.py` (9 headless tests) and the dock only reports the two events to it — a tab switch it makes itself is flagged so it cannot read back as the user's choice. The empty state now says "Nothing selected — click a note on the stage." Full suite 2242 green. Awaiting Marcus's in-app check with A1–A3, B1–B3, C1, C2.

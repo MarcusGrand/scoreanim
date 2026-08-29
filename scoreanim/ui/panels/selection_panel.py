@@ -50,7 +50,16 @@ class SelectionPanel(QWidget):
         super().__init__(parent)
         self._state = app_state
 
-        self._empty = QLabel("Nothing selected")
+        # Empty state (C3): the tab now comes to the front on its own,
+        # so somebody will land here with nothing selected. It says what
+        # to do about that. Wrapping, and free to be narrower than its
+        # text, so one sentence cannot set the dock's minimum width.
+        self._empty = QLabel("Nothing selected — click a note on the "
+                             "stage.")
+        self._empty.setWordWrap(True)
+        self._empty.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._empty.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                  QSizePolicy.Policy.Preferred)
         self._empty.setEnabled(False)
 
         self._values: dict[str, QLabel] = {}

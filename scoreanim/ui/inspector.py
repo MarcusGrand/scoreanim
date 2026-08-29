@@ -32,6 +32,11 @@ The Playback & Sync section is gone (C1), and with C2 so is the last
 of it: Follow and Systems now live on the transport strip, next to the
 playhead they describe. Nothing in this dock is playback state any
 more, which is why it no longer needs the playback controller at all.
+
+Since C3 the dock also follows the selection: picking something on the
+stage brings the Selection tab to the front, and clearing it puts the
+old tab back. The rule itself is pure and lives in `ui/tab_focus.py`;
+this file only reports the two events to it and does what it says.
 """
 from __future__ import annotations
 
@@ -47,6 +52,7 @@ from scoreanim.ui.app_state import AppState
 from scoreanim.ui.collapsible import CollapsibleSection
 from scoreanim.ui.panels import (EffectsPanel, PageColorsPanel,
                                  SelectionPanel, VideoCanvasPanel)
+from scoreanim.ui.tab_focus import SELECTION_TAB, TabFocus
 
 # Tab order, and the key each tab is stored under. The stored value is
 # the key, never the index (M1.8 + C1).
@@ -110,6 +116,15 @@ class Inspector(QDockWidget):
         self.tabs.addTab(self._tab([self.selection_panel]), "Selection")
         self.setWidget(self.tabs)
 
+        # C3: a selection fronts the Selection tab, clearing it puts the
+        # old tab back, and a tab the user picked themselves stays put.
+        # The policy is pure (ui/tab_focus.py); this end only tells it
+        # what happened and does what it says.
+        self._focus = TabFocus(SELECTION_TAB)
+        self._switching = False
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        app_state.selection_changed.connect(self._on_selection_changed)
+
     # -- building the tabs -----------------------------------------------------
 
     def _section(self, key: str, title: str,
@@ -151,6 +166,30 @@ class Inspector(QDockWidget):
         # below which the dock will not go.
         panel_style.lock_min_width(scroller, body)
         return scroller
+
+    # -- following the selection (C3) ------------------------------------------
+
+    def _on_selection_changed(self) -> None:
+        key = self._focus.selection_changed(self._state.selection is not None,
+                                            self.active_tab)
+        if key is not None:
+            self._show_tab(key)
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Every tab change arrives here, ours included — `_switching`
+        is what tells the two apart, so only a choice the USER made
+        counts as taking over."""
+        if not self._switching:
+            self._focus.tab_chosen(TAB_KEYS[index])
+
+    def _show_tab(self, key: str) -> None:
+        """Switch tabs on the policy's say-so, without that switch
+        reading back as the user's own choice."""
+        self._switching = True
+        try:
+            self.set_active_tab(key)
+        finally:
+            self._switching = False
 
     # -- which tab is showing (persisted by M1.8) ------------------------------
 

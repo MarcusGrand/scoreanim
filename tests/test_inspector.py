@@ -1,7 +1,7 @@
 """Inspector dock (M1.4, three tabs since C1), offscreen: the tabs hold
 the panels they should, the resync pass never re-executes a command,
-and the active tab is addressable by a stable key so it can be
-persisted. Systems left for the transport strip in C2
+the active tab is addressable by a stable key so it can be
+persisted, and (C3) the dock follows the stage selection. Systems left for the transport strip in C2
 (tests/test_transport.py) and Follow stopped being a control at all.
 """
 from __future__ import annotations
@@ -17,6 +17,9 @@ from PySide6.QtWidgets import (QApplication, QDockWidget,  # noqa: E402
                                QWidget)
 
 from scoreanim.core.animation import RevealMode  # noqa: E402
+from scoreanim.core.score.identity import (ElementId,  # noqa: E402
+                                           ElementIdentity, ElementKind,
+                                           PartId)
 from scoreanim.ui.app_state import AppState  # noqa: E402
 from scoreanim.ui.inspector import TAB_KEYS, Inspector  # noqa: E402
 from scoreanim.ui.panels import (EffectsPanel, PageColorsPanel,  # noqa: E402
@@ -111,3 +114,55 @@ def test_sync_from_document_never_reexecutes(inspector) -> None:
         state.undo()
     assert not state.can_undo
     assert depth == 2
+
+
+# -- C3: the dock follows the selection ---------------------------------------
+
+
+def _select(state: AppState, eid: str = "P1:m4:s1:v1:note:0") -> None:
+    state.set_selection(ElementIdentity(ElementId(eid), ElementKind.NOTEHEAD,
+                                        PartId("P1"), "Flute", 1, 1, 12.0))
+
+
+def test_a_selection_fronts_the_selection_tab(inspector) -> None:
+    dock, state = inspector
+    assert dock.active_tab == "animate"
+    _select(state)
+    assert dock.active_tab == "selection"
+
+
+def test_clearing_the_selection_puts_the_old_tab_back(inspector) -> None:
+    dock, state = inspector
+    dock.set_active_tab("stage")
+    _select(state)
+    assert dock.active_tab == "selection"
+    state.set_selection(None)
+    assert dock.active_tab == "stage"
+
+
+def test_a_tab_chosen_while_selected_is_respected(inspector) -> None:
+    """The user's own click wins: it stays put while the selection is
+    up, and clearing does not flip away from it."""
+    dock, state = inspector
+    _select(state)
+    dock.set_active_tab("animate")               # stands in for a click
+    _select(state, "P1:m5:s1:v1:note:0")         # another note
+    assert dock.active_tab == "animate"
+    state.set_selection(None)
+    assert dock.active_tab == "animate"
+
+
+def test_our_own_switch_does_not_count_as_the_users(inspector) -> None:
+    """The flip to Selection travels the same currentChanged signal a
+    click does; if it read as a choice, nothing would ever flip back."""
+    dock, state = inspector
+    _select(state)
+    state.set_selection(None)
+    assert dock.active_tab == "animate"
+
+
+def test_the_empty_state_says_what_to_do(inspector) -> None:
+    dock, _ = inspector
+    panel = dock.selection_panel
+    assert panel._stack.currentWidget() is panel._empty
+    assert panel._empty.text() == "Nothing selected — click a note on the stage."
