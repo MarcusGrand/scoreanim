@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QRectF
 
+from scoreanim.core.engraving.systems import SystemsFrame
 from scoreanim.core.project import PresentationMode, VideoCanvas
 
 if TYPE_CHECKING:
@@ -55,12 +56,18 @@ class ViewRouter:
 
     def bind(self, scenes: ScoreScenes, band_by_system: dict,
              applier: AnimationApplier,
-             system_of_measure: dict | None = None) -> None:
-        """Adopt one load's derived world (`MainWindow._install`)."""
+             system_of_measure: dict | None = None,
+             systems_frame: SystemsFrame | None = None) -> None:
+        """Adopt one load's derived world (`MainWindow._install`).
+
+        The systems frame goes to the view once, here, because it is the
+        same frame for every system in this load (2026-08-30) — a switch
+        only moves the band inside it."""
         self._scenes = scenes
         self._band_by_system = band_by_system
         self._applier = applier
         self._system_of_measure = dict(system_of_measure or {})
+        self._view.set_systems_frame(systems_frame)
 
     def reset(self) -> None:
         """Back to the first unit — a FRESH load only; a re-engrave
@@ -89,8 +96,10 @@ class ViewRouter:
             self._page < self._scenes.page_count)
 
     def show_system(self, system: int) -> None:
-        """Frame one system's band (Phase 7.4): the band's page scene,
-        centered, masked — the page flip is implied by the band's page."""
+        """Place one system in the constant frame (Phase 7.4, reworked
+        2026-08-30): the band's page scene, the band centred in the
+        load's frame, everything else masked — the page flip is implied
+        by the band's page."""
         if self._scenes is None or not self._band_by_system:
             return
         self._system = max(1, min(system, len(self._band_by_system)))

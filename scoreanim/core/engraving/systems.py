@@ -49,6 +49,54 @@ def system_bands(layout: Layout) -> tuple[SystemBand, ...]:
     return tuple(bands)
 
 
+# How much air the systems-mode frame leaves above and below the tallest
+# system, as a fraction of that system's own height. Marcus's call
+# (2026-08-30): 6 % is about 91 page units on testscore, which is the
+# same gap the engraver itself leaves between two systems, and being a
+# fraction it looks the same on a big orchestral page.
+SYSTEM_FRAME_PAD = 0.06
+
+
+@dataclass(frozen=True)
+class SystemsFrame:
+    """The one fixed window systems mode shows every system in.
+
+    Systems mode is a piece of glass the systems are placed into, not a
+    camera moving over the paper (docs/SYSTEMS_MODE_REWORK.md). So the
+    frame is computed once per load and never changes: page width, so
+    systems keep the page margins they were engraved with and stay
+    left-aligned with each other, and one height that the tallest system
+    fits in with room to spare. Every system is then centred in it, and
+    a system with fewer staves simply has more air around it.
+
+    Derived from the Layout, re-computed on every load, never stored
+    (rule 5)."""
+
+    width: float
+    height: float
+
+    def rect_for(self, band: Rect) -> Rect:
+        """Where the frame sits, in page coordinates, so that `band` is
+        vertically centred in it. x is the page's own left edge, so the
+        system's horizontal position is exactly where it was engraved."""
+        return Rect(0.0, band.center.y - self.height / 2,
+                    self.width, self.height)
+
+
+def systems_frame(bands: tuple[SystemBand, ...],
+                  pad: float = SYSTEM_FRAME_PAD) -> SystemsFrame | None:
+    """The constant systems-mode frame for one load: page width by
+    tallest band plus `pad` of that height above and below.
+
+    None when there are no systems to frame — an empty layout, which the
+    view reads as "no frame, behave as before"."""
+    if not bands:
+        return None
+    tallest = max(b.rect.h for b in bands)
+    return SystemsFrame(width=max(b.rect.w for b in bands),
+                        height=tallest * (1.0 + 2.0 * pad))
+
+
 def page_of_measure(bands: tuple[SystemBand, ...],
                     system_of_measure: Mapping[int, int]) -> dict[int, int]:
     """Measure ordinal → 1-based page, derived from data every load

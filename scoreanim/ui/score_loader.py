@@ -24,7 +24,9 @@ from scoreanim.core.animation import (FLOOR_OPACITY, StyleRules,
                                       build_trigger_schedule, glow_scope,
                                       inert_trigger_overrides,
                                       resolve_durations)
-from scoreanim.core.engraving.systems import page_of_measure, system_bands
+from scoreanim.core.engraving.systems import (SystemsFrame,
+                                              page_of_measure,
+                                              system_bands, systems_frame)
 from scoreanim.core.engraving.types import (EngravingParams, Layout,
                                             LoadWarning)
 from scoreanim.core.engraving.verovio import VerovioEngravingProvider
@@ -56,6 +58,8 @@ class LoadedScore:
     all_parts: tuple             # FULL roster, hidden parts included —
                                  # what the stage's Staves menu lists
     band_by_system: dict         # per-system band rects (Phase 7.4)
+    systems_frame: SystemsFrame | None   # the ONE frame systems mode
+                                 # shows every system in (2026-08-30)
     first_measure_of_system: dict   # system → its starting ordinal —
                                  # the per-system hide command's key
     noted_parts_by_system: dict  # system → parts with NOTEHEADS there
@@ -305,6 +309,9 @@ class ScoreLoader:
         # — derived from the Layout, never persisted (rule 5)
         bands = system_bands(engraved.layout)
         band_by_system = {b.system: b for b in bands}
+        # the ONE frame systems mode presents every system in — computed
+        # once per load and never again (2026-08-30, rework stage 1)
+        frame = systems_frame(bands)
         # the stage menu's per-system data (2026-08-10), derived once:
         # which measure starts each system (the hide command's key) and
         # which parts play notes there (a sounding staff cannot hide)
@@ -345,6 +352,7 @@ class ScoreLoader:
             measures=model.measures, parts=engraved.prepared.parts,
             all_parts=engraved.prepared.all_parts or engraved.prepared.parts,
             band_by_system=band_by_system,
+            systems_frame=frame,
             first_measure_of_system=first_of_system,
             noted_parts_by_system={s_n: frozenset(v)
                                    for s_n, v in noted.items()},

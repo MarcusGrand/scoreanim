@@ -28,7 +28,13 @@ The frame is a fixed piece of glass; each system is placed into it.
 Export shares the scenes and has its own systems framing — it must end up
 following the same rule, or the stage stops being a preview (stage 4).
 
-## Stage 1 — the fixed frame
+## Stage 1 — the fixed frame — BUILT 2026-08-30
+
+Built on `systems-fixed-frame` (off `ui-e2-tooltips`). The frame is
+`core/engraving/systems.py::systems_frame` — page width by tallest band
+plus 6 % of that height each side, Marcus's number. Everything else in
+the view generalised from "is there a canvas" to "is there a frame",
+so the canvas path's solid fill and wobble-free fit now serve both.
 
 > Work on a branch, commit when done. Use plan mode first.
 >

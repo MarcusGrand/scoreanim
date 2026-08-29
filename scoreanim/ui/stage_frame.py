@@ -12,30 +12,41 @@ from __future__ import annotations
 from PySide6.QtCore import QPointF, QRectF
 
 from scoreanim.core.engraving.canvas import canvas_view_rect
+from scoreanim.core.engraving.systems import SystemsFrame
+from scoreanim.core.engraving.types import Rect
 from scoreanim.core.project.stage_config import VideoCanvas
 
 
 class StageFraming:
-    """The view's frame (what fitInView targets) and band (what is
-    visible).
+    """The view's frame (what a fit targets) and band (what is visible).
 
     Paged mode, no canvas: both None — the scene rect is the frame and
-    everything is visible. System mode: a frame centered vertically on
-    the band, everything outside the band masked. A video canvas
+    everything is visible. System mode: one CONSTANT frame (the load's
+    `SystemsFrame`, 2026-08-30) placed so the current band is centred in
+    it, with everything outside the band masked. A video canvas
     (2026-08-06) replaces the frame's shape in BOTH modes with the
-    user's own, computed by the same pure rect export renders, and
-    masks outside it — what shows inside the frame is what the video
-    frame will carry."""
+    user's own, computed by the same pure rect export renders — what
+    shows inside the frame is what the video frame will carry.
+
+    Whenever there IS a frame the view fills it edge to edge and masks
+    in two colours, so the frame reads as one still rectangle whose
+    content changes rather than a shape that moves with the music."""
 
     def __init__(self) -> None:
         self.band: QRectF | None = None
         self.frame: QRectF | None = None
         self.canvas: VideoCanvas | None = None
+        self.systems: SystemsFrame | None = None
 
     def set_canvas(self, canvas: VideoCanvas | None) -> None:
         """Store the document's canvas; the caller re-runs set_page or
         set_system_band to recompute the frame."""
         self.canvas = canvas
+
+    def set_systems_frame(self, systems: SystemsFrame | None) -> None:
+        """Store the load's constant systems-mode frame; the caller
+        re-runs set_system_band to recompute the frame."""
+        self.systems = systems
 
     def set_page(self, page: QRectF) -> None:
         self.band = None
@@ -43,13 +54,20 @@ class StageFraming:
 
     def set_system_band(self, page: QRectF, band: QRectF) -> None:
         self.band = QRectF(band)
-        if self.canvas is None:
+        if self.canvas is not None:
+            self.frame = self._canvas_frame(page,
+                                            center_y=band.center().y())
+        elif self.systems is not None:
+            r = self.systems.rect_for(Rect(band.x(), band.y(),
+                                           band.width(), band.height()))
+            self.frame = QRectF(r.x, r.y, r.w, r.h)
+        else:
+            # no load behind this view (a bare StageView in a test, or a
+            # band shown before bind): the page's own height, which is
+            # what systems mode framed with before the fixed frame
             self.frame = QRectF(page.left(),
                                 band.center().y() - page.height() / 2,
                                 page.width(), page.height())
-        else:
-            self.frame = self._canvas_frame(page,
-                                            center_y=band.center().y())
 
     def _canvas_frame(self, page: QRectF,
                       center_y: float | None = None) -> QRectF | None:
@@ -67,19 +85,19 @@ class StageFraming:
         """What the view's scene rect should be: the frame may extend
         past the page (a system near the page's top or bottom, or a
         canvas with letterbox slack); widening the view's scene rect
-        lets fitInView center there instead of clamping to the page —
-        the overhang renders as view background, which is the
-        letterbox. (The canvas fit replaces this with its own constant
-        overscan rect — see StageView._fit_canvas.)"""
+        lets a fit centre there instead of clamping to the page — the
+        overhang renders as view background, which is the letterbox.
+        (A fitted frame replaces this with the constant overscan rect
+        `fit_geometry` returns.)"""
         if self.frame is None:
             return page
         return self.frame.united(page)
 
     def visible_rect(self) -> QRectF | None:
         """The scene region actually on show, or None for everything.
-        A canvas crops to its frame; a band crops to the system; with
-        both, what shows is their intersection."""
-        if self.canvas is None:
+        A frame crops to itself; a band crops to the system; with both,
+        what shows is their intersection."""
+        if self.frame is None:
             return self.band
         if self.band is None:
             return self.frame
@@ -87,27 +105,19 @@ class StageFraming:
 
     def contains(self, scene_pos: QPointF) -> bool:
         """Is this scene point inside the visible region? Ink cropped
-        away by the canvas (or masked outside the band) is invisible
-        but fully hittable, so the view gates clicks here."""
+        away by the frame (or masked outside the band) is invisible but
+        fully hittable, so the view gates clicks here."""
         visible = self.visible_rect()
         return visible is None or visible.contains(scene_pos)
 
-    def mask_strips(self, rect: QRectF) -> list[QRectF]:
-        """No-canvas masking: letterbox strips covering the part of the
-        exposed region `rect` outside the visible region."""
-        band = self.visible_rect()
-        if band is None:
-            return []
-        return strips_outside(rect, band)
-
-    def canvas_mask(self, rect: QRectF) -> tuple[list[QRectF],
-                                                 list[QRectF]]:
-        """Canvas masking, two colors: (inside, outside).
+    def frame_mask(self, rect: QRectF) -> tuple[list[QRectF],
+                                                list[QRectF]]:
+        """Masking in two colours: (inside, outside).
 
         `outside` is everything in `rect` past the frame — letterbox.
         `inside` is the part of the frame holding a NEIGHBOR system's
         ink (frame minus band, system mode only) — painted in the
-        frame's own fill, so the canvas reads as ONE still rectangle
+        frame's own fill, so the frame reads as ONE still rectangle
         whose content changes, never a box that reshapes per system."""
         assert self.frame is not None
         outside = strips_outside(rect, self.frame)
@@ -136,3 +146,34 @@ def strips_outside(rect: QRectF, inner: QRectF) -> list[QRectF]:
         strips.append(QRectF(inner.right(), rect.top(),
                              rect.right() - inner.right(), rect.height()))
     return strips
+
+
+def fit_geometry(frame: QRectF, page: QRectF,
+                 viewport_w: float, viewport_h: float,
+                 ) -> tuple[float, QRectF, QRectF] | None:
+    """How to fit a frame so it CANNOT move: (scale, snapped frame,
+    scroll rect). None when there is nothing to fit.
+
+    QGraphicsView.fitInView rounds through the integer scrollbars, and
+    how it rounds depends on the frame's scene position — the canvas
+    edge wobbled 1-4 px between systems during playback (2026-08-06),
+    and a systems frame that slides with the band would do the same.
+    Three choices pin it, and all three are the arithmetic here: the
+    zoom is set directly (no fitInView, no 2 px margin — the frame IS
+    the picture); the scroll range is one CONSTANT page-independent
+    overscan rect, so Qt's origin math is identical for every system;
+    and the frame is nudged a quarter device pixel off the integer grid
+    (at most half a pixel against the band — invisible), so every
+    rounding along the way lands the same side for every system.
+
+    Pure, so the constancy can be checked without a window."""
+    if viewport_w <= 0 or viewport_h <= 0 or frame.isEmpty():
+        return None
+    scale = min(viewport_w / frame.width(), viewport_h / frame.height())
+    snapped = QRectF(frame)
+    snapped.translate(
+        (round(frame.left() * scale) + 0.25) / scale - frame.left(),
+        (round(frame.top() * scale) + 0.25) / scale - frame.top())
+    scroll = page.adjusted(-frame.width(), -frame.height(),
+                           frame.width(), frame.height())
+    return scale, snapped, scroll

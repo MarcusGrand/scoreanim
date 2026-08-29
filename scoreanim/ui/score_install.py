@@ -119,7 +119,8 @@ class ScoreInstaller:
         # the drawn geometry a stem's CURRENT direction is read from
         w.stem_flip_action.bind_layout(loaded.animation_inputs.layout)
         w.router.bind(loaded.scenes, loaded.band_by_system,
-                      loaded.applier, loaded.system_of_measure)
+                      loaded.applier, loaded.system_of_measure,
+                      loaded.systems_frame)
         w.break_action.bind(loaded.system_of_measure,
                             loaded.page_of_measure)
         w.text_edit.bind(loaded.scenes, loaded.animation_inputs.layout,

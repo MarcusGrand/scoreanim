@@ -1039,9 +1039,11 @@ re-touching. "Clear overrides on selection" must be cheap.
   shape for BOTH presentation modes and every frame — a system band
   centers vertically in the same user-chosen frame — and the canvas
   NEVER moves on screen during playback: it has its own fit
-  (`StageView._fit_canvas` — direct zoom, a constant overscan scroll
-  rect, a quarter-device-pixel snap) because fitInView's integer
-  scrollbar rounding wobbled the edge 1–4 px between systems. The box
+  (`StageView._fit_frame` over the pure `stage_frame.fit_geometry` —
+  direct zoom, a constant overscan scroll rect, a quarter-device-pixel
+  snap) because fitInView's integer scrollbar rounding wobbled the edge
+  1–4 px between systems. Since 2026-08-30 EVERY frame is fitted that
+  way, the systems frame included — the same arithmetic, one home. The box
   also reads as ONE SOLID rectangle: the frame fills whole with the
   overlay-preview color, or with the page's own background when the
   preview is off, and a neighbor system's in-frame ink masks with that
@@ -1173,13 +1175,30 @@ selection + shared time-axis zoom/scroll):
   letterboxed in the window; shows animation state; click-to-select for
   overrides. System-at-a-time mode (Phase 7.4, document intent
   `stage.mode` + `SetPresentationMode` + a transport toggle): frames
-  the current system's band centered — a hard cut via the same
-  setScene page-flip mechanics — with a `drawForeground` override
-  painting letterbox color over everything outside the band, so a
-  same-page neighbour system never bleeds in at any window aspect.
-  View-level on purpose: export scenes structurally cannot see the
-  mask. Follow emits page AND system; the window routes by mode;
-  prev/next step the current presentation unit. Paged stays default.
+  the current system — a hard cut via the same setScene page-flip
+  mechanics — with a `drawForeground` override masking everything
+  outside it, so a same-page neighbour system never bleeds in at any
+  window aspect. View-level on purpose: export scenes structurally
+  cannot see the mask. Follow emits page AND system; the window routes
+  by mode; prev/next step the current presentation unit. Paged stays
+  default.
+
+  **The systems frame is a fixed piece of glass** (rework stage 1,
+  2026-08-30 — docs/SYSTEMS_MODE_REWORK.md). It used to be the PAGE's
+  own frame slid to centre the band, which meant the lit rectangle was
+  the band: page-wide but as tall as that system, so the paper edge
+  jumped on every switch. Now ONE frame is computed per load —
+  `core/engraving/systems.py::systems_frame`, pure: page width by
+  tallest band plus 6 % of that height above and below (Marcus's
+  number) — every system is placed into it centred vertically with its
+  horizontal position untouched, and the WHOLE frame fills with the
+  page's own background so no page context is left to move. Fit fits
+  the frame, so system mode shows the music bigger than paged mode
+  does. The frame reaches the view once per load, through
+  `ViewRouter.bind` → `StageView.set_systems_frame`; a switch only
+  moves the band inside it. Stage 2 will make a switch preserve zoom
+  and pan, stage 3 will let the video canvas be the frame, stage 4
+  audits export against the same rule.
 
   Navigation is the ordinary desktop set (ruling 2026-07-30, replacing
   M2's): **pinch zooms** (a macOS native gesture on the viewport, caught

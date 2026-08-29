@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from scoreanim.core.engraving.systems import SystemsFrame
 from scoreanim.core.project import PresentationMode
 from scoreanim.ui.view_router import ViewRouter
 
@@ -40,6 +41,9 @@ class _Scenes:
 class _View:
     def __init__(self) -> None:
         self.calls: list = []
+        # bind-time state, not a routing call — kept off `calls` so the
+        # routing tests below still read as "what did the switch do"
+        self.systems_frame = "unset"
 
     def show_scene(self, scene) -> None:
         self.calls.append(("scene", scene))
@@ -49,6 +53,9 @@ class _View:
 
     def clear_band(self) -> None:
         self.calls.append(("clear",))
+
+    def set_systems_frame(self, systems) -> None:
+        self.systems_frame = systems
 
 
 class _Menus:
@@ -75,11 +82,23 @@ BANDS = {1: _Band(1, _Rect(0.0, 0.0, 100.0, 40.0)),
          3: _Band(2, _Rect(0.0, 0.0, 100.0, 40.0))}
 
 
-def _router(pages: int = 2, applier=None) -> tuple:
+def _router(pages: int = 2, applier=None, systems_frame=None) -> tuple:
     view, menus = _View(), _Menus()
     router = ViewRouter(view, menus)
-    router.bind(_Scenes(pages), dict(BANDS), applier or _Applier())
+    router.bind(_Scenes(pages), dict(BANDS), applier or _Applier(),
+                systems_frame=systems_frame)
     return router, view, menus
+
+
+def test_bind_hands_the_view_the_loads_systems_frame() -> None:
+    """The frame is per LOAD, not per switch (2026-08-30): the router
+    gives it to the view once, at bind, and every later show_system
+    only moves the band inside it."""
+    frame = SystemsFrame(width=100.0, height=60.0)
+    _, view, _ = _router(systems_frame=frame)
+    assert view.systems_frame is frame
+    before = list(view.calls)
+    assert before == []                  # binding shows nothing by itself
 
 
 # -- unbound -------------------------------------------------------------
