@@ -11,6 +11,12 @@ section reads as a heading you can click rather than as a control. A
 `QPushButton` under the hood because it is the one Qt button whose text
 can be pinned to the left; everything that makes it look like a band is
 in the app-wide QSS, under the name `SectionHeader`.
+
+The band is also the seam between two sections: it is a shade darker
+than the body under it and carries a 1px line above and below, so a
+dock with every section open still reads as a stack of blocks. That is
+one rule in the theme, so every section gets it — nothing here, and
+nothing in a panel, paints a divider of its own.
 """
 from __future__ import annotations
 

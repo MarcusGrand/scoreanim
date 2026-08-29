@@ -1,7 +1,7 @@
 """CollapsibleSection (M1.2), offscreen: header toggle flips content
-visibility, programmatic set_expanded stays in sync with the header, and
-the header band shows the chevron that says which way it is folded
-(A3)."""
+visibility, programmatic set_expanded stays in sync with the header, the
+header band shows the chevron that says which way it is folded (A3), and
+the band is the seam that keeps two open sections apart."""
 from __future__ import annotations
 
 import os
@@ -13,7 +13,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QLabel  # noqa: E402
 
 from scoreanim.ui.collapsible import CollapsibleSection  # noqa: E402
-from scoreanim.ui.theme import icons  # noqa: E402
+from scoreanim.ui.theme import build_palette, icons, stylesheet  # noqa: E402
+from scoreanim.ui.theme import palette as tokens  # noqa: E402
 
 
 def _chevron(section) -> int:
@@ -93,3 +94,34 @@ def test_set_content_replaces_previous(section) -> None:
     section.set_content(replacement)
     assert section._content is replacement
     assert replacement.isVisible()
+
+
+def test_the_band_is_the_seam_between_two_sections(qapp) -> None:
+    """Painted, not asserted from the QSS text: the header sits on a
+    different ground from its body, with a 1px border line above and
+    below it, so a dock of open sections reads as separate blocks.
+
+    The theme goes on this widget rather than on the QApplication, so
+    the test cannot colour anything else in the suite.
+    """
+    s = CollapsibleSection("Appearance && Effects")
+    s.set_content(QLabel("body\nrows\nhere"))
+    s.setPalette(build_palette())
+    s.setStyleSheet(stylesheet())
+    s.setAutoFillBackground(True)      # so the body's ground is painted
+    s.resize(240, 120)
+    s.show()
+    qapp.processEvents()
+
+    image = s.grab().toImage()
+    x = s.width() // 2                 # clear of the chevron and the text
+    header = s._header
+    top, bottom = header.y(), header.y() + header.height() - 1
+
+    def at(y: int) -> str:
+        return image.pixelColor(x, y).name()
+
+    assert at(top) == tokens.BORDER            # the line above
+    assert at(top + 4) == tokens.WINDOW        # the band
+    assert at(bottom) == tokens.BORDER         # the line below
+    assert at(bottom + 6) == tokens.PANEL      # the body under it

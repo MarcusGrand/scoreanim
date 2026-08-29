@@ -113,11 +113,19 @@ QDockWidget > QWidget {
 
 /* A flat band the full width of the panel, not a button: no frame, no
    rounding, text pinned left beside its chevron, and a highlight that
-   runs edge to edge under the pointer. */
+   runs edge to edge under the pointer.
+
+   The band is also where one section ends and the next begins. It sits
+   a shade darker than the body below it, with a 1px line above and
+   below, so a dock with everything expanded still reads as a stack of
+   separate blocks instead of one long form. The same darker ground as
+   a dock title bar, for the same reason. */
 QPushButton#SectionHeader {
-    background: transparent;
+    background: $WINDOW;
     color: $DIM;
-    border: 0px;
+    border: 0px solid $BORDER;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
     border-radius: 0px;
     padding: 6px 8px;
     font-weight: 600;
@@ -131,10 +139,10 @@ QPushButton#SectionHeader:pressed {
     background: $PRESSED;
 }
 QPushButton#SectionHeader:checked {
-    /* expanded, not "active": a header must not take the accent */
-    background: transparent;
+    /* expanded, not "active": a header must not take the accent, and
+       it keeps its lines — they are what close the block off */
+    background: $WINDOW;
     color: $TEXT;
-    border: 0px;
 }
 QPushButton#SectionHeader:checked:hover {
     background: $HOVER;

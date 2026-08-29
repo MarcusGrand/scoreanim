@@ -59,6 +59,16 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-29 — `ui-redesign`: **section seams**. With several
+  inspector sections open they ran together, so the header band now
+  carries the boundary: a shade darker than its body (`WINDOW` under
+  `PANEL`, the same pairing as a dock title bar) with a 1px `BORDER`
+  line above and below it. One rule in the theme QSS, so every
+  `CollapsibleSection` gets it and no panel paints a divider of its
+  own; a nested one (glow's Envelope) still reads as a sub-block
+  because the panel's padding insets it. Pinned by a painted test that
+  reads the pixels. UNMERGED.
+
 - 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase A3): **panel finish
   pass**. Section headers are flat full-width bands now — a chevron
   (new `icons.plain_icon`, which never takes the accent), a bold label
