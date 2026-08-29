@@ -227,10 +227,24 @@ def test_the_controls_never_take_the_keyboard(overlay):
 
 def test_the_controls_sit_in_the_stages_bottom_right(overlay, view):
     _enter(view.viewport())
-    area = view.viewport().rect()
+    area = view.viewport().geometry()      # they are a child of the VIEW
     assert area.contains(overlay.geometry())
     assert overlay.geometry().right() > area.center().x()
     assert overlay.geometry().bottom() > area.center().y()
+
+
+def test_scrolling_the_score_does_not_take_the_controls_with_it(
+        overlay, view):
+    """QGraphicsView scrolls by scrolling its viewport, and that moves
+    the viewport's child widgets too — which is why these live beside
+    the viewport rather than inside it."""
+    _enter(view.viewport())
+    view.zoom_by(3.0)
+    where = overlay.geometry()
+    view.scroll_by(0.0, -120.0)
+    view.scroll_by(-80.0, 0.0)
+    assert view.verticalScrollBar().value() > 0      # it really scrolled
+    assert overlay.geometry() == where
 
 
 def test_a_click_where_they_sit_reaches_the_score_while_they_are_gone(

@@ -18,6 +18,8 @@ from PySide6.QtCore import QPoint, QPointF, QRectF, Qt  # noqa: E402
 from PySide6.QtGui import QWheelEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication, QGraphicsScene  # noqa: E402
 
+from scoreanim.ui.stage_scrollbars import (  # noqa: E402
+    HORIZONTAL, VERTICAL)
 from scoreanim.ui.stage_view import (  # noqa: E402
     _ZOOM_MAX, _ZOOM_MIN, StageView, clamped_factor)
 
@@ -197,7 +199,8 @@ def test_the_indicators_wake_on_a_zoom_and_show_one_bar_per_axis(view) -> None:
     assert bars.opacity == 0.0                # nothing has happened yet
     view.zoom_by(4.0)
     assert bars.opacity == 1.0
-    assert len(bars._bars(QRectF(view.viewport().rect()))) == 2
+    assert bars._bar(VERTICAL) is not None
+    assert bars._bar(HORIZONTAL) is not None
 
 
 def test_a_fitted_view_has_no_indicators_to_draw(view) -> None:
@@ -205,7 +208,8 @@ def test_a_fitted_view_has_no_indicators_to_draw(view) -> None:
     at, however much the bars have been poked."""
     view.fit()
     view._scrollbars.poke()
-    assert view._scrollbars._bars(QRectF(view.viewport().rect())) == []
+    assert view._scrollbars._bar(VERTICAL) is None
+    assert view._scrollbars._bar(HORIZONTAL) is None
 
 
 def test_the_indicator_sits_where_the_view_is_looking(view) -> None:

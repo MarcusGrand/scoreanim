@@ -1,0 +1,232 @@
+"""The stage's scroll indicators, offscreen: they show themselves when
+the pointer reaches for them, and they scroll when it grabs them.
+
+They were feedback-only until 2026-08-29 — the reasoning was that they
+were gone before you could reach for one, which turned out to be the
+problem rather than the excuse. These tests are the pin on the other
+answer: reachable, grabbable, and never in the way of a click on the
+score they are drawn over.
+"""
+from __future__ import annotations
+
+import os
+
+import pytest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt  # noqa: E402
+from PySide6.QtGui import QMouseEvent  # noqa: E402
+from PySide6.QtWidgets import QApplication, QGraphicsScene  # noqa: E402
+
+from scoreanim.ui.stage_scrollbars import HORIZONTAL, VERTICAL  # noqa: E402
+from scoreanim.ui.stage_view import StageView  # noqa: E402
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture
+def view(qapp) -> StageView:
+    """A view zoomed in far enough that both axes have somewhere to
+    scroll to, so both bars exist."""
+    scene = QGraphicsScene()
+    scene.setSceneRect(QRectF(0, 0, 2000, 2000))
+    scene.addRect(QRectF(0, 0, 2000, 2000))
+    stage = StageView()
+    stage.resize(600, 500)
+    stage.show()
+    stage.show_scene(scene)
+    stage.zoom_by(4.0)
+    return stage
+
+
+def _bars(view):
+    return view._scrollbars
+
+
+def _edge(view, axis: str, along: float) -> QPointF:
+    """A point on the edge a bar lives on, `along` pixels down (or
+    across) its track."""
+    rect = view.viewport().rect()
+    if axis == VERTICAL:
+        return QPointF(rect.right() - 5.0, along)
+    return QPointF(along, rect.bottom() - 5.0)
+
+
+def _press(view, pos: QPointF) -> None:
+    view.mousePressEvent(QMouseEvent(
+        QEvent.Type.MouseButtonPress, pos, Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+
+
+def _move(view, pos: QPointF, held: bool = True) -> None:
+    button = Qt.MouseButton.LeftButton if held else Qt.MouseButton.NoButton
+    view.mouseMoveEvent(QMouseEvent(
+        QEvent.Type.MouseMove, pos, Qt.MouseButton.NoButton, button,
+        Qt.KeyboardModifier.NoModifier))
+
+
+def _release(view, pos: QPointF) -> None:
+    view.mouseReleaseEvent(QMouseEvent(
+        QEvent.Type.MouseButtonRelease, pos, Qt.MouseButton.LeftButton,
+        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+
+
+# -- being there to be grabbed ------------------------------------------
+
+def test_a_fitted_view_has_no_bars_at_all(qapp):
+    scene = QGraphicsScene()
+    scene.setSceneRect(QRectF(0, 0, 2000, 2000))
+    stage = StageView()
+    stage.resize(600, 500)
+    stage.show()
+    stage.show_scene(scene)          # fitted: nothing hidden either way
+    assert _bars(stage)._bar(VERTICAL) is None
+    assert _bars(stage)._bar(HORIZONTAL) is None
+
+
+def test_both_bars_exist_once_there_is_somewhere_to_scroll(view):
+    assert _bars(view)._bar(VERTICAL) is not None
+    assert _bars(view)._bar(HORIZONTAL) is not None
+
+
+def test_reaching_for_an_edge_brings_its_bar_up(view):
+    bars = _bars(view)
+    bars._set_opacity(0.0)
+    _move(view, _edge(view, VERTICAL, 200.0), held=False)
+    assert bars._opacity == 1.0
+    assert bars._reaching == VERTICAL
+
+
+def test_the_middle_of_the_stage_brings_nothing_up(view):
+    bars = _bars(view)
+    bars._set_opacity(0.0)
+    _move(view, QPointF(300.0, 250.0), held=False)
+    assert bars._opacity == 0.0
+    assert bars._reaching is None
+
+
+def test_a_bar_under_the_pointer_does_not_fade_out_from_under_it(view):
+    """The hold running out is where a bar would normally start to go."""
+    bars = _bars(view)
+    _move(view, _edge(view, VERTICAL, 200.0), held=False)
+    bars._start_fade()                       # what the hold timer does
+    assert bars._opacity == 1.0
+
+
+def test_leaving_the_stage_lets_them_fade_again(view):
+    """The viewport's Leave, not the view's: the zoom controls sit over
+    the viewport, so moving onto them leaves it while the view still
+    has the pointer."""
+    bars = _bars(view)
+    _move(view, _edge(view, VERTICAL, 200.0), held=False)
+    QApplication.sendEvent(view.viewport(), QEvent(QEvent.Type.Leave))
+    assert bars._reaching is None
+    bars._start_fade()
+    assert bars._fade.state() != bars._fade.State.Stopped
+
+
+# -- dragging one --------------------------------------------------------
+
+def test_dragging_the_vertical_bar_scrolls_the_view(view):
+    bars = _bars(view)
+    bars.poke()
+    start = view.verticalScrollBar().value()
+    handle = bars._bar(VERTICAL)
+    _press(view, _edge(view, VERTICAL, handle.center().y()))
+    _move(view, _edge(view, VERTICAL, handle.center().y() + 80.0))
+    _release(view, _edge(view, VERTICAL, handle.center().y() + 80.0))
+    assert view.verticalScrollBar().value() > start
+
+
+def test_dragging_the_horizontal_bar_scrolls_the_view(view):
+    bars = _bars(view)
+    bars.poke()
+    start = view.horizontalScrollBar().value()
+    handle = bars._bar(HORIZONTAL)
+    _press(view, _edge(view, HORIZONTAL, handle.center().x()))
+    _move(view, _edge(view, HORIZONTAL, handle.center().x() + 90.0))
+    _release(view, _edge(view, HORIZONTAL, handle.center().x() + 90.0))
+    assert view.horizontalScrollBar().value() > start
+
+
+def test_the_bar_follows_the_pointer_rather_than_running_ahead(view):
+    """Travel along the track is the bar's travel: half the remaining
+    track under the hand is half the remaining scroll."""
+    bars = _bars(view)
+    bars.poke()
+    scrollbar = view.verticalScrollBar()
+    scrollbar.setValue(scrollbar.minimum())
+    handle = bars._bar(VERTICAL)
+    travel = bars._travel(VERTICAL)
+    _press(view, _edge(view, VERTICAL, handle.center().y()))
+    _move(view, _edge(view, VERTICAL, handle.center().y() + travel / 2.0))
+    span = scrollbar.maximum() - scrollbar.minimum()
+    assert scrollbar.value() == pytest.approx(
+        scrollbar.minimum() + span / 2.0, rel=0.02)
+    _release(view, _edge(view, VERTICAL, handle.center().y()))
+
+
+def test_a_press_on_the_track_jumps_the_bar_to_the_pointer(view):
+    bars = _bars(view)
+    bars.poke()
+    scrollbar = view.verticalScrollBar()
+    scrollbar.setValue(scrollbar.minimum())
+    track = view.viewport().rect().height()
+    _press(view, _edge(view, VERTICAL, track * 0.75))   # below the bar
+    assert scrollbar.value() > scrollbar.minimum()
+    _release(view, _edge(view, VERTICAL, track * 0.75))
+
+
+def test_a_drag_on_a_bar_is_never_a_click_on_the_score(view):
+    seen = []
+    view.clicked.connect(lambda pos, scene: seen.append(pos))
+    view.deselect_requested.connect(lambda: seen.append("deselect"))
+    bars = _bars(view)
+    bars.poke()
+    handle = bars._bar(VERTICAL)
+    spot = _edge(view, VERTICAL, handle.center().y())
+    _press(view, spot)
+    _move(view, spot)
+    _release(view, spot)
+    assert seen == []
+
+
+def test_an_invisible_bar_is_not_in_the_way_of_a_click(view):
+    """Faded out, the bars take no press at all — the score under them
+    is still what a click lands on."""
+    bars = _bars(view)
+    bars._set_opacity(0.0)
+    handle = bars._bar(VERTICAL)
+    spot = _edge(view, VERTICAL, handle.center().y())
+    assert not bars.press(spot)
+    seen = []
+    view.clicked.connect(lambda pos, scene: seen.append(pos))
+    _press(view, spot)
+    _release(view, spot)
+    assert len(seen) == 1
+
+
+def test_a_press_in_the_middle_of_the_stage_still_selects(view):
+    seen = []
+    view.clicked.connect(lambda pos, scene: seen.append(pos))
+    _bars(view).poke()                    # bars up, but nowhere near
+    spot = QPointF(300.0, 250.0)
+    _press(view, spot)
+    _release(view, spot)
+    assert len(seen) == 1
+
+
+def test_letting_go_ends_the_drag(view):
+    bars = _bars(view)
+    bars.poke()
+    handle = bars._bar(VERTICAL)
+    spot = _edge(view, VERTICAL, handle.center().y())
+    _press(view, spot)
+    assert bars._drag is not None
+    _release(view, spot)
+    assert bars._drag is None
+    assert not bars.drag(QPointF(spot.x(), spot.y() + 50.0))

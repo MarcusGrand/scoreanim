@@ -39,7 +39,12 @@ class ZoomOverlay(QWidget):
     """Floating zoom controls over one `StageView`."""
 
     def __init__(self, view: StageView, fit_action: QAction) -> None:
-        super().__init__(view.viewport())
+        # A child of the VIEW, beside the viewport, never inside it.
+        # QGraphicsView scrolls by calling `viewport()->scroll(dx, dy)`,
+        # and that moves the viewport's child widgets along with the
+        # picture — controls parented there slide off the screen the
+        # first time the user two-finger scrolls (found 2026-08-29).
+        super().__init__(view)
         self.setObjectName("ZoomOverlay")
         # a plain QWidget paints no background of its own; this is what
         # lets the stylesheet give it one (and a translucent one)
@@ -50,7 +55,7 @@ class ZoomOverlay(QWidget):
         # view for its viewport then is an error
         self._viewport = view.viewport()
         # the pointer is "on the stage" while it is over either of
-        # these; the overlay is a CHILD of the viewport, so moving onto
+        # these; the overlay covers part of the viewport, so moving onto
         # it sends the viewport a Leave — without the second flag the
         # controls would vanish as you reached for them
         self._over_stage = False
@@ -81,6 +86,7 @@ class ZoomOverlay(QWidget):
 
         view.zoom_changed.connect(self.refresh)
         self._viewport.installEventFilter(self)
+        self.raise_()          # over the viewport, which was here first
         self.hide()
         self.refresh()
 
@@ -128,9 +134,12 @@ class ZoomOverlay(QWidget):
                         and self._view.scene() is not None)
 
     def _place(self) -> None:
-        """Bottom-right of the stage, one margin in."""
+        """Bottom-right of the stage, one margin in — in the VIEW's
+        coordinates, since that is what the controls are a child of.
+        Fixed there: scrolling and zooming move the score under them,
+        never them."""
         self.adjustSize()
-        area = self._viewport.rect()
+        area = self._viewport.geometry()
         self.move(area.right() - self.width() - _MARGIN + 1,
                   area.bottom() - self.height() - _MARGIN + 1)
 

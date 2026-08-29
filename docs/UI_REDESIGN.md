@@ -411,6 +411,25 @@ the page is letterboxed in a wide window, so the corner is usually
 beside the page rather than on it, and the controls fade in before the
 click, not under it. Marcus's call if it ever gets in the way.*
 
+*Two fixes on Marcus's first look, same day. **The controls scrolled
+away with the score**: they were a child of the view's VIEWPORT, and
+`QGraphicsView` scrolls by calling `viewport()->scroll(dx, dy)`, which
+moves that widget's children along with the pixels. They are a child of
+the view now, placed against `viewport().geometry()`, so they hold
+still wherever they are visible. **And the scroll indicators are real
+scrollbars now.** They were feedback only, on the reasoning that they
+were gone before you could reach for one — which was the wrong way
+round: a thing that looks like a scrollbar has to behave like one. So
+they come up when the pointer reaches within 32 px of the edge they
+live on, they hold while it is there (the fade refuses to start on a
+bar under the pointer or in the hand), and a press within 14 px of that
+edge scrolls: on the bar it drags, on the track it jumps the bar to the
+pointer and drags on from there. The view offers every press, move and
+release to `TransientScrollbars` first, so a grab is never a click on
+the score, and a bar that has faded out takes no press at all — the
+same rule the zoom controls follow. Both bands stay inside the zoom
+controls' own 12 px margin, so the two never argue over a click.*
+
 **D3 — hint bar.**
 > Turn the status bar into a hint bar: with a selection it shows what is
 > selected and the available gestures ("Note · Tpts · m. 19 — drag to move

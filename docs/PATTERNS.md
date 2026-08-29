@@ -337,6 +337,17 @@ measure/part). Do not merge the paths.
   `tests/test_hint_bar.py` pins that nobody adds a bare call back. The
   swap is also invisible on a window that was never shown: Qt only
   hides a widget it can see, so a test of it has to `show()` first.
+- **A widget parented to a scrolling viewport rides the scroll.**
+  `QGraphicsView.scrollContentsBy` calls `viewport()->scroll(dx, dy)`,
+  and `QWidget::scroll` moves that widget's CHILDREN along with the
+  pixels — so floating stage chrome parented there slides off the
+  screen the first time the user two-finger scrolls (D2, found in the
+  app). It goes on the VIEW instead, beside the viewport, placed
+  against `viewport().geometry()` and raised. Watch the viewport's own
+  Enter/Leave/Resize with an event filter from there — and note the
+  viewport's Leave and the view's are different moments: chrome lying
+  over the viewport takes the pointer off IT while the view still has
+  it.
 - **A stage key must not become a window shortcut** if another widget
   already handles that key. Qt matches shortcuts BEFORE the key reaches
   the focused widget, so a window-level Delete silently eats the tempo

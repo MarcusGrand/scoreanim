@@ -351,6 +351,11 @@ class StageView(QGraphicsView):
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
+            # the scroll indicators get first refusal: a press on one is
+            # a scroll gesture, never a click on the score under it
+            if self._scrollbars.press(event.position()):
+                event.accept()
+                return
             self._press_pos = event.position().toPoint()
             scene_pos = self.mapToScene(self._press_pos)
             # a press on a nudgeable element turns this drag into a move
@@ -365,15 +370,23 @@ class StageView(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._scrollbars.drag(event.position()):
+            event.accept()
+            return
         if self._drag_origin is not None:
             delta = self.mapToScene(event.position().toPoint()) \
                 - self._drag_origin
             self.drag_moved.emit(delta)
             event.accept()
             return
+        # no button down: reaching for an edge brings its bar up
+        self._scrollbars.hover(event.position())
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self._scrollbars.release():
+            event.accept()
+            return
         if self._drag_origin is not None:
             origin, self._drag_origin = self._drag_origin, None
             self._press_pos = None
@@ -530,11 +543,22 @@ class StageView(QGraphicsView):
         event.accept()
 
     def viewportEvent(self, event) -> bool:  # noqa: N802
-        """Pinch to zoom. macOS delivers it as a native gesture on the
-        viewport, with `value()` as the incremental scale change for that
-        step — positive when the fingers spread, so spreading zooms in.
+        """Pinch to zoom, and the pointer leaving the stage.
+
+        macOS delivers a pinch as a native gesture on the viewport, with
+        `value()` as the incremental scale change for that step —
+        positive when the fingers spread, so spreading zooms in.
         `spikes/stage_gestures.py` logs the raw stream if the feel ever
-        needs re-checking on other hardware."""
+        needs re-checking on other hardware.
+
+        Leave is watched here rather than in the view's own leaveEvent
+        because the two are not the same moment: the zoom controls are a
+        child of the VIEW sitting over the viewport, so moving onto them
+        leaves the viewport while the view still has the pointer. The
+        scroll indicators want the viewport's answer — that is the
+        surface they are drawn on."""
+        if event.type() == QEvent.Type.Leave:
+            self._scrollbars.leave()
         if event.type() == QEvent.Type.NativeGesture:
             if event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture:
                 self.zoom_by(1.0 + event.value())
