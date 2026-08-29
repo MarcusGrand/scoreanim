@@ -1,7 +1,8 @@
-"""Static chrome (M1.5), offscreen: the five menus in order, the
-toolbar (the three openers, then the page steps and Fit), shared
-Play/Follow QActions in the Playback menu, dock toggles in View, and
-window-level shortcut registration — the structural half of the brief's
+"""Static chrome (M1.5, B1, B2, B3), offscreen: the six menus in order,
+every opener in File, the toolbar (the same three openers, the page
+steps, and Export on the right edge), shared Play/Follow QActions in
+the Playback menu, dock toggles in View, and window-level shortcut
+registration — the structural half of the brief's
 click-through/shortcut-sweep verify (the interactive half is run by
 hand).
 
@@ -17,6 +18,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtGui import QKeySequence  # noqa: E402
 from PySide6.QtWidgets import QApplication, QToolBar  # noqa: E402
 
@@ -41,20 +43,24 @@ def _toolbar(window):
     return window.findChild(QToolBar, "MainToolbar")
 
 
-def test_five_menus_in_roadmap_order(window) -> None:
+def test_six_menus_in_roadmap_order(window) -> None:
+    """Help joined the five in B3, last, as it is everywhere else."""
     menus = window.menus
-    assert [a.text() for a in window.menuBar().actions()] \
-        == ["&File", "&Edit", "&View", "&Score", "&Playback"]
+    order = ["&File", "&Edit", "&View", "&Score", "&Playback", "&Help"]
+    assert [a.text() for a in window.menuBar().actions()] == order
     assert [m.title() for m in (menus.file_menu, menus.edit_menu,
                                 menus.view_menu, menus.score_menu,
-                                menus.playback_menu)] \
-        == ["&File", "&Edit", "&View", "&Score", "&Playback"]
+                                menus.playback_menu, menus.help_menu)] \
+        == order
+    assert [m.title() for m in menus.all_menus] == order
 
 
 def test_file_and_edit_contents(window) -> None:
-    # Open Score… is on the toolbar, not in here (ruling 2026-07-30)
+    # every way of getting a file in lives here (B1); Open Recent is a
+    # submenu, so it shows up as its own title
     assert _texts(window.menus.file_menu) \
-        == ["Open Project…", "Save Project", "Save Project As…",
+        == ["Open Score…", "Open Project…", "Open Recent", "Open Audio…",
+            "Import Tempo…", "Save Project", "Save Project As…",
             "Export Video…"]
     assert _texts(window.menus.edit_menu) == ["Undo", "Redo", "Delete",
                                               "Flip Stem", "Texts…"]
@@ -68,27 +74,92 @@ def test_view_menu_holds_dock_toggles(window) -> None:
         assert dock.toggleViewAction() in actions
     # left to right across the window, which is how the docks sit (M6.6)
     assert _texts(window.menus.view_menu) \
-        == ["Fit", "◀", "▶", "Layout Zone", "Inspector", "Lower Zone"]
+        == ["Fit", "Previous", "Next", "Layout Zone", "Inspector",
+            "Lower Zone"]
 
 
 def test_playback_menu_shares_the_component_actions(window) -> None:
-    """Menu, strip button, and shortcut are ONE QAction for Play; menu
-    and inspector toggle likewise for Follow (brief flag 3)."""
+    """Menu, strip button, and shortcut are ONE QAction for Play
+    (brief flag 3)."""
     actions = window.menus.playback_menu.actions()
     assert actions[0] is window.lower_zone.strip.play_action
-    assert actions[1] is window.inspector.follow_action
-    # the two openers moved to the toolbar; Reload Tempo stayed
-    assert _texts(window.menus.playback_menu) \
-        == ["▶ Play", "Follow", "Reload Tempo"]
+    # the two openers moved to File (B1) and Follow is not an option any
+    # more (ruling 2026-08-29); Reload Tempo stayed
+    assert _texts(window.menus.playback_menu) == ["Play", "Reload Tempo"]
+
+
+def test_toolbar_shares_the_openers_with_the_file_menu(window) -> None:
+    """The three things you do first are in the window as well as in
+    the menu — and as ONE action each, so their state cannot diverge."""
+    in_file = {a.text(): a for a in window.menus.file_menu.actions()
+               if a.text()}
+    shared = [a for a in _toolbar(window).actions() if a.text() in in_file]
+    assert [a.text() for a in shared] == ["Open Score…", "Open Audio…",
+                                          "Import Tempo…"]
+    for action in shared:
+        assert action is in_file[action.text()], action.text()
 
 
 def test_toolbar_holds_the_openers(window) -> None:
-    """The three things you do first are in the window, not up in the
-    OS menu bar (ruling 2026-07-30)."""
-    # the page readout is a widget action, so it carries no text
+    """The three things you do first are in the window, not only up in
+    the OS menu bar (ruling 2026-07-30). Fit left the toolbar in B2."""
+    # the page readout, the spring and Export are widget actions, so
+    # they carry no text
     texts = [a.text() for a in _toolbar(window).actions() if a.text()]
     assert texts == ["Open Score…", "Open Audio…", "Import Tempo…",
-                     "◀", "▶", "Fit"]
+                     "Previous", "Next"]
+    assert "Fit" in _texts(window.menus.view_menu)      # still in View
+
+
+def test_export_button_is_the_file_menu_action(window) -> None:
+    """One QAction behind the menu item, Ctrl+E and the button — so the
+    button is dead until a score loads, and lives after (B2)."""
+    button = window.menus.export_button
+    assert button.defaultAction() is window.menus.export_action
+    assert button.objectName() == "ExportButton"        # the accent hook
+    assert not button.isEnabled()                       # needs a score
+    window.menus.export_action.setEnabled(True)
+    assert button.isEnabled()
+    window.menus.export_action.setEnabled(False)
+
+
+def test_export_sits_on_the_right_edge(window) -> None:
+    """A spring between the pager and Export, so Export is right-aligned
+    at any width — and still visible at a narrow one."""
+    toolbar = _toolbar(window)
+    window.resize(760, 600)
+    window.show()
+    QApplication.processEvents()
+    button = window.menus.export_button
+    assert button.isVisible()
+    # the spring did its job: Export ends within a hair of the right edge
+    assert toolbar.width() - button.geometry().right() < 12
+    # and it is to the right of everything else on the bar
+    pager = toolbar.widgetForAction(window.menus.next_action)
+    assert button.geometry().left() > pager.geometry().right()
+    window.hide()
+
+
+def test_toolbar_is_icons_with_labels_only_on_the_openers(window) -> None:
+    """Icon + label on the three openers, icon-only on the rest — the
+    tooltip carries the name there, so nothing is nameless (A2)."""
+    toolbar = _toolbar(window)
+    labelled = {"Open Score…", "Open Audio…", "Import Tempo…"}
+    for action in toolbar.actions():
+        if not action.text():
+            continue                             # the page readout widget
+        assert not action.icon().isNull(), action.text()
+        assert action.toolTip(), action.text()
+        button = toolbar.widgetForAction(action)
+        expected = (Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+                    if action.text() in labelled
+                    else Qt.ToolButtonStyle.ToolButtonIconOnly)
+        assert button.toolButtonStyle() == expected, action.text()
+
+
+def test_undo_and_redo_carry_icons(window) -> None:
+    assert not window.menus.undo_action.icon().isNull()
+    assert not window.menus.redo_action.icon().isNull()
 
 
 def test_window_level_shortcut_registration(window) -> None:
@@ -115,16 +186,14 @@ def test_shortcut_sweep_assignments(window) -> None:
                  for menu in (menus.file_menu, menus.edit_menu,
                               menus.view_menu, menus.playback_menu)
                  for a in menu.actions() if not a.isSeparator()}
-    shortcuts.update({a.text(): a.shortcut()
-                      for a in _toolbar(window).actions() if a.text()})
     assert shortcuts["Open Score…"] \
         == QKeySequence(QKeySequence.StandardKey.Open)
     assert shortcuts["Open Project…"] == QKeySequence("Ctrl+Shift+O")
     assert shortcuts["Export Video…"] == QKeySequence("Ctrl+E")
     assert shortcuts["Fit"] == QKeySequence("Ctrl+0")
-    assert shortcuts["◀"] \
+    assert shortcuts["Previous"] \
         == QKeySequence(QKeySequence.StandardKey.MoveToPreviousPage)
-    assert shortcuts["▶"] \
+    assert shortcuts["Next"] \
         == QKeySequence(QKeySequence.StandardKey.MoveToNextPage)
     assert shortcuts["Reload Tempo"] == QKeySequence("F5")
 

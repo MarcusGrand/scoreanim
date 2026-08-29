@@ -41,6 +41,7 @@ from scoreanim.core.editing import family_of
 from scoreanim.core.project import (SetElementStyle, SetPartColor,
                                     SetPartEffect)
 from scoreanim.core.selection import Selection
+from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 
 _INHERIT = "(inherit)"          # no override at this scope
@@ -78,6 +79,7 @@ class SelectionStyleControls(QWidget):
         self._color_default.clicked.connect(lambda: self._commit_color(None))
         color_row = QHBoxLayout()
         color_row.setContentsMargins(0, 0, 0, 0)
+        color_row.setSpacing(panel_style.COLUMN_GAP)
         color_row.addWidget(self._color_button, 1)
         color_row.addWidget(self._color_default)
         color_box = QWidget()
@@ -98,13 +100,15 @@ class SelectionStyleControls(QWidget):
         self._clear.clicked.connect(self._clear_overrides)
 
         form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
+        # the padding is paid at the Selection panel's own edge
+        panel_style.style_form(form, padding=False)
         form.addRow("Apply to", scope_box)
         form.addRow("Color", color_box)
         form.addRow("Effect", self._effect)
+        panel_style.fix_label_column(form)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(4)
+        root.setSpacing(panel_style.ROW_GAP)
         root.addLayout(form)
         root.addWidget(self._clear)
 

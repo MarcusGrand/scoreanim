@@ -16,9 +16,9 @@ are panel-only, so nothing on the page can read as a second selection).
 
 Unlike EffectsPanel this panel is driven by TRANSIENT state, so it
 subscribes to app_state.selection_changed itself instead of riding the
-window's document pass. The precedent is Inspector.follow_action, which
-is deliberately absent from sync_from_document for the same reason:
-there is nothing in the document to resync from.
+window's document pass. The precedent is the view router's page/system
+position, which is deliberately absent from the document for the same
+reason: there is nothing in there to resync from.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (QFormLayout, QFrame, QLabel, QSizePolicy,
 from scoreanim.core.score.identity import ElementIdentity
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.selection import Selection
+from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.panels.selection_style import SelectionStyleControls
 from scoreanim.ui.panels.selection_trigger import SelectionTriggerControls
@@ -49,14 +50,24 @@ class SelectionPanel(QWidget):
         super().__init__(parent)
         self._state = app_state
 
-        self._empty = QLabel("Nothing selected")
+        # Empty state (C3): the tab now comes to the front on its own,
+        # so somebody will land here with nothing selected. It says what
+        # to do about that. Wrapping, and free to be narrower than its
+        # text, so one sentence cannot set the dock's minimum width.
+        self._empty = QLabel("Nothing selected — click a note on the "
+                             "stage.")
+        self._empty.setWordWrap(True)
+        self._empty.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._empty.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                  QSizePolicy.Policy.Preferred)
         self._empty.setEnabled(False)
 
         self._values: dict[str, QLabel] = {}
+        self._forms: list[QFormLayout] = []
         details = QWidget()
         outer_details = QVBoxLayout(details)
         outer_details.setContentsMargins(0, 0, 0, 0)
-        outer_details.setSpacing(6)
+        outer_details.setSpacing(panel_style.GROUP_GAP)
 
         form = self._add_form(outer_details)
         for row in _OBJECT_ROWS:
@@ -100,8 +111,14 @@ class SelectionPanel(QWidget):
         self._stack.addWidget(self._empty)
         self._stack.addWidget(details)
         outer = QFormLayout(self)
-        outer.setContentsMargins(8, 2, 8, 6)
+        panel_style.style_form(outer)
         outer.addRow(self._stack)
+
+        # one label column across both readout blocks, so "Kind" above
+        # and "Measure" below start their values at the same x
+        width = max(panel_style.fix_label_column(f) for f in self._forms)
+        for form in self._forms:
+            panel_style.set_label_column(form, width)
 
         app_state.selection_changed.connect(self._on_selection_changed)
         self._on_selection_changed()
@@ -109,11 +126,13 @@ class SelectionPanel(QWidget):
     # -- construction helpers ----------------------------------------------
 
     def _add_form(self, parent: QVBoxLayout) -> QFormLayout:
+        """A readout block. The padding is paid once at the panel's own
+        edge, so these forms sit flush inside it."""
         block = QWidget()
         form = QFormLayout(block)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        panel_style.style_form(form, padding=False)
         parent.addWidget(block)
+        self._forms.append(form)
         return form
 
     def _value_label(self, row: str) -> QLabel:

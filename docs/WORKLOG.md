@@ -1,13 +1,17 @@
 # ScoreAnim — Worklog
 
-**NOW:** everything is on `main` and pushed (no tag since
+**NOW:** the UI facelift is under way on branch `ui-redesign`, working
+through the phases in `docs/UI_REDESIGN.md`: A1 (one dark theme), A2
+(icons), A3 (the panel finish pass) and B1 (the File menu and recents)
+are on the branch and unmerged, awaiting Marcus's in-app check.
+Everything else is on `main` and pushed (no tag since
 `v0.2-beta.6`). On 2026-08-16, on Marcus's call after his in-app
 check, three branches merged in order: `beta/f-hide-parts` (the
 Staves menu, per-system hides, the region-fill hide fix),
 `f-tuplet-ink-reclaim` (stolen tuplet ink under id reuse) and
 `f-tied-as-one` ("Tied notes as one"). The last merge's conflicts
 were resolved to the byte-identical tree tested on the scratch
-integration branch (full suite 2163 green there). No branch is open.
+integration branch (full suite 2163 green there).
 **Schema is v12** (hidden-parts, system-hides and tied-as-one all
 ride it sparsely), so a project saved from here will not open on
 `v0.2-beta.6` or any older build.
@@ -54,6 +58,120 @@ at start and appends its line at close. Keep entries to one or two
 lines — history lives in git and `docs/history/`.
 
 ---
+
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase C2, as amended):
+  **Systems on the transport, and Follow is not an option**. Marcus's
+  ruling mid-step: playing music always shows the music, so the Follow
+  toggle, its Playback-menu item and `PlaybackController.set_follow` are
+  all gone — the controller emits page/system unconditionally, and
+  pressing play now snaps the stage back to the cursor (paging around
+  while paused is browsing, and play ends it). Systems did move to the
+  strip as an icon toggle after the time readout: it runs
+  `SetPresentationMode` and is resynced from the document, so undo and
+  project load push the mode back onto the button without re-running the
+  command. The inspector holds neither now and no longer takes the
+  playback controller at all. One Lucide icon vendored (`rows-3`).
+  Suite green (2228).
+
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase C1): **the right dock
+  is three tabs**. Animate (the effects panel), Stage (Page over Video
+  canvas) and Selection, instead of one column of five sections. A tab
+  holding one panel gets no section header — the tab label is the
+  heading — so only Stage still stacks collapsible sections, and
+  `sections` holds those two. Each tab scrolls and locks its own minimum
+  width, so nothing clips in any of them. The active tab is persisted by
+  KEY, never by index; `window_state` now takes the inspector itself
+  rather than its sections. Playback & Sync is gone: Follow keeps its
+  Playback-menu item (the same shared QAction), and the Systems toggle
+  has NO home until C2 puts it on the transport. Suite green (2221).
+
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase B3): **Help menu**.
+  A sixth menu, last on the bar: Keyboard Shortcuts… and About
+  ScoreAnim. The shortcut sheet is HARVESTED from the menus when it
+  opens, never a hand-kept table — so a key added anywhere shows up in
+  it, and the Score menu's break keys are in it once a score is loaded.
+  An action with no key is skipped; an action that renames itself (Undo,
+  the three break actions) carries a fixed `set_sheet_name` for the
+  sheet. The mouse gestures are the one hand-kept list (`GESTURES`).
+  `harvest` takes the menu objects the chrome holds — calling
+  `QAction.menu()` on them deletes the C++ menu, which emptied the menu
+  bar the first time round. About prints no app version (there is no
+  version constant to read): project format v12, Python and Qt. Suite
+  green (2219).
+
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase B2): **toolbar with
+  Export**. The bar now reads left to right as a session: the three
+  openers, the page pager, a spring, then Export on the right edge —
+  the one filled, accent-coloured button in the app. It is a
+  `QToolButton` (a widget, so the QSS has a name to aim at) driving the
+  File menu's `export_action`, so it is dead until a score loads and
+  Ctrl+E is unchanged. Fit left the toolbar; it stays in View until the
+  stage takes it over in D2. Two accent tokens added
+  (`ACCENT_HOVER`, `ACCENT_PRESSED`). The window's own minimum width
+  (753 px with a score loaded) is wider than the bar's contents, so the
+  toolbar never overflows into an extension menu. Suite green (2211).
+
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase B1): **File menu and
+  recents**. Every way of getting a file in is in File now — Open
+  Score, Open Project, Open Recent, Open Audio, Import Tempo — with
+  Open Audio and Import Tempo moved out of Playback, which keeps Play,
+  Follow and Reload Tempo. The three openers are still on the toolbar,
+  as the same QAction objects, so a button and its menu item cannot
+  disagree. New `ui/recents.py`: a QSettings-backed store (last 8
+  scores and projects, newest first, no duplicates) plus the submenu,
+  which refills itself every time it opens. Every successful open adds
+  its path; a picked entry goes to the score or the project opener by
+  its suffix, and one whose file has gone says so and drops off the
+  list. New `tests/test_recents.py` (14) covers the ordering rule, the
+  store, the submenu and the open-close-reopen round trip. UNMERGED.
+
+- 2026-08-29 — `ui-redesign`: **section seams**. With several
+  inspector sections open they ran together, so the header band now
+  carries the boundary: a shade darker than its body (`WINDOW` under
+  `PANEL`, the same pairing as a dock title bar) with ONE 1px `BORDER`
+  line, along its top. A line under the band as well drew a box around
+  the heading — Marcus called it, and it is why the line is a divider
+  between sections and not a frame. The section at the top of a stack
+  draws none at all (`topmost`, worked out from its place in its
+  parent's layout), so it does not double the dock title bar's line.
+  One rule in the theme QSS, so every `CollapsibleSection` gets it and
+  no panel paints a divider of its own; a nested one (glow's Envelope)
+  keeps its line and still reads as a sub-block because the panel's
+  padding insets it. Pinned by painted tests that read the pixels.
+  UNMERGED.
+
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase A3): **panel finish
+  pass**. Section headers are flat full-width bands now — a chevron
+  (new `icons.plain_icon`, which never takes the accent), a bold label
+  pinned left, a hover highlight edge to edge, no button frame. New
+  `ui/panel_style.py` holds the four spacing numbers every dock form
+  reads (8 px padding, 12 px between groups) and pins each form's label
+  column to one width. The clipping was two bugs: a `QScrollArea` with
+  `widgetResizable` squeezes its content past the content's own minimum
+  (`lock_min_width` hands it back), and a panel that hides rows has to
+  measure itself while it is whole. The right dock is 346 px at its
+  narrowest and nothing in it clips, pinned by `tests/test_panel_style.py`.
+  UNMERGED.
+
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase A2): **icons**. 13
+  Lucide SVGs vendored under `ui/theme/icons/` (their LICENSE too — it
+  is ISC, with MIT on the Feather-derived ones, not plain MIT), and
+  `ui/theme/icons.py` tints them by swapping `currentColor` for a
+  token: text off, accent on, dim disabled, rendered at each size the
+  app asks for at 1x and 2x. Icons on the three openers (icon+label),
+  prev/next/Fit, undo/redo, the three break buttons and Play — the
+  strip's "▶ Play" text is now an icon-only button whose icon flips to
+  pause. Also fixed a theme bug the icons exposed: a DISABLED toolbar
+  button was the only one drawing a frame. UNMERGED.
+
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase A1): **one dark
+  theme**. New `ui/theme/` package — `palette.py` names every chrome
+  colour, `theme.py` builds the Fusion style + QPalette + one app-wide
+  QSS string, applied in `app.py` before the window exists. The
+  waveform, both lanes and the stage letterbox now read tokens instead
+  of their own hex; section headers and the layout zone's headings are
+  styled by object name, so no module sets a colour on itself any more.
+  UNMERGED.
 
 - 2026-08-16 — Merged to `main` on Marcus's call after his in-app
   check, in order: `beta/f-hide-parts`, `f-tuplet-ink-reclaim`,
@@ -1085,3 +1203,5 @@ lines — history lives in git and `docs/history/`.
   (`v0.2-beta.2`).
 - 2026-07-24 — **Shell CLOSED** (`v0.2-beta.1`). Alpha frozen at
   `v0.1-alpha`.
+- 2026-08-29 — C3: the Inspector follows the selection. Picking something on the stage brings the Selection tab to the front and remembers the tab you were on; clearing puts it back, unless you chose a tab yourself while the selection was up, in which case yours stands and no flip back happens. The rule is a pure state machine in `ui/tab_focus.py` (9 headless tests) and the dock only reports the two events to it — a tab switch it makes itself is flagged so it cannot read back as the user's choice. The empty state now says "Nothing selected — click a note on the stage." Full suite 2242 green. Awaiting Marcus's in-app check with A1–A3, B1–B3, C1, C2.
+- 2026-08-29 — C4: the bottom bar splits by what a control changes. The lane's three view options (which lane, which grid step, Flatten) moved up to a gear at the right edge of the transport strip — that row is the lanes' header — as `ui/lane_menu.py`, a popup menu that sets `AppState.grid` and so is still nothing the document hears about. The bar under the lanes now holds document timing alone, under a "Timing" heading: Tempo, Offset, Swing, still three live fields, still one undo entry per typing session. Flatten dropped its inverted "Keep shape" wording and is a plain checkable item. Lucide `settings` vendored. Group labels in the menu are disabled items, not `QMenu.addSection` — the app stylesheet paints a section as a bare line and ate the words. 9 new headless tests; full suite 2249 green. Awaiting Marcus's in-app check with A1–A3, B1–B3, C1–C3.

@@ -42,6 +42,8 @@ from scoreanim.core.editing.breaks import resolve, resolve_move_up
 from scoreanim.core.editing.page_breaks import resolve as resolve_page
 from scoreanim.core.project import (PageBreak, SetPageBreak, SetSystemBreak,
                                     SystemBreak)
+from scoreanim.ui.shortcuts_dialog import set_sheet_name
+from scoreanim.ui.theme import icons
 
 if TYPE_CHECKING:
     from scoreanim.ui.app_state import AppState
@@ -75,18 +77,28 @@ class BreakActionController:
         self._app_state = app_state
         self._system_of_measure: Mapping[int, int] = {}
         self._page_of_measure: Mapping[int, int] = {}
-        self.action = QAction(_DEFAULT_LABEL, parent)
+        # icon-only in the layout zone, labelled in the Score menu; the
+        # label the action renames itself to becomes the button's tooltip
+        self.action = QAction(icons.icon("corner-down-left"),
+                              _DEFAULT_LABEL, parent)
         self.action.setShortcut(QKeySequence(SHORTCUT))
         self.action.setEnabled(False)
         self.action.triggered.connect(self.trigger)
-        self.move_up_action = QAction(_MOVE_UP_LABEL, parent)
+        # all three rename themselves to say what they would do to the
+        # current selection, so the shortcut sheet gets a fixed name
+        set_sheet_name(self.action, _DEFAULT_LABEL)
+        self.move_up_action = QAction(icons.icon("corner-left-up"),
+                                      _MOVE_UP_LABEL, parent)
         self.move_up_action.setShortcut(QKeySequence(MOVE_UP_SHORTCUT))
         self.move_up_action.setEnabled(False)
         self.move_up_action.triggered.connect(self.trigger_move_up)
-        self.page_action = QAction(_PAGE_DEFAULT_LABEL, parent)
+        set_sheet_name(self.move_up_action, _MOVE_UP_LABEL)
+        self.page_action = QAction(icons.icon("separator-horizontal"),
+                                   _PAGE_DEFAULT_LABEL, parent)
         self.page_action.setShortcut(QKeySequence(PAGE_SHORTCUT))
         self.page_action.setEnabled(False)
         self.page_action.triggered.connect(self.trigger_page)
+        set_sheet_name(self.page_action, _PAGE_DEFAULT_LABEL)
         app_state.selection_changed.connect(self.sync)
 
     @property

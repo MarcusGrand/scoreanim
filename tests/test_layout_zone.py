@@ -109,6 +109,20 @@ def test_a_button_mirrors_its_action_without_any_sync_of_its_own(
     assert page_button.statusTip() == ""
 
 
+def test_a_button_is_an_icon_whose_tooltip_renames_itself(window) -> None:
+    """A2: the three buttons lost their long labels, so the label the
+    action renames itself to has to reach the user as the tooltip."""
+    page_button = window.layout_zone.buttons[2]
+    assert page_button.toolButtonStyle() \
+        == Qt.ToolButtonStyle.ToolButtonIconOnly
+    for button in window.layout_zone.buttons:
+        assert not button.icon().isNull()
+    assert page_button.toolTip() == "Toggle Page Break Here"
+
+    _barline_in(window, 2)
+    assert page_button.toolTip() == "Force Page Break Here"
+
+
 def test_a_button_runs_the_same_command_the_menu_item_does(window) -> None:
     from scoreanim.core.project import PageBreak
 
@@ -139,13 +153,13 @@ def test_a_stored_layout_predating_the_zone_still_places_it(qapp, tmp_path):
     settings = QSettings(str(tmp_path / "ui.ini"), QSettings.Format.IniFormat)
     old = MainWindow(settings=settings)
     old.removeDockWidget(old.layout_zone)          # a store without it
-    save_window_state(old, old.inspector.sections, settings)
+    save_window_state(old, old.inspector, settings)
     stored = settings.value(_DOCK_STATE)
     assert stored is not None
     assert b"LayoutZone" not in bytes(stored)
 
     fresh = MainWindow(settings=settings)          # restores in __init__
-    restore_window_state(fresh, fresh.inspector.sections, settings)
+    restore_window_state(fresh, fresh.inspector, settings)
     assert fresh.dockWidgetArea(fresh.layout_zone) \
         == Qt.DockWidgetArea.LeftDockWidgetArea
     assert not fresh.layout_zone.isHidden()
@@ -171,12 +185,12 @@ def test_the_zone_round_trips_through_the_existing_persistence(qapp,
     settings = QSettings(str(tmp_path / "ui.ini"), QSettings.Format.IniFormat)
     first = MainWindow(settings=settings)
     first.layout_zone.hide()                            # what the toggle does
-    save_window_state(first, first.inspector.sections, settings)
+    save_window_state(first, first.inspector, settings)
 
     second = MainWindow(settings=settings)              # restores in __init__
     assert second.layout_zone.isHidden()
     second.layout_zone.show()
-    save_window_state(second, second.inspector.sections, settings)
+    save_window_state(second, second.inspector, settings)
 
     third = MainWindow(settings=settings)
     assert not third.layout_zone.isHidden()

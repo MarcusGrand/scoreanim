@@ -45,13 +45,14 @@ from scoreanim.core.timing.grid import EMPTY, GridTick, TickGrid
 from scoreanim.ui import lane_align_drag as drag_rules
 from scoreanim.ui.lane_style import (BOTTOM_PAD, GRID_TEXT, HIT_PX, LOCK,
                                      TOP_PAD)
+from scoreanim.ui.theme import palette
 
-_BAR = QColor("#5b6472")         # barline, brighter here than the host's
-_SUB = QColor("#3d424c")         # subdivision line
-_SUB_STRONG = QColor("#4b5563")  # subdivision on a whole beat
-_HANDLE = QColor("#7fb8e8")      # the line under the pointer, or dragging
-_SELECTED = QColor("#6fa8d0")    # the line the Tempo field is aimed at
-_BPM_TEXT = QColor("#6f7681")
+_BAR = QColor(palette.BAR_LINE)  # barline, brighter here than the host's
+_SUB = QColor(palette.SUB_LINE)         # subdivision line
+_SUB_STRONG = QColor(palette.SUB_LINE_STRONG)  # subdivision on a whole beat
+_HANDLE = QColor(palette.HANDLE)        # the line under the pointer
+_SELECTED = QColor(palette.HANDLE_SELECTED)  # the line Tempo is aimed at
+_BPM_TEXT = QColor(palette.DIM)
 
 _SUB_TOP = 0.42                  # subdivisions start this far down the lane
 _BPM_MIN_PX = 34.0               # about the text's own width: a narrower

@@ -28,10 +28,11 @@ from scoreanim.core.score.identity import Beats
 from scoreanim.core.timing import TempoMap
 from scoreanim.ui.lane_style import (BOTTOM_PAD, BPM_MAX, BPM_MIN, GRID_TEXT,
                                      HIT_PX, TOP_PAD)
+from scoreanim.ui.theme import palette
 
-_LINE = QColor("#c46a6a")
-_DOT = QColor("#e08585")
-_DOT_SELECTED = QColor("#ffd27f")
+_LINE = QColor(palette.TEMPO_LINE)
+_DOT = QColor(palette.TEMPO_DOT)
+_DOT_SELECTED = QColor(palette.ACCENT)
 
 _SNAP_BEATS = 0.5                # drag/add snap (Alt = free)
 _MIN_GAP_BEATS = 0.25            # events may not collide while dragging

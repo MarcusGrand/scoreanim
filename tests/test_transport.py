@@ -1,6 +1,7 @@
 """TransportStrip / LowerZone (M1.3), offscreen: the controller wiring
 that moved out of the window — slider seeks, time feedback, play-text
-flip — behaves exactly as the alpha window did.
+flip — behaves exactly as the alpha window did, plus the Systems
+toggle C2 brought over from the inspector.
 
 The strip is exercised against a fake controller QObject (real signals,
 recorded calls); the zone against a real AppState (its lanes observe
@@ -16,8 +17,10 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QObject, Qt, Signal  # noqa: E402
-from PySide6.QtWidgets import QApplication, QDockWidget  # noqa: E402
+from PySide6.QtWidgets import (QApplication, QDockWidget,  # noqa: E402
+                               QToolButton)
 
+from scoreanim.core.project import PresentationMode  # noqa: E402
 from scoreanim.ui.app_state import AppState  # noqa: E402
 from scoreanim.ui.transport import LowerZone, TransportStrip  # noqa: E402
 
@@ -45,8 +48,18 @@ def qapp():
 
 @pytest.fixture
 def strip(qapp):
+    state = AppState()
     playback = FakePlayback()
-    return TransportStrip(AppState(), playback), playback
+    return TransportStrip(state, playback), playback
+
+
+@pytest.fixture
+def toggles(qapp):
+    """The strip over a real AppState, for the Systems toggle — the one
+    control here that is a document command."""
+    state = AppState()
+    playback = FakePlayback()
+    return TransportStrip(state, playback), state, playback
 
 
 def test_play_action_drives_controller(strip) -> None:
@@ -82,12 +95,82 @@ def test_drag_and_keyboard_step_seek(strip) -> None:
     assert playback.seeks == [2.5, 4.0]
 
 
-def test_playing_flips_the_play_text(strip) -> None:
+def test_playing_flips_the_play_text_and_icon(strip) -> None:
     widget, playback = strip
+    play_icon = widget.play_action.icon().cacheKey()
     playback.playing_changed.emit(True)
-    assert widget.play_action.text() == "⏸ Pause"
+    assert widget.play_action.text() == "Pause"
+    assert widget.play_action.icon().cacheKey() != play_icon
     playback.playing_changed.emit(False)
-    assert widget.play_action.text() == "▶ Play"
+    assert widget.play_action.text() == "Play"
+    assert widget.play_action.icon().cacheKey() == play_icon
+
+
+def test_the_play_button_is_an_icon_with_a_tooltip(strip) -> None:
+    """No "▶ Play" text on the strip any more (A2): the button is the
+    icon, and the tooltip names both halves of the toggle and its key."""
+    widget, _ = strip
+    assert not widget.play_action.icon().isNull()
+    assert widget.play_action.toolTip() == "Play / Pause (Space)"
+    button = widget.findChild(QToolButton)
+    assert button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
+
+
+def test_systems_sits_after_the_time_readout(strip) -> None:
+    """C2: play, the slider, the readout, then what the stage shows —
+    and C4's lane gear last of all, at the right edge."""
+    widget, _ = strip
+    row = widget.layout()
+    order = [row.itemAt(i).widget() for i in range(row.count())]
+    buttons = [w for w in order if isinstance(w, QToolButton)]
+    assert [b.defaultAction() for b in buttons] \
+        == [widget.play_action, widget.systems_action, None]
+    assert buttons[-1] is widget.lane_options
+    assert order.index(widget._time_label) < order.index(buttons[1])
+    assert widget.systems_action.isCheckable()
+    assert not widget.systems_action.icon().isNull()
+    assert widget.systems_action.toolTip() != widget.systems_action.text()
+
+
+def test_the_lane_gear_is_the_only_view_state_on_the_strip(strip) -> None:
+    """C4: the lane's view options are a menu on the lanes' own header,
+    and opening one never touches the document."""
+    widget, _ = strip
+    gear = widget.lane_options
+    assert gear.menu() is gear.menu_widget
+    assert not gear.icon().isNull()
+    assert gear.menu_widget.actions()          # lane, grid, flatten
+
+
+def test_there_is_no_follow_toggle(strip) -> None:
+    """Ruling 2026-08-29: playing music always shows the music, so
+    there is nothing to switch off."""
+    widget, _ = strip
+    assert not hasattr(widget, "follow_action")
+
+
+def test_systems_is_one_undoable_command(toggles) -> None:
+    widget, state, _ = toggles
+    assert not widget.systems_action.isChecked()
+    widget.systems_action.setChecked(True)
+    assert state.doc.stage.mode is PresentationMode.SYSTEM
+    state.undo()
+    assert state.doc.stage.mode is PresentationMode.PAGED
+
+
+def test_systems_resyncs_without_reexecuting(toggles) -> None:
+    """Undo, redo and project load all arrive through the window's
+    resync; a resync pushes the mode onto the button and stops there."""
+    widget, state, _ = toggles
+    widget.systems_action.setChecked(True)
+    state.undo()                                 # button is now stale
+    widget.sync_from_document(state.doc)
+    assert not widget.systems_action.isChecked()
+    assert state.can_redo                        # the resync ran no command
+    state.redo()
+    widget.sync_from_document(state.doc)
+    assert widget.systems_action.isChecked()
+    assert not state.can_redo
 
 
 def test_lower_zone_is_a_fixed_bottom_dock(qapp) -> None:

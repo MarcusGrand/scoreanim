@@ -59,7 +59,6 @@ class PlaybackController(QObject):
         # the decoded recording the volume response reads; None until a
         # file has been decoded, and cleared when the audio goes away
         self._peaks: PeakCache | None = None
-        self._follow = True
         self._last_page = 1
         self._last_system = 1
 
@@ -146,9 +145,6 @@ class PlaybackController(QObject):
         if not self.transport.has_media():
             self.duration_changed.emit(self._score_duration())
 
-    def set_follow(self, follow: bool) -> None:
-        self._follow = follow
-
     def set_style(self, style) -> None:
         """Forward the document's StyleRules (per-element effects +
         reveal mode) to the applier; the applier no-ops on unchanged
@@ -222,20 +218,24 @@ class PlaybackController(QObject):
         self.time_changed.emit(t_audio, self._duration())
 
     def _follow_position(self) -> None:
-        """Emit page/system changes off the applier's cursor. The
+        """Emit page/system changes off the applier's cursor.
+
+        Not optional (ruling 2026-08-29): playing music always shows
+        the music. There is no follow flag to consult — the stage goes
+        where the playhead is, and the only reason nothing is emitted
+        is that the cursor has not left the unit it was on. The
         controller stays document-agnostic: it reports both; the window
-        routes by the document's presentation mode."""
+        routes by the document's presentation mode.
+        """
         assert self._applier is not None
         page = self._applier.current_page()
         if page != self._last_page:
             self._last_page = page
-            if self._follow:
-                self.page_changed.emit(page)
+            self.page_changed.emit(page)
         system = self._applier.current_system()
         if system != self._last_system:
             self._last_system = system
-            if self._follow:
-                self.system_changed.emit(system)
+            self.system_changed.emit(system)
 
     def _set_playing(self, playing: bool) -> None:
         """Start/stop the tick loop and report the state. Driven by the
@@ -246,6 +246,13 @@ class PlaybackController(QObject):
             self._tick_ms.clear()
             self._changed.clear()
             self._stats_wall = time.perf_counter()
+            # Pressing play snaps the stage back to the music. Paging
+            # around while paused is browsing; the cursor may not cross
+            # a boundary for a while, and without this the stage would
+            # sit on the page the user wandered to (ruling 2026-08-29).
+            if self._applier is not None:
+                self._last_page = self._last_system = 0    # force the emit
+                self._follow_position()
             self._timer.start()
         else:
             self._timer.stop()

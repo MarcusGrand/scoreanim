@@ -105,6 +105,10 @@ class BreakOverridesList(QWidget):
         line.setContentsMargins(0, 0, 0, 0)
         line.setSpacing(4)
         label = QLabel(self.describe(ordinal, is_page, mode))
+        # wraps rather than clips: the dock is narrow, and a row that
+        # cut its own text in half would be a readout you cannot read
+        label.setWordWrap(True)
+        label.setToolTip(label.text())
         label.setSizePolicy(QSizePolicy.Policy.Expanding,
                             QSizePolicy.Policy.Preferred)
         line.addWidget(label)

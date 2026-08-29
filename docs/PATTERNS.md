@@ -240,6 +240,32 @@ says so rather than staying silent: `Check.forced_by` makes
 everything downstream of it (the duration that grays out) follows for
 free. The document is never written to — core stays the one authority.
 
+**One theme, one place for a colour** — `ui/theme/palette.py` names
+every colour the chrome uses; `ui/theme/theme.py` turns them into the
+Fusion style, a QPalette and one app-wide QSS string, applied once in
+`app.py` before any window exists. A widget never sets a colour on
+itself: a painting view (waveform, lanes, stage letterbox) imports the
+token, and anything QSS can reach is styled by class or by object name
+(`SectionHeader`, `ZoneHeading`). A new colour = a new name in
+`palette.py`. The one exception is a colour the DOCUMENT owns — page
+ink, a part colour, a style swatch — which comes from the document, not
+from the theme.
+
+**One icon, every state it needs** — `ui/theme/icons.py` vendors Lucide
+SVGs and returns a QIcon that already carries all three looks: text
+colour off, accent on (a checked action), dim disabled. Tinting works
+because a Lucide file paints itself in `currentColor`, which we swap for
+a token before Qt sees the file — so a caller never picks a colour and
+nobody ships a second file for a second state. The QIcon holds a pixmap
+rendered at each size the app asks for at 1x AND 2x (`TOOLBAR_SIZE`,
+`BUTTON_SIZE`), because a stroke drawing goes soft the moment Qt
+resamples it. Give the ICON to the shared QAction, not to the button:
+the menu item and every button then pick it up, and a flip (play →
+pause) is one `setIcon` on the action. An icon-only button has no label,
+so the tooltip carries the name — and for an action that renames itself
+(the break toggles) the tooltip follows the rename for free, as long as
+nothing calls `setToolTip` on it.
+
 **Two hit paths, on purpose** — selection resolves rule-13 OBJECTS;
 double-click-to-edit has its own resolver that also reaches stage
 texts. Stage texts are editable but never selectable (they carry no
@@ -320,3 +346,15 @@ measure/part). Do not merge the paths.
 - **git via the Cowork device bridge leaves stale `.git/index.lock`**
   (it cannot unlink); if a commit is blocked, remove the lock in a
   native terminal.
+- **A `QScrollArea` with `widgetResizable` squeezes its content past
+  the content's own minimum**, and Qt then cuts the text inside — with
+  the horizontal bar switched off there is not even a way to scroll to
+  what was cut. A widget's minimum stops the layout AROUND it, not the
+  scroll area that owns it. Hand the minimum back up:
+  `panel_style.lock_min_width(scroller, body)`, called once the dock's
+  body is built.
+- **A panel that hides rows must measure itself while it is whole.** A
+  preset's block of options hides when nothing is using it, so a
+  minimum width taken after the first resync is the minimum of whatever
+  happens to be showing. `EffectsPanel` takes its width before the
+  first `sync_from_document`, when every row is still on screen.

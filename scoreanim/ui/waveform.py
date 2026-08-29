@@ -14,13 +14,14 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from scoreanim.core.audio import column_extents
 from scoreanim.ui.app_state import AppState, apply_wheel
+from scoreanim.ui.theme import palette
 
-_BG = QColor("#1d1f24")
-_PEAK = QColor("#4f7fb5")
-_RMS = QColor("#7fa8d4")
-_MIDLINE = QColor("#33363d")
-_PLAYHEAD = QColor("#e8b34a")
-_EMPTY_TEXT = QColor("#6a6d75")     # no-audio hint (FIX 2)
+_BG = QColor(palette.INSET)
+_PEAK = QColor(palette.WAVEFORM)
+_RMS = QColor(palette.WAVEFORM_SOFT)
+_MIDLINE = QColor(palette.GRID)
+_PLAYHEAD = QColor(palette.PLAYHEAD)
+_EMPTY_TEXT = QColor(palette.DIM)   # no-audio hint (FIX 2)
 
 
 class WaveformView(QWidget):

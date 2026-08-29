@@ -8,13 +8,15 @@ from __future__ import annotations
 
 from PySide6.QtGui import QColor
 
-BG = QColor("#1d1f24")
-GRID = QColor("#33363d")
-GRID_TEXT = QColor("#8a8f99")
-PLAYHEAD = QColor("#e8b34a")
+from scoreanim.ui.theme import palette
+
+BG = QColor(palette.INSET)
+GRID = QColor(palette.GRID)
+GRID_TEXT = QColor(palette.DIM)
+PLAYHEAD = QColor(palette.PLAYHEAD)
 # a locked grid line: warmer and stronger than the playhead's
 # amber, which it sits next to
-LOCK = QColor("#f2761f")
+LOCK = QColor(palette.LOCK)
 
 TOP_PAD = 16                     # measure-number strip
 BOTTOM_PAD = 6

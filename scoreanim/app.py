@@ -11,8 +11,10 @@ def main() -> int:
 
     from scoreanim.render.fonts import register_bravura
     from scoreanim.ui.main_window import MainWindow
+    from scoreanim.ui.theme import apply_theme
 
     app = QApplication(sys.argv)
+    apply_theme(app)          # before any window exists, so it is born dark
     if not register_bravura():
         print("note: Bravura text font unavailable — the metronome-note "
               "glyph falls back to tofu (BACKLOG item 3)", file=sys.stderr)

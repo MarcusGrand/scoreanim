@@ -1465,14 +1465,32 @@ an element the selection's own orange still sees it selected via the
 
 Since M1 Shell (2026-07-24) the window is a composition root, not a
 widget owner: the stage alone is central, the transport strip + lanes
-live in a bottom-dock lower zone (`ui/transport.py`), the collapsible
-inspector is a right dock (`ui/inspector.py`), and static chrome, the
-dynamic Score menu, the load pipeline, document→scene diff-sync, and
+live in a bottom-dock lower zone (`ui/transport.py`), the
+inspector is a right dock of three tabs — Animate, Stage, Selection
+(`ui/inspector.py`, C1) — and static chrome, the dynamic Score menu, the load pipeline, document→scene diff-sync, and
 file/project handlers are components (`ui/menus.py`, `ui/parts_menu.py`,
 `ui/score_loader.py`, `ui/document_sync.py`, `ui/file_actions.py`) that
 receive AppState (plus the playback controller where needed) and never
-reach into each other. `ui/live_field.py` is the same kind of small
-shared piece on the input side: it wires a spinbox to AppState's
+reach into each other. The strip owns two QActions of its own: Play,
+shared with the Playback menu so button and menu item cannot diverge,
+and Systems (C2), which runs a `SetPresentationMode` command the strip
+resyncs from the document. There is deliberately no third: **following
+the playhead is not an option** (ruling 2026-08-29). Playing music
+always shows the music, so `ui/playback.py` emits the position
+unconditionally and pressing play snaps the stage back to the cursor —
+paging around while paused is browsing, and play ends it.
+
+The lower zone splits its controls by what they change (C4). The strip
+is the lanes' header, so the lane's view options — which lane, which
+grid lines, Flatten — sit at its right edge behind one gear
+(`ui/lane_menu.py`); they set `AppState.grid`, so nothing there is
+undoable or saved (rule 5). The bar under the lanes
+(`ui/timeline_bar.py`) then holds document timing alone: Tempo, Offset
+and Swing under one "Timing" label, three live fields and nothing
+else.
+
+`ui/live_field.py` is the same kind of small shared piece on the input
+side: it wires a spinbox to AppState's
 preview/commit pair, so every number field previews as you type and a
 typing session lands as one undo entry (PATTERNS, "A number field
 previews as you type"). M3.0 (BACKLOG 9b) finished the job before adding
@@ -1482,10 +1500,15 @@ load like `DocumentSync`, and driving the chrome through
 `MainMenus.set_position` rather than reaching for its widgets; the
 part-shaped dialogs moved to `ui/parts_menu.py`, which is already handed
 the parts on every load, and the Texts… dialog to `ui/text_edit.py`,
-which owns the engraved layout it reads. QSettings (`ui/window_state.py`) persists window
-geometry, dock layout, and section expansion — UI state only, saved on
-accepted close; nothing document-derived enters it and nothing of it
-enters the document (rule 5).
+which owns the engraved layout it reads. QSettings
+(`ui/window_state.py`) persists window geometry, dock layout, which
+inspector tab is showing (by key, never by index) and its section
+expansion — UI state only, saved on accepted close; nothing
+document-derived enters it and nothing of it enters the document
+(rule 5). `ui/recents.py` rides the same store with
+the Open Recent list (last 8 scores and projects, written by every
+successful open), and the same rule holds: a remembered path is where a
+file was, never anything about the document inside it.
 
 **Break authoring has two surfaces and one implementation** (M5.4,
 M5.7, M6.5/M6.6). `ui/break_action.py` owns three QActions — the system
@@ -1497,7 +1520,7 @@ so does **`ui/layout_zone.py`**, a LEFT dock on the inspector's template
 (BACKLOG 17, built once three actions needed a home). Its buttons take
 those QAction objects as their `defaultAction`, so text, enabled state,
 status tip and trigger all come from ONE object and the two surfaces
-cannot diverge — the `follow_action` precedent, and the reason the zone
+cannot diverge — the `play_action` precedent, and the reason the zone
 syncs nothing of its own. The zone also hosts
 `ui/panels/break_overrides.py`, which lists both override maps in
 measure order with a per-entry clear; the clear needs no new command,

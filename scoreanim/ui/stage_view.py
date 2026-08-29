@@ -36,11 +36,12 @@ from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 from scoreanim.core.editing import COARSE_NUDGE, NUDGE_STEP
 from scoreanim.ui.stage_frame import StageFraming
 from scoreanim.ui.stage_scrollbars import TransientScrollbars
+from scoreanim.ui.theme import palette
 
-_LETTERBOX = QColor("#3a3a3a")
+_LETTERBOX = QColor(palette.WINDOW)
 # The canvas frame's own edge: light enough to read on the letterbox,
 # quiet enough not to read as part of the score.
-_FRAME_EDGE = QColor("#7a7a7a")
+_FRAME_EDGE = QColor(palette.DIM)
 # Arrow key → unit direction (M3.2). Page y grows downward, as in SVG.
 _ARROW_KEYS = {Qt.Key.Key_Left: (-1.0, 0.0), Qt.Key.Key_Right: (1.0, 0.0),
                Qt.Key.Key_Up: (0.0, -1.0), Qt.Key.Key_Down: (0.0, 1.0)}

@@ -83,9 +83,9 @@ class MainWindow(QMainWindow):
         self.lower_zone = LowerZone(self.app_state, self.playback, self)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
                            self.lower_zone)
-        # right-hand inspector (M1.4): Follow/Systems, floor + Sweep,
-        # Selection placeholder; resynced in _on_document_changed
-        self.inspector = Inspector(self.app_state, self.playback, self,
+        # right-hand inspector (M1.4, three tabs since C1): Animate,
+        # Stage, Selection; resynced in _on_document_changed
+        self.inspector = Inspector(self.app_state, self,
                                    settings=self._settings)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,
                            self.inspector)
@@ -104,7 +104,7 @@ class MainWindow(QMainWindow):
             lambda: self.playback.set_peaks(self.peaks.cache))
         # file/project/export menu handlers + file-session state (M1.9
         # split); connects peaks.failed itself
-        self.files = FileActions(self)
+        self.files = FileActions(self, settings=self._settings)
 
         self.playback.status_message.connect(
             lambda msg: self.statusBar().showMessage(msg))
@@ -217,7 +217,7 @@ class MainWindow(QMainWindow):
         # shell layout (M1.8): restore once docks + toolbar exist; a
         # fresh store yields the first-run default size. UI state only —
         # nothing document-derived lives in the settings (rule 5).
-        restore_window_state(self, self.inspector.sections, self._settings)
+        restore_window_state(self, self.inspector, self._settings)
 
         if score_path is not None:
             self.files.open_score(score_path)
@@ -290,6 +290,7 @@ class MainWindow(QMainWindow):
         self.doc_sync.sync_hidden(doc)
         self.doc_sync.sync_offsets(doc)
         self.playback.set_style(doc.style)
+        self.lower_zone.strip.sync_from_document(doc)   # Systems (C2)
         self.lower_zone.bar.sync_from_document(doc)
         self.inspector.sync_from_document(doc)
         # after the reschedule pass above, so both read the rebuilt
@@ -362,5 +363,5 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
         # accepted close only — a cancelled close saves nothing (M1.8)
-        save_window_state(self, self.inspector.sections, self._settings)
+        save_window_state(self, self.inspector, self._settings)
         event.accept()
