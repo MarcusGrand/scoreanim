@@ -98,8 +98,7 @@ class FileActions:
         """No waveform is a degraded view, never a blocker for playback."""
         self._window.app_state.set_peaks(None)
         self._window.playback.set_peaks(None)    # nor a volume response
-        self._window.statusBar().showMessage(
-            f"waveform unavailable: {message}")
+        self._window.hints.message(f"waveform unavailable: {message}")
 
     # -- tempo sidecar --------------------------------------------------------
 
@@ -122,7 +121,7 @@ class FileActions:
         self.tempo_path = path
         if w.app_state.execute(ImportTempoSetup(
                 setup.offset_seconds, setup.events, path.name)):
-            w.statusBar().showMessage(
+            w.hints.message(
                 f"tempo: {path.name} — offset {setup.offset_seconds:.2f}s, "
                 f"{len(setup.events)} event(s)")
 
@@ -227,8 +226,7 @@ class FileActions:
         write_project_file(self._window.app_state.committed,
                            self.project_path)
         self._window.app_state.mark_saved()
-        self._window.statusBar().showMessage(
-            f"saved {self.project_path.name}")
+        self._window.hints.message(f"saved {self.project_path.name}")
         return True
 
     def save_project_as(self) -> bool:

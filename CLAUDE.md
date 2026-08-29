@@ -191,7 +191,8 @@ scoreanim/
     selection/     # pure hit-priority policy, Selection context,
                    # highlight colors
     editing/       # pure edit policies: text_route · nudge · segments ·
-                   # breaks · page_breaks · break_coherence · deletion
+                   # breaks · page_breaks · break_coherence · deletion ·
+                   # stem_flip · hints (the hint bar's wording)
     project/       # document, serialization (schema version lives
                    # here), commands/ split by domain
   render/          # Qt only: Layout → QGraphicsItems, property
@@ -201,8 +202,8 @@ scoreanim/
                    # inspector + panels/ · selection · text_edit ·
                    # nudge · break_action · layout_zone · transport ·
                    # file_actions · score_loader · document_sync ·
-                   # window_state · recents · stage view, lanes,
-                   # playback, app_state, dialogs
+                   # window_state · recents · hint_bar · stage view,
+                   # lanes, playback, app_state, dialogs
   app.py
 tests/             # headless; tests/goldens/ pins fixture loads
                    # byte-for-byte

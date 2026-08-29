@@ -329,6 +329,14 @@ measure/part). Do not merge the paths.
   it destroys the system break too unless promoted/asserted.
 - **`QMainWindow.saveState` covers docks, not inner splitters** — lane
   splitters need their own persistence if wanted.
+- **An untimed `showMessage` buries the status bar's own widgets.** A
+  temporary message hides every non-permanent widget on the bar and
+  shows them again when it expires — so a message with no timeout never
+  expires, and the hint bar (D3) never comes back. Every status message
+  goes through `HintBar.message`, which supplies the timeout;
+  `tests/test_hint_bar.py` pins that nobody adds a bare call back. The
+  swap is also invisible on a window that was never shown: Qt only
+  hides a widget it can see, so a test of it has to `show()` first.
 - **A stage key must not become a window shortcut** if another widget
   already handles that key. Qt matches shortcuts BEFORE the key reaches
   the focused widget, so a window-level Delete silently eats the tempo

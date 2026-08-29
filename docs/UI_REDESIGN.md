@@ -379,6 +379,21 @@ stage claims the arrows while something nudgeable is selected.*
 > wording. Check: hints update on select/deselect; status messages (export
 > progress, re-engrave failures) still show and then give the hint back.
 
+*Built 2026-08-29. The wording is `core/editing/hints.py`, pure and
+next to the other status-tip modules (deletion, stem flip, breaks): one
+table of plain kind names, one phrase per gesture, at most three of
+them on the line. `ui/hint_bar.py` gathers the answers, each from the
+controller that owns that gesture, so the bar cannot offer a key the
+app would ignore — which is why a NOTE reads "Note · Tpts · m. 19 — F
+flips the stem" and not the brief's onset-line example: a notehead is a
+reveal anchor, so it has no onset line to drag. The measure is the
+PRINTED number. Two mechanisms behind it: the hint is a normal widget
+on the status bar, which Qt hides under a temporary message and shows
+again when the message expires — so every status message now goes
+through `HintBar.message`, which supplies the timeout an untimed
+`showMessage` never had — and the label elides its own text, so the
+window's minimum width does not depend on which note you clicked.*
+
 ### Phase E — front door and release readiness
 
 **E1 — welcome pane.**

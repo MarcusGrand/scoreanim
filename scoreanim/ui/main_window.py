@@ -38,6 +38,7 @@ from scoreanim.ui.delete_action import DeleteActionController
 from scoreanim.ui.stem_flip_action import StemFlipActionController
 from scoreanim.ui.document_sync import DocumentSync
 from scoreanim.ui.file_actions import FileActions
+from scoreanim.ui.hint_bar import HintBar
 from scoreanim.ui.inspector import Inspector
 from scoreanim.ui.layout_zone import LayoutZone
 from scoreanim.ui.menus import MainMenus
@@ -108,7 +109,7 @@ class MainWindow(QMainWindow):
         self.files = FileActions(self, settings=self._settings)
 
         self.playback.status_message.connect(
-            lambda msg: self.statusBar().showMessage(msg))
+            lambda msg: self.hints.message(msg))
         self.playback.time_changed.connect(self._on_time)
         # duration comes from the CONTROLLER, not the audio wrapper, so
         # no-audio playback (FIX 2) drives the same UI paths; play-state
@@ -119,7 +120,7 @@ class MainWindow(QMainWindow):
         self.app_state.seek_requested.connect(self.playback.seek)
         self.app_state.document_changed.connect(self._on_document_changed)
         self.app_state.status.connect(
-            lambda msg: self.statusBar().showMessage(msg))
+            lambda msg: self.hints.message(msg))
 
         # click-to-select (M2.3): the view detects the gesture, the
         # controller resolves it against the pure policy and owns the
@@ -174,6 +175,10 @@ class MainWindow(QMainWindow):
         # keyboard steps; the chrome registers these window-level and
         # the Playback menu shows them
         self.seek_keys = SeekKeys(self.playback, self)
+        # the status bar says what is selected and what can be done to
+        # it (D3); built after every controller it reads, and the one
+        # route for status messages from here on
+        self.hints = HintBar(self)
         self.layout_zone = LayoutZone(self.app_state,
                                       self.break_action.actions, self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea,
@@ -312,6 +317,9 @@ class MainWindow(QMainWindow):
         self.break_action.sync()      # overrides move the action's label
         self.delete_action.sync()     # a delete disables its own action
         self.stem_flip_action.sync()  # a flip re-engraves under its own tip
+        # last of the selection-facing syncs: the hint bar reads what
+        # the passes above just decided (D3)
+        self.hints.sync()
         self.router.sync_presentation_mode(doc.stage.mode)
         self.router.sync_canvas(doc.stage.canvas)
         undo_text = self.app_state.undo_text()

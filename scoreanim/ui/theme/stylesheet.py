@@ -92,6 +92,9 @@ QStatusBar {
     color: $DIM;
 }
 QStatusBar::item { border: 0px; }
+/* the hint (D3) rests at the bar's own tone — the palette calls DIM
+   the hint colour, and a transient message reads at the same weight */
+QStatusBar QLabel#HintBar { color: $DIM; }
 
 QDockWidget {
     background: $PANEL;
