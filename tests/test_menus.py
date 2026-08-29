@@ -1,9 +1,9 @@
-"""Static chrome (M1.5), offscreen: the five menus in order, the
-toolbar (the three openers, then the page steps and Fit), shared
-Play/Follow QActions in the Playback menu, dock toggles in View, and
-window-level shortcut registration — the structural half of the brief's
-click-through/shortcut-sweep verify (the interactive half is run by
-hand).
+"""Static chrome (M1.5, B1), offscreen: the five menus in order, every
+opener in File, the toolbar (the same three openers, then the page
+steps and Fit), shared Play/Follow QActions in the Playback menu, dock
+toggles in View, and window-level shortcut registration — the
+structural half of the brief's click-through/shortcut-sweep verify (the
+interactive half is run by hand).
 
 Menus are read via the refs MainMenus holds, never `QAction.menu()` —
 re-wrapping a menu and letting the wrapper be garbage-collected can
@@ -53,9 +53,11 @@ def test_five_menus_in_roadmap_order(window) -> None:
 
 
 def test_file_and_edit_contents(window) -> None:
-    # Open Score… is on the toolbar, not in here (ruling 2026-07-30)
+    # every way of getting a file in lives here (B1); Open Recent is a
+    # submenu, so it shows up as its own title
     assert _texts(window.menus.file_menu) \
-        == ["Open Project…", "Save Project", "Save Project As…",
+        == ["Open Score…", "Open Project…", "Open Recent", "Open Audio…",
+            "Import Tempo…", "Save Project", "Save Project As…",
             "Export Video…"]
     assert _texts(window.menus.edit_menu) == ["Undo", "Redo", "Delete",
                                               "Flip Stem", "Texts…"]
@@ -79,14 +81,26 @@ def test_playback_menu_shares_the_component_actions(window) -> None:
     actions = window.menus.playback_menu.actions()
     assert actions[0] is window.lower_zone.strip.play_action
     assert actions[1] is window.inspector.follow_action
-    # the two openers moved to the toolbar; Reload Tempo stayed
+    # the two openers moved to File (B1); Reload Tempo stayed
     assert _texts(window.menus.playback_menu) \
         == ["Play", "Follow", "Reload Tempo"]
 
 
+def test_toolbar_shares_the_openers_with_the_file_menu(window) -> None:
+    """The three things you do first are in the window as well as in
+    the menu — and as ONE action each, so their state cannot diverge."""
+    in_file = {a.text(): a for a in window.menus.file_menu.actions()
+               if a.text()}
+    shared = [a for a in _toolbar(window).actions() if a.text() in in_file]
+    assert [a.text() for a in shared] == ["Open Score…", "Open Audio…",
+                                          "Import Tempo…"]
+    for action in shared:
+        assert action is in_file[action.text()], action.text()
+
+
 def test_toolbar_holds_the_openers(window) -> None:
-    """The three things you do first are in the window, not up in the
-    OS menu bar (ruling 2026-07-30)."""
+    """The three things you do first are in the window, not only up in
+    the OS menu bar (ruling 2026-07-30)."""
     # the page readout is a widget action, so it carries no text
     texts = [a.text() for a in _toolbar(window).actions() if a.text()]
     assert texts == ["Open Score…", "Open Audio…", "Import Tempo…",

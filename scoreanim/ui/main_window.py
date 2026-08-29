@@ -104,7 +104,7 @@ class MainWindow(QMainWindow):
             lambda: self.playback.set_peaks(self.peaks.cache))
         # file/project/export menu handlers + file-session state (M1.9
         # split); connects peaks.failed itself
-        self.files = FileActions(self)
+        self.files = FileActions(self, settings=self._settings)
 
         self.playback.status_message.connect(
             lambda msg: self.statusBar().showMessage(msg))

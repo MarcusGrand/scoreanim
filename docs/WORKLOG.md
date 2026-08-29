@@ -2,8 +2,8 @@
 
 **NOW:** the UI facelift is under way on branch `ui-redesign`, working
 through the phases in `docs/UI_REDESIGN.md`: A1 (one dark theme), A2
-(icons) and A3 (the panel finish pass) are on the branch and unmerged,
-awaiting Marcus's in-app check.
+(icons), A3 (the panel finish pass) and B1 (the File menu and recents)
+are on the branch and unmerged, awaiting Marcus's in-app check.
 Everything else is on `main` and pushed (no tag since
 `v0.2-beta.6`). On 2026-08-16, on Marcus's call after his in-app
 check, three branches merged in order: `beta/f-hide-parts` (the
@@ -58,6 +58,20 @@ at start and appends its line at close. Keep entries to one or two
 lines — history lives in git and `docs/history/`.
 
 ---
+
+- 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase B1): **File menu and
+  recents**. Every way of getting a file in is in File now — Open
+  Score, Open Project, Open Recent, Open Audio, Import Tempo — with
+  Open Audio and Import Tempo moved out of Playback, which keeps Play,
+  Follow and Reload Tempo. The three openers are still on the toolbar,
+  as the same QAction objects, so a button and its menu item cannot
+  disagree. New `ui/recents.py`: a QSettings-backed store (last 8
+  scores and projects, newest first, no duplicates) plus the submenu,
+  which refills itself every time it opens. Every successful open adds
+  its path; a picked entry goes to the score or the project opener by
+  its suffix, and one whose file has gone says so and drops off the
+  list. New `tests/test_recents.py` (14) covers the ordering rule, the
+  store, the submenu and the open-close-reopen round trip. UNMERGED.
 
 - 2026-08-29 — `ui-redesign`: **section seams**. With several
   inspector sections open they ran together, so the header band now

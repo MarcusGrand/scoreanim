@@ -16,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from scoreanim.core.engraving.types import EngravingParams
@@ -25,14 +26,21 @@ from scoreanim.core.project import (SUFFIX, FileRef, ImportTempoSetup,
 from scoreanim.core.project import save_project as write_project_file
 from scoreanim.core.timing import parse_tempo_file, resolve_seconds
 from scoreanim.ui.export_dialog import ExportDialog
+from scoreanim.ui.recents import RecentFiles
+from scoreanim.ui.window_state import default_settings
 
 if TYPE_CHECKING:
     from scoreanim.ui.main_window import MainWindow
 
 
 class FileActions:
-    def __init__(self, window: MainWindow) -> None:
+    def __init__(self, window: MainWindow,
+                 settings: QSettings | None = None) -> None:
         self._window = window
+        # the Open Recent list: UI state in the same store as the shell
+        # layout, filled by every successful open below
+        self.recents = RecentFiles(settings if settings is not None
+                                   else default_settings())
         self.score_name: str | None = None
         self.project_path: Path | None = None
         self.tempo_path: Path | None = None
@@ -54,6 +62,20 @@ class FileActions:
             f"ScoreAnim projects (*{SUFFIX});;All files (*)")
         if name:
             self.open_project(Path(name))
+
+    def open_recent(self, path: Path) -> None:
+        """One Open Recent entry, either kind — the suffix says which
+        opener it wants. An entry whose file has gone says so once and
+        drops off the list."""
+        if not path.exists():
+            QMessageBox.warning(self._window, "Open Recent",
+                                f"{path.name}: file no longer there")
+            self.recents.remove(path)
+            return
+        if path.suffix == SUFFIX:
+            self.open_project(path)
+        else:
+            self.open_score(path)
 
     def open_audio_dialog(self) -> None:
         name, _ = QFileDialog.getOpenFileName(
@@ -129,6 +151,7 @@ class FileActions:
         w.app_state.reset_document(doc)      # → _on_document_changed
         w.router.show_current()
         w.view.fit()
+        self.recents.add(path)
         # No dialog on open: a score that needs staff-count reduction is
         # rescued by scale-to-fit and says so in the status line, and
         # Score Setup is a step the user takes when they want it
@@ -177,6 +200,7 @@ class FileActions:
         w.app_state.reset_document(doc)
         w.router.show_current()
         w.view.fit()
+        self.recents.add(path)
 
         if doc.audio is not None:
             audio_warning = check_ref(doc.audio)

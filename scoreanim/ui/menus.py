@@ -1,10 +1,11 @@
 """Static window chrome: the five menus, the toolbar, and the
 window-level shortcut registration (M1.5).
 
-The three openers — Open Score, Open Audio, Import Tempo — live on the
-in-window toolbar, not in the menus (ruling 2026-07-30): they are what
-you reach for first, and on macOS the menus are up at the top of the
-screen.
+Every way of getting a file in is in the File menu (B1) — Open Score,
+Open Project, Open Recent, Open Audio, Import Tempo — because that is
+where people look for them. The three openers are ALSO on the in-window
+toolbar, as the same QAction objects, since they are what you reach for
+first (ruling 2026-07-30).
 
 Menus are pure wiring — every handler lives on the window or on a
 component it owns; this module declares the chrome and holds the action
@@ -26,6 +27,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QLabel, QMenu
 
+from scoreanim.ui.recents import RecentsMenu
 from scoreanim.ui.theme import icons
 
 if TYPE_CHECKING:
@@ -39,8 +41,8 @@ class MainMenus:
     and `texts_action` (enabled once a score loads), `undo_action` and
     `redo_action` (text + enabled per document change), `prev_action`,
     `next_action`, and `page_label` (the page/system readout — stays
-    window-owned, next to the stage it describes), and `score_menu`
-    (repopulated per load).
+    window-owned, next to the stage it describes), `score_menu`
+    (repopulated per load), and `recents_menu` (refilled on open).
 
     All five menus are kept as attributes on purpose: a QMenu whose
     last Python wrapper is garbage-collected can take its C++ object
@@ -58,6 +60,18 @@ class MainMenus:
         open_project = QAction("Open Project…", window)
         open_project.setShortcut("Ctrl+Shift+O")
         open_project.triggered.connect(window.files.open_project_dialog)
+
+        open_audio = QAction(icons.icon("audio-lines"), "Open Audio…",
+                             window)
+        open_audio.triggered.connect(window.files.open_audio_dialog)
+        open_tempo = QAction(icons.icon("timer"), "Import Tempo…", window)
+        open_tempo.triggered.connect(window.files.open_tempo_dialog)
+
+        # last 8 scores and projects; the submenu refills itself from
+        # the store each time it opens, so an open in this session shows
+        # up without anyone telling the menu
+        self.recents_menu = RecentsMenu(window.files.recents,
+                                        window.files.open_recent, window)
 
         save = QAction("Save Project", window)
         save.setShortcut(QKeySequence.StandardKey.Save)
@@ -108,11 +122,6 @@ class MainMenus:
         self.page_label = QLabel("–/–")
 
         # -- Playback --------------------------------------------------------
-        open_audio = QAction(icons.icon("audio-lines"), "Open Audio…",
-                             window)
-        open_audio.triggered.connect(window.files.open_audio_dialog)
-        open_tempo = QAction(icons.icon("timer"), "Import Tempo…", window)
-        open_tempo.triggered.connect(window.files.open_tempo_dialog)
         reload_tempo = QAction("Reload Tempo", window)
         reload_tempo.setShortcut("F5")
         reload_tempo.triggered.connect(window.files.reload_tempo)
@@ -122,7 +131,12 @@ class MainMenus:
         menubar = window.menuBar()
 
         self.file_menu = menubar.addMenu("&File")
+        self.file_menu.addAction(open_score)
         self.file_menu.addAction(open_project)
+        self.file_menu.addMenu(self.recents_menu)
+        self.file_menu.addSeparator()
+        self.file_menu.addAction(open_audio)
+        self.file_menu.addAction(open_tempo)
         self.file_menu.addSeparator()
         self.file_menu.addAction(save)
         self.file_menu.addAction(save_as)
@@ -153,6 +167,8 @@ class MainMenus:
         self.score_menu = QMenu("&Score", window)
         menubar.addMenu(self.score_menu)
 
+        # Open Audio and Import Tempo moved to File (B1); Playback is
+        # Play, Follow and Reload Tempo
         self.playback_menu = menubar.addMenu("&Playback")
         self.playback_menu.addAction(strip.play_action)
         self.playback_menu.addAction(window.inspector.follow_action)
@@ -160,8 +176,9 @@ class MainMenus:
         self.playback_menu.addAction(reload_tempo)
 
         # -- toolbar: the three openers · pager · Fit -----------------------
-        # The openers are the first thing you do with the app, so they sit
-        # in the window rather than in the OS menu bar (ruling 2026-07-30).
+        # The same three QAction objects the File menu holds — one action
+        # per command, so the toolbar button and the menu item can never
+        # disagree about its state.
         toolbar = window.addToolBar("Main")
         toolbar.setObjectName("MainToolbar")   # saveState identity (M1.8)
         toolbar.setMovable(False)

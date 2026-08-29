@@ -1485,7 +1485,10 @@ the parts on every load, and the Texts… dialog to `ui/text_edit.py`,
 which owns the engraved layout it reads. QSettings (`ui/window_state.py`) persists window
 geometry, dock layout, and section expansion — UI state only, saved on
 accepted close; nothing document-derived enters it and nothing of it
-enters the document (rule 5).
+enters the document (rule 5). `ui/recents.py` rides the same store with
+the Open Recent list (last 8 scores and projects, written by every
+successful open), and the same rule holds: a remembered path is where a
+file was, never anything about the document inside it.
 
 **Break authoring has two surfaces and one implementation** (M5.4,
 M5.7, M6.5/M6.6). `ui/break_action.py` owns three QActions — the system
