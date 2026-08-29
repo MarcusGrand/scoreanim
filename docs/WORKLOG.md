@@ -1,10 +1,13 @@
 # ScoreAnim — Worklog
 
-**NOW:** the UI facelift is under way on branch `ui-redesign`, working
-through the phases in `docs/UI_REDESIGN.md`: A1 (one dark theme), A2
-(icons), A3 (the panel finish pass) and B1 (the File menu and recents)
-are on the branch and unmerged, awaiting Marcus's in-app check.
-Everything else is on `main` and pushed (no tag since
+**NOW:** the UI facelift's phases A and B and C are **merged to
+`main`** (2026-08-29, on Marcus's call): A1 one dark theme, A2 icons,
+A3 the panel finish pass, B1 the File menu and recents, B2 the
+toolbar with Export, B3 the Help menu, C1 the three inspector tabs,
+C2 Systems on the transport strip, C3 the Selection tab fronting on
+select, C4 the timeline bar split. Phase D (transport cluster, stage
+overlay controls, hint bar) and the rest of `docs/UI_REDESIGN.md` are
+still to do. `main` is unpushed at the merge (no tag since
 `v0.2-beta.6`). On 2026-08-16, on Marcus's call after his in-app
 check, three branches merged in order: `beta/f-hide-parts` (the
 Staves menu, per-system hides, the region-fill hide fix),
@@ -1205,3 +1208,4 @@ lines — history lives in git and `docs/history/`.
   `v0.1-alpha`.
 - 2026-08-29 — C3: the Inspector follows the selection. Picking something on the stage brings the Selection tab to the front and remembers the tab you were on; clearing puts it back, unless you chose a tab yourself while the selection was up, in which case yours stands and no flip back happens. The rule is a pure state machine in `ui/tab_focus.py` (9 headless tests) and the dock only reports the two events to it — a tab switch it makes itself is flagged so it cannot read back as the user's choice. The empty state now says "Nothing selected — click a note on the stage." Full suite 2242 green. Awaiting Marcus's in-app check with A1–A3, B1–B3, C1, C2.
 - 2026-08-29 — C4: the bottom bar splits by what a control changes. The lane's three view options (which lane, which grid step, Flatten) moved up to a gear at the right edge of the transport strip — that row is the lanes' header — as `ui/lane_menu.py`, a popup menu that sets `AppState.grid` and so is still nothing the document hears about. The bar under the lanes now holds document timing alone, under a "Timing" heading: Tempo, Offset, Swing, still three live fields, still one undo entry per typing session. Flatten dropped its inverted "Keep shape" wording and is a plain checkable item. Lucide `settings` vendored. Group labels in the menu are disabled items, not `QMenu.addSection` — the app stylesheet paints a section as a bare line and ate the words. 9 new headless tests; full suite 2249 green. Awaiting Marcus's in-app check with A1–A3, B1–B3, C1–C3.
+- 2026-08-29 — **`ui-redesign` merged to `main`** on Marcus's call: phases A1–A3, B1–B3 and C1–C4 of `docs/UI_REDESIGN.md`, 14 commits, a `--no-ff` merge onto a `main` that had not moved, so the merged tree is byte-identical to the branch tip that tested green. Full suite 2249 green on `main` after the merge. Phase D (transport cluster, stage overlay controls, hint bar) is next; `main` is unpushed and untagged.
