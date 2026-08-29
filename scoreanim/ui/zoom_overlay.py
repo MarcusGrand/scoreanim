@@ -28,7 +28,11 @@ from scoreanim.ui.theme import fonts, icons
 # gesture you repeat without thinking; a button you click deliberately
 # wants to get somewhere in fewer goes.
 ZOOM_STEP = 1.25
-_MARGIN = 12         # gap from the stage's corner, in device pixels
+# Gap from the stage's corner, in device pixels. Far enough in to clear
+# the scroll indicators at their widest, plus the band they take a press
+# in — a control that covered the bottom of the vertical bar would make
+# a stretch of it un-grabbable.
+_MARGIN = 20
 # The floor under the readout's width, so a step from 100% to 95% does
 # not shuffle the buttons sideways. A floor, not a cap: a deep zoom
 # reads four digits and the box simply grows, then re-places itself.

@@ -19,7 +19,9 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt  # noqa: E402
 from PySide6.QtGui import QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication, QGraphicsScene  # noqa: E402
 
-from scoreanim.ui.stage_scrollbars import HORIZONTAL, VERTICAL  # noqa: E402
+from scoreanim.ui.stage_scrollbars import (  # noqa: E402
+    _FILL, _FILL_HELD, _FILL_READY, _GRAB, _READY_THICKNESS, _THICKNESS,
+    HORIZONTAL, VERTICAL)
 from scoreanim.ui.stage_view import StageView  # noqa: E402
 
 
@@ -67,6 +69,11 @@ def _move(view, pos: QPointF, held: bool = True) -> None:
     view.mouseMoveEvent(QMouseEvent(
         QEvent.Type.MouseMove, pos, Qt.MouseButton.NoButton, button,
         Qt.KeyboardModifier.NoModifier))
+
+
+def _thickness(bars, axis: str) -> float:
+    bar = bars._bar(axis)
+    return bar.width() if axis == VERTICAL else bar.height()
 
 
 def _release(view, pos: QPointF) -> None:
@@ -230,3 +237,85 @@ def test_letting_go_ends_the_drag(view):
     _release(view, spot)
     assert bars._drag is None
     assert not bars.drag(QPointF(spot.x(), spot.y() + 50.0))
+
+
+# -- saying whether it can be grabbed ------------------------------------
+
+def test_a_bar_out_of_reach_stays_thin(view):
+    bars = _bars(view)
+    bars.poke()
+    _move(view, QPointF(300.0, 250.0), held=False)
+    assert _thickness(bars, VERTICAL) == _THICKNESS
+    assert not bars._grabbable(VERTICAL)
+
+
+def test_a_bar_widens_once_the_pointer_can_grab_it(view):
+    bars = _bars(view)
+    bars.poke()
+    _move(view, _edge(view, VERTICAL, 200.0), held=False)
+    assert _thickness(bars, VERTICAL) == _READY_THICKNESS
+    assert bars._grabbable(VERTICAL)
+
+
+def test_the_bar_widens_inward_so_it_does_not_move_out_from_under_you(view):
+    """The outer edge holds still: the pointer that made it fatten is
+    still on it afterwards."""
+    bars = _bars(view)
+    bars.poke()
+    thin = bars._bar(VERTICAL)
+    _move(view, _edge(view, VERTICAL, 200.0), held=False)
+    wide = bars._bar(VERTICAL)
+    assert wide.right() == thin.right()
+    assert wide.left() < thin.left()
+
+
+def test_wide_means_grabbable_and_thin_means_not(view):
+    """The look is a promise, so it has to match what a press does at
+    every distance from the edge, not just the two obvious ones."""
+    bars = _bars(view)
+    rect = view.viewport().rect()
+    for offset in (2.0, 8.0, 14.0, 20.0, 40.0, 120.0):
+        bars.poke()
+        spot = QPointF(rect.right() - offset, 200.0)
+        _move(view, spot, held=False)
+        wide = _thickness(bars, VERTICAL) == _READY_THICKNESS
+        assert wide == bars.press(spot), offset
+        bars.release(spot)
+
+
+def test_the_reach_that_wakes_a_bar_is_wider_than_the_one_that_takes_it(view):
+    """The bar arrives first and fattens as the hand keeps coming."""
+    bars = _bars(view)
+    bars._set_opacity(0.0)
+    spot = QPointF(view.viewport().rect().right() - (_GRAB + 8.0), 200.0)
+    _move(view, spot, held=False)
+    assert bars._opacity == 1.0                    # it came up
+    assert _thickness(bars, VERTICAL) == _THICKNESS  # but is not promising
+
+
+def test_a_bar_in_the_hand_goes_light(view):
+    bars = _bars(view)
+    bars.poke()
+    handle = bars._bar(VERTICAL)
+    spot = _edge(view, VERTICAL, handle.center().y())
+    _move(view, spot, held=False)
+    assert bars._grabbable(VERTICAL) and not bars._held(VERTICAL)
+    _press(view, spot)
+    assert bars._held(VERTICAL)
+    # grabbable is the same dark bar, more solid; in the hand it is
+    # lighter, which no amount of black can be mistaken for
+    assert _FILL_READY.alpha() > _FILL.alpha()
+    assert _FILL_HELD.lightness() > _FILL_READY.lightness()
+    # and it stays wide while it is held, wherever the hand wanders
+    _move(view, QPointF(120.0, 400.0))
+    assert _thickness(bars, VERTICAL) == _READY_THICKNESS
+    _release(view, QPointF(120.0, 400.0))
+    assert _thickness(bars, VERTICAL) == _THICKNESS   # hand gone, bar rests
+
+
+def test_leaving_the_stage_puts_a_bar_back_to_resting(view):
+    bars = _bars(view)
+    bars.poke()
+    _move(view, _edge(view, VERTICAL, 200.0), held=False)
+    QApplication.sendEvent(view.viewport(), QEvent(QEvent.Type.Leave))
+    assert _thickness(bars, VERTICAL) == _THICKNESS

@@ -19,6 +19,12 @@ live on, they hold still while it is there, and a press anywhere along
 that edge scrolls — dragging the bar, or clicking the track to jump the
 bar to the pointer and carry on dragging.
 
+A bar says which of those it is up to. Resting it is thin and dark;
+close enough to grab it widens, which is a promise that a press right
+here will take it; in the hand it goes light. The wide look and the
+band `press` accepts are the same number, so the promise cannot come
+apart from what actually happens.
+
 The view owns the mouse gestures on the stage, so it offers each press,
 move and release here FIRST (`StageView.mousePressEvent`); everything
 this declines carries on to selection and nudging as before.
@@ -33,24 +39,34 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QPainter
 
+from scoreanim.ui.theme import palette
+
 _HOLD_MS = 700           # fully visible after the last gesture
 _FADE_MS = 250
-_THICKNESS = 6.0         # bar thickness in device pixels
 _MARGIN = 3.0            # gap from the viewport edge
 _MIN_LENGTH = 24.0       # a very deep zoom must still leave something to see
-# How close the pointer has to come to the edge a bar lives on. REACH
-# brings the bar up and holds it there; GRAB is the band a press counts
-# as landing on it. GRAB is wider than the bar on purpose — a 6 px
-# target is not one anybody can hit — but it stays inside the zoom
-# controls' own margin, so the two never argue over a click.
+# A bar has two widths, and the wide one is a promise: it means a press
+# right here takes the bar. So the reading band is worked out FROM the
+# wide bar rather than picked separately — the two cannot drift apart
+# and start lying to each other.
+_THICKNESS = 6.0         # resting, in device pixels
+_READY_THICKNESS = 11.0  # grabbable: the pointer is in reach of it
+_GRAB = _MARGIN + _READY_THICKNESS + 2.0
+# How close the pointer has to come before the bar shows itself at all.
+# Wider than the grab band on purpose: the bar arrives first, and then
+# fattens as the hand keeps coming.
 _REACH = 32.0
-_GRAB = 14.0
 # Dark translucent fill with a pale outline, so the bar reads both on the
-# white page and on the dark letterbox; the one under the pointer or in
-# the hand is the same bar, more solid.
+# white page and on the dark letterbox. Grabbable is the same bar, more
+# solid; in the hand it goes light instead, which no amount of black can
+# be mistaken for. The light fill needs a dark outline for the same
+# reason the dark one needs a pale one.
 _FILL = QColor(0, 0, 0, 110)
-_FILL_ACTIVE = QColor(0, 0, 0, 185)
+_FILL_READY = QColor(0, 0, 0, 165)
+_FILL_HELD = QColor(palette.DIM)
+_FILL_HELD.setAlpha(235)
 _EDGE = QColor(255, 255, 255, 70)
+_EDGE_HELD = QColor(0, 0, 0, 70)
 
 VERTICAL = "vertical"
 HORIZONTAL = "horizontal"
@@ -73,7 +89,7 @@ class TransientScrollbars(QObject):
     from its own `paintEvent`, and offers the mouse to `hover`, `press`,
     `drag`, `release` and `leave`. Bar geometry is read from the view's
     scrollbars every time it is needed, so there is no state to keep in
-    step — only the drag in progress is remembered.
+    step — only the drag in progress and how close the pointer is.
     """
 
     def __init__(self, view) -> None:
@@ -81,7 +97,8 @@ class TransientScrollbars(QObject):
         self._view = view
         self._opacity = 0.0
         self._drag: _Drag | None = None
-        self._reaching: str | None = None      # axis the pointer is at
+        self._reaching: str | None = None      # axis the pointer is near
+        self._ready: str | None = None         # axis it could grab now
         self._hold = QTimer(self)
         self._hold.setSingleShot(True)
         self._hold.timeout.connect(self._start_fade)
@@ -121,16 +138,20 @@ class TransientScrollbars(QObject):
 
     def hover(self, pos: QPointF) -> None:
         """The pointer moved with no button down. Reaching for the edge
-        a bar lives on brings that bar up and keeps it up."""
-        axis = self._axis_at(pos, _REACH)
-        self._reaching = axis
-        if axis is not None:
+        a bar lives on brings that bar up and keeps it up; coming close
+        enough to grab it widens it, which is how it says so."""
+        self._reaching = self._axis_at(pos, _REACH)
+        self._ready = self._axis_at(pos, _GRAB)
+        if self._reaching is not None:
             self.poke()
+        self._view.viewport().update()
 
     def leave(self) -> None:
         """The pointer left the stage: nothing is being reached for, so
-        the bars may fade on their own again."""
+        the bars go back to resting and may fade on their own again."""
         self._reaching = None
+        self._ready = None
+        self._view.viewport().update()
 
     def press(self, pos: QPointF) -> bool:
         """Take this press if it landed on a bar the user can see. On
@@ -170,29 +191,48 @@ class TransientScrollbars(QObject):
         self.poke()
         return True
 
-    def release(self) -> bool:
+    def release(self, pos: QPointF) -> bool:
         """Let go. True when there was a bar in the hand, so the view
-        knows this release was not a click on the score."""
+        knows this release was not a click on the score. The bar stays
+        wide only if the hand is still on it."""
         if self._drag is None:
             return False
         self._drag = None
+        self.hover(pos)
         self.poke()
         return True
 
     def paint(self, painter: QPainter) -> None:
-        """Overlay both bars, in viewport pixels. Cheap no-op when hidden."""
+        """Overlay both bars, in viewport pixels, each in the look its
+        own state has earned. Cheap no-op when hidden."""
         if self._opacity <= 0.0:
             return
-        active = self._drag.axis if self._drag is not None else self._reaching
         painter.setOpacity(self._opacity)
-        painter.setPen(_EDGE)
         for axis in (VERTICAL, HORIZONTAL):
             bar = self._bar(axis)
             if bar is None:
                 continue
-            painter.setBrush(_FILL_ACTIVE if axis == active else _FILL)
-            radius = _THICKNESS / 2.0
+            held = self._held(axis)
+            painter.setPen(_EDGE_HELD if held else _EDGE)
+            painter.setBrush(_FILL_HELD if held else
+                             _FILL_READY if self._grabbable(axis) else _FILL)
+            radius = self._thickness(axis) / 2.0
             painter.drawRoundedRect(bar, radius, radius)
+
+    # -- what state a bar is in --------------------------------------------
+
+    def _held(self, axis: str) -> bool:
+        """Is this bar in the hand right now?"""
+        return self._drag is not None and self._drag.axis == axis
+
+    def _grabbable(self, axis: str) -> bool:
+        """Would a press take this bar? This is what the wide look
+        promises, so the drawing and `press` read the same answer."""
+        return self._held(axis) or (self._opacity > 0.0
+                                    and self._ready == axis)
+
+    def _thickness(self, axis: str) -> float:
+        return _READY_THICKNESS if self._grabbable(axis) else _THICKNESS
 
     # -- geometry ----------------------------------------------------------
 
@@ -223,12 +263,15 @@ class TransientScrollbars(QObject):
         if span is None:
             return None
         offset, length = span
+        # it grows INWARD: the outer edge stays put, so a bar that
+        # fattens under the hand does not move out from under it
+        thickness = self._thickness(axis)
         if axis == VERTICAL:
-            return QRectF(rect.right() - _MARGIN - _THICKNESS,
-                          rect.top() + offset, _THICKNESS, length)
+            return QRectF(rect.right() - _MARGIN - thickness,
+                          rect.top() + offset, thickness, length)
         return QRectF(rect.left() + offset,
-                      rect.bottom() - _MARGIN - _THICKNESS,
-                      length, _THICKNESS)
+                      rect.bottom() - _MARGIN - thickness,
+                      length, thickness)
 
     def _axis_at(self, pos: QPointF, reach: float) -> str | None:
         """Which bar the pointer is at, within `reach` of the edge it

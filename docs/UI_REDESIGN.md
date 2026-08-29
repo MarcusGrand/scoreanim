@@ -428,7 +428,23 @@ pointer and drags on from there. The view offers every press, move and
 release to `TransientScrollbars` first, so a grab is never a click on
 the score, and a bar that has faded out takes no press at all — the
 same rule the zoom controls follow. Both bands stay inside the zoom
-controls' own 12 px margin, so the two never argue over a click.*
+controls' own margin, so the two never argue over a click.*
+
+*Third pass, same day, on Marcus's call: **a bar says whether it can be
+grabbed.** Resting it is thin (6 px) and dark. Once the pointer is
+close enough to take it, it widens to 11 px and goes more solid — and
+that width is a promise, so the band `press` accepts is worked out FROM
+the wide bar (`_GRAB = margin + wide + 2`) rather than picked
+separately; the two cannot drift apart and start lying to each other,
+and a test walks the distances from the edge to check that wide and
+grabbable agree at every one. It grows INWARD, so the outer edge holds
+still and a bar does not fatten out from under the hand that made it.
+In the hand it goes light instead of dark — the theme's DIM grey, which
+reads on the page and on the letterbox both, with a dark outline for
+the same reason the dark bar has a pale one. The zoom controls moved
+from 12 px to 20 px off the corner to clear the wide bar and its band:
+at 12 they covered a stretch of the horizontal bar and made it
+un-grabbable.*
 
 **D3 — hint bar.**
 > Turn the status bar into a hint bar: with a selection it shows what is

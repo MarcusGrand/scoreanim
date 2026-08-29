@@ -384,7 +384,7 @@ class StageView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
-        if self._scrollbars.release():
+        if self._scrollbars.release(event.position()):
             event.accept()
             return
         if self._drag_origin is not None:
