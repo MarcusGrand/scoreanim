@@ -334,6 +334,18 @@ line and ate the words.*
 > Check: seek by click and drag still works; go-to-start seeks to 0 and
 > keeps playing state sensible; timecode digits don't wiggle during playback.
 
+*Built 2026-08-29. Order on the strip: go to start, play, timecode,
+Systems, then the seek bar taking the spare width, then C4's gear at
+the right edge. Go-to-start only seeks — it never starts or stops
+anything, so playing stays playing. The timecode needed two fixes, not
+one: `QFontDatabase.systemFont(FixedFont)` comes back naming a family
+called "monospace" that no machine has, so Qt fell back to the
+proportional UI font and the digits still wiggled — a Monospace style
+hint is what lands it on a real fixed-width face. The label also keeps
+a minimum width, so the first two-digit minute does not shove the
+cluster sideways. The slider is dressed by name (`QSlider#SeekBar`) in
+the stylesheet.*
+
 **D2 — stage overlay controls.**
 > Add floating overlay controls in the stage's bottom-right: zoom out, zoom
 > percent readout, zoom in, and Fit (the same fit QAction). Subtle

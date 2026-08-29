@@ -8,15 +8,15 @@ tabbed; an internal splitter keeps their heights user-adjustable,
 replacing the old three-way central splitter (stage-vs-zone sizing
 moves to the dock boundary).
 
-Top to bottom: play/seek/time, the Systems toggle and the lane gear on
-the strip, the waveform and tempo lanes, then the document's timing
-fields (`ui/timeline_bar.py`) at the very bottom, next to the ticks
-they move.
+Top to bottom: the transport cluster (go to start, play, timecode) with
+the Systems toggle, the seek bar and the lane gear on the strip, the
+waveform and tempo lanes, then the document's timing fields
+(`ui/timeline_bar.py`) at the very bottom, next to the ticks they move.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QFont, QFontDatabase
 from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QSlider,
                                QSplitter, QToolButton, QVBoxLayout, QWidget)
 
@@ -33,9 +33,29 @@ from scoreanim.ui.timeline_bar import TimelineBar
 from scoreanim.ui.waveform import WaveformView
 
 
+# The seek bar's height: the groove plus room for the handle, and no
+# more — it is a line across the strip, not a widget with a body.
+_SEEK_HEIGHT = 16
+
+# What the timecode reads before anything is loaded, and the text its
+# minimum width is measured from.
+_TIME_ZERO = " 0:00.0 / 0:00.0 "
+
+
 class TransportStrip(QWidget):
-    """Play, the seek slider, the time readout, the Systems toggle that
-    says what the stage shows (C2), and the lane gear (C4).
+    """The transport cluster, the seek bar, the Systems toggle that says
+    what the stage shows (C2), and the lane gear (C4).
+
+    Left to right: go to start and play/pause as icon buttons, the
+    timecode, Systems, then the seek bar taking every spare pixel, and
+    the gear at the right edge. The controls you press are a cluster in
+    one corner instead of one stock slider across the window (D1) —
+    which is where every media app puts them, so the eye finds them
+    without reading.
+
+    The timecode is in the system's monospace font and has a floor
+    under its width, so a digit changing never moves the text beside
+    it.
 
     It is the lanes' header, so the view options that only change what
     the lanes draw sit at its right edge, behind one gear
@@ -46,6 +66,8 @@ class TransportStrip(QWidget):
     Space fires regardless of focus, and the Playback menu shares the
     same action, so button, menu item and shortcut state cannot
     diverge. Observes the playback controller for time and play state.
+    Go to start is the strip's own action: no menu item and no key, so
+    every binding the app already had is untouched.
 
     Systems came here from the inspector, where it sat in a Playback &
     Sync section that had nothing else left in it; it belongs next to
@@ -67,6 +89,14 @@ class TransportStrip(QWidget):
         self._state = app_state
         self._playback = playback
 
+        # Back to the top. A seek, nothing else: playing stays playing
+        # and paused stays paused, so it reads the same way as the same
+        # button on a music player.
+        self.to_start_action = QAction(icons.icon("skip-back"),
+                                       "Go to Start", self)
+        self.to_start_action.setToolTip("Go to start")
+        self.to_start_action.triggered.connect(lambda: playback.seek(0.0))
+
         # The menu item reads the text; the strip's button is icon-only,
         # so it reads the tooltip — which says both halves of the toggle
         # and stays put while the text and the icon flip.
@@ -83,25 +113,36 @@ class TransportStrip(QWidget):
                                        "time; off shows whole pages")
         self.systems_action.toggled.connect(self._on_systems_toggled)
 
+        # A slim bar, not a stock slider: the stylesheet dresses it by
+        # name (`SeekBar`), and the height keeps it a line rather than a
+        # control that competes with the cluster beside it.
         self._slider = QSlider(Qt.Orientation.Horizontal)
+        self._slider.setObjectName("SeekBar")
+        self._slider.setFixedHeight(_SEEK_HEIGHT)
         self._slider.setRange(0, 0)
         self._slider.setSingleStep(100)        # ms
         self._slider.setPageStep(2000)
         self._slider.sliderMoved.connect(
             lambda ms: playback.seek(ms / 1000.0))
         self._slider.valueChanged.connect(self._on_slider_value)
-        self._time_label = QLabel(" 0:00.0 / 0:00.0 ")
+        self._time_label = _timecode_label()
 
         row = QHBoxLayout(self)
         row.setContentsMargins(panel_style.PADDING, panel_style.ROW_GAP,
                                panel_style.PADDING, panel_style.ROW_GAP)
-        row.setSpacing(panel_style.GROUP_GAP)
+        # tight inside a cluster; the gaps BETWEEN clusters are added by
+        # hand below, so the two transport buttons read as one control
+        row.setSpacing(panel_style.ROW_GAP)
+        row.addWidget(_action_button(self.to_start_action))
         row.addWidget(_action_button(self.play_action))
-        row.addWidget(self._slider, 1)
+        row.addSpacing(panel_style.GROUP_GAP)
         row.addWidget(self._time_label)
-        # after the readout, at the far end: what the stage shows, not
-        # where the playhead is
+        row.addSpacing(panel_style.GROUP_GAP)
+        # after the readout: what the stage shows, not where the
+        # playhead is
         row.addWidget(_action_button(self.systems_action))
+        row.addSpacing(panel_style.GROUP_GAP)
+        row.addWidget(self._slider, 1)
         # the lanes' own view options, at the right edge of their header
         self.lane_options = LaneOptionsButton(app_state, self)
         row.addWidget(self.lane_options)
@@ -180,6 +221,40 @@ class LowerZone(QDockWidget):
         column.addWidget(lanes, 1)
         column.addWidget(self.bar)
         self.setWidget(body)
+
+
+def _timecode_label() -> QLabel:
+    """The "0:42.8 / 1:40.8" readout: monospace, and never narrower
+    than the text it starts with.
+
+    Two reasons for both. The system's proportional font gives a 1 a
+    different width from a 0, so a running clock jitters; the monospace
+    face fixes every digit to the same width. And a label sizes itself
+    to its text, so the first time a minute reached two digits the
+    whole cluster would shuffle sideways — the floor under the width
+    absorbs that.
+    """
+    label = QLabel(_TIME_ZERO)
+    label.setObjectName("Timecode")
+    label.setFont(_monospace())
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    label.setMinimumWidth(label.fontMetrics().horizontalAdvance(_TIME_ZERO))
+    return label
+
+
+def _monospace() -> QFont:
+    """The system's monospace face.
+
+    `systemFont(FixedFont)` alone is not enough: on this platform it
+    comes back naming a family called "monospace", which no machine
+    actually has, so Qt quietly falls back to the proportional UI font
+    and the digits wiggle again. The style hint is what makes the
+    fallback land on a real fixed-width face.
+    """
+    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+    font.setStyleHint(QFont.StyleHint.Monospace)
+    font.setFixedPitch(True)
+    return font
 
 
 def _action_button(action: QAction) -> QToolButton:

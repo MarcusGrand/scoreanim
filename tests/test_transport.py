@@ -1,7 +1,7 @@
 """TransportStrip / LowerZone (M1.3), offscreen: the controller wiring
 that moved out of the window — slider seeks, time feedback, play-text
 flip — behaves exactly as the alpha window did, plus the Systems
-toggle C2 brought over from the inspector.
+toggle C2 brought over from the inspector and D1's transport cluster.
 
 The strip is exercised against a fake controller QObject (real signals,
 recorded calls); the zone against a real AppState (its lanes observe
@@ -116,20 +116,58 @@ def test_the_play_button_is_an_icon_with_a_tooltip(strip) -> None:
     assert button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
 
 
-def test_systems_sits_after_the_time_readout(strip) -> None:
-    """C2: play, the slider, the readout, then what the stage shows —
-    and C4's lane gear last of all, at the right edge."""
+def test_the_strip_reads_left_to_right_as_a_cluster(strip) -> None:
+    """D1: go to start, play, the timecode, then what the stage shows,
+    then the seek bar taking the rest of the width — and C4's lane gear
+    last of all, at the right edge."""
     widget, _ = strip
     row = widget.layout()
     order = [row.itemAt(i).widget() for i in range(row.count())]
     buttons = [w for w in order if isinstance(w, QToolButton)]
     assert [b.defaultAction() for b in buttons] \
-        == [widget.play_action, widget.systems_action, None]
+        == [widget.to_start_action, widget.play_action,
+            widget.systems_action, None]
     assert buttons[-1] is widget.lane_options
-    assert order.index(widget._time_label) < order.index(buttons[1])
+    assert order.index(widget._time_label) < order.index(buttons[2])
+    assert order.index(buttons[2]) < order.index(widget._slider)
+    assert order.index(widget._slider) < order.index(widget.lane_options)
+    # only the seek bar takes the spare width
+    assert row.stretch(order.index(widget._slider)) == 1
     assert widget.systems_action.isCheckable()
     assert not widget.systems_action.icon().isNull()
     assert widget.systems_action.toolTip() != widget.systems_action.text()
+
+
+def test_go_to_start_seeks_to_zero_and_nothing_else(strip) -> None:
+    """It rewinds; it does not start or stop anything — playing stays
+    playing and paused stays paused."""
+    widget, playback = strip
+    playback.time_changed.emit(42.0, 120.0)
+    widget.to_start_action.trigger()
+    assert playback.seeks == [0.0]
+    assert playback.toggles == 0
+    assert not widget.to_start_action.icon().isNull()
+    assert widget.to_start_action.toolTip() == "Go to start"
+
+
+def test_the_timecode_is_monospace_and_cannot_shrink(strip) -> None:
+    """D1: a running clock must not shuffle the cluster beside it."""
+    widget, playback = strip
+    label = widget._time_label
+    assert label.fontMetrics().horizontalAdvance("0") \
+        == label.fontMetrics().horizontalAdvance("1")
+    floor = label.minimumWidth()
+    assert floor > 0
+    playback.time_changed.emit(1.0, 2.0)         # the shortest text there is
+    assert label.minimumWidth() == floor
+
+
+def test_the_seek_bar_is_a_slim_named_line(strip) -> None:
+    """The stylesheet dresses it by name, and it stays a line rather
+    than growing into the strip."""
+    widget, _ = strip
+    assert widget._slider.objectName() == "SeekBar"
+    assert widget._slider.height() <= 16
 
 
 def test_the_lane_gear_is_the_only_view_state_on_the_strip(strip) -> None:
