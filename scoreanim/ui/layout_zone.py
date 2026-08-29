@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QScrollArea,
                                QToolButton, QVBoxLayout, QWidget)
 
 from scoreanim.core.project import ProjectDoc
-from scoreanim.ui import panel_style
+from scoreanim.ui import panel_style, tips
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.panels import BreakOverridesList, DeletedElementsList
 from scoreanim.ui.theme import icons
@@ -57,6 +57,9 @@ class LayoutZone(QDockWidget):
         column.setSpacing(panel_style.ROW_GAP)
         heading = QLabel("Breaks")
         heading.setObjectName("ZoneHeading")
+        tips.describe(heading,
+                      "Where the music moves to a new system or a new "
+                      "page")
         column.addWidget(heading)
 
         # three icons in a row, not three long labels down the dock:
@@ -76,6 +79,9 @@ class LayoutZone(QDockWidget):
         column.addSpacing(panel_style.GROUP_GAP)
         overrides_heading = QLabel("Overrides")
         overrides_heading.setObjectName("ZoneHeading")
+        tips.describe(overrides_heading,
+                      "The breaks you have asked for, over what the "
+                      "score itself encodes")
         column.addWidget(overrides_heading)
         # its own widget module rather than a limb on the dock (D9)
         self.overrides = BreakOverridesList(app_state, body)
@@ -84,6 +90,8 @@ class LayoutZone(QDockWidget):
         column.addSpacing(panel_style.GROUP_GAP)
         deleted_heading = QLabel("Deleted")
         deleted_heading.setObjectName("ZoneHeading")
+        tips.describe(deleted_heading,
+                      "Objects you have hidden — the music is unchanged")
         column.addWidget(deleted_heading)
         # deleted ink is not clickable, so this list is the only way back
         # other than undo — it belongs where the work is, not in a dialog

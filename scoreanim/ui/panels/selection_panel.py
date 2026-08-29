@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (QFormLayout, QFrame, QLabel, QSizePolicy,
 from scoreanim.core.score.identity import ElementIdentity
 from scoreanim.core.score.model import MeasureInfo
 from scoreanim.core.selection import Selection
-from scoreanim.ui import panel_style
+from scoreanim.ui import panel_style, tips
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.panels.selection_style import SelectionStyleControls
 from scoreanim.ui.panels.selection_trigger import SelectionTriggerControls
@@ -42,6 +42,21 @@ _OBJECT_ROWS = ("Kind", "Staff", "Voice", "Onset", "Extent")
 # What that pick carries. Both derived from the id, never chosen.
 _CONTEXT_ROWS = ("Part", "Measure")
 _CONTEXT_CAPTION = "carries"
+
+# What each row means, in one sentence. Every row is here on purpose:
+# a readout nobody can explain is a readout nobody can use, and the
+# table being complete is what `tests/test_tooltips.py` leans on.
+_ROW_TIPS = {
+    "Kind": "What you picked — a note, a slur, a dynamic, a text",
+    "Staff": "Which staff of its part the object sits on",
+    "Voice": "Which voice on that staff",
+    "Onset": "The beat it sounds on, counted along the performance",
+    "Extent": "The beats it runs over, for something that lasts",
+    "Part": "The player it belongs to — carried by the pick, not chosen",
+    "Measure": "The bar it is in — carried by the pick, not chosen",
+}
+_ID_TIP = ("The id an override is keyed by. Select it with the mouse to "
+           "copy it.")
 
 
 class SelectionPanel(QWidget):
@@ -71,7 +86,7 @@ class SelectionPanel(QWidget):
 
         form = self._add_form(outer_details)
         for row in _OBJECT_ROWS:
-            form.addRow(row, self._value_label(row))
+            form.addRow(self._row_label(row), self._value_label(row))
         # the raw id: the debugging handle, and what an override would be
         # keyed by — dimmed, selectable, wrapping
         self._eid = QLabel(_EMPTY)
@@ -81,7 +96,10 @@ class SelectionPanel(QWidget):
         self._eid.setEnabled(False)
         self._eid.setSizePolicy(QSizePolicy.Policy.Ignored,
                                 QSizePolicy.Policy.Preferred)
-        form.addRow("Id", self._eid)
+        tips.describe(self._eid, _ID_TIP)
+        id_label = QLabel("Id")
+        tips.describe(id_label, _ID_TIP)
+        form.addRow(id_label, self._eid)
 
         # the seam between chosen and carried, drawn: a rule, then a
         # dimmed caption, then the derived rows
@@ -91,11 +109,14 @@ class SelectionPanel(QWidget):
         outer_details.addWidget(line)
         caption = QLabel(_CONTEXT_CAPTION)
         caption.setEnabled(False)
+        tips.describe(caption,
+                      "Derived from what you picked, and never selectable "
+                      "on its own")
         outer_details.addWidget(caption)
 
         context = self._add_form(outer_details)
         for row in _CONTEXT_ROWS:
-            context.addRow(row, self._value_label(row))
+            context.addRow(self._row_label(row), self._value_label(row))
 
         # the writes (M3.3), below the description of what they act on
         edit_line = QFrame()
@@ -135,8 +156,16 @@ class SelectionPanel(QWidget):
         self._forms.append(form)
         return form
 
+    def _row_label(self, row: str) -> QLabel:
+        """The row's name, carrying the row's sentence — the pointer
+        lands on the name or on the value and gets the same answer."""
+        label = QLabel(row)
+        tips.describe(label, _ROW_TIPS[row])
+        return label
+
     def _value_label(self, row: str) -> QLabel:
         value = QLabel(_EMPTY)
+        tips.describe(value, _ROW_TIPS[row])
         value.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
         self._values[row] = value
@@ -168,7 +197,6 @@ class SelectionPanel(QWidget):
         set_["Measure"].setText(
             _measure_label(selection, self._state.measures))
         self._eid.setText(str(obj.element_id))
-        self._eid.setToolTip(str(obj.element_id))
 
 
 def _text(value: object) -> str:

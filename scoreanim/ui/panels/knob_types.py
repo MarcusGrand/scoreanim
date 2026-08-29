@@ -139,6 +139,37 @@ class Envelope:
 Knob = Number | Check | Color | Choice | Envelope
 
 
+def knob_name(knob: Knob) -> str:
+    """What a knob is called on screen.
+
+    A knob that grays another one out has to be nameable by the reason
+    the grayed one gives (E2), and the four types keep their name in
+    four different fields.
+    """
+    if isinstance(knob, Check):
+        return knob.text
+    if isinstance(knob, Envelope):
+        return knob.title
+    return knob.label
+
+
+def reason_while_on(knob: Knob) -> str:
+    """Why a knob `grayed_by` this one is not used."""
+    return f"Not used while \u201c{knob_name(knob)}\u201d is on"
+
+
+def reason_while_off(knob: Knob) -> str:
+    """Why a knob `enabled_by` this one is not used yet. A number is off
+    at 0, a checkbox is off unchecked, and the sentence says which."""
+    tail = "is 0" if isinstance(knob, Number) else "is off"
+    return f"Not used while \u201c{knob_name(knob)}\u201d {tail}"
+
+
+def reason_forced(knob: Knob) -> str:
+    """Why a checkbox `forced_by` this one cannot be unticked."""
+    return f"\u201c{knob_name(knob)}\u201d turns this on by itself"
+
+
 class KnobStore(Protocol):
     """Where one group's values live in the document, and what one edit
     of them costs — the only thing that differs between groups."""

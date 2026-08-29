@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox,
 from scoreanim.core.project import (Command, ProjectDoc, SetLyricsSize,
                                     SetScoreScale, SetStaffLineWidth,
                                     SetVideoCanvas, VideoCanvas)
-from scoreanim.ui import panel_style
+from scoreanim.ui import panel_style, tips
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
 from scoreanim.ui.window_state import default_settings
@@ -62,20 +62,23 @@ class VideoCanvasPanel(QWidget):
             shape = "portrait" if h > w else "landscape"
             self._preset.addItem(f"{w} × {h} ({shape})", (w, h))
         self._preset.addItem("Custom…", _CUSTOM)
-        self._preset.setToolTip("The video frame the export will fill, "
-                                "shown live on the stage")
+        tips.describe(self._preset,
+                      "The video frame the export will fill, shown live "
+                      "on the stage")
         # activated is user-only, so a resync can never re-execute
         self._preset.activated.connect(self._on_preset)
 
         self._width = QSpinBox()
         self._height = QSpinBox()
-        for spin in (self._width, self._height):
+        for spin, side in ((self._width, "wide"), (self._height, "high")):
             spin.setRange(16, 8192)
             spin.setSingleStep(2)
             spin.setSuffix(" px")
             # two fields sharing one row: neither may be squeezed down
             # to its arrows
             spin.setMinimumWidth(panel_style.min_field_width(spin))
+            tips.describe(spin, f"How many pixels {side} the exported "
+                                f"frame is")
         size_row = QHBoxLayout()
         size_row.setContentsMargins(0, 0, 0, 0)
         size_row.setSpacing(panel_style.COLUMN_GAP)
@@ -93,10 +96,10 @@ class VideoCanvasPanel(QWidget):
         self._scale.setDecimals(0)
         self._scale.setSingleStep(5.0)
         self._scale.setSuffix(" %")
-        self._scale.setToolTip("How big the notation is drawn — 100 % "
-                               "is the score's own size; bigger notes "
-                               "repaginate, and a crowded system is "
-                               "yours to break")
+        tips.describe(self._scale,
+                      "How big the notation is drawn — 100 % is the "
+                      "score's own size; bigger notes repaginate, and a "
+                      "crowded system is yours to break")
 
         # Lyrics get their own size — the first thing to crowd when
         # the score grows (Marcus, 2026-08-06). Same debounced
@@ -107,8 +110,9 @@ class VideoCanvasPanel(QWidget):
         self._lyrics.setDecimals(0)
         self._lyrics.setSingleStep(5.0)
         self._lyrics.setSuffix(" %")
-        self._lyrics.setToolTip("The lyrics' own size — shrink them "
-                                "when a bigger score crowds the verses")
+        tips.describe(self._lyrics,
+                      "The lyrics' own size — shrink them when a bigger "
+                      "score crowds the verses")
 
         # Staff line thickness (2026-08-07): heavier lines read better
         # over video. Third engraving knob, same debounced contract.
@@ -117,11 +121,10 @@ class VideoCanvasPanel(QWidget):
         self._staff_lines.setDecimals(0)
         self._staff_lines.setSingleStep(10.0)
         self._staff_lines.setSuffix(" %")
-        self._staff_lines.setToolTip("Staff line thickness — 100 % is "
-                                     "the engraver's default; heavier "
-                                     "lines hold up over video. "
-                                     "Barlines follow automatically at "
-                                     "a fixed ratio")
+        tips.describe(self._staff_lines,
+                      "Staff line thickness — 100 % is the engraver's "
+                      "default; heavier lines hold up over video. "
+                      "Barlines follow automatically at a fixed ratio")
 
         self.live_fields = (
             LiveField(self._width, app_state,
@@ -138,11 +141,15 @@ class VideoCanvasPanel(QWidget):
 
         # -- preview background: view state, never the document --------
         self._preview_box = QCheckBox("Preview on video")
-        self._preview_box.setToolTip(
+        tips.describe(
+            self._preview_box,
             "Paint the frame with a video color behind the overlay — "
             "live only, the export stays transparent")
         self._swatch = QPushButton()
         self._swatch.setFixedSize(28, 20)
+        tips.describe(self._swatch,
+                      "The color painted behind the overlay while you "
+                      "work — never exported")
         self._swatch.clicked.connect(self._pick_color)
         preview_row = QHBoxLayout()
         preview_row.setContentsMargins(0, 0, 0, 0)
@@ -233,8 +240,9 @@ class VideoCanvasPanel(QWidget):
             height.resync(canvas.height)
         # W/H need a canvas; the engraving knobs are canvas-independent
         # and stay enabled
-        width.set_enabled(canvas is not None)
-        height.set_enabled(canvas is not None)
+        no_canvas = "Pick a frame size above, or Custom…, to set this"
+        width.set_enabled(canvas is not None, no_canvas)
+        height.set_enabled(canvas is not None, no_canvas)
         scale.resync(doc.engraving.scale * 100.0)
         lyrics.resync(doc.engraving.lyric_size * 100.0)
         staff_lines.resync(doc.engraving.staff_line_width * 100.0)

@@ -31,8 +31,11 @@ from scoreanim.ui import panel_style
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
 from scoreanim.ui.panels.envelope_row import EnvelopeRow
+from scoreanim.ui import tips
 from scoreanim.ui.panels.knob_types import (Check, Choice, Color, Envelope,
-                                            Knob, KnobStore, Number)
+                                            Knob, KnobStore, Number,
+                                            reason_forced, reason_while_off,
+                                            reason_while_on)
 
 
 class KnobGroup:
@@ -87,7 +90,7 @@ class KnobGroup:
             spin.setRange(knob.minimum, knob.maximum)
             spin.setSingleStep(knob.step)
         spin.setSuffix(knob.suffix)
-        spin.setToolTip(knob.tooltip)
+        tips.describe(spin, knob.tooltip)
         self.spins[knob.key] = spin
         self.fields[knob.key] = LiveField(
             spin, self._state, lambda value, k=knob: self._edit(k, value),
@@ -95,14 +98,14 @@ class KnobGroup:
 
     def _build_check(self, knob: Check) -> None:
         box = QCheckBox(knob.text)
-        box.setToolTip(knob.tooltip)
+        tips.describe(box, knob.tooltip)
         box.toggled.connect(lambda checked, k=knob: self._commit_check(k,
                                                                       checked))
         self.boxes[knob.key] = box
 
     def _build_color(self, knob: Color) -> None:
         button = QPushButton()
-        button.setToolTip(knob.tooltip)
+        tips.describe(button, knob.tooltip)
         button.clicked.connect(lambda _=False, k=knob: self._pick_color(k))
         self.swatches[knob.key] = button
 
@@ -119,7 +122,7 @@ class KnobGroup:
         combo = QComboBox()
         for stored, shown in knob.options:
             combo.addItem(shown, stored)
-        combo.setToolTip(knob.tooltip)
+        tips.describe(combo, knob.tooltip)
         # activated is user-only, so a resync can never re-execute
         combo.activated.connect(lambda _i, k=knob: self._commit_choice(k))
         self.combos[knob.key] = combo
@@ -210,21 +213,31 @@ class KnobGroup:
         half-typed in it — so a forced one is disabled outright.
 
         A colour, a choice or an envelope has nothing to gray out: none
-        of them is ever made obsolete by another knob today."""
+        of them is ever made obsolete by another knob today.
+
+        Each one says WHY while it is grayed (E2), and the sentence
+        names the knob that did it — read off the knob table, so a new
+        dependency gets its reason without anybody writing one."""
         for knob in self._knobs:
             if isinstance(knob, (Color, Choice, Envelope)):
                 continue
             if isinstance(knob, Check):
                 if knob.forced_by is not None:
-                    self.boxes[knob.key].setEnabled(
-                        not bool(self.param(doc, knob.forced_by)))
+                    other = self._by_key[knob.forced_by]
+                    tips.gate(self.boxes[knob.key],
+                              not bool(self.param(doc, knob.forced_by)),
+                              reason_forced(other))
                 continue
             if knob.grayed_by is not None:
+                other = self._by_key[knob.grayed_by]
                 self.fields[knob.key].set_enabled(
-                    not bool(self.param(doc, knob.grayed_by)))
+                    not bool(self.param(doc, knob.grayed_by)),
+                    reason_while_on(other))
             elif knob.enabled_by is not None:
+                other = self._by_key[knob.enabled_by]
                 self.fields[knob.key].set_enabled(
-                    bool(self.param(doc, knob.enabled_by)))
+                    bool(self.param(doc, knob.enabled_by)),
+                    reason_while_off(other))
 
     def resync(self, doc: ProjectDoc) -> None:
         """Show what the document says; a field with a live edit keeps

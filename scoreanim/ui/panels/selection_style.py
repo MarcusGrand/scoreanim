@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QButtonGroup, QColorDialog, QComboBox,
-                               QFormLayout, QHBoxLayout, QPushButton,
+                               QFormLayout, QHBoxLayout, QLabel, QPushButton,
                                QRadioButton, QVBoxLayout, QWidget)
 
 from scoreanim.core.animation import PRESETS, ElementStyle
@@ -41,10 +41,15 @@ from scoreanim.core.editing import family_of
 from scoreanim.core.project import (SetElementStyle, SetPartColor,
                                     SetPartEffect)
 from scoreanim.core.selection import Selection
-from scoreanim.ui import panel_style
+from scoreanim.ui import panel_style, tips
 from scoreanim.ui.app_state import AppState
 
 _INHERIT = "(inherit)"          # no override at this scope
+
+# Why a control here is dead. Both are facts about what was picked, so
+# they name the pick rather than telling the user to try again.
+_NO_PART = "This object belongs to the score, not to one part"
+_NO_COLOUR = "This kind of ink is always drawn in the page's own colour"
 
 
 class SelectionStyleControls(QWidget):
@@ -55,6 +60,7 @@ class SelectionStyleControls(QWidget):
         super().__init__(parent)
         self._state = app_state
         self._scenes = None                 # bound per load, for the family
+        self._labels: list[QLabel] = []
 
         self._element_radio = QRadioButton("This element")
         self._part_radio = QRadioButton("This part")
@@ -62,7 +68,10 @@ class SelectionStyleControls(QWidget):
         self._scope = QButtonGroup(self)
         self._scope.addButton(self._element_radio)
         self._scope.addButton(self._part_radio)
-        self._part_radio.setToolTip(
+        tips.describe(self._element_radio,
+                      "Write this one object's own override")
+        tips.describe(
+            self._part_radio,
             "Write the part rule instead of an element override — the "
             "per-part effect authoring M4 deferred")
         scope_row = QHBoxLayout()
@@ -74,8 +83,13 @@ class SelectionStyleControls(QWidget):
         scope_box.setLayout(scope_row)
 
         self._color_button = QPushButton()
+        tips.describe(self._color_button,
+                      "Pick the colour this ink is drawn in")
         self._color_button.clicked.connect(self._pick_color)
         self._color_default = QPushButton("Default")
+        tips.describe(self._color_default,
+                      "Drop the colour override and go back to what is "
+                      "inherited")
         self._color_default.clicked.connect(lambda: self._commit_color(None))
         color_row = QHBoxLayout()
         color_row.setContentsMargins(0, 0, 0, 0)
@@ -86,13 +100,16 @@ class SelectionStyleControls(QWidget):
         color_box.setLayout(color_row)
 
         self._effect = QComboBox()
+        tips.describe(self._effect,
+                      "The effect this runs instead of the inherited one")
         self._effect.addItem(_INHERIT)
         for name in sorted(PRESETS):
             self._effect.addItem(name)
         self._effect.activated.connect(self._commit_effect)
 
         self._clear = QPushButton("Clear style overrides")
-        self._clear.setToolTip(
+        tips.describe(
+            self._clear,
             "Remove this element's colour and effect override — the "
             "cheap reset that keeps overrides safe to experiment with "
             "(rule 5). A nudge is separate intent and is not cleared "
@@ -102,9 +119,16 @@ class SelectionStyleControls(QWidget):
         form = QFormLayout()
         # the padding is paid at the Selection panel's own edge
         panel_style.style_form(form, padding=False)
-        form.addRow("Apply to", scope_box)
-        form.addRow("Color", color_box)
-        form.addRow("Effect", self._effect)
+        # a label says what its field says (E2)
+        for text, widget in (("Apply to", self._part_radio),
+                             ("Color", self._color_button),
+                             ("Effect", self._effect)):
+            label = QLabel(text)
+            tips.describe(label, tips.live_tip(widget))
+            self._labels.append(label)
+        form.addRow(self._labels[0], scope_box)
+        form.addRow(self._labels[1], color_box)
+        form.addRow(self._labels[2], self._effect)
         panel_style.fix_label_column(form)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -153,13 +177,14 @@ class SelectionStyleControls(QWidget):
             self._set_effect(None)
             return
         # a part scope needs a part; score-level ink (a barline) has none
-        self._part_radio.setEnabled(selection.part is not None)
+        tips.gate(self._part_radio, selection.part is not None, _NO_PART)
         if self._part_radio.isChecked() and selection.part is None:
             self._element_radio.setChecked(True)
         # colour is only meaningful where colour reaches (ruling D): a
         # clef or a rest animates but stays black
-        self._color_button.setEnabled(takes_part_color(selection.obj))
-        self._color_default.setEnabled(takes_part_color(selection.obj))
+        colourable = takes_part_color(selection.obj)
+        tips.gate(self._color_button, colourable, _NO_COLOUR)
+        tips.gate(self._color_default, colourable, _NO_COLOUR)
 
         rule = self._rule(selection)
         self._set_swatch(rule.color if rule is not None else None)
