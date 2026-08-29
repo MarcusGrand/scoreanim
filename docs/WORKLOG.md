@@ -1,14 +1,18 @@
 # ScoreAnim — Worklog
 
-**NOW:** the UI facelift's phases A and B and C are **merged to
-`main`** (2026-08-29, on Marcus's call): A1 one dark theme, A2 icons,
-A3 the panel finish pass, B1 the File menu and recents, B2 the
-toolbar with Export, B3 the Help menu, C1 the three inspector tabs,
+**NOW:** the UI facelift is **merged to `main`, tagged
+`v0.2-beta.7` and pushed** (2026-08-29, on Marcus's call) — phases A,
+B, C and D of `docs/UI_REDESIGN.md` less **D2** (stage overlay zoom
+controls), which is the next thing to build, followed by phase E
+(welcome pane, tooltip pass, identity). The phases: A1 one dark theme,
+A2 icons, A3 the panel finish pass, B1 the File menu and recents, B2
+the toolbar with Export, B3 the Help menu, C1 the three inspector tabs,
 C2 Systems on the transport strip, C3 the Selection tab fronting on
-select, C4 the timeline bar split. Phase D (transport cluster, stage
-overlay controls, hint bar) and the rest of `docs/UI_REDESIGN.md` are
-still to do. `main` is unpushed at the merge (no tag since
-`v0.2-beta.6`). On 2026-08-16, on Marcus's call after his in-app
+select, C4 the timeline bar split, D1 the transport cluster (and the
+seek slider's removal, with arrow-key seeking in its place), D3 the
+hint bar. **Schema is untouched at v12** — the facelift is presentation
+only, so a project saved on `v0.2-beta.6` opens here unchanged.
+On 2026-08-16, on Marcus's call after his in-app
 check, three branches merged in order: `beta/f-hide-parts` (the
 Staves menu, per-system hides, the region-fill hide fix),
 `f-tuplet-ink-reclaim` (stolen tuplet ink under id reuse) and
@@ -1212,3 +1216,4 @@ lines — history lives in git and `docs/history/`.
 - 2026-08-29 — D1: the transport becomes a cluster. The strip now reads go to start · play · timecode · Systems · the seek bar · the lane gear, instead of one stock slider spanning the window. Go to start is a seek to 0 and nothing else, so playing stays playing; it is the strip's own action, with no menu item and no key, so every existing binding is untouched. The timecode needed two fixes to stop wiggling: `QFontDatabase.systemFont(FixedFont)` names a family called "monospace" that no machine has, so Qt fell back to the proportional UI font — a Monospace style hint lands it on the real face (Menlo here) — and the label keeps a minimum width so the first two-digit minute cannot shove the cluster sideways. The slider is dressed by name (`QSlider#SeekBar`) in the stylesheet: a 4-px groove, the playhead colour behind the handle, a small pill for the handle. Lucide `skip-back` vendored. 4 new headless tests; full suite 2252 green. Awaiting Marcus's in-app check with A1–A3, B1–B3, C1–C4.
 - 2026-08-29 — D1 revised: the seek bar comes off the strip. The lanes were already the seek surface (click seeks, drag scrubs), so the slider was a second playhead moving at a different speed — two clocks disagreeing. The strip is now the cluster, Systems, empty space, and the gear; `QSlider#SeekBar` left the stylesheet with it. The keyboard seeking a QSlider hands you for free is rebuilt as `ui/seek_keys.py`: Left/Right = 1 s, Shift+Left/Right = 5 s on `PlaybackController.seek_by` (clamped to the timeline, play state untouched), and Home went onto the strip's existing Go to Start action rather than a second action on the same key. All five are window-level and all five are in the Playback menu, which is the only place the shortcut sheet looks. The collision the task did not mention: the arrows have nudged the selection since M3.2, and a window shortcut normally beats the focused widget. Both exceptions ride Qt's ShortcutOverride rather than a focus test — a text field or spin box claims Left/Right/Home for its caret by itself (verified, not assumed), and `StageView.event` claims the arrows while something nudgeable is selected. 7 new headless tests, 6 slider tests retired; full suite 2257 green. Awaiting Marcus's in-app check with A1–A3, B1–B3, C1–C4.
 - 2026-08-29 — D3: the status bar becomes a hint bar. With something selected it says what it is and what can be done to it ("Dynamic · Sop. Alto Ten. 1 · m. 1 — drag to move it, drag its onset line to re-time it, Delete hides it"); with nothing selected it names the loaded recording. The wording is one pure module, `core/editing/hints.py`, sitting with the other status-tip modules: a plain name for every ElementKind, one phrase per gesture, three phrases at most on the line. `ui/hint_bar.py` only gathers, and gathers each answer from the controller that owns that gesture — the delete and flip policies' `current()`, the break policy's resolve, the onset cursor's "is my line drawn", the nudge kind test, the text editor's route — so the bar cannot promise a key the app would ignore. That is why a note reads "F flips the stem" and nothing about an onset line: a notehead is a reveal anchor and has none. Two Qt facts made it work: a temporary message hides the bar's normal widgets and puts them back when it EXPIRES, so every status message now goes through `HintBar.message` with a timeout (an untimed one would bury the hint forever, and a test pins that nobody adds a bare `showMessage` back); and the label elides its own text, so the window's minimum width does not depend on which note you clicked. 24 new tests (15 headless wording, 9 wiring); full suite 2281 green. Awaiting Marcus's in-app check with A1–A3, B1–B3, C1–C4, D1.
+- 2026-08-29 — **The UI facelift merged, tagged and pushed** on Marcus's call: `ui-d1-transport` merged `--no-ff` onto a `main` that had not moved, so the merged tree is byte-identical to the branch tip that tested green (full suite 2281 re-run on `main` before the tag). That is phases A, B, C and D of `docs/UI_REDESIGN.md` less D2. Tagged `v0.2-beta.7`; `main` and the tag are pushed, so the 16-commit backlog on `origin` is cleared too. Next: D2 (stage overlay zoom controls), then phase E.
