@@ -59,14 +59,49 @@ with the envelope), `main_window.py` 412 → 326 (`ui/score_install.py`).
 `ui/stage_view.py` is at **641** after the systems-mode rework
 (2026-08-30) — the real seam in it is the selection-gesture handlers,
 and it is by a distance the most overdue split; the camera (fit,
-translate, zoom, scroll) is a second one. `render/items.py` still wants
-its seam.
+translate, zoom, scroll) is a second one. `render/scene.py` went 343 →
+385 with the item filter — under the ceiling, but it is next in line.
+`render/items.py` still wants its seam.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
 lines — history lives in git and `docs/history/`.
 
 ---
+
+- 2026-08-30 — `systems-fixed-frame` (SYSTEMS_MODE_REWORK.md stage 1
+  follow-up, UNMERGED): **systems mode hides the other systems' ITEMS**.
+  Marcus's report — small parts of neighbouring systems still showed
+  inside the frame. The mask was doing its job and could not win: a band
+  is the union of its elements' BBOXES, and **painted ink is bigger than
+  its bbox** (a text item's glyph box carries the font's ascent and
+  descent, a stroke is wider than its path, and the animation scales
+  both), so a neighbour's ink stands OUTSIDE its own band — measured at
+  1 page unit on testscore, 3 to 17 on grieg and condense — and lands in
+  the one strip the mask must leave alone, the current system's own.
+  There is no rectangle that removes it without erasing the music. So
+  the fix is a filter, not a region: `ScoreScenes.set_visible_system`
+  hides every system but the current one, called from
+  `ViewRouter.show_system` / `show_page` — the only two routes into the
+  stage, so a fresh load, a re-engrave, the mode toggle, prev/next and
+  follow are all one path. It is the GROUP's visibility flag (the
+  per-system parents the system pulse already built), so per-element
+  hiding composes with it untouched, ink with no system always shows
+  (the title), selection follows for free (Qt reports a hidden parent's
+  children invisible), and no transform moves — stage 2's camera is
+  bit-for-bit what it was. View-level state, never the document; export
+  builds its own scenes, so it cannot see it. One `unattributed-ink`
+  LoadWarning names any engraved ink no system owns — **zero on all
+  eleven loadable fixtures**, so it is silent until it matters. Watch
+  out for one thing: hidden ink is not clickable, which two break tests
+  were leaning on — they selected ink on system 4 while the stage showed
+  system 1. Through the real window that click was already refused by
+  `StageView.in_band`; the tests took a shortcut past it, and now show
+  the system first. Stage 4 grew a second half: export clips to a region
+  the way the stage used to, so it has the same leak. 16 new tests
+  (including the leak in pixels, before and after); full suite 2442
+  green, no schema bump, no golden movement. Unproven under a human's
+  eye.
 
 - 2026-08-30 — `systems-fixed-frame` (SYSTEMS_MODE_REWORK.md stage 2,
   UNMERGED): **a system switch keeps the user's zoom and pan**. It used
