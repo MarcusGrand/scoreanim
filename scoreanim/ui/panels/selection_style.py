@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (QButtonGroup, QColorDialog, QComboBox,
                                QFormLayout, QHBoxLayout, QPushButton,
                                QRadioButton, QVBoxLayout, QWidget)
 
-from scoreanim.core.animation import PRESETS, ElementStyle
+from scoreanim.core.animation import PLAIN_KINDS, PRESETS, ElementStyle
 from scoreanim.core.animation.style import takes_part_color
 from scoreanim.core.editing import family_of
 from scoreanim.core.project import (SetElementStyle, SetPartColor,
@@ -50,6 +50,7 @@ _INHERIT = "(inherit)"          # no override at this scope
 # they name the pick rather than telling the user to try again.
 _NO_PART = "This object belongs to the score, not to one part"
 _NO_COLOUR = "This kind of ink is always drawn in the page's own colour"
+_NO_EFFECT = "A clef, key signature or time signature always just appears"
 
 
 class SelectionStyleControls(QWidget):
@@ -179,6 +180,10 @@ class SelectionStyleControls(QWidget):
         tips.gate(self._color_button, colourable, _NO_COLOUR)
         tips.gate(self._color_default, colourable, _NO_COLOUR)
 
+        # a signature runs no effect at all (core/animation/plain_kinds
+        # .py), so the picker says so rather than swallowing the choice
+        tips.gate(self._effect, selection.kind not in PLAIN_KINDS, _NO_EFFECT)
+
         rule = self._rule(selection)
         self._set_swatch(rule.color if rule is not None else None)
         self._set_effect(rule.effect if rule is not None else None)
@@ -206,6 +211,10 @@ class SelectionStyleControls(QWidget):
         selection = self._selection
         if selection is None:
             return
+        # a signature runs no effect at all (core/animation/plain_kinds
+        # .py), so the picker says so rather than swallowing the choice
+        tips.gate(self._effect, selection.kind not in PLAIN_KINDS, _NO_EFFECT)
+
         rule = self._rule(selection)
         initial = QColor(rule.color) if rule is not None and rule.color \
             else QColor("black")

@@ -66,8 +66,8 @@ from scoreanim.core.animation import (GLOW, PRESETS, Effect, GlowScope,
                                       StyleRules, SystemRevealTrack,
                                       TriggerSchedule, build_bumps,
                                       build_presets, combined_state,
-                                      derive_windows, effects_for,
-                                      modulate_state, read_pulse)
+                                      derive_windows, effect_name_for,
+                                      effects_for, modulate_state, read_pulse)
 from scoreanim.core.animation.windows import reapply_indices
 from scoreanim.core.audio import PeakCache
 from scoreanim.core.score.identity import ElementId
@@ -232,9 +232,16 @@ class AnimationApplier:
         # One element may animate with SEVERAL effects at once
         # ("drop+fade"), so each item holds a tuple. A plain name gives
         # a tuple of one and behaves exactly as it always did.
+        # A signature never runs an effect — it just appears
+        # (core/animation/plain_kinds.py). The policy is one name swap
+        # before the lookup, so nothing here knows a kind from an
+        # effect's name (rule 6).
         self._effects_per_trigger: tuple[tuple[tuple[Effect, ...], ...],
                                          ...] = tuple(
-            tuple(effects_for(rules.resolve(item.identity).effect, presets)
+            tuple(effects_for(
+                      effect_name_for(item.identity,
+                                      rules.resolve(item.identity).effect),
+                      presets)
                   for item in items)
             for items in self._index.items)
         self._recompute_windows()

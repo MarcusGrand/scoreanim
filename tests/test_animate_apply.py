@@ -45,6 +45,19 @@ def applier(scenes, schedule) -> AnimationApplier:
     return AnimationApplier(scenes.items, schedule, TEMPO, StyleRules())
 
 
+def _effect_driven(scenes: ScoreScenes, eids) -> list:
+    """The ids in a trigger that actually run the document's effect.
+
+    A clef, key signature or time signature always just appears
+    (core/animation/plain_kinds.py), and the first trigger of a system
+    is mostly made of them — so a test about what fade or pop does has
+    to leave them out."""
+    from scoreanim.core.animation import PLAIN_KINDS
+
+    return [eid for eid in eids if eid in scenes.items
+            and scenes.items[eid].identity.kind not in PLAIN_KINDS]
+
+
 def _opacities(scenes: ScoreScenes) -> dict:
     return {eid: item.opacity() for eid, item in scenes.items.items()}
 
@@ -490,7 +503,7 @@ def test_fade_ramps_opacity_with_no_applier_change(scenes, schedule) -> None:
     applier = AnimationApplier(scenes.items, schedule, TEMPO, _FADE_RULES)
     trig = schedule.triggers[0]
     trig_s = TEMPO.seconds_at(trig.beats)
-    eids = [eid for eid in trig.element_ids if eid in scenes.items]
+    eids = _effect_driven(scenes, trig.element_ids)
     assert eids
     mid = FLOOR + 0.875 * (1.0 - FLOOR)
 
@@ -570,12 +583,13 @@ def test_negative_shift_lights_early_page_cursor_unmoved(
     i2 = next(i for i, tr in enumerate(schedule.triggers) if tr.page == 2)
     tr_s = TEMPO.seconds_at(schedule.triggers[i2].beats)
     applier.refresh(tr_s - 1.0)                 # settle far before
+    eids = _effect_driven(scenes, schedule.triggers[i2].element_ids)
     applier.apply_at(tr_s - 0.05)               # inside the shifted window
-    for eid in schedule.triggers[i2].element_ids:
+    for eid in eids:
         assert scenes.items[eid].opacity() == pytest.approx(1.0), eid
     assert applier.current_page() == 1          # trigger NOT crossed
     applier.apply_at(tr_s - 0.5)                # scrub back out of the lead
-    for eid in schedule.triggers[i2].element_ids:
+    for eid in eids:
         assert scenes.items[eid].opacity() == pytest.approx(FLOOR), eid
 
 
@@ -1570,3 +1584,52 @@ def test_set_schedule_keeps_the_recording(engraved, join_mapping,
     applier.set_schedule(moved)
     applier.refresh(loud_s + 0.125)
     assert scenes.items[loud_head].scale() == pytest.approx(before)
+
+
+# -- signatures just appear (2026-08-31) -----------------------------------
+
+def _p1_key_sig(scenes, schedule):
+    """A key signature that has a trigger, plus a notehead at the same
+    trigger to compare it against."""
+    from scoreanim.core.score.identity import ElementKind
+
+    for trig in schedule.triggers:
+        eids = [e for e in trig.element_ids if e in scenes.items]
+        sigs = [e for e in eids
+                if scenes.items[e].identity.kind is ElementKind.KEY_SIG]
+        heads = [e for e in eids
+                 if scenes.items[e].identity.kind is ElementKind.NOTEHEAD]
+        if sigs and heads:
+            return sigs[0], heads[0], TEMPO.seconds_at(trig.beats)
+    pytest.skip("no key signature sharing a trigger with a notehead")
+
+
+def test_a_key_signature_steps_up_under_fade(scenes, schedule) -> None:
+    """Whatever the document asks for, a signature runs the plain appear
+    step: floor before its trigger, exactly 1.0 at it, no ramp between.
+    The notehead beside it still fades, so the document setting is not
+    being ignored wholesale."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, _FADE_RULES)
+    sig, head, trig_s = _p1_key_sig(scenes, schedule)
+
+    applier.refresh(trig_s - 0.5)
+    assert scenes.items[sig].opacity() == pytest.approx(FLOOR)
+    applier.refresh(trig_s)
+    assert scenes.items[sig].opacity() == pytest.approx(1.0)
+    assert scenes.items[head].opacity() == pytest.approx(FLOOR)  # still fading
+    applier.apply_at(trig_s + 0.2)                  # mid-window: no ramp
+    assert scenes.items[sig].opacity() == pytest.approx(1.0)
+    assert scenes.items[head].opacity() < 1.0
+
+
+def test_a_key_signature_never_slides(scenes, schedule) -> None:
+    """The offset tracks never reach it either — it is in place at its
+    trigger while the notehead beside it is still travelling in."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, _SLIDE_RULES)
+    sig, head, trig_s = _p1_key_sig(scenes, schedule)
+
+    for t in (trig_s - 0.5, trig_s, trig_s + 0.1, trig_s + 1.0):
+        applier.refresh(t)
+        assert scenes.items[sig].animated_offset == (0.0, 0.0), t
+    applier.refresh(trig_s)
+    assert scenes.items[head].animated_offset != (0.0, 0.0)
