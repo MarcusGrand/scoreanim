@@ -156,9 +156,11 @@ def test_no_canvas_is_todays_behavior(qapp, scenes) -> None:
 
 
 def test_system_band_centers_in_the_canvas(qapp, engraved, scenes) -> None:
-    """System mode with a canvas: one frame shape for both modes — the
-    band's center maps to the viewport center and the zoom is the same
-    for every system (the 10R constancy, with the user's shape)."""
+    """System mode with a canvas and NO systems frame bound — a bare
+    view, which is the fallback path since stage 3 gave the bound one
+    the canvas-shaped systems frame (tests/test_stage_system_mode.py).
+    Even here the band's center maps to the viewport center and the zoom
+    is the same for every system (the 10R constancy)."""
     bands = {b.system: b for b in system_bands(engraved.layout)}
     canvas = VideoCanvas(1080, 1920)
     view = StageView()
@@ -208,7 +210,12 @@ def test_the_canvas_never_moves_between_units(qapp, engraved,
     between systems during playback, because fitInView rounds through
     the integer scrollbars position-dependently. The canvas fit pins
     it: the frame's viewport corners are IDENTICAL for every page and
-    every system, in both modes."""
+    every system.
+
+    No systems frame is bound here, so both modes share the page-shaped
+    canvas frame. With one bound — every real load since stage 3 — the
+    modes frame different things and each is constant on its own; that
+    is test_the_canvas_frame_never_moves_between_systems."""
     canvas = VideoCanvas(1080, 1920)
     view = StageView()
     view.resize(500, 880)

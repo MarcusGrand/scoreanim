@@ -19,11 +19,13 @@ into it. One CONSTANT frame per load — the `SystemsFrame` computed in
 core/engraving/systems.py, page width by tallest band plus even padding
 — with the current system centred in it, so nothing about the frame
 changes when the music moves to a system with more or fewer staves.
-There is no page context in system mode: the whole frame is filled with
-the page's own background, so no paper edge is left to move. A switch
-never re-fits (stage 2): fitted, the fit it would land on is the one it
-already has, and zoomed in, the camera simply translates with the frame,
-so the user keeps their zoom and their place in the system.
+With a video canvas set, that frame takes the canvas's shape (stage 3),
+so the system fills the frame the export will carry. There is no page
+context in system mode: the whole frame is filled with the page's own
+background, so no paper edge is left to move. A switch never re-fits
+(stage 2): fitted, the fit it would land on is the one it already has,
+and zoomed in, the camera simply translates with the frame, so the user
+keeps their zoom and their place in the system.
 
 Masking is drawForeground — the view paints the frame's own fill over a
 neighbouring system's ink INSIDE the frame and letterbox OUTSIDE it, so
@@ -380,10 +382,11 @@ class StageView(QGraphicsView):
         canvas there is no frame and nothing to mask: the page is the
         picture.
 
-        The 1 px edge is drawn for a video CANVAS only. It is there to
-        show where the exported video frame cuts; system mode's frame
-        is not an export boundary, and drawing an edge on it would put
-        back the page context stage 1 took away."""
+        The 1 px edge is drawn for a video CANVAS only, in either mode.
+        It is there to show where the exported video frame cuts. System
+        mode's own frame gets none: it is not an export boundary, and
+        drawing an edge on it would put back the page context stage 1
+        took away."""
         framing = self._framing
         if framing.frame is None:
             return

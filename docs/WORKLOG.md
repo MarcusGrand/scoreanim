@@ -69,6 +69,27 @@ lines — history lives in git and `docs/history/`.
 
 ---
 
+- 2026-08-30 — `systems-fixed-frame` (SYSTEMS_MODE_REWORK.md stage 3,
+  UNMERGED): **the video canvas reshapes the systems frame instead of
+  replacing it**. With a canvas set, systems mode used to fall back to
+  the pre-rework page window — page-tall, the system in a strip of it —
+  because the canvas branch came first and fitted the canvas around the
+  PAGE. Now the canvas gives stage 1's own frame its aspect ratio
+  (`SystemsFrame.for_canvas`, pure): the whole systems frame still fits,
+  nothing is cropped, and the slack lands on whichever axis the canvas
+  is long on — on testscore a 1920x1080 canvas is wider than the frame,
+  so the system fills the video frame with even air at the sides. Every
+  stage 1 and 2 promise survives it, because the canvas is a load-level
+  fact like the frame: one shape for every system, band centred,
+  switches translating (pinned zoomed, both canvas shapes and none).
+  Turning the canvas on or off reframes in place and re-fits, so the
+  swap lands on exactly the fit each state would have had. One new
+  branch, `StageFraming.systems_frame`, where the two frames meet.
+  10 new tests; full suite green, no schema bump, no golden movement.
+  This makes the STAGE disagree with export in systems mode — export
+  still frames with the page window — which is stage 4, next. Unproven
+  under a human's eye.
+
 - 2026-08-30 — `systems-fixed-frame` (SYSTEMS_MODE_REWORK.md stage 1
   follow-up, UNMERGED): **systems mode hides the other systems' ITEMS**.
   Marcus's report — small parts of neighbouring systems still showed

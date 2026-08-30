@@ -5,7 +5,8 @@ stage 1) replaced the per-system page window with ONE constant frame the
 systems are placed into. What these pin: the frame never changes size or
 position, the band is centred in it, there is no paper edge inside it, a
 neighbouring system never bleeds in, and clear_band restores paged
-behaviour.
+behaviour. Stage 3 added the video canvas: with one set, that constant
+frame takes the canvas's shape, and everything above still holds.
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from scoreanim.core.engraving.systems import (  # noqa: E402
     neighbour_bounds, system_bands, systems_frame)
 from scoreanim.core.project.stage_config import (  # noqa: E402
-    default_stage_config, page_content_top)
+    VideoCanvas, default_stage_config, page_content_top)
 from scoreanim.render.scene import ScoreScenes  # noqa: E402
 from scoreanim.ui.stage_frame import (  # noqa: E402
     fit_geometry, frame_offset, snapped_frame)
@@ -75,11 +76,13 @@ def _pixel(view: StageView, scene_x: float, scene_y: float) -> QColor | None:
     return image.pixelColor(pt)
 
 
-def _view(frame, size=(600, 850)) -> StageView:
+def _view(frame, size=(600, 850), canvas=None) -> StageView:
     view = StageView()
     view.resize(*size)
     view.viewport().grab()               # force offscreen layout/resize
     view.set_systems_frame(frame)        # what ViewRouter.bind does
+    if canvas is not None:
+        view.set_canvas(canvas)          # what ViewRouter.sync_canvas does
     return view
 
 
@@ -464,3 +467,127 @@ def test_fit_geometry_has_nothing_to_fit() -> None:
     page = QRectF(0, 0, 2000.0, 3000.0)
     assert fit_geometry(QRectF(0, 0, 100.0, 100.0), page, 0, 500) is None
     assert fit_geometry(QRectF(), page, 900, 620) is None
+
+
+# -- the video canvas as the frame (stage 3) ------------------------------
+
+_CANVAS = VideoCanvas(1920, 1080)        # the common overlay frame
+
+
+def test_the_canvas_gives_the_systems_frame_its_shape(qapp, scenes, bands,
+                                                      frame, bounds) -> None:
+    """Stage 3: with a video canvas set, the frame systems mode shows IS
+    the video frame. It takes the canvas's aspect ratio and still holds
+    the whole of stage 1's frame, so the system fills the frame the
+    export will carry instead of sitting in a page-tall strip of it."""
+    shaped = frame.for_canvas(_CANVAS.width, _CANVAS.height)
+    assert shaped.width / shaped.height == pytest.approx(
+        _CANVAS.width / _CANVAS.height)
+    view = _view(frame, canvas=_CANVAS)
+    band = bands[2]
+    _show(view, scenes, band, bounds)
+    placed = _qrect(shaped.rect_for(band.rect))
+    assert placed.contains(_qrect(frame.rect_for(band.rect)))
+    # not the pre-rework page window: the frame is still the system's,
+    # only reshaped
+    page = scenes.scene_for_page(band.page).sceneRect()
+    assert placed.height() < page.height()
+    # and it is that frame that fits: it fills the viewport on one axis
+    on_screen = view.mapFromScene(placed).boundingRect()
+    assert (on_screen.width() == pytest.approx(view.viewport().width(),
+                                               abs=2)
+            or on_screen.height() == pytest.approx(
+                view.viewport().height(), abs=2))
+
+
+def test_the_canvas_frame_never_moves_between_systems(qapp, scenes, bands,
+                                                      frame, bounds) -> None:
+    """The stage-1 promise holds with a canvas on: one frame for the
+    load, so every system is shown at the same size in the same place."""
+    view = _view(frame, canvas=_CANVAS)
+    seen = set()
+    for band in bands.values():
+        _show(view, scenes, band, bounds)
+        seen.add(_lit_column(view))
+    assert len(seen) == 1, f"the canvas frame moved: {seen}"
+    top, bottom = seen.pop()
+    shaped = frame.for_canvas(_CANVAS.width, _CANVAS.height)
+    assert bottom - top == pytest.approx(
+        shaped.height * view.transform().m11(), abs=4)
+
+
+def test_toggling_the_canvas_swaps_the_frame(qapp, scenes, bands, frame,
+                                             bounds) -> None:
+    """Marcus's check: the frame swaps between the canvas one and the
+    default one cleanly. Turning the canvas off lands on exactly the fit
+    of a view that never had one, and turning it back on lands on
+    exactly the canvas fit."""
+    plain = _view(frame)
+    _show(plain, scenes, bands[2], bounds)
+    canvassed = _view(frame, canvas=_CANVAS)
+    _show(canvassed, scenes, bands[2], bounds)
+    assert canvassed.transform().m11() != pytest.approx(
+        plain.transform().m11(), rel=1e-6)
+
+    view = _view(frame, canvas=_CANVAS)
+    _show(view, scenes, bands[2], bounds)
+    view.set_canvas(None)
+    assert view.transform().m11() == pytest.approx(plain.transform().m11())
+    assert view._framing.frame.size() == plain._framing.frame.size()
+    view.set_canvas(_CANVAS)
+    assert view.transform().m11() == pytest.approx(
+        canvassed.transform().m11())
+    assert view._framing.frame.size() == canvassed._framing.frame.size()
+
+
+@pytest.mark.parametrize("canvas", [_CANVAS, VideoCanvas(1080, 1920), None])
+def test_switches_still_translate_in_either_state(qapp, scenes, bands,
+                                                  frame, bounds,
+                                                  canvas) -> None:
+    """"No jump on subsequent switches in either state": whatever the
+    frame's shape, a zoomed switch keeps the glass where it is and a
+    long run of them comes back to the same camera, to the bit.
+
+    One device pixel is the tolerance, and it is the snap — the glass is
+    measured against each frame's UNSNAPPED placement. The camera itself
+    is exact, and that is the last assertion here."""
+    shaped = frame if canvas is None         else frame.for_canvas(canvas.width, canvas.height)
+    view = _view(frame, canvas=canvas)
+    _show(view, scenes, bands[1], bounds)
+    view.zoom_by(2.0)
+    view.scroll_by(300.0, 0.0)
+    _show(view, scenes, bands[1], bounds)   # settle on the snapped frame
+    want = _glass(view, shaped, bands[1])
+    zoom = view.transform().m11()
+    first = view.mapToScene(0, 0)
+    for system in list(bands) * 4:
+        _show(view, scenes, bands[system], bounds)
+        at = _glass(view, shaped, bands[system])
+        assert at[0] == pytest.approx(want[0], abs=1.0)
+        assert at[1] == pytest.approx(want[1], abs=1.0)
+        assert view.transform().m11() == zoom
+    _show(view, scenes, bands[1], bounds)
+    assert view.mapToScene(0, 0) == first
+
+
+def test_the_canvas_frame_has_no_page_edge_in_it(qapp, scenes, bands,
+                                                 frame, bounds) -> None:
+    """The extra room a canvas adds belongs to the frame, exactly as the
+    stage-1 padding does: it fills with the page's own background, so
+    the video frame reads as one solid rectangle and no paper edge
+    appears where the canvas is wider than the page."""
+    view = _view(frame, canvas=_CANVAS)
+    band = bands[2]
+    _show(view, scenes, band, bounds)
+    placed = frame.for_canvas(_CANVAS.width,
+                              _CANVAS.height).rect_for(band.rect)
+    page = scenes.scene_for_page(band.page).sceneRect()
+    assert placed.x < page.left()        # this canvas really is wider
+    seen = set()
+    for x in (placed.x + placed.w * 0.01, page.left() - 1.0,
+              page.left() + 1.0, page.right() + 1.0):
+        for y_frac in (0.02, 0.5, 0.98):
+            color = _pixel(view, x, placed.y + y_frac * placed.h)
+            assert color is not None
+            seen.add(color.name())
+    assert seen == {_FILL}, f"the canvas frame is not uniform: {seen}"

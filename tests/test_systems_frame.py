@@ -92,6 +92,72 @@ def test_on_the_real_fixture(engraved) -> None:
         assert placed.contains(band.rect, slack=1e-9)
 
 
+# -- the video canvas as the frame (stage 3) ------------------------------
+
+def test_a_canvas_gives_the_frame_its_aspect() -> None:
+    """With a video canvas set, the frame the user is looking at IS the
+    video frame, so it takes the canvas's shape."""
+    frame = systems_frame((_band(1, 0.0, 200.0),))       # 1000 x 224
+    for w, h in ((1920, 1080), (1080, 1920), (2000, 200)):
+        shaped = frame.for_canvas(w, h)
+        assert shaped.width / shaped.height == pytest.approx(w / h)
+
+
+def test_a_canvas_only_adds_room() -> None:
+    """Nothing is ever cropped: the whole systems frame still fits, and
+    the canvas puts its slack on whichever axis it is long on — the
+    paged rule (`canvas_view_rect` holds the whole page), with the
+    system's frame in the page's place."""
+    frame = systems_frame((_band(1, 0.0, 200.0),))       # 1000 x 224
+    band = Rect(0.0, 0.0, 1000.0, 200.0)
+    for w, h in ((1920, 1080), (1080, 1920), (2000, 200)):
+        shaped = frame.for_canvas(w, h)
+        assert shaped.width >= frame.width - 1e-9
+        assert shaped.height >= frame.height - 1e-9
+        assert shaped.rect_for(band).contains(frame.rect_for(band),
+                                              slack=1e-9)
+
+
+def test_a_canvas_keeps_the_frame_centred() -> None:
+    """The extra room is even, so the system sits in the middle of the
+    video frame both ways — a wide canvas gives it equal air at the
+    sides, a tall one equal air above and below."""
+    frame = systems_frame((_band(1, 0.0, 200.0),))
+    band = Rect(0.0, 0.0, 1000.0, 200.0)
+    wide = frame.for_canvas(2000, 200).rect_for(band)
+    assert wide.center.x == pytest.approx(frame.width / 2)
+    assert wide.center.y == pytest.approx(band.center.y)
+    tall = frame.for_canvas(1080, 1920).rect_for(band)
+    assert tall.center.x == pytest.approx(frame.width / 2)
+    assert tall.center.y == pytest.approx(band.center.y)
+
+
+def test_the_canvas_frame_is_still_one_frame_for_the_load() -> None:
+    """The stage-1 promise survives the reshaping: same size for every
+    system, every band centred, so a switch is still a translation."""
+    bands = (_band(1, 0.0, 400.0), _band(2, 500.0, 600.0),
+             _band(3, 2000.0, 550.0))
+    shaped = systems_frame(bands).for_canvas(1920, 1080)
+    sizes = set()
+    for band in bands:
+        placed = shaped.rect_for(band.rect)
+        assert placed.center.y == pytest.approx(band.rect.center.y)
+        assert placed.contains(band.rect, slack=1e-9)
+        sizes.add((placed.w, placed.h))
+    assert len(sizes) == 1
+
+
+def test_the_canvas_frame_on_the_real_fixture(engraved) -> None:
+    """testscore with the common overlay frame: the system's own frame
+    reshaped, never the page-tall window systems mode used to show."""
+    bands = system_bands(engraved.layout)
+    shaped = systems_frame(bands).for_canvas(1920, 1080)
+    page = engraved.layout.pages[0]
+    assert shaped.height < page.height
+    assert shaped.width > page.width          # this canvas is the wider
+    assert shaped.x == pytest.approx((page.width - shaped.width) / 2)
+
+
 # -- how far a system may show -------------------------------------------
 
 def test_a_system_is_bounded_only_by_its_neighbours() -> None:

@@ -25,8 +25,11 @@ class StageFraming:
     `SystemsFrame`, 2026-08-30) placed so the current band is centred in
     it, with everything outside the band masked. A video canvas
     (2026-08-06) replaces the frame's shape in BOTH modes with the
-    user's own, computed by the same pure rect export renders — what
-    shows inside the frame is what the video frame will carry.
+    user's own — what shows inside the frame is what the video frame
+    will carry. What the canvas is fitted AROUND is the mode's own
+    unit: the whole page when paged, and the systems frame when in
+    system mode (2026-08-30), so a system fills the video frame instead
+    of sitting in a page-tall strip of it.
 
     Whenever there IS a frame the view fills it edge to edge and masks
     in two colours, so the frame reads as one still rectangle whose
@@ -51,6 +54,19 @@ class StageFraming:
         re-runs set_system_band to recompute the frame."""
         self.systems = systems
 
+    def systems_frame(self) -> SystemsFrame | None:
+        """The systems-mode frame as it stands right now: the load's
+        constant frame, reshaped to the video canvas when there is one.
+
+        Both inputs hold for a whole load, so this does too — the frame
+        is still the same size and shape for every system, and a switch
+        is still a translation. It changes only when the user changes
+        the canvas, and that reframes in place."""
+        if self.systems is None or self.canvas is None:
+            return self.systems
+        return self.systems.for_canvas(self.canvas.width,
+                                       self.canvas.height)
+
     def set_page(self, page: QRectF) -> None:
         self.band = None
         self.bounds = (None, None)
@@ -61,13 +77,16 @@ class StageFraming:
                         = (None, None)) -> None:
         self.band = QRectF(band)
         self.bounds = bounds
-        if self.canvas is not None:
+        systems = self.systems_frame()
+        if systems is not None:
+            r = systems.rect_for(Rect(band.x(), band.y(),
+                                      band.width(), band.height()))
+            self.frame = QRectF(r.x, r.y, r.w, r.h)
+        elif self.canvas is not None:
+            # a canvas with no load behind it (a bare StageView in a
+            # test): the page is the only unit there is to fit around
             self.frame = self._canvas_frame(page,
                                             center_y=band.center().y())
-        elif self.systems is not None:
-            r = self.systems.rect_for(Rect(band.x(), band.y(),
-                                           band.width(), band.height()))
-            self.frame = QRectF(r.x, r.y, r.w, r.h)
         else:
             # no load behind this view (a bare StageView in a test, or a
             # band shown before bind): the page's own height, which is

@@ -97,7 +97,28 @@ are the only two routes into the stage. View-level presentation state,
 never the document; the mask stays as the backstop for ink no system
 owns (the title), and export builds its own scenes so it cannot see it.
 
-## Stage 3 — the video canvas as the frame
+## Stage 3 — the video canvas as the frame — BUILT 2026-08-30
+
+Built on `systems-fixed-frame`. The canvas now reshapes the SYSTEMS
+frame instead of replacing it: `SystemsFrame.for_canvas` takes the
+stage-1 frame and gives it the canvas's aspect ratio, adding room on
+whichever axis the canvas is long on and cropping nothing. So the
+system fills the video frame, where before a canvas put systems mode
+back in a page-tall window with the system in a strip of it.
+
+Everything stage 1 and 2 promised holds with the canvas on, because the
+canvas is a load-level fact like the frame: one shape for every system,
+the band centred in it, switches translating. `StageFraming.systems_frame`
+is where the two meet, and it is the only new branch — turning the canvas
+on or off reframes in place and re-fits, so the swap is clean either way.
+
+What the canvas is fitted around is now the mode's own unit: the whole
+page when paged, the systems frame in system mode. Read as the canvas
+being the user's frame SHAPE, with the mode saying what has to fit
+inside it.
+
+Note this makes the stage disagree with export in system mode — export
+still frames with the pre-rework page window. That is stage 4's job.
 
 > Systems mode, step 3: when the video-canvas overlay preview is on, the
 > systems-mode frame becomes the canvas frame (preset/custom size, scale

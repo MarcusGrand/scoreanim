@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
+from scoreanim.core.engraving.canvas import canvas_view_rect
 from scoreanim.core.engraving.types import Layout, Rect
 
 
@@ -124,18 +125,42 @@ class SystemsFrame:
     fits in with room to spare. Every system is then centred in it, and
     a system with fewer staves simply has more air around it.
 
+    A video canvas replaces its shape (`for_canvas`, 2026-08-30): with
+    one set, the frame the user is looking at is the video frame.
+
     Derived from the Layout, re-computed on every load, never stored
     (rule 5)."""
 
     width: float
     height: float
+    x: float = 0.0        # left edge; off the page only with a canvas
 
     def rect_for(self, band: Rect) -> Rect:
         """Where the frame sits, in page coordinates, so that `band` is
         vertically centred in it. x is the page's own left edge, so the
-        system's horizontal position is exactly where it was engraved."""
-        return Rect(0.0, band.center.y - self.height / 2,
+        system's horizontal position is exactly where it was engraved —
+        a canvas wider than the page moves it left by half the slack,
+        which keeps the page centred in the video frame."""
+        return Rect(self.x, band.center.y - self.height / 2,
                     self.width, self.height)
+
+    def for_canvas(self, canvas_w: float, canvas_h: float
+                   ) -> "SystemsFrame":
+        """This frame reshaped to a video canvas (stage 3 of
+        docs/SYSTEMS_MODE_REWORK.md).
+
+        With a canvas set, the frame systems mode shows IS the video
+        frame — what is inside the glass is what the export will carry.
+        So the canvas gives the frame its aspect ratio, and it only ever
+        ADDS: the whole systems frame still fits, with the slack on
+        whichever axis the canvas is long on, and the same centre. That
+        is the paged rule too (`canvas.canvas_view_rect` holds the whole
+        page), with the system's frame in the page's place.
+
+        Still one frame for the load — the canvas is a load-level fact
+        as well — so every switch stays a translation."""
+        r = canvas_view_rect(self.width, self.height, canvas_w, canvas_h)
+        return SystemsFrame(width=r.w, height=r.h, x=self.x + r.x)
 
 
 def systems_frame(bands: tuple[SystemBand, ...],
