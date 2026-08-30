@@ -1036,8 +1036,9 @@ re-touching. "Clear overrides on selection" must be cheap.
   live stage fits its view to that rect (`ui/stage_frame.py`) and
   export renders exactly it, so preview and frames agree by
   construction. Phase 10R's constancy survives in a narrower form: one
-  shape for BOTH presentation modes and every frame — a system band
-  centers vertically in the same user-chosen frame — and the canvas
+  shape for every frame of a RUN, whatever the systems under it are —
+  the mode says what that shape is fitted around (2026-08-30: the whole
+  page when paged, the systems frame in system mode) — and the canvas
   NEVER moves on screen during playback: it has its own fit
   (`StageView._fit_frame` over the pure `stage_frame.fit_geometry` —
   direct zoom, a constant overscan scroll rect, a quarter-device-pixel
@@ -1049,10 +1050,16 @@ re-touching. "Clear overrides on selection" must be cheap.
   preview is off, and a neighbor system's in-frame ink masks with that
   same fill — letterbox exists only OUTSIDE the frame, so the lit area
   never reshapes per system (the round-3 report). Phase
-  10R's page-aspect-from-height rule is now the `canvas=None` default,
-  which every pre-v12 project keeps, and that legacy path runs
-  verbatim behind the guard (the whole pre-canvas export suite passes
-  unmodified). The dialog shows a document canvas READ-ONLY — the size
+  10R's height-gives-the-shape rule is now the `canvas=None` default,
+  which every pre-v12 project keeps; paged mode runs that legacy path
+  verbatim behind the guard (the whole pre-canvas paged export suite
+  passes unmodified), and since 2026-08-30 system mode applies the same
+  height to the SYSTEMS frame instead of the page, because export
+  frames with the rect the stage frames
+  (`render/export.py::systems_export_frame`, rework stage 4). Neighbours
+  are kept out of an exported frame the way the stage keeps them out,
+  by hiding the other systems' ink rather than clipping to a region.
+  The dialog shows a document canvas READ-ONLY — the size
   has one home, the inspector's Video canvas panel. The stage can also
   paint a preview color behind the overlay inside the frame
   ("Preview on video", black default + picker) — VIEW state in

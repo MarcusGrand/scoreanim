@@ -29,7 +29,8 @@ from scoreanim.render.encode import (AlphaMode, PngSequenceSink,
                                      ProResFfmpegSink, find_ffmpeg)
 from scoreanim.render.export import (AnimationInputs, ExportFormat,
                                      ExportSpec, FrameRenderer, even_size,
-                                     frame_count, measure_span_seconds)
+                                     frame_count, measure_span_seconds,
+                                     systems_export_frame)
 from scoreanim.ui import tips
 from scoreanim.ui.export_run import ExportRun
 
@@ -130,31 +131,35 @@ class ExportDialog(QDialog):
             "try the other one.")
         form.addRow(tips.label("Alpha:", self._alpha), self._alpha)
 
+        # The shape the height is applied to is the frame THIS MODE
+        # shows, which is what the renderer sizes from too (rework stage
+        # 4): the page when paged, the systems frame in system mode. The
+        # spinbox exists either way so session memory round-trips; a
+        # canvas hides it.
         geo = self._inputs.layout.pages[0]
-        self._page_aspect = (geo.width, geo.height)
-        # with no canvas both modes share the page-aspect frame (Phase
-        # 10R ruling: the frame never changes shape; system mode centers
-        # the single system vertically inside it). The spinbox exists
-        # either way so session memory round-trips; a canvas hides it.
+        frame = systems_export_frame(self._inputs.layout, None) \
+            if self._mode is PresentationMode.SYSTEM else None
+        self._frame_aspect = (geo.width, geo.height) if frame is None \
+            else (frame.width, frame.height)
         self._height = QSpinBox()
         self._height.setRange(240, 4320)
         self._height.setSingleStep(2)
         self._height.setValue(2160)
         self._height.setSuffix(" px high")
         tips.describe(self._height,
-                      "How tall the exported frame is; the width follows "
-                      "the page's own shape")
+                      "How tall the exported frame is; the width "
+                      "follows " + self._shape_name())
         self._width_label = QLabel()
         tips.describe(self._width_label,
-                      "The width the height above works out to — the page "
-                      "aspect is locked")
+                      "The width the height above works out to — "
+                      + self._shape_name() + " is locked")
         if self._canvas is not None:
             c = self._canvas
             form.addRow("Size:", QLabel(
                 f"{c.width} × {c.height} px — set in the Video canvas "
                 f"panel"))
         else:
-            # aspect is the page's own and stays locked: width follows
+            # aspect is the frame's own and stays locked: width follows
             # the height, the 🔗 makes the coupling visible
             size_row = QHBoxLayout()
             size_row.addWidget(self._height)
@@ -242,13 +247,19 @@ class ExportDialog(QDialog):
     def _size_widgets(self) -> tuple[QSpinBox, ...]:
         return () if self._canvas is not None else (self._height,)
 
+    def _shape_name(self) -> str:
+        """What the locked aspect belongs to, for the two size tips."""
+        return "the system frame's shape" \
+            if self._mode is PresentationMode.SYSTEM else "the page's shape"
+
+
     def _output_size(self) -> tuple[int, int]:
         """Pixel size the current settings produce: the document's
-        canvas verbatim, else page aspect from the height (evened, like
-        the renderer will)."""
+        canvas verbatim, else the mode's own frame aspect from the
+        height (evened, like the renderer will)."""
         if self._canvas is not None:
             return self._canvas.width, self._canvas.height
-        return even_size(*self._page_aspect, self._height.value())
+        return even_size(*self._frame_aspect, self._height.value())
 
     def _on_span_toggled(self, span: bool) -> None:
         tips.gate(self._span_from, span, _WHOLE_CHOSEN)
@@ -318,9 +329,10 @@ class ExportDialog(QDialog):
             index = self._alpha.findData(alpha)
             if index >= 0:
                 self._alpha.setCurrentIndex(index)
-        # one height for both modes (Phase 10R: the frame keeps the page
-        # aspect everywhere); stale canvas_w/canvas_h session keys from
-        # the removed free-form system canvas are simply ignored
+        # one height for both modes — it is the shape the height is
+        # applied to that follows the mode, not the height; stale
+        # canvas_w/canvas_h session keys from the removed free-form
+        # system canvas are simply ignored
         self._height.setValue(settings.get("height", 2160))
         if settings.get("path"):
             self._path.setText(settings["path"])

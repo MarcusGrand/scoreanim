@@ -44,7 +44,8 @@ from scoreanim.core.project.stage_config import PresentationMode  # noqa: E402
 from scoreanim.render.export import (AnimationInputs,  # noqa: E402
                                      ExportFormat, ExportSpec,
                                      FrameRenderer, even_size, frame_count,
-                                     measure_span_seconds)
+                                     measure_span_seconds,
+                                     systems_export_frame)
 
 FPS = 60
 HEIGHT = 360          # small frames keep the raster tests quick
@@ -405,22 +406,76 @@ def test_paged_export_untouched_by_system_machinery(
     assert renderer.size == even_size(geo.width, geo.height, HEIGHT)
 
 
-def test_system_canvas_is_page_aspect_from_height(
+def test_system_export_takes_the_systems_frames_shape(
         qapp, inputs, tempo_map, tempo_setup) -> None:
-    """Phase 10R ruling: the frame never changes shape between modes —
-    system mode sizes its canvas exactly like paged mode (page aspect
-    from the height field), and the SAME height gives IDENTICAL pixels
-    in both modes (the user's export requirement: every frame the same
-    aspect ratio / pixel size)."""
+    """Rework stage 4: the exported frame is the shape the STAGE shows
+    in system mode — the load's systems frame, not the page. The height
+    field still says how tall it is; the width follows that shape, and
+    it is one shape for the whole run whatever the systems under it
+    are."""
     offset = tempo_setup.offset_seconds
     system = make_system_renderer(inputs, tempo_map, offset, end=10.0,
                                   height=361)
+    frame = systems_export_frame(inputs.layout, None)
+    assert system.size == even_size(frame.width, frame.height, 361)
     geo = inputs.layout.pages[0]
-    assert system.size == even_size(geo.width, geo.height, 361)
-    paged = make_renderer(inputs, tempo_map, offset, end=10.0)  # HEIGHT
-    paged361 = make_system_renderer(inputs, tempo_map, offset, end=10.0,
-                                    height=HEIGHT)
-    assert paged.size == paged361.size    # systems == paged at same height
+    # and it really is a different shape from the page (a system band
+    # is much shorter than a page), so this is not a no-op
+    assert system.size != even_size(geo.width, geo.height, 361)
+    assert system.size[1] == 360                 # the height asked for
+
+
+def test_the_export_frames_the_rect_the_stage_frames(
+        qapp, inputs, tempo_map, tempo_setup) -> None:
+    """The parity pin for stage 4: for every system, export's source
+    rect is the very rect the stage puts its glass on. One pure
+    function behind both (SystemsFrame.rect_for), so they cannot drift
+    apart."""
+    from PySide6.QtCore import QRectF
+
+    from scoreanim.ui.stage_frame import StageFraming
+
+    offset = tempo_setup.offset_seconds
+    renderer = make_system_renderer(inputs, tempo_map, offset, end=10.0,
+                                    height=360)
+    frame = systems_export_frame(inputs.layout, None)
+    framing = StageFraming()
+    framing.set_systems_frame(frame)
+    geo = inputs.layout.pages[0]
+    page = QRectF(0, 0, geo.width, geo.height)
+    for band in system_bands(inputs.layout):
+        framing.set_system_band(
+            page, QRectF(band.rect.x, band.rect.y,
+                         band.rect.w, band.rect.h))
+        assert renderer.system_frame_rect(band.system) == framing.frame
+
+
+def test_the_export_frames_the_rect_the_stage_frames_with_a_canvas(
+        qapp, inputs, tempo_map, tempo_setup) -> None:
+    """Same pin with the video-canvas overlay on: the canvas reshapes
+    the systems frame (rework stage 3) on both sides, so the exported
+    picture is still what the stage previews."""
+    from PySide6.QtCore import QRectF
+
+    from scoreanim.core.project import VideoCanvas
+    from scoreanim.ui.stage_frame import StageFraming
+
+    canvas = VideoCanvas(270, 480)
+    offset = tempo_setup.offset_seconds
+    renderer = make_canvas_renderer(inputs, tempo_map, offset, end=10.0,
+                                    canvas=canvas,
+                                    mode=PresentationMode.SYSTEM)
+    assert renderer.size == (270, 480)
+    framing = StageFraming()
+    framing.set_systems_frame(systems_export_frame(inputs.layout, None))
+    framing.set_canvas(canvas)
+    geo = inputs.layout.pages[0]
+    page = QRectF(0, 0, geo.width, geo.height)
+    for band in system_bands(inputs.layout):
+        framing.set_system_band(
+            page, QRectF(band.rect.x, band.rect.y,
+                         band.rect.w, band.rect.h))
+        assert renderer.system_frame_rect(band.system) == framing.frame
 
 
 def test_system_export_frames_are_all_one_size(qapp, inputs, schedule,
@@ -465,39 +520,68 @@ def test_system_cut_frames_match_live_follow(qapp, inputs, schedule,
 
 
 @pytest.mark.parametrize("height", [360, 500])
-def test_system_frame_is_page_shaped_with_band_centered(
+def test_system_frame_holds_the_band_centered_in_it(
         qapp, inputs, schedule, tempo_map, tempo_setup, height) -> None:
-    """Phase 10R framing: the canvas is page-shaped; the system's band
-    renders at natural page width, VERTICALLY CENTERED; every sampled
-    pixel outside the band's projected strip is fully transparent (clip:
-    no neighbour bleed, no letterbox ink)."""
+    """The band renders vertically CENTERED in the frame, at natural
+    page width, whatever height the frame is asked for — the fixed-frame
+    rule (rework stages 1 and 4). The strip below it, where the next
+    system shares the paper, stays empty."""
     offset = tempo_setup.offset_seconds
     seconds = _trigger_seconds(schedule, tempo_map)
     end = _audio_end(schedule, tempo_map, offset)
     renderer = make_system_renderer(inputs, tempo_map, offset, end=end,
                                     height=height)
     w, h = renderer.size
-    geo = inputs.layout.pages[0]
+    frame = systems_export_frame(inputs.layout, None)
     band = {b.system: b for b in system_bands(inputs.layout)}[1]
-    fit = centered_fit(geo.width, geo.height, w, h)
-    scale = fit.h / geo.height
-    strip_top = fit.y + (geo.height - band.rect.h) / 2 * scale
+    fit = centered_fit(frame.width, frame.height, w, h)
+    scale = fit.h / frame.height
+    src_top = band.rect.center.y - frame.height / 2
+    strip_top = fit.y + (band.rect.y - src_top) * scale
     strip_bottom = strip_top + band.rect.h * scale
-    # the band strip is vertically centered in the canvas
+    # the band strip is vertically centered in the exported frame
     assert (strip_top + strip_bottom) / 2 == pytest.approx(h / 2, abs=1.5)
+    assert strip_bottom < h - 4      # there IS frame below it to check
 
     onset = math.ceil((seconds[0] + offset) * FPS - 1e-6)
     image = renderer.render_frame(onset)             # system 1, ink lit
     ink = 0
     for x in range(0, w, 4):
         for y in range(0, h, 4):
-            alpha = image.pixelColor(x, y).alpha()
-            inside = strip_top - 1 <= y <= strip_bottom + 1
-            if not inside:
-                assert alpha == 0, (x, y)
-            elif alpha > 0:
+            if image.pixelColor(x, y).alpha() == 0:
+                continue
+            if y > strip_bottom + 2:
+                # system 2 lives down there and is hidden, so nothing
+                # can paint here
+                raise AssertionError(f"ink below the band at {(x, y)}")
+            if strip_top - 2 <= y:
                 ink += 1
+            # above the band is the page's own title block, which the
+            # stage shows there too (the mask opens above the first
+            # system on a page) — not a leak
     assert ink > 10                                  # the band drew content
+
+
+def test_system_export_hides_the_other_systems(
+        qapp, inputs, schedule, tempo_map, tempo_setup) -> None:
+    """The neighbour guarantee, rebuilt on the stage's terms: export
+    HIDES the other systems' ink instead of clipping to a region, so
+    ink that grows past its own band cannot leak into the frame
+    (render/scene.py::set_visible_system). The stage moved to this on
+    2026-08-30; export's private scenes take the same call."""
+    offset = tempo_setup.offset_seconds
+    end = _audio_end(schedule, tempo_map, offset)
+    renderer = make_system_renderer(inputs, tempo_map, offset, end=end,
+                                    height=360)
+    seen = set()
+    step = max(1, renderer.frame_count // 20)
+    for n in range(0, renderer.frame_count, step):
+        renderer.render_frame(n)
+        current = renderer.current_system()
+        seen.add(current)
+        for (_, system), group in renderer.scenes.system_groups.items():
+            assert group.isVisible() == (system == current), (n, system)
+    assert len(seen) >= 3                  # the walk really crossed systems
 
 
 # -- encoder sinks -------------------------------------------------------------
@@ -1233,11 +1317,12 @@ def test_landscape_canvas_slack_is_transparent(
                          canvas.height) == 0
 
 
-def test_system_canvas_frames_are_all_one_size_and_band_clipped(
+def test_system_canvas_frames_are_all_one_size_and_neighbour_free(
         qapp, inputs, schedule, tempo_map, tempo_setup) -> None:
     """System mode with a canvas: every frame is exactly the canvas
-    size, and ink outside the band's projected strip never paints (the
-    bleed guarantee, canvas edition)."""
+    size, the band is centred in it, and the strip where the next
+    system shares the paper stays empty (rework stages 3 and 4 — the
+    canvas reshapes the systems frame, and neighbours are hidden)."""
     from scoreanim.core.project import VideoCanvas
 
     offset = tempo_setup.offset_seconds
@@ -1246,19 +1331,22 @@ def test_system_canvas_frames_are_all_one_size_and_band_clipped(
     renderer = make_canvas_renderer(inputs, tempo_map, offset, end=end,
                                     canvas=canvas,
                                     mode=PresentationMode.SYSTEM)
-    src = _canvas_src_rect(inputs, canvas)
-    ppu = canvas.width / src.w
+    frame = systems_export_frame(inputs.layout, canvas)
+    ppu = canvas.height / frame.height          # px per page unit
     bands = {b.system: b for b in system_bands(inputs.layout)}
     total = renderer.frame_count
+    checked = 0
     for n in (0, total // 2, total - 1):
         image = renderer.render_frame(n)
         assert (image.width(), image.height()) == (270, 480)
         band = bands[renderer.current_system()]
-        # the band is vertically centered, so its strip's top in pixels:
-        strip_top = int(canvas.height / 2 - band.rect.h / 2 * ppu)
-        if strip_top > 2:
-            assert _max_alpha_in(image, 0, 0, canvas.width,
-                                 strip_top - 2) == 0
+        # the band is vertically centred, so its strip in pixels:
+        strip_bottom = int(canvas.height / 2 + band.rect.h / 2 * ppu)
+        assert strip_bottom < canvas.height - 2   # frame below to check
+        assert _max_alpha_in(image, 0, strip_bottom + 2, canvas.width,
+                             canvas.height) == 0
+        checked += 1
+    assert checked == 3
 
 
 def test_dialog_reflects_the_documents_canvas(qapp, inputs, tempo_map,
@@ -1281,7 +1369,7 @@ def test_dialog_reflects_the_documents_canvas(qapp, inputs, tempo_map,
 
     legacy = dialog()
     assert legacy._output_size() == even_size(
-        *legacy._page_aspect, legacy._height.value())
+        *legacy._frame_aspect, legacy._height.value())
     assert legacy._size_widgets() == (legacy._height,)
 
 

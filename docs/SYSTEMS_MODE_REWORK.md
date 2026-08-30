@@ -117,8 +117,8 @@ page when paged, the systems frame in system mode. Read as the canvas
 being the user's frame SHAPE, with the mode saying what has to fit
 inside it.
 
-Note this makes the stage disagree with export in system mode — export
-still frames with the pre-rework page window. That is stage 4's job.
+This made the stage disagree with export in system mode, where export
+still framed with the pre-rework page window. Stage 4 closed that.
 
 > Systems mode, step 3: when the video-canvas overlay preview is on, the
 > systems-mode frame becomes the canvas frame (preset/custom size, scale
@@ -129,12 +129,35 @@ still frames with the pre-rework page window. That is stage 4's job.
 > between canvas and default cleanly, no jump on subsequent switches in
 > either state.
 
-## Stage 4 — export parity
+## Stage 4 — export parity — BUILT 2026-08-30
 
-Now two things, not one: export still frames with the pre-rework
-page-sized window, AND it clips to a region the way the stage used to,
-so it has the same neighbour leak the item filter fixed. Its private
-scenes can take `set_visible_system` too.
+Built on `systems-fixed-frame`. It was two things, and both are done.
+
+Export frames with the stage's frame now: `systems_export_frame` in
+`render/export.py` is the same composition `StageFraming.systems_frame`
+does — the pure `systems_frame` off the layout, reshaped by the canvas
+when there is one — and the renderer's source rect is
+`SystemsFrame.rect_for(band)`, the stage's own rect. A test holds the
+two side by side for every system, with and without a canvas, so they
+cannot drift apart again.
+
+That changes the exported PIXEL SIZE in systems mode with no canvas:
+the frame is the systems frame's shape, not the page's, so the same
+height field gives a wide short frame instead of a page-shaped one
+(668 x 540 against 254 x 540 on testscore). It has to — the old shape
+was the pre-rework page window, and matching the stage is the whole
+point of this stage. The export dialog's width readout follows the same
+rule, from the same function. With a canvas nothing moves: the size is
+still the canvas, exactly.
+
+And the region clip is gone: export calls `set_visible_system` on its
+private scenes like the stage does, so a neighbour's ink cannot leak
+however far it grows past its band.
+
+One thing that reads as a difference and is not: above the first system
+on a page the frame shows the title block, in the export as on the
+stage. The stage's mask opens there on purpose (stage 1's follow-up),
+and stage texts belong to no system, so both show it.
 
 
 > Systems mode, step 4: audit how export frames systems mode against the

@@ -33,7 +33,8 @@ from scoreanim.core.animation import (GlowScope, StyleRules,
                                       TriggerSchedule)
 from scoreanim.core.audio import PeakCache
 from scoreanim.core.engraving.canvas import canvas_view_rect
-from scoreanim.core.engraving.systems import centered_fit, system_bands
+from scoreanim.core.engraving.systems import (SystemBand, SystemsFrame,
+                                              system_bands, systems_frame)
 from scoreanim.core.engraving.types import Layout
 from scoreanim.core.project.document import LayoutOverride
 from scoreanim.core.project.stage_config import (PresentationMode,
@@ -76,17 +77,19 @@ class ExportSpec:
     the frame walk, never by the compositing user.
 
     Frame shape: with no `canvas` (the default, and every project before
-    v12) it is the PAGE's own aspect from `height`, exactly like Phase
-    10R ruled — the frame never changes shape between modes; the current
-    system renders at natural page width, vertically centered,
-    everything outside its band transparent. With a `canvas` (2026-08-06)
-    the frame is exactly canvas.width x canvas.height and the score
-    composites by the same pure rect the live stage frames
-    (canvas_view_rect), so preview and export agree by construction;
-    `height` is ignored. One user shape for both modes — the 10R
-    constancy stands, with the shape now document intent."""
+    v12) it is the aspect of the frame the mode itself shows, taken from
+    `height` — the whole page when paged, and the systems frame when in
+    system mode (`systems_export_frame`, rework stage 4). With a
+    `canvas` (2026-08-06) the frame is exactly canvas.width x
+    canvas.height and `height` is ignored. Either way the shape holds
+    for the whole run: one size for every frame, whatever the systems
+    under it are.
+
+    Both modes frame by the same pure rects the live stage frames:
+    `canvas_view_rect` paged, `SystemsFrame.rect_for` in system mode. So
+    preview and export agree by construction."""
     fps: int
-    height: int                  # pixel height; width from the page aspect
+    height: int                  # pixel height; width from the frame's aspect
     start_seconds: float
     end_seconds: float           # exclusive: frames sample [start, end)
     offset_seconds: float        # audio time of score beat 0 (sidecar)
@@ -96,16 +99,40 @@ class ExportSpec:
     canvas: VideoCanvas | None = None
 
 
-def even_size(page_w: float, page_h: float,
+def even_size(frame_w: float, frame_h: float,
               target_height: int) -> tuple[int, int]:
-    """Output pixel size at the page's own aspect, both dimensions
-    floored to even (encoder requirement); the ≤1 px aspect residue
-    letterboxes transparently under KeepAspectRatio."""
-    if page_w <= 0 or page_h <= 0 or target_height <= 0:
-        raise ValueError(f"bad geometry {page_w}x{page_h} @ {target_height}")
+    """Output pixel size at the exported frame's own aspect, both
+    dimensions floored to even (encoder requirement); the ≤1 px aspect
+    residue letterboxes transparently under KeepAspectRatio.
+
+    The frame is the page when paged and the systems frame in system
+    mode (`systems_export_frame`), so the shape follows what the stage
+    shows in that mode."""
+    if frame_w <= 0 or frame_h <= 0 or target_height <= 0:
+        raise ValueError(f"bad geometry {frame_w}x{frame_h} "
+                         f"@ {target_height}")
     height = int(target_height) & ~1
-    width = round(height * page_w / page_h) & ~1
+    width = round(height * frame_w / frame_h) & ~1
     return max(width, 2), max(height, 2)
+
+
+def systems_export_frame(layout: Layout, canvas: VideoCanvas | None
+                         ) -> SystemsFrame | None:
+    """The one frame systems mode shows, for this layout and canvas —
+    the export half of stage 4 of docs/SYSTEMS_MODE_REWORK.md.
+
+    Exactly the stage's own composition (ui/stage_frame.py::
+    StageFraming.systems_frame): the load's constant frame from the pure
+    `systems_frame`, reshaped to the video canvas when the document has
+    one. Both inputs are load-level facts, so this is one frame for the
+    whole run, which is what keeps every exported frame the same size.
+
+    None when the layout has no systems to frame — the caller reads that
+    as "nothing to do here, render pages"."""
+    frame = systems_frame(system_bands(layout))
+    if frame is None or canvas is None:
+        return frame
+    return frame.for_canvas(canvas.width, canvas.height)
 
 
 def measure_span_seconds(measures: Sequence[MeasureInfo], first: int,
@@ -175,22 +202,31 @@ class FrameRenderer:
         # the same seam the stage uses — an exported video pops and
         # breathes exactly like the preview
         self._applier.set_audio(peaks, spec.offset_seconds)
-        # both modes share ONE frame shape (the 10R constancy): the
-        # user's canvas when the document has one, else the page's own
-        # aspect from spec.height; system mode only adds bands
+        # ONE frame shape for the whole run, and it is the shape the
+        # stage shows in this mode: the page when paged, the systems
+        # frame in system mode (rework stage 4). The user's canvas gives
+        # that frame its aspect when the document has one; without a
+        # canvas the shape comes from spec.height.
         geo = inputs.layout.pages[0]
         self._page_geo = geo
         self._canvas = spec.canvas
+        self._systems_frame: SystemsFrame | None = None
+        self._band_by_system: dict[int, SystemBand] | None = None
+        if spec.mode is PresentationMode.SYSTEM:
+            frame = systems_export_frame(inputs.layout, spec.canvas)
+            if frame is not None:
+                self._systems_frame = frame
+                self._band_by_system = {b.system: b
+                                        for b in system_bands(inputs.layout)}
         if spec.canvas is not None:
             self._width, self._height = spec.canvas.width, spec.canvas.height
+        elif self._systems_frame is not None:
+            self._width, self._height = even_size(self._systems_frame.width,
+                                                  self._systems_frame.height,
+                                                  spec.height)
         else:
             self._width, self._height = even_size(geo.width, geo.height,
                                                   spec.height)
-        if spec.mode is PresentationMode.SYSTEM:
-            self._band_by_system = {b.system: b
-                                    for b in system_bands(inputs.layout)}
-        else:
-            self._band_by_system = None
         self._last_frame: int | None = None
 
     @property
@@ -257,55 +293,47 @@ class FrameRenderer:
         return QRectF(r.x, r.y, r.w, r.h)
 
     def _render_system_frame(self) -> QImage:
-        """A page-sized window centered vertically on the current
-        system's band, rendered onto the page-aspect canvas (Phase 10R
-        ruling: the frame keeps the layout's shape; the system occupies
-        the middle at natural page width). The cut lands on the frame
-        current_system() changes — the same applier walk as live follow
-        (ruling R2). The explicit clip to the band's projected sub-rect
-        is the bleed guarantee: neighboring systems inside the window
-        can never paint.
+        """One system in the load's constant systems frame — the same
+        picture the stage shows at Fit (stage 4 of
+        docs/SYSTEMS_MODE_REWORK.md).
 
-        Stage 4 of docs/SYSTEMS_MODE_REWORK.md is still owed here, and
-        it is now two things, not one: this window is still the
-        pre-rework page-sized one rather than the stage's fixed
-        `systems_frame`, AND the clip is a REGION, so a neighbour's ink
-        that grows past its own band still bleeds. The stage stopped
-        masking regions on 2026-08-30 and hides the other systems' items
-        instead (render/scene.py::set_visible_system); export's private
-        scenes can take the same call."""
+        The frame is fixed for the whole run and the band is centred in
+        it (`SystemsFrame.rect_for`), so a system switch moves the music
+        behind the glass and never the glass. The cut lands on the frame
+        current_system() changes — the same applier walk as live follow
+        (ruling R2).
+
+        Neighbours are kept out by HIDING them, not by clipping to a
+        region: painted ink is bigger than the bbox union a band is cut
+        from, so a region always leaked a little (render/scene.py::
+        set_visible_system has the measurements). These scenes are
+        private to the export, so the call is ours to make.
+
+        With no canvas the image is the frame's own aspect, so the frame
+        fills it but for the ≤1 px even-rounding residue, which
+        letterboxes transparently under KeepAspectRatio exactly like
+        paged mode."""
         band = self._band_by_system[self._applier.current_system()]
+        self._scenes.set_visible_system(band.system)
         scene = self._scenes.scene_for_page(band.page)
-        page = self._page_geo
-        if self._canvas is not None:
-            # the user's frame, centered on the band — the same rect
-            # the live stage fits in system mode
-            src = self._canvas_src(center_y=band.rect.y + band.rect.h / 2)
-            scale = self._width / src.width()
-            clip = QRectF(0.0, (band.rect.y - src.top()) * scale,
-                          float(self._width), band.rect.h * scale)
-        else:
-            src = QRectF(0.0,
-                         band.rect.y + band.rect.h / 2 - page.height / 2,
-                         page.width, page.height)
-            # the fitted target of the page-sized window (its ≤1 px even-
-            # rounding residue letterboxes exactly like paged mode)
-            fit = centered_fit(page.width, page.height,
-                               self._width, self._height)
-            scale = fit.h / page.height
-            clip = QRectF(fit.x, fit.y + (band.rect.y - src.top()) * scale,
-                          fit.w, band.rect.h * scale)
+        src = self.system_frame_rect(band.system)
         image = QImage(self._width, self._height,
                        QImage.Format.Format_ARGB32_Premultiplied)
         image.fill(Qt.GlobalColor.transparent)
         painter = QPainter(image)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-        painter.setClipRect(clip)
-        target = QRectF(0, 0, self._width, self._height) \
-            if self._canvas is not None \
-            else QRectF(fit.x, fit.y, fit.w, fit.h)
-        scene.render(painter, target, src,
-                     Qt.AspectRatioMode.KeepAspectRatio)
+        scene.render(painter, QRectF(0, 0, self._width, self._height),
+                     src, Qt.AspectRatioMode.KeepAspectRatio)
         painter.end()
         return image
+
+    def system_frame_rect(self, system: int) -> QRectF:
+        """Where the systems frame sits over the page for `system`, in
+        page coordinates — this render's source rect.
+
+        Public because it is the parity seam: the stage frames with the
+        same rect out of the same `SystemsFrame.rect_for`, so a test can
+        hold the two side by side instead of comparing pictures."""
+        r = self._systems_frame.rect_for(self._band_by_system[system].rect)
+        return QRectF(r.x, r.y, r.w, r.h)
