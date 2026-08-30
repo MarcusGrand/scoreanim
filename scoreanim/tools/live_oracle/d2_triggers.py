@@ -11,7 +11,9 @@ from __future__ import annotations
 from collections import defaultdict
 from xml.etree import ElementTree
 
-from scoreanim.core.animation.schedule import SIG_KINDS
+from scoreanim.core.animation.schedule import (SIG_KINDS,
+                                              quantize_beats,
+                                              voice_slot)
 from scoreanim.core.score.identity import ElementKind
 from scoreanim.tools.live_oracle.bundle import (Finding, OracleBundle,
                                                 _measure_of, _measure_starts)
@@ -27,6 +29,21 @@ def audit_triggers(bundle: OracleBundle, *,
                    for el in bundle.engraved.layout.elements}
     mapping = bundle.join.mapping
     rest_kinds = (ElementKind.REST, ElementKind.MREST)
+    # Ink the adapter hung on a rest — a ledger dash under a displaced
+    # rest, a dotted rest's dot, a fermata over a rest — is retrospective
+    # for the same reason the rest is (schedule rule 4). Exempt only what
+    # actually lands ON a rest's trigger in its own (part, staff, voice,
+    # onset) slot, so any other shift is still a finding.
+    rest_triggers_at: dict[tuple, set[float]] = defaultdict(set)
+    for el in bundle.engraved.layout.elements:
+        ident = el.identity
+        if ident.kind not in rest_kinds or ident.onset is None:
+            continue
+        t = bundle.schedule.beats_by_element.get(ident.element_id)
+        if t is not None:
+            rest_triggers_at[(ident.part, ident.staff,
+                              voice_slot(ident.voice),
+                              quantize_beats(ident.onset))].add(t)
     clusters: dict[tuple, list[tuple[int | None, str]]] = defaultdict(list)
     for eid, trigger in bundle.schedule.beats_by_element.items():
         ident = ident_by_id.get(eid)
@@ -37,6 +54,10 @@ def audit_triggers(bundle: OracleBundle, *,
             continue
         if ident.kind in rest_kinds and delta > 0:
             continue                     # retrospective by design (rule 4)
+        if delta > 0 and trigger in rest_triggers_at.get(
+                (ident.part, ident.staff, voice_slot(ident.voice),
+                 quantize_beats(ident.onset)), ()):
+            continue                     # fires with its rest (rule 4)
         source = "join" if eid in mapping else "group-table"
         clusters[(ident.part, ident.staff, round(delta * 4) / 4,
                   source)].append((_measure_of(eid), str(eid)))

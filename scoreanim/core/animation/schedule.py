@@ -44,7 +44,10 @@ it musically correct on real Dorico exports (spikes/NOTES.md):
    whole-bar rest is the degenerate case (no next note in the bar →
    the barline); consecutive empty bars each complete at their own
    barline. Needs ``measures`` for the bar-end cap; without them
-   (synthetic tests) only the next-note half applies.
+   (synthetic tests) only the next-note half applies. Ink the adapter
+   attributed to a rest — a ledger dash under a displaced rest, a dotted
+   rest's dot, a fermata over a rest — fires WITH the rest, through a
+   second group table built from the rests (2026-08-30).
 """
 from __future__ import annotations
 
@@ -68,6 +71,15 @@ def quantize_beats(beats: Beats) -> int:
     """Shared beat quantizer: simultaneity is decided at 1/4096-beat
     resolution everywhere (schedule grouping, reveal anchors)."""
     return round(beats * _Q)
+
+
+def voice_slot(voice: int | None) -> int:
+    """Shared voice normaliser for the rest group table: a rest can
+    carry voice None while the ink hanging off it carries voice 0 (the
+    adapter's rest tier defaults a missing layer to 0), so both land on
+    one key. Public beside ``quantize_beats`` because the live oracle
+    keys the same way to recognise ink that fires with its rest."""
+    return 0 if voice is None else voice
 
 
 # Animation is a DENYLIST, not an allowlist (ruling 2026-07-20, revising
@@ -274,6 +286,28 @@ def build_trigger_schedule(layout: Layout,
             if trigger is not None:
                 rest_trigger[ident.element_id] = trigger
 
+    # -- rule 4, second half: a group table from the RESTS -------------------
+    # Ink the adapter hung on a rest — a ledger dash under a displaced
+    # rest, a dotted rest's dot, a fermata over a rest — carries the
+    # rest's (part, staff, voice, onset) but has its own id, so it is in
+    # neither map above. Without this table it fell through to the
+    # notehead table (built from noteheads only), missed, and lit at its
+    # own onset — the rest's beat — while the rest itself waited for its
+    # silence to resolve. A rest and a note never share a voice slot at
+    # one onset, so this is a strict fallback AFTER the notehead table,
+    # never a merge.
+    rest_group_trigger: dict[tuple, Beats] = {}
+    for el in layout.elements:
+        ident = el.identity
+        trigger = rest_trigger.get(ident.element_id)
+        if trigger is None or ident.onset is None:
+            continue
+        key = (ident.part, ident.staff, voice_slot(ident.voice),
+               quantize_beats(ident.onset))
+        prev = rest_group_trigger.get(key)
+        rest_group_trigger[key] = trigger if prev is None \
+            else min(prev, trigger)
+
     # -- assemble all animated elements ------------------------------------
     measure_start_q = {n: quantize_beats(m.start)
                        for n, m in enumerate(measures, start=1)}
@@ -304,7 +338,11 @@ def build_trigger_schedule(layout: Layout,
             trigger = rest_trigger[eid]
         else:
             key = (ident.part, ident.staff, ident.voice, quantize_beats(own))
-            trigger = group_trigger.get(key, own)
+            trigger = group_trigger.get(key)
+            if trigger is None:
+                rest_key = (ident.part, ident.staff,
+                            voice_slot(ident.voice), quantize_beats(own))
+                trigger = rest_group_trigger.get(rest_key, own)
         # A hand-moved fire time overrules the four rules above, applied
         # here so the element buckets into whatever row its new beat
         # belongs to. Anchor kinds are skipped — their triggers build

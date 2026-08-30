@@ -400,6 +400,183 @@ def test_rests_trigger_when_their_silence_resolves(schedule, identities,
         assert t[eid] <= measure.start + measure.quarter_length, eid
 
 
+
+# --- ink hanging off a rest (2026-08-30) -----------------------------------
+
+def _rest_attachment_layout(dash_voice, rest_voice):
+    """A rest on beat 2, a note on beat 3 in the same voice, and a ledger
+    dash carrying the rest's onset. The dash has its own id, so it is in
+    neither trigger map — it has to find the rest through the group
+    table built from the rests."""
+    from scoreanim.core.engraving.types import (Layout, PageGeometry, Point,
+                                                Rect, RenderedElement,
+                                                RenderPrimitive)
+    from scoreanim.core.score.identity import (ElementId, ElementIdentity,
+                                               PartId)
+    from scoreanim.core.score.model import ScoreNote
+
+    def el(eid, kind, onset, voice) -> RenderedElement:
+        ident = ElementIdentity(ElementId(eid), kind, PartId("P1"), "Part",
+                                1, voice, onset)
+        return RenderedElement(ident, 1, 0.0, 0.0, Rect(0, 0, 1, 1),
+                               Point(0, 0), RenderPrimitive(paths=()))
+
+    layout = Layout(
+        pages=(PageGeometry(1, 100.0, 100.0),),
+        elements=(el("r0", ElementKind.REST, 2.0, rest_voice),
+                  el("dash", ElementKind.LEDGER_LINES, 2.0, dash_voice),
+                  el("n0", ElementKind.NOTEHEAD, 3.0, 1)))
+    mapping = {"n0": ScoreNote(part=PartId("P1"), measure=1, staff=1,
+                               voice_label=None, onset=3.0, grace=False,
+                               pitch_step="C", pitch_alter=0.0, octave=4,
+                               staff_loc=None, order=0, tie=None)}
+    return build_trigger_schedule(layout, mapping)
+
+
+def test_a_dash_under_a_rest_fires_with_the_rest() -> None:
+    """The bug: the dash was in neither trigger map, missed the notehead
+    group table, and fell back to its own onset — so it lit on the rest's
+    silent beat while the rest itself waited for the next note."""
+    sched = _rest_attachment_layout(dash_voice=1, rest_voice=1)
+    assert sched.beats_by_element["r0"] == 3.0        # rest: next note
+    assert sched.beats_by_element["dash"] == 3.0      # dash: with the rest
+    assert sched.beats_by_element["dash"] != 2.0      # not its own onset
+
+
+def test_a_dash_with_voice_zero_finds_a_rest_with_voice_none() -> None:
+    """The adapter's rest tier defaults a missing layer to 0, so a rest
+    carrying voice None owns ink carrying voice 0. Both normalise to the
+    same key."""
+    sched = _rest_attachment_layout(dash_voice=0, rest_voice=None)
+    assert sched.beats_by_element["r0"] == 3.0
+    assert sched.beats_by_element["dash"] == 3.0
+
+
+def test_a_dotted_rests_dot_fires_with_the_rest() -> None:
+    """Not only ledger dashes: anything the adapter hangs off a rest —
+    an augmentation dot (kind OTHER), a fermata (ARTICULATION) — carries
+    the rest's onset and its own id, so it takes the same path."""
+    from scoreanim.core.engraving.types import (Layout, PageGeometry, Point,
+                                                Rect, RenderedElement,
+                                                RenderPrimitive)
+    from scoreanim.core.score.identity import (ElementId, ElementIdentity,
+                                               PartId)
+    from scoreanim.core.score.model import ScoreNote
+
+    def el(eid, kind, onset) -> RenderedElement:
+        ident = ElementIdentity(ElementId(eid), kind, PartId("P1"), "Part",
+                                1, 1, onset)
+        return RenderedElement(ident, 1, 0.0, 0.0, Rect(0, 0, 1, 1),
+                               Point(0, 0), RenderPrimitive(paths=()))
+
+    layout = Layout(
+        pages=(PageGeometry(1, 100.0, 100.0),),
+        elements=(el("r0", ElementKind.REST, 0.0),
+                  el("dot", ElementKind.OTHER, 0.0),
+                  el("ferm", ElementKind.ARTICULATION, 0.0),
+                  el("n0", ElementKind.NOTEHEAD, 1.5)))
+    mapping = {"n0": ScoreNote(part=PartId("P1"), measure=1, staff=1,
+                               voice_label=None, onset=1.5, grace=False,
+                               pitch_step="C", pitch_alter=0.0, octave=4,
+                               staff_loc=None, order=0, tie=None)}
+    sched = build_trigger_schedule(layout, mapping)
+    assert sched.beats_by_element["r0"] == 1.5
+    assert sched.beats_by_element["dot"] == 1.5
+    assert sched.beats_by_element["ferm"] == 1.5
+
+
+def test_complex1_mrest_dash_fires_with_its_mrest(engraved_complex1,
+                                                  complex1_score_model) -> None:
+    """The real case: complex1 p3 m13 staff 8, the two-voice measure
+    whose whole-bar rest is displaced above the staff onto a ledger dash
+    at x=1277 (tests/test_complex1.py pins the attribution). The dash
+    used to light on the mRest's downbeat (48.0) while the mRest waited
+    for its barline (52.0)."""
+    from scoreanim.core.score.join import join_notes
+    mapping = join_notes(complex1_score_model,
+                         engraved_complex1.note_records).mapping
+    sched = build_trigger_schedule(engraved_complex1.layout, mapping,
+                                   complex1_score_model.measures)
+    mrests = [e for e in engraved_complex1.layout.elements
+              if e.identity.kind is ElementKind.MREST
+              and str(e.identity.element_id) == "P8:m13:s1:v1:mrest:0"]
+    assert len(mrests) == 1
+    mrest = mrests[0].identity.element_id
+    # P2 has its own dash at the same x on that page (a notehead's), so
+    # the part is part of the address, not the x alone
+    dashes = [e for e in engraved_complex1.layout.elements
+              if e.identity.kind is ElementKind.LEDGER_LINES
+              and e.page == 3 and abs(e.bbox.x - 1277) < 3
+              and e.identity.part == mrests[0].identity.part]
+    assert len(dashes) == 1
+    assert sched.beats_by_element[mrest] == 52.0     # the bar's end
+    for d in dashes:
+        assert (sched.beats_by_element[d.identity.element_id]
+                == sched.beats_by_element[mrest])
+
+
+def test_every_rest_owned_dash_in_complex1_fires_with_its_rest(
+        engraved_complex1, complex1_score_model) -> None:
+    """All five of complex1's rest-owned dashes, not just the mRest one:
+    a dash that matches no notehead group but does match a rest group
+    takes the rest's trigger."""
+    from scoreanim.core.score.join import join_notes
+    from scoreanim.core.animation.schedule import quantize_beats
+    mapping = join_notes(complex1_score_model,
+                         engraved_complex1.note_records).mapping
+    sched = build_trigger_schedule(engraved_complex1.layout, mapping,
+                                   complex1_score_model.measures)
+    rest_kinds = (ElementKind.REST, ElementKind.MREST)
+    rest_key = {}
+    note_keys = set()
+    for e in engraved_complex1.layout.elements:
+        i = e.identity
+        if i.onset is None:
+            continue
+        if i.kind in rest_kinds:
+            rest_key[(i.part, i.staff, 0 if i.voice is None else i.voice,
+                      quantize_beats(i.onset))] = i.element_id
+        elif i.kind is ElementKind.NOTEHEAD:
+            note_keys.add((i.part, i.staff, i.voice, quantize_beats(i.onset)))
+    found = 0
+    for e in engraved_complex1.layout.elements:
+        i = e.identity
+        if i.kind is not ElementKind.LEDGER_LINES or i.onset is None:
+            continue
+        if (i.part, i.staff, i.voice, quantize_beats(i.onset)) in note_keys:
+            continue                                  # a notehead's dash
+        owner = rest_key.get((i.part, i.staff,
+                              0 if i.voice is None else i.voice,
+                              quantize_beats(i.onset)))
+        assert owner is not None, i.element_id        # attributed to a rest
+        found += 1
+        assert (sched.beats_by_element[i.element_id]
+                == sched.beats_by_element[owner]), i.element_id
+        assert sched.beats_by_element[i.element_id] > i.onset
+    assert found == 5
+
+
+def test_complex3_dotted_rest_dots_fire_with_their_rests(
+        engraved_complex3_hidden) -> None:
+    """The dot case on a real score: complex3 has four dotted rests
+    whose augmentation dot (kind OTHER) carries the rest's onset. Each
+    dot used to light 3.5 beats early, on the rest's own silent beat."""
+    from scoreanim.core.score.join import join_notes
+    from scoreanim.core.score.model import build_score_model
+    eng = engraved_complex3_hidden
+    model = build_score_model(eng.prepared, eng.timeline)
+    mapping = join_notes(model, eng.note_records).mapping
+    sched = build_trigger_schedule(eng.layout, mapping, model.measures)
+    t = sched.beats_by_element
+    onsets = {e.identity.element_id: e.identity.onset
+              for e in eng.layout.elements}
+    for dot, rest in (("P1:m19:s1:v1:dots:0", "P1:m19:s1:v1:rest:0"),
+                      ("P5:m19:s1:v1:dots:0", "P5:m19:s1:v1:rest:0"),
+                      ("P17:m49:s1:v1:dots:0", "P17:m49:s1:v1:rest:0"),
+                      ("P1:m57:s1:v1:dots:0", "P1:m57:s1:v1:rest:0")):
+        assert t[dot] == t[rest], dot
+        assert t[dot] > onsets[dot], dot          # never on its own beat
+
 # --- trigger overrides (2026-08-08) ----------------------------------------
 
 def _override_setup():
