@@ -264,7 +264,16 @@ class FrameRenderer:
         current_system() changes — the same applier walk as live follow
         (ruling R2). The explicit clip to the band's projected sub-rect
         is the bleed guarantee: neighboring systems inside the window
-        can never paint."""
+        can never paint.
+
+        Stage 4 of docs/SYSTEMS_MODE_REWORK.md is still owed here, and
+        it is now two things, not one: this window is still the
+        pre-rework page-sized one rather than the stage's fixed
+        `systems_frame`, AND the clip is a REGION, so a neighbour's ink
+        that grows past its own band still bleeds. The stage stopped
+        masking regions on 2026-08-30 and hides the other systems' items
+        instead (render/scene.py::set_visible_system); export's private
+        scenes can take the same call."""
         band = self._band_by_system[self._applier.current_system()]
         scene = self._scenes.scene_for_page(band.page)
         page = self._page_geo

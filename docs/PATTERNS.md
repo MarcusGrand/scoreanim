@@ -408,3 +408,16 @@ measure/part). Do not merge the paths.
   other half: two frames snapped to the same sub-pixel phase are a whole
   number of device pixels apart, so the step has no remainder to drift
   on.
+- **A band is not the ink that is drawn in it, so a region mask cannot
+  hide a system.** `system_bands` unions each system's element BBOXES,
+  and painted ink is bigger than that — a text item's glyph box carries
+  the font's ascent and descent, a stroke is wider than its path, and
+  the animation scales both. Measured: a system's ink stands 1 page unit
+  outside its band on testscore and 3 to 17 on the grieg and condense
+  fixtures. That overhang lands in the one strip a neighbour mask must
+  leave alone — the current system's own region — so there is no
+  rectangle that removes it without erasing the music. Hide the ITEMS
+  instead (`ScoreScenes.set_visible_system`): a hidden item paints
+  nothing at any size, and the mask stays as the backstop for whatever
+  has no system. The same reasoning applies to any "cover it up" fix
+  over engraved geometry.

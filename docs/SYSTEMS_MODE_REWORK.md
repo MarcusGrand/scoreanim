@@ -84,6 +84,19 @@ back to the same camera, to the bit.
 > position hold and the current system is always in view. Fit still works.
 > Paged mode is completely unaffected.
 
+Follow-up 2026-08-30, on Marcus's report — "small parts of neighbouring
+systems still show inside the frame". The mask was doing its job and
+still could not win: a band is the union of its elements' BBOXES, and
+painted ink is bigger than that (text metrics, stroke widths, and
+anything the animation scales), so a neighbour's ink stands outside its
+own band — 1 page unit on testscore, 3 to 17 on grieg and condense — and
+lands in the strip the mask must leave alone. Systems mode now filters
+ITEMS: `ScoreScenes.set_visible_system` hides every system but the
+current one, called from `ViewRouter.show_system` / `show_page`, which
+are the only two routes into the stage. View-level presentation state,
+never the document; the mask stays as the backstop for ink no system
+owns (the title), and export builds its own scenes so it cannot see it.
+
 ## Stage 3 — the video canvas as the frame
 
 > Systems mode, step 3: when the video-canvas overlay preview is on, the
@@ -96,6 +109,12 @@ back to the same camera, to the bit.
 > either state.
 
 ## Stage 4 — export parity
+
+Now two things, not one: export still frames with the pre-rework
+page-sized window, AND it clips to a region the way the stage used to,
+so it has the same neighbour leak the item filter fixed. Its private
+scenes can take `set_visible_system` too.
+
 
 > Systems mode, step 4: audit how export frames systems mode against the
 > stage's new fixed-frame rule (docs/SYSTEMS_MODE_REWORK.md). If it

@@ -26,7 +26,8 @@ from scoreanim.core.animation import (FLOOR_OPACITY, StyleRules,
                                       resolve_durations)
 from scoreanim.core.engraving.systems import (SystemsFrame,
                                               page_of_measure,
-                                              system_bands, systems_frame)
+                                              system_bands, systems_frame,
+                                              unattributed_elements)
 from scoreanim.core.engraving.types import (EngravingParams, Layout,
                                             LoadWarning)
 from scoreanim.core.engraving.verovio import VerovioEngravingProvider
@@ -267,6 +268,18 @@ class ScoreLoader:
                 "trigger-override-inert",
                 f"{len(stale)} moved onset(s) had no element to land on "
                 f"({', '.join(ids[:5])}{', …' if len(ids) > 5 else ''})"),)
+        # ink no system owns cannot be hidden when systems mode shows
+        # another system, so it shows in every one — said out loud
+        # rather than left to be noticed (2026-08-30). Empty on every
+        # fixture: the title and composer are stage texts, not layout.
+        loose = unattributed_elements(engraved.layout)
+        if loose:
+            warnings += (LoadWarning(
+                "unattributed-ink",
+                f"{sum(n for _, n, _ in loose)} element(s) belong to no "
+                f"system and stay visible in every one ("
+                + ", ".join(f"{n} {kind} e.g. {eid}"
+                            for kind, n, eid in loose) + ")"),)
         if warnings:
             # flag-and-continue (Phase 10 ruling b): e.g. ties the
             # engraver dropped — the score loads, the anomaly is visible

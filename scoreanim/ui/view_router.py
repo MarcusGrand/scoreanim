@@ -94,6 +94,8 @@ class ViewRouter:
         if self._scenes is None:
             return
         self._page = max(1, min(page, self._scenes.page_count))
+        # paged shows the whole paper again
+        self._scenes.set_visible_system(None)
         self._view.show_scene(self._scenes.scene_for_page(self._page))
         self._menus.set_position(
             f" {self._page}/{self._scenes.page_count} ",
@@ -103,14 +105,20 @@ class ViewRouter:
     def show_system(self, system: int) -> None:
         """Place one system in the constant frame (Phase 7.4, reworked
         2026-08-30): the band's page scene, the band centred in the
-        load's frame, everything else masked — the page flip is implied
-        by the band's page."""
+        load's frame, every other system's ink hidden — the page flip
+        is implied by the band's page."""
         if self._scenes is None or not self._band_by_system:
             return
         self._system = max(1, min(system, len(self._band_by_system)))
         band = self._band_by_system[self._system]
         self._page = band.page                   # keep page state coherent
         rect = band.rect
+        # Only this system's ink is on show. Set BEFORE the swap, so the
+        # first paint after a switch is already filtered, and set here
+        # because show_system and show_page are the only two routes into
+        # the stage — a fresh load, a re-engrave, the mode toggle,
+        # prev/next and follow all come through one of them.
+        self._scenes.set_visible_system(self._system)
         self._view.show_system_band(
             self._scenes.scene_for_page(band.page),
             QRectF(rect.x, rect.y, rect.w, rect.h),

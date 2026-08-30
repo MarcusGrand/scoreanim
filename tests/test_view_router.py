@@ -21,9 +21,15 @@ from scoreanim.ui.view_router import ViewRouter
 class _Scenes:
     def __init__(self, page_count: int) -> None:
         self.page_count = page_count
+        # which system's ink is on show — the router's other job since
+        # 2026-08-30: systems mode hides the other systems' items
+        self.visible_system: int | None = None
 
     def scene_for_page(self, page: int) -> str:
         return f"scene{page}"
+
+    def set_visible_system(self, system: int | None) -> None:
+        self.visible_system = system
 
 
 class _View:
@@ -212,6 +218,42 @@ def test_leaving_system_mode_clears_the_band_before_showing_the_page() -> None:
     view.calls.clear()
     router.sync_presentation_mode(PresentationMode.PAGED)
     assert view.calls == [("clear",), ("scene", "scene2")]
+
+
+def _with_scenes(applier=None) -> tuple:
+    """A router whose scenes are reachable, for the item-filter pins."""
+    view, menus, scenes = _View(), _Menus(), _Scenes(2)
+    router = ViewRouter(view, menus)
+    router.bind(scenes, dict(BANDS), applier or _Applier())
+    return router, scenes
+
+
+def test_a_switch_shows_only_that_systems_ink() -> None:
+    """2026-08-30: masking the neighbour's REGION cannot reach ink that
+    lies inside the current system's own strip, so the other systems'
+    items are hidden instead. The router owns the call because
+    show_system and show_page are the only two routes into the stage."""
+    router, scenes = _with_scenes()
+    for system in (1, 2, 3, 1):
+        router.show_system(system)
+        assert scenes.visible_system == system
+
+
+def test_paged_puts_every_system_back() -> None:
+    router, scenes = _with_scenes()
+    router.show_system(3)
+    router.show_page(1)
+    assert scenes.visible_system is None
+
+
+def test_leaving_system_mode_unhides_the_score() -> None:
+    """The toggle goes through the same two routes, so the filter comes
+    off with the band."""
+    router, scenes = _with_scenes(applier=_Applier(page=2, system=3))
+    router.sync_presentation_mode(PresentationMode.SYSTEM)
+    assert scenes.visible_system == 3
+    router.sync_presentation_mode(PresentationMode.PAGED)
+    assert scenes.visible_system is None
 
 
 # -- load lifecycle ------------------------------------------------------

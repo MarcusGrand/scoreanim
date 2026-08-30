@@ -49,6 +49,35 @@ def system_bands(layout: Layout) -> tuple[SystemBand, ...]:
     return tuple(bands)
 
 
+def unattributed_elements(layout: Layout
+                          ) -> tuple[tuple[str, int, str], ...]:
+    """Engraved ink that no system owns: one row per kind, as (kind
+    name, how many, one example id), sorted by kind.
+
+    Systems mode hides every system but the current one by hiding whole
+    systems' ink (render/scene.py::set_visible_system). Ink with no
+    system cannot be hidden that way, so it shows in every system — and
+    this says what it is, instead of leaving it to be noticed.
+
+    Empty on every fixture today: `system` is nullable for the
+    engraver's own page furniture (pgHead/pgFoot), and
+    EngravingParams.suppress_header keeps those out, because the title
+    and composer are the app's own stage texts. Stage texts are not
+    layout elements and are not counted here — they are meant to show in
+    every system, which is what the mask was opened above the first
+    system for (2026-08-30)."""
+    counts: dict[str, int] = {}
+    examples: dict[str, str] = {}
+    for el in layout.elements:
+        if el.system is not None:
+            continue
+        kind = el.identity.kind.name
+        counts[kind] = counts.get(kind, 0) + 1
+        examples.setdefault(kind, str(el.identity.element_id))
+    return tuple((kind, counts[kind], examples[kind])
+                 for kind in sorted(counts))
+
+
 def neighbour_bounds(bands: tuple[SystemBand, ...],
                      ) -> dict[int, tuple[float | None, float | None]]:
     """How far each system may show before it would reveal a NEIGHBOUR

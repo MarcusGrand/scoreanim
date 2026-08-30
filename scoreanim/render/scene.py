@@ -120,6 +120,9 @@ class ScoreScenes:
         # or scaled as one object. Built lazily below, in first-appearance
         # order, and inert until something scales one.
         self.system_groups: dict[tuple[int, int], SystemGroupItem] = {}
+        # Which system's ink is on show (None = all of it). Systems mode
+        # sets it; see set_visible_system.
+        self._visible_system: int | None = None
         for geo in layout.pages:
             scene = QGraphicsScene(0, 0, geo.width, geo.height)
             # Python-constructed (not scene.addRect): a retained wrapper
@@ -234,6 +237,45 @@ class ScoreScenes:
         overlay export; the live stage always shows them."""
         for rect in self.page_rects:
             rect.setVisible(visible)
+
+    def set_visible_system(self, system: int | None) -> None:
+        """Show ONE system's ink and nothing else, or all of it (None).
+
+        Systems mode presents one system in a frame taller than that
+        system's band, so a neighbour's paper is inside the frame. The
+        view masks the neighbour's REGION, and a region can only be as
+        accurate as the band edges it is cut from. A band is the union
+        of its elements' layout BBOXES, and painted ink is bigger than
+        that: a text item's glyph box carries the font's ascent and
+        descent, a stroke is wider than its path. So a system's ink
+        pokes out of its own band — 1 page unit on testscore, 3 to 17 on
+        the grieg and condense fixtures — and lands in the one strip the
+        mask must leave alone, the current system's own. It cannot be
+        painted over without erasing the music. The animation opens the
+        same hole wider: a system pulse scales a whole system about its
+        ink centre, so the louder the music the further out it reaches.
+
+        Filtering ITEMS has no such hole. A hidden item paints nothing,
+        at any size (2026-08-30).
+
+        Presentation state, never the document: a Qt visibility flag on
+        the system's parent, so it is not an override and not undoable.
+        Export builds its own ScoreScenes (render/export.py), which is
+        why an exported frame cannot see this.
+
+        It is the GROUP's flag, not each item's, so per-element hiding
+        (set_element_hidden) composes with it and survives untouched —
+        and ink with no system, the stage texts and the paper, has no
+        group and always shows. Selection follows for free: Qt reports a
+        hidden parent's children invisible, so scene.items() skips them.
+
+        The mask stays as the backstop, and this changes no transform,
+        so a switch's zoom and pan are exactly as they were."""
+        if system == self._visible_system:
+            return
+        self._visible_system = system
+        for group in self.system_groups.values():
+            group.setVisible(system is None or group.system == system)
 
     def set_ghost_opacity(self, value: float) -> None:
         """Re-dim every spanner ghost to the document's floor opacity.
