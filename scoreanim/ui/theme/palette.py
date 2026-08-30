@@ -14,9 +14,12 @@ from __future__ import annotations
 
 # -- the theme ------------------------------------------------------------
 
-WINDOW = "#1e1f22"      # the app's ground: main window, letterbox
+WINDOW = "#1e1f22"      # the app's ground: the main window
 PANEL = "#26272b"       # a raised surface: docks, toolbar, buttons
-INSET = "#17181b"       # a sunken surface: lanes, text fields, lists
+INSET = "#17181b"       # a sunken surface: lanes, text fields, lists,
+                        # and the stage letterbox — the ground the
+                        # frame sits on has to stay darker than a
+                        # dark-mode page, or the frame disappears
 BORDER = "#3a3b40"      # the line between two surfaces
 TEXT = "#d6d7db"        # normal text and icons
 DIM = "#8e909c"         # secondary text, hints, axis labels

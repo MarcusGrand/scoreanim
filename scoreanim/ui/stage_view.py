@@ -54,9 +54,12 @@ from scoreanim.ui.stage_zoom import (FIT_MARGIN, clamped_factor,
                                      fit_scale, percent)
 from scoreanim.ui.theme import palette
 
-_LETTERBOX = QColor(palette.WINDOW)
-# The canvas frame's own edge: light enough to read on the letterbox,
-# quiet enough not to read as part of the score.
+# The ground the frame sits on: the lanes' dark, not the window's. It
+# has to stay darker than a dark-mode page, or the two are the same
+# colour and the frame's edge is invisible.
+_LETTERBOX = QColor(palette.INSET)
+# The frame's own edge: light enough to read on the letterbox, quiet
+# enough not to read as part of the score.
 _FRAME_EDGE = QColor(palette.DIM)
 # Arrow key → unit direction (M3.2). Page y grows downward, as in SVG.
 _ARROW_KEYS = {Qt.Key.Key_Left: (-1.0, 0.0), Qt.Key.Key_Right: (1.0, 0.0),
@@ -377,7 +380,7 @@ class StageView(QGraphicsView):
             painter.fillRect(target.intersected(rect), self._preview_fill)
 
     def drawForeground(self, painter, rect) -> None:  # noqa: N802
-        """The masking, then the canvas frame's edge, then the one
+        """The masking, then the frame's edge, then the one
         overlay that must never be masked (the onset ruler renders
         outside the system frame on purpose)."""
         super().drawForeground(painter, rect)
@@ -393,27 +396,32 @@ class StageView(QGraphicsView):
         canvas there is no frame and nothing to mask: the page is the
         picture.
 
-        The 1 px edge is drawn for a video CANVAS only, in either mode.
-        It is there to show where the exported video frame cuts. System
-        mode's own frame gets none: it is not an export boundary, and
-        drawing an edge on it would put back the page context stage 1
-        took away."""
+        The 1 px edge goes round whatever rectangle the stage frames:
+        the video canvas, system mode's own frame, or the bare page when
+        there is neither. It says where the picture stops, and in dark
+        mode it is the only thing that does — page and letterbox are
+        both dark, so with no line the frame has no visible edge.
+        (Before 2026-08-30 the edge was drawn for a video canvas alone,
+        because system mode's frame was not an export boundary. It is
+        one now — export frames what the stage frames — so the reason
+        for holding it back is gone.)"""
+        if self.scene() is None:
+            return
         framing = self._framing
-        if framing.frame is None:
-            return
-        inside, outside = framing.frame_mask(rect)
-        fill = self._frame_fill()
-        for strip in inside:
-            painter.fillRect(strip, fill)
-        for strip in outside:
-            painter.fillRect(strip, _LETTERBOX)
-        if framing.canvas is None:
-            return
+        if framing.frame is not None:
+            inside, outside = framing.frame_mask(rect)
+            fill = self._frame_fill()
+            for strip in inside:
+                painter.fillRect(strip, fill)
+            for strip in outside:
+                painter.fillRect(strip, _LETTERBOX)
+        edge = framing.frame if framing.frame is not None \
+            else self.scene().sceneRect()
         pen = QPen(_FRAME_EDGE)
         pen.setCosmetic(True)               # 1 device px at every zoom
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(framing.frame)
+        painter.drawRect(edge)
 
     # -- selection gesture -------------------------------------------------
 

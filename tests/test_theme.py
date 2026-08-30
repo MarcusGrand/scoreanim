@@ -101,7 +101,8 @@ def test_painting_views_read_the_tokens(qapp):
     assert waveform._BG.name() == lane_style.BG.name()
     assert lane_ticks._BAR.name() == tokens.BAR_LINE
     assert lane_tempo._LINE.name() == tokens.TEMPO_LINE
-    # the letterbox is the app's ground, the same dark as the window
-    assert stage_view._LETTERBOX.name() == tokens.WINDOW
+    # the letterbox is the lanes' dark, not the window's: it has to sit
+    # darker than a dark-mode page or the frame has no edge to see
+    assert stage_view._LETTERBOX.name() == tokens.INSET
     # a scroll indicator in the hand: the theme's grey, made see-through
     assert stage_scrollbars._FILL_HELD.name() == tokens.DIM
