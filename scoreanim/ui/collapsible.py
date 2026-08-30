@@ -31,6 +31,7 @@ from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (QPushButton, QSizePolicy, QVBoxLayout,
                                QWidget)
 
+from scoreanim.ui import tips
 from scoreanim.ui.theme import icons
 
 
@@ -59,6 +60,7 @@ class CollapsibleSection(QWidget):
                                    QSizePolicy.Policy.Fixed)
         self._header.toggled.connect(self._on_toggled)
         self._show_chevron(True)
+        self._describe()
         # Written before the theme ever reads it, so the selector that
         # drops the separator has something to match on from the start.
         self._header.setProperty("topmost", False)
@@ -128,8 +130,17 @@ class CollapsibleSection(QWidget):
 
     def _on_toggled(self, checked: bool) -> None:
         self._show_chevron(checked)
+        self._describe()             # the tooltip flips with the chevron
         if self._content is not None:
             self._content.setVisible(checked)
+
+    def _describe(self) -> None:
+        """The header's tooltip says which way the click goes, since the
+        band itself carries only the section's name (E2)."""
+        tips.describe(self._header,
+                      f"Hide {self._header.text()}"
+                      if self._header.isChecked()
+                      else f"Show {self._header.text()}")
 
     def _show_chevron(self, expanded: bool) -> None:
         """Down while the body is showing, right while it is folded away

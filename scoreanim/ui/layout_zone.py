@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QScrollArea,
                                QToolButton, QVBoxLayout, QWidget)
 
 from scoreanim.core.project import ProjectDoc
-from scoreanim.ui import panel_style
+from scoreanim.ui import panel_style, tips
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.panels import BreakOverridesList, DeletedElementsList
 from scoreanim.ui.theme import icons
@@ -57,11 +57,15 @@ class LayoutZone(QDockWidget):
         column.setSpacing(panel_style.ROW_GAP)
         heading = QLabel("Breaks")
         heading.setObjectName("ZoneHeading")
+        tips.describe(heading,
+                      "Where the music moves to a new system or a new "
+                      "page")
         column.addWidget(heading)
 
         # three icons in a row, not three long labels down the dock:
-        # each button's tooltip is the action's own label, which renames
-        # itself to what it would actually do
+        # each button's tooltip is the action's own — the renamed label
+        # and its key while the gesture is offered, the reason it is not
+        # while it is grayed (ui/tips.py)
         self.buttons: tuple[QToolButton, ...] = tuple(
             self._button(action, body) for action in actions)
         button_row = QHBoxLayout()
@@ -75,6 +79,9 @@ class LayoutZone(QDockWidget):
         column.addSpacing(panel_style.GROUP_GAP)
         overrides_heading = QLabel("Overrides")
         overrides_heading.setObjectName("ZoneHeading")
+        tips.describe(overrides_heading,
+                      "The breaks you have asked for, over what the "
+                      "score itself encodes")
         column.addWidget(overrides_heading)
         # its own widget module rather than a limb on the dock (D9)
         self.overrides = BreakOverridesList(app_state, body)
@@ -83,6 +90,8 @@ class LayoutZone(QDockWidget):
         column.addSpacing(panel_style.GROUP_GAP)
         deleted_heading = QLabel("Deleted")
         deleted_heading.setObjectName("ZoneHeading")
+        tips.describe(deleted_heading,
+                      "Objects you have hidden — the music is unchanged")
         column.addWidget(deleted_heading)
         # deleted ink is not clickable, so this list is the only way back
         # other than undo — it belongs where the work is, not in a dialog
@@ -107,8 +116,8 @@ class LayoutZone(QDockWidget):
         `setDefaultAction` is the whole mechanism: the button takes its
         icon, tooltip, enabled state, status tip and trigger from the
         action, and keeps taking them as `BreakActionController.sync()`
-        re-derives them — including the renamed label, which is what the
-        tooltip shows now that the button carries no text. Nothing here
+        re-derives them — including the tooltip, which is the only thing
+        the button has to say now that it carries no text. Nothing here
         needs syncing of its own, which is exactly what "a second
         surface, not a second implementation" means.
         """

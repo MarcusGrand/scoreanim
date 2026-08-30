@@ -237,7 +237,10 @@ class LoadWarning:
     note to land on — 2026-08-03), "trigger-override-inert" (a stored
     hand-moved fire time names an element the layout does not have, or
     one that cannot be re-timed — inert, never repaired; the
-    break-override twin, 2026-08-08).
+    break-override twin, 2026-08-08), "unattributed-ink" (engraved ink
+    that belongs to no system, which systems mode therefore cannot hide
+    when it shows another one — it stays visible in every system,
+    2026-08-30).
     """
     code: str
     message: str

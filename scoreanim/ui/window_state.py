@@ -25,6 +25,11 @@ _GEOMETRY = "window/geometry"
 _DOCK_STATE = "window/dockState"
 _SECTION_PREFIX = "inspector/section/"
 _ACTIVE_TAB = "inspector/tab"
+# Stage 5's system crossfade. Not part of the shell layout, so the
+# window reads and writes it as the user toggles it rather than on
+# close; the key lives here because this is where the app's QSettings
+# keys are kept.
+FADE_SYSTEM_SWITCHES = "view/fadeSystemSwitches"
 _STATE_VERSION = 0        # bump to discard stored dock layouts on upgrade
 
 

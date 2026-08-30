@@ -38,6 +38,7 @@ from scoreanim.ui.delete_action import DeleteActionController
 from scoreanim.ui.stem_flip_action import StemFlipActionController
 from scoreanim.ui.document_sync import DocumentSync
 from scoreanim.ui.file_actions import FileActions
+from scoreanim.ui.file_drop import FileDrops
 from scoreanim.ui.hint_bar import HintBar
 from scoreanim.ui.inspector import Inspector
 from scoreanim.ui.layout_zone import LayoutZone
@@ -51,13 +52,17 @@ from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.score_install import ScoreInstaller
 from scoreanim.ui.score_loader import ScoreLoader
 from scoreanim.ui.seek_keys import SeekKeys
+from scoreanim.ui import tips
 from scoreanim.ui.selection import SelectionController
 from scoreanim.ui.stage_menu import StageMenu
 from scoreanim.ui.stage_view import StageView
 from scoreanim.ui.text_edit import InlineTextEditor
 from scoreanim.ui.transport import LowerZone
 from scoreanim.ui.view_router import ViewRouter
-from scoreanim.ui.window_state import (default_settings,
+from scoreanim.ui.welcome_pane import WelcomePane
+from scoreanim.ui.zoom_overlay import ZoomOverlay
+from scoreanim.ui.window_state import (FADE_SYSTEM_SWITCHES,
+                                       default_settings,
                                        restore_window_state,
                                        save_window_state)
 
@@ -191,6 +196,16 @@ class MainWindow(QMainWindow):
         # prev/next/follow/mode paths; needs the chrome for its readout,
         # so it is built after the menus and the two follow signals
         # connect here rather than above
+        # the stage's floating zoom controls (D2): a child of the
+        # view's viewport, so it needs both the view and the View
+        # menu's Fit action, and is built once the menus exist
+        self.zoom_overlay = ZoomOverlay(self.view, self.menus.fit_action)
+        # the empty stage's front door (E1): built after the overlay so
+        # it sits above it, and shown/hidden by the document-changed
+        # pass. A drop of a score or a project anywhere on the window
+        # opens it, whether the pane is showing or not.
+        self.welcome = WelcomePane(self.view, self.files)
+        self.drops = FileDrops(self)
         self.router = ViewRouter(self.view, self.menus)
         # follow reports page AND system; the router picks by the
         # document's presentation mode (Phase 7.4)
@@ -227,6 +242,16 @@ class MainWindow(QMainWindow):
             self._set_overlay_preview)
         self.inspector.video_canvas_panel.restore_preview()
 
+        # the system crossfade's toggle (stage 5): view state like the
+        # overlay preview, so it rides QSettings and never the document.
+        # Written as it is toggled rather than on close — it is one
+        # answer to "does this help or distract", and the answer should
+        # survive whatever happens to the session.
+        self.menus.fade_systems_action.toggled.connect(
+            self._set_fade_system_switches)
+        self.menus.fade_systems_action.setChecked(
+            self._settings.value(FADE_SYSTEM_SWITCHES, False, type=bool))
+
         # shell layout (M1.8): restore once docks + toolbar exist; a
         # fresh store yields the first-run default size. UI state only —
         # nothing document-derived lives in the settings (rule 5).
@@ -234,6 +259,12 @@ class MainWindow(QMainWindow):
 
         if score_path is not None:
             self.files.open_score(score_path)
+
+    def _set_fade_system_switches(self, on: bool) -> None:
+        """The View menu's toggle: the stage does it, the settings
+        remember it (stage 5)."""
+        self.view.crossfade.set_enabled(on)
+        self._settings.setValue(FADE_SYSTEM_SWITCHES, on)
 
     # -- playback feedback -----------------------------------------------------
 
@@ -313,6 +344,7 @@ class MainWindow(QMainWindow):
             doc)
         self.onset_cursor.sync_from_document(doc)
         self.layout_zone.sync_from_document(doc)
+        self.welcome.sync_from_document(doc)   # gone once a score is in
         self.parts_menu.sync_from_document(doc)
         self.break_action.sync()      # overrides move the action's label
         self.delete_action.sync()     # a delete disables its own action
@@ -322,14 +354,14 @@ class MainWindow(QMainWindow):
         self.hints.sync()
         self.router.sync_presentation_mode(doc.stage.mode)
         self.router.sync_canvas(doc.stage.canvas)
-        undo_text = self.app_state.undo_text()
-        redo_text = self.app_state.redo_text()
-        undo = self.menus.undo_action
-        redo = self.menus.redo_action
-        undo.setEnabled(self.app_state.can_undo)
-        undo.setText(f"Undo {undo_text}" if undo_text else "Undo")
-        redo.setEnabled(self.app_state.can_redo)
-        redo.setText(f"Redo {redo_text}" if redo_text else "Redo")
+        # label and tooltip together (E2), then the enabled state and
+        # the reason each gives while there is no stack behind it
+        self.menus.describe_undo_redo(self.app_state.undo_text(),
+                                      self.app_state.redo_text())
+        tips.gate(self.menus.undo_action, self.app_state.can_undo,
+                  tips.NOTHING_TO_UNDO)
+        tips.gate(self.menus.redo_action, self.app_state.can_redo,
+                  tips.NOTHING_TO_REDO)
         self._sync_title()
 
     def _sync_title(self) -> None:
@@ -361,6 +393,18 @@ class MainWindow(QMainWindow):
             self._scenes.set_page_background_visible(not active)
         if color is not None:
             self.view.set_overlay_preview(active, color)
+
+    # -- drag and drop (E1) -----------------------------------------------------
+
+    # Qt offers no other route: a widget takes a drop by overriding
+    # these. The policy is `ui/file_drop.py`; accepting the enter is
+    # enough, and Qt carries that answer to the moves that follow.
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        self.drops.offer(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        self.drops.drop(event)
 
     # -- close ---------------------------------------------------------------------
 

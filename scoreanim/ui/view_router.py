@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QRectF
 
+from scoreanim.core.engraving.systems import (SystemsFrame,
+                                              neighbour_bounds)
 from scoreanim.core.project import PresentationMode, VideoCanvas
 
 if TYPE_CHECKING:
@@ -44,6 +46,8 @@ class ViewRouter:
         self._menus = menus
         self._scenes: ScoreScenes | None = None
         self._band_by_system: dict = {}          # derived, never saved
+        self._bounds_by_system: dict = {}        # ditto — how far each
+                                                 # system may show
         self._system_of_measure: dict = {}       # ditto (M5.5, D8)
         self._applier: AnimationApplier | None = None
         self._page = 1
@@ -55,12 +59,20 @@ class ViewRouter:
 
     def bind(self, scenes: ScoreScenes, band_by_system: dict,
              applier: AnimationApplier,
-             system_of_measure: dict | None = None) -> None:
-        """Adopt one load's derived world (`MainWindow._install`)."""
+             system_of_measure: dict | None = None,
+             systems_frame: SystemsFrame | None = None) -> None:
+        """Adopt one load's derived world (`MainWindow._install`).
+
+        The systems frame goes to the view once, here, because it is the
+        same frame for every system in this load (2026-08-30) — a switch
+        only moves the band inside it."""
         self._scenes = scenes
         self._band_by_system = band_by_system
+        self._bounds_by_system = neighbour_bounds(
+            tuple(band_by_system.values()))
         self._applier = applier
         self._system_of_measure = dict(system_of_measure or {})
+        self._view.set_systems_frame(systems_frame)
 
     def reset(self) -> None:
         """Back to the first unit — a FRESH load only; a re-engrave
@@ -82,24 +94,47 @@ class ViewRouter:
         if self._scenes is None:
             return
         self._page = max(1, min(page, self._scenes.page_count))
+        # paged shows the whole paper again
+        self._scenes.set_visible_system(None)
         self._view.show_scene(self._scenes.scene_for_page(self._page))
         self._menus.set_position(
             f" {self._page}/{self._scenes.page_count} ",
             self._page > 1,
             self._page < self._scenes.page_count)
 
-    def show_system(self, system: int) -> None:
-        """Frame one system's band (Phase 7.4): the band's page scene,
-        centered, masked — the page flip is implied by the band's page."""
+    def show_system(self, system: int, smooth: bool = False) -> None:
+        """Place one system in the constant frame (Phase 7.4, reworked
+        2026-08-30): the band's page scene, the band centred in the
+        load's frame, every other system's ink hidden — the page flip
+        is implied by the band's page.
+
+        `smooth` dissolves out of the outgoing system instead of cutting
+        (stage 5). Only the playback tick's own crossing sets it: the
+        default here is what keeps prev/next, a seek, a scrub, the mode
+        toggle, a re-engrave and a load hard cuts."""
         if self._scenes is None or not self._band_by_system:
             return
         self._system = max(1, min(system, len(self._band_by_system)))
         band = self._band_by_system[self._system]
         self._page = band.page                   # keep page state coherent
         rect = band.rect
+        # Freeze the outgoing frame FIRST — before the filter below
+        # takes the departing system's ink off the page, which is the
+        # picture the dissolve is made of. No-op unless the user has
+        # the fade on and this switch asked for one.
+        if smooth:
+            self._view.crossfade.capture()
+        # Only this system's ink is on show. Set BEFORE the swap, so the
+        # first paint after a switch is already filtered, and set here
+        # because show_system and show_page are the only two routes into
+        # the stage — a fresh load, a re-engrave, the mode toggle,
+        # prev/next and follow all come through one of them.
+        self._scenes.set_visible_system(self._system)
         self._view.show_system_band(
             self._scenes.scene_for_page(band.page),
-            QRectF(rect.x, rect.y, rect.w, rect.h))
+            QRectF(rect.x, rect.y, rect.w, rect.h),
+            self._bounds_by_system.get(self._system, (None, None)),
+            smooth=smooth)
         self._menus.set_position(
             f" sys {self._system}/{len(self._band_by_system)} ",
             self._system > 1,
@@ -150,9 +185,13 @@ class ViewRouter:
         if self._applied_mode is PresentationMode.PAGED:
             self.show_page(page)
 
-    def on_system_followed(self, system: int) -> None:
+    def on_system_followed(self, system: int,
+                           smooth: bool = False) -> None:
+        """`smooth` is the controller saying this crossing came from the
+        tick loop rather than a seek (ui/playback.py) — the one case
+        stage 5's dissolve runs on."""
         if self._applied_mode is PresentationMode.SYSTEM:
-            self.show_system(system)
+            self.show_system(system, smooth=smooth)
 
     # -- document intent -------------------------------------------------------
 

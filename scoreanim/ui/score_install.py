@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from scoreanim.core.engraving.types import EngravingParams
 from scoreanim.core.project import (HIDE_EMPTY_STAVES_DEFAULT, ProjectDoc,
                                     StageConfig)
+from scoreanim.ui import tips
 
 if TYPE_CHECKING:
     from scoreanim.ui.main_window import MainWindow
@@ -118,7 +119,8 @@ class ScoreInstaller:
         # the drawn geometry a stem's CURRENT direction is read from
         w.stem_flip_action.bind_layout(loaded.animation_inputs.layout)
         w.router.bind(loaded.scenes, loaded.band_by_system,
-                      loaded.applier, loaded.system_of_measure)
+                      loaded.applier, loaded.system_of_measure,
+                      loaded.systems_frame)
         w.break_action.bind(loaded.system_of_measure,
                             loaded.page_of_measure)
         w.text_edit.bind(loaded.scenes, loaded.animation_inputs.layout,
@@ -140,8 +142,10 @@ class ScoreInstaller:
             loaded.band_by_system, loaded.system_of_measure,
             lambda: (w.animation_inputs.schedule
                      if w.animation_inputs is not None else None))
-        w.menus.export_action.setEnabled(True)
-        w.menus.texts_action.setEnabled(True)
+        # both were grayed with "Open a score first" on them (E2); the
+        # score is in now, so they go live and the reason comes off
+        tips.gate(w.menus.export_action, True, tips.NEEDS_SCORE)
+        tips.gate(w.menus.texts_action, True, tips.NEEDS_SCORE)
         w.playback.set_animation(loaded.applier, loaded.measures)
         w.app_state.set_measures(loaded.measures)
         w.parts_menu.rebuild(loaded.parts)

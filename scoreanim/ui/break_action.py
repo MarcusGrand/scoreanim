@@ -42,6 +42,7 @@ from scoreanim.core.editing.breaks import resolve, resolve_move_up
 from scoreanim.core.editing.page_breaks import resolve as resolve_page
 from scoreanim.core.project import (PageBreak, SetPageBreak, SetSystemBreak,
                                     SystemBreak)
+from scoreanim.ui import tips
 from scoreanim.ui.shortcuts_dialog import set_sheet_name
 from scoreanim.ui.theme import icons
 
@@ -100,6 +101,9 @@ class BreakActionController:
         self.page_action.triggered.connect(self.trigger_page)
         set_sheet_name(self.page_action, _PAGE_DEFAULT_LABEL)
         app_state.selection_changed.connect(self.sync)
+        # once now, so the three carry their reasons from the first
+        # frame — nothing is selected yet, and the buttons say so
+        self.sync()
 
     @property
     def actions(self) -> tuple[QAction, ...]:
@@ -147,14 +151,22 @@ class BreakActionController:
         # the move-up label never changes — the gesture is the same
         # whichever way its two halves happen to be written
         move_up = self.current_move_up()
-        self.move_up_action.setEnabled(move_up.enabled)
+        tips.describe_action(self.move_up_action,
+                             "Pull this measure onto the system above")
+        tips.gate(self.move_up_action, move_up.enabled, move_up.reason or "")
         self.move_up_action.setStatusTip(
             "" if move_up.enabled else (move_up.reason or ""))
 
     @staticmethod
     def _sync_toggle(action: QAction, resolved, labels, default) -> None:
-        action.setEnabled(resolved.enabled)
-        action.setText(labels[resolved.mode] if resolved.enabled else default)
+        """Label, tooltip, status tip and enabled state, all off one
+        resolve. The tooltip is the renamed label plus the key (E2) —
+        which is what the layout zone's icon-only button shows, since it
+        carries no text of its own — and the reason while it is dead."""
+        label = labels[resolved.mode] if resolved.enabled else default
+        action.setText(label)
+        tips.describe_action(action, label)
+        tips.gate(action, resolved.enabled, resolved.reason or "")
         action.setStatusTip("" if resolved.enabled
                             else (resolved.reason or ""))
 

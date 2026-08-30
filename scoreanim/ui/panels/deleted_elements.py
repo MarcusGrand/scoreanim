@@ -33,9 +33,10 @@ from scoreanim.core.editing.deletion import (deleted_families, deleted_ids,
                                              describe)
 from scoreanim.core.project import ProjectDoc, SetElementsHidden
 from scoreanim.core.score.identity import ElementId
+from scoreanim.ui import tips
 from scoreanim.ui.app_state import AppState
 
-_EMPTY = "Nothing deleted"
+_EMPTY = "Nothing deleted — the whole score is showing."
 _NOTE = "Hidden, not removed — the music is unchanged."
 _RESTORE_ALL = "Restore all"
 
@@ -56,10 +57,12 @@ class DeletedElementsList(QWidget):
         self._column.addWidget(note)
         self._empty = QLabel(_EMPTY)
         self._empty.setEnabled(False)
+        self._empty.setWordWrap(True)
         self._column.addWidget(self._empty)
         self._rows: list[QWidget] = []
         self.restore_all_button = QPushButton(_RESTORE_ALL)
-        self.restore_all_button.setToolTip("Bring every deleted object back")
+        tips.describe(self.restore_all_button,
+                      "Bring every deleted object back, in one undo step")
         self.restore_all_button.clicked.connect(self._restore_all)
         self._column.addWidget(self.restore_all_button)
         self.sync_from_document(app_state.doc)
@@ -94,7 +97,8 @@ class DeletedElementsList(QWidget):
             # keep the restore-all button last
             self._column.insertWidget(index + 2, row)
         self._empty.setVisible(not self._rows)
-        self.restore_all_button.setEnabled(bool(self._rows))
+        tips.gate(self.restore_all_button, bool(self._rows),
+                  "Nothing has been deleted")
 
     def _row(self, family: tuple) -> QWidget:
         row = QWidget(self)
@@ -105,13 +109,13 @@ class DeletedElementsList(QWidget):
         # wraps rather than clips: the dock is narrow, and a row that
         # cut its own text in half would be a readout you cannot read
         label.setWordWrap(True)
-        label.setToolTip(label.text())
+        tips.describe(label, "A hidden object — the music still has it")
         label.setSizePolicy(QSizePolicy.Policy.Expanding,
                             QSizePolicy.Policy.Preferred)
         line.addWidget(label)
         restore = QPushButton("↺")
         restore.setFixedWidth(24)
-        restore.setToolTip("Restore this object")
+        tips.describe(restore, "Show this object again")
         restore.clicked.connect(lambda _=False, f=family: self._restore(f))
         line.addWidget(restore)
         return row

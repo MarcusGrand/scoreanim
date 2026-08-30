@@ -11,10 +11,14 @@ def main() -> int:
 
     from scoreanim.render.fonts import register_bravura
     from scoreanim.ui.main_window import MainWindow
+    from scoreanim.ui import tip_placement
     from scoreanim.ui.theme import apply_theme
 
     app = QApplication(sys.argv)
     apply_theme(app)          # before any window exists, so it is born dark
+    # the hover box reads rightward from the pointer, never flipping to
+    # the other side of it (ui/tip_placement.py)
+    tip_placement.install(app)
     if not register_bravura():
         print("note: Bravura text font unavailable — the metronome-note "
               "glyph falls back to tofu (BACKLOG item 3)", file=sys.stderr)

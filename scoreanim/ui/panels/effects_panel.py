@@ -40,7 +40,7 @@ from scoreanim.core.animation import (COMBINE_SEP, DEFAULT_EFFECT, PRESETS,
 from scoreanim.core.project import (Command, ProjectDoc, ResetEffectSettings,
                                     SetDefaultEffect, SetFloorOpacity,
                                     SetRevealMode, SetTiedNotesAsOne)
-from scoreanim.ui import panel_style
+from scoreanim.ui import panel_style, tips
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.live_field import LiveField
 from scoreanim.ui.panels.effect_blocks import BLOCKS, STORES
@@ -65,7 +65,8 @@ class EffectsPanel(QWidget):
         for name in sorted(PRESETS):
             self._effect_combo.addItem(name)
         self._effect_combo.setCurrentText(DEFAULT_EFFECT)
-        self._effect_combo.setToolTip(
+        tips.describe(
+            self._effect_combo,
             "Default effect for every element; per-part and per-element "
             "rules still win")
         # activated fires on USER action only — programmatic resyncs
@@ -75,7 +76,8 @@ class EffectsPanel(QWidget):
         # A second effect to run WITH the first ("drop+fade"): the two
         # are stored as one name, so nothing about the document changes.
         self._combine_combo = QComboBox()
-        self._combine_combo.setToolTip(
+        tips.describe(
+            self._combine_combo,
             "A second effect to run at the same time as the first — the "
             "two are combined property by property")
         self._fill_combine(DEFAULT_EFFECT)
@@ -86,12 +88,14 @@ class EffectsPanel(QWidget):
         self._floor_spin.setDecimals(2)
         self._floor_spin.setSingleStep(0.05)
         self._floor_spin.setRange(0.0, 1.0)
-        self._floor_spin.setToolTip("Opacity of unrevealed animated ink; "
-                                    "0 hides it until onset")
+        tips.describe(self._floor_spin,
+                      "Opacity of unrevealed animated ink; 0 hides it "
+                      "until onset")
 
         self._sweep_box = QCheckBox("Sweep")
-        self._sweep_box.setToolTip("Continuous reveal sweep; unchecked "
-                                   "steps at musical onsets")
+        tips.describe(self._sweep_box,
+                      "Continuous reveal sweep; unchecked steps at "
+                      "musical onsets")
         self._sweep_box.toggled.connect(
             lambda checked: self._state.execute(SetRevealMode(
                 RevealMode.CONTINUOUS if checked else RevealMode.STEPPED)))
@@ -100,7 +104,8 @@ class EffectsPanel(QWidget):
         # Sweep, not a style entry — it re-derives the schedule and the
         # reveal tracks, never the engraving.
         self._tied_box = QCheckBox("Tied notes as one")
-        self._tied_box.setToolTip(
+        tips.describe(
+            self._tied_box,
             "A tied chain appears and animates as one note: the whole "
             "held note shows at the chain start and effects run its "
             "full tied length; unchecked fills it in bar by bar")
@@ -112,7 +117,8 @@ class EffectsPanel(QWidget):
         # step. Floor opacity and Sweep predate the M4 options and stay
         # put.
         self._reset_button = QPushButton("Reset")
-        self._reset_button.setToolTip(
+        tips.describe(
+            self._reset_button,
             "Restore the effect settings to their defaults — the effect "
             "back to appear, every effect's own options back where they "
             "started, and the volume response and system pulse off — in "
@@ -207,7 +213,8 @@ class EffectsPanel(QWidget):
         # another option renders obsolete" rule, from the other side.
         self.volume.update_display(doc)
         self.pulse.update_display(doc)
-        self._reset_button.setEnabled(not self._at_defaults(doc))
+        tips.gate(self._reset_button, not self._at_defaults(doc),
+                  "The effect settings are already at their defaults")
 
     def _fill_combine(self, primary: str,
                       keep: str | None = None) -> None:

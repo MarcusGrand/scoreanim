@@ -13,16 +13,27 @@ Qt's own scrollbars stay off — they would reserve space and shove the
 score sideways whenever they appeared — and `TransientScrollbars` paints
 a hint that fades instead.
 
-System mode (Phase 7.4, framing revised Phase 10R): show_system_band
-keeps the PAGE's own frame — a page-sized, page-aspect window centered
-vertically on the system's band, so the frame never changes shape
-between modes and the system sits in the middle at natural page width
-(ruling 2026-07-13). Masking is drawForeground — the view paints
-letterbox color over every exposed scene region outside the band, so a
-neighboring system on the same page never bleeds in at any window
-aspect, zoom, or pan. View-level on purpose: the scenes are shared with
-export (a separate ScoreScenes instance, but the same class rendered
-scene-side), which must never see a mask item.
+System mode (Phase 7.4; reworked 2026-08-30, docs/SYSTEMS_MODE_REWORK.md
+stage 1): the frame is a fixed piece of glass and each system is placed
+into it. One CONSTANT frame per load — the `SystemsFrame` computed in
+core/engraving/systems.py, page width by tallest band plus even padding
+— with the current system centred in it, so nothing about the frame
+changes when the music moves to a system with more or fewer staves.
+With a video canvas set, that frame takes the canvas's shape (stage 3),
+so the system fills the frame the export will carry. There is no page
+context in system mode: the whole frame is filled with the page's own
+background, so no paper edge is left to move. A switch never re-fits
+(stage 2): fitted, the fit it would land on is the one it already has,
+and zoomed in, the camera simply translates with the frame, so the user
+keeps their zoom and their place in the system. Stage 5 hangs one
+optional dissolve off that same fact — see ui/stage_transition.py.
+
+Masking is drawForeground — the view paints the frame's own fill over a
+neighbouring system's ink INSIDE the frame and letterbox OUTSIDE it, so
+nothing bleeds in at any window aspect, zoom, or pan. View-level on
+purpose: the scenes are shared with export (a separate ScoreScenes
+instance, but the same class rendered scene-side), which must never see
+a mask item.
 """
 
 from __future__ import annotations
@@ -34,38 +45,31 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 
 from scoreanim.core.editing import COARSE_NUDGE, NUDGE_STEP
-from scoreanim.ui.stage_frame import StageFraming
+from scoreanim.ui.stage_frame import (StageFraming, fit_geometry,
+                                      frame_offset, scroll_rect,
+                                      snapped_frame)
 from scoreanim.ui.stage_scrollbars import TransientScrollbars
+from scoreanim.ui.stage_transition import SystemCrossfade
+from scoreanim.ui.stage_zoom import (FIT_MARGIN, clamped_factor,
+                                     fit_scale, percent)
 from scoreanim.ui.theme import palette
 
-_LETTERBOX = QColor(palette.WINDOW)
-# The canvas frame's own edge: light enough to read on the letterbox,
-# quiet enough not to read as part of the score.
+# The ground the frame sits on: the lanes' dark, not the window's. It
+# has to stay darker than a dark-mode page, or the two are the same
+# colour and the frame's edge is invisible.
+_LETTERBOX = QColor(palette.INSET)
+# The frame's own edge: light enough to read on the letterbox, quiet
+# enough not to read as part of the score.
 _FRAME_EDGE = QColor(palette.DIM)
 # Arrow key → unit direction (M3.2). Page y grows downward, as in SVG.
 _ARROW_KEYS = {Qt.Key.Key_Left: (-1.0, 0.0), Qt.Key.Key_Right: (1.0, 0.0),
                Qt.Key.Key_Up: (0.0, -1.0), Qt.Key.Key_Down: (0.0, 1.0)}
-_ZOOM_MIN = 0.05
-_ZOOM_MAX = 40.0
 # Same zoom CURVE as the timeline views (ui/app_state.apply_wheel — keep
 # the numbers in step), but a different trigger on purpose: there a bare
 # vertical scroll zooms the time axis, here it scrolls the page and zoom
 # needs a pinch or Cmd/Ctrl. One wheel notch (≈40 px) = ×1.1.
 _ZOOM_PER_PIXEL = math.log(1.1) / 40.0
 _PIXELS_PER_NOTCH = 40.0
-
-
-def clamped_factor(factor: float, current: float) -> float:
-    """Trim a zoom step so it cannot leave the [_ZOOM_MIN, _ZOOM_MAX]
-    range, and never moves AGAINST the gesture.
-
-    A fit scale can legitimately sit below _ZOOM_MIN (a big score in a
-    small window), so zooming out from there has to hold still rather
-    than snap upward into range. Pure, so the limits can be tested
-    without a view."""
-    if factor < 1.0:
-        return max(factor, min(1.0, _ZOOM_MIN / current))
-    return min(factor, max(1.0, _ZOOM_MAX / current))
 
 
 class StageView(QGraphicsView):
@@ -107,6 +111,10 @@ class StageView(QGraphicsView):
     # lives in ui/stage_menu.py, the "view emits, controller decides"
     # contract every other gesture here follows.
     context_menu_requested = Signal(object, QPointF)
+    # D2: the page changed size on screen — zoomed, fitted, or the
+    # window resized under a fitted view. Carries nothing; whoever
+    # cares reads `zoom_percent()`.
+    zoom_changed = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -127,6 +135,10 @@ class StageView(QGraphicsView):
         self.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scrollbars = TransientScrollbars(self)
+        # The dissolve over a playback-driven system switch (stage 5).
+        # Public, like nudge_probe: the window turns it on from the
+        # View menu's toggle, the router arms it, nothing else knows.
+        self.crossfade = SystemCrossfade(self)
         self._fit_mode = True
         self._framing = StageFraming()       # frame/band/mask geometry
         self._preview_fill: QColor | None = None   # overlay preview
@@ -145,17 +157,31 @@ class StageView(QGraphicsView):
         """The document's video canvas (or None): reframe in place,
         keeping whatever page or band is showing."""
         self._framing.set_canvas(canvas)
+        self._reframe()
+
+    def set_systems_frame(self, systems) -> None:
+        """The load's constant systems-mode frame (or None): reframe in
+        place, keeping whatever page or band is showing. Bound once per
+        load by the ViewRouter, exactly like the scenes are."""
+        self._framing.set_systems_frame(systems)
+        self._reframe()
+
+    def _reframe(self) -> None:
+        """Recompute the frame for whatever is showing and re-fit — the
+        shared tail of the two "the frame's shape changed" setters."""
         scene = self.scene()
         if scene is not None:
             page = scene.sceneRect()
             if self._framing.band is not None:
-                self._framing.set_system_band(page, self._framing.band)
+                self._framing.set_system_band(page, self._framing.band,
+                                              self._framing.bounds)
             else:
                 self._framing.set_page(page)
             self.setSceneRect(self._framing.scene_rect(page))
             if self._fit_mode:
                 self._fit()
         self.viewport().update()
+        self.zoom_changed.emit()      # a new frame reshapes "fit"
 
     def set_overlay_preview(self, active: bool, color: QColor) -> None:
         """View-only composite preview: fill the frame with `color`
@@ -184,21 +210,84 @@ class StageView(QGraphicsView):
         if self._fit_mode:
             self._fit()
         self.viewport().update()
+        self.zoom_changed.emit()      # first scene: there is a size now
 
-    def show_system_band(self, scene: QGraphicsScene, band: QRectF) -> None:
-        """System flip (Phase 7.4; framing revised Phase 10R): swap to
-        the band's page scene and fit a PAGE-SIZED window centered
-        vertically on the band — the frame keeps the page's aspect, the
-        system occupies the middle at natural page width; everything
-        outside the band letterboxes. A hard cut, exactly like a page
-        flip (ruling R2)."""
+    def show_system_band(self, scene: QGraphicsScene, band: QRectF,
+                         bounds: tuple[float | None, float | None]
+                         = (None, None), smooth: bool = False) -> None:
+        """System flip (Phase 7.4; reworked 2026-08-30): swap to the
+        band's page scene and place the band in the load's constant
+        frame, centred vertically. The frame's size never changes and
+        its content is uniform, so only the music moves. A hard cut,
+        exactly like a page flip (ruling R2) — unless `smooth` is set,
+        which dissolves out of the frame the router froze just before
+        the swap (stage 5, ui/stage_transition.py). Only the playback
+        tick's own crossing into the next system asks for that.
+
+        Zoomed in, the switch is a pure camera TRANSLATION by the delta
+        between the old frame's centre and the new one's (stage 2), so
+        the user's zoom and their place in the system both survive it.
+        Only a fitted view re-fits, and that lands on the same frame it
+        was already showing.
+
+        `bounds` is how far the band may show before a neighbouring
+        system on the same page would come into view — the only thing
+        the mask is for (core/engraving/systems.py::neighbour_bounds)."""
+        was = self._frame_offset()      # where the glass is on screen
         self.setScene(scene)
         page = scene.sceneRect()
-        self._framing.set_system_band(page, band)
+        self._framing.set_system_band(page, band, bounds)
         self.setSceneRect(self._framing.scene_rect(page))
         if self._fit_mode:
             self._fit()
+        else:
+            self._translate(was)
+        if smooth:
+            self.crossfade.start()       # over the frame the router froze
         self.viewport().update()
+
+    def _frame_offset(self) -> QPointF | None:
+        """Where the frame is sitting on screen right now, in device
+        pixels — None when there is no frame to measure yet."""
+        frame = self._framing.frame
+        if frame is None or self.scene() is None:
+            return None
+        return frame_offset(frame, self.mapToScene(0, 0),
+                            self.transform().m11())
+
+    def _translate(self, want: QPointF | None) -> None:
+        """Put the frame back where it was on screen, leaving the zoom
+        alone — the zoomed-in half of a system switch, and a pure
+        translation of the camera by the delta between the old band's
+        centre and the new one's (each frame is centred on its band).
+
+        Three things make it exact. The scroll range goes to the same
+        constant overscan rect the fitted path uses, so no system is
+        clamped differently from the one before it. The frame is snapped
+        (`snapped_frame`), so it is a whole number of device pixels away
+        from the frame we are translating from — nothing is left over to
+        drift on the next switch, which is what QGraphicsView.centerOn
+        did here, a pixel at a time, for as long as playback ran. And
+        the correction is measured against where the frame actually
+        lands, so it is right even if Qt has moved the scrollbars itself
+        while the scene was being swapped.
+
+        With nothing to hold on to — the first system shown, or arriving
+        from paged mode, where there was no frame — the frame is centred
+        instead, at whatever zoom the user has."""
+        frame = self._framing.frame
+        if frame is None or self.scene() is None:
+            return
+        scale = self.transform().m11()
+        self._framing.frame = frame = snapped_frame(frame, scale)
+        self.setSceneRect(scroll_rect(frame, self.scene().sceneRect()))
+        if want is None:
+            self.centerOn(frame.center())
+            return
+        have = frame_offset(frame, self.mapToScene(0, 0), scale)
+        hbar, vbar = self.horizontalScrollBar(), self.verticalScrollBar()
+        hbar.setValue(hbar.value() + round(have.x() - want.x()))
+        vbar.setValue(vbar.value() + round(have.y() - want.y()))
 
     def clear_band(self) -> None:
         """Back to paged framing (band mask off; the canvas stays)."""
@@ -221,55 +310,69 @@ class StageView(QGraphicsView):
         if self.scene() is None:
             return
         target = self._framing.fit_target(self.scene().sceneRect())
-        if self._framing.canvas is not None:
-            self._fit_canvas(target)
-            return
-        self.fitInView(target, Qt.AspectRatioMode.KeepAspectRatio)
+        if self._framing.frame is not None:
+            self._fit_frame(target)
+        else:
+            self.fitInView(target, Qt.AspectRatioMode.KeepAspectRatio)
+        self.zoom_changed.emit()
 
-    def _fit_canvas(self, frame: QRectF) -> None:
-        """Fit the canvas frame so it CANNOT move between systems.
+    def fit_scale(self) -> float:
+        """The scale a fit would land on right now — what `zoom_percent`
+        is a percentage of. Worked out, never remembered, so it is still
+        right after the window is resized under a zoomed-in view."""
+        if self.scene() is None:
+            return 0.0
+        target = self._framing.fit_target(self.scene().sceneRect())
+        viewport = self.viewport().rect()
+        # a framed fit sets the scale itself and keeps no margin — the
+        # frame IS the picture; a paged fit goes through fitInView,
+        # which keeps one
+        return fit_scale(viewport.width(), viewport.height(),
+                         target.width(), target.height(),
+                         0.0 if self._framing.frame is not None
+                         else FIT_MARGIN)
 
-        fitInView rounds through the integer scrollbars, and how it
-        rounds depends on the frame's scene position — the canvas edge
-        wobbled 1–4 px between systems during playback. Three choices
-        pin it: the zoom is set directly (no fitInView, no 2 px margin —
-        the canvas edge IS the picture); the scroll range is one
-        CONSTANT page-independent overscan rect, so Qt's origin math is
-        identical for every system; and the frame is nudged a quarter
-        device pixel off the integer grid (at most half a pixel against
-        the band — invisible), so every rounding along the way lands
-        the same side for every system."""
+    def zoom_percent(self) -> int:
+        """How big the page is on screen, as a percentage of fitted."""
+        return percent(self.transform().m11(), self.fit_scale())
+
+    def _fit_frame(self, frame: QRectF) -> None:
+        """Fit a frame so it CANNOT move — between systems, between
+        pages, or between one fit and the next.
+
+        The arithmetic (direct zoom, constant overscan scroll rect,
+        quarter-device-pixel snap) is `stage_frame.fit_geometry`, and
+        the reasons are in its docstring; this is only the Qt half."""
         vp = self.viewport().rect()
-        if vp.isEmpty() or frame.isEmpty():
+        geometry = fit_geometry(frame, self.scene().sceneRect(),
+                                vp.width(), vp.height())
+        if geometry is None:
             return
-        z = min(vp.width() / frame.width(), vp.height() / frame.height())
-        frame = QRectF(frame)
-        frame.translate(
-            (round(frame.left() * z) + 0.25) / z - frame.left(),
-            (round(frame.top() * z) + 0.25) / z - frame.top())
-        self._framing.frame = frame
-        page = self.scene().sceneRect()
-        self.setSceneRect(page.adjusted(-frame.width(), -frame.height(),
-                                        frame.width(), frame.height()))
+        scale, snapped, scroll = geometry
+        self._framing.frame = snapped
+        self.setSceneRect(scroll)
         transform = self.transform()
-        transform.setMatrix(z, 0, 0, 0, z, 0, 0, 0, 1)
+        transform.setMatrix(scale, 0, 0, 0, scale, 0, 0, 0, 1)
         self.setTransform(transform)
-        self.centerOn(frame.center())
+        self.centerOn(snapped.center())
 
     def drawBackground(self, painter, rect) -> None:  # noqa: N802
         """The frame's own fill, behind the ink.
 
-        With a canvas the whole frame fills — the overlay-preview color
-        when the preview is on (paper hidden, so the ink composites the
-        way the exported overlay will over footage), else the page
-        background, so the letterbox slack beside the page belongs to
-        the box instead of reading as a hole in it. Without a canvas
-        only the preview fills, over the page."""
+        Whenever there is a frame — a video canvas, or system mode's
+        constant frame — the WHOLE frame fills: the overlay-preview
+        color when the preview is on (paper hidden, so the ink
+        composites the way the exported overlay will over footage), else
+        the page background, so slack beside or beyond the page belongs
+        to the frame instead of reading as a hole in it. That fill is
+        also what hides the page context in system mode: no paper edge
+        is left anywhere inside the frame. Paged with no canvas: only
+        the preview fills, over the page."""
         super().drawBackground(painter, rect)
         if self.scene() is None:
             return
         frame = self._framing.frame
-        if self._framing.canvas is not None and frame is not None:
+        if frame is not None:
             painter.fillRect(frame.intersected(rect), self._frame_fill())
         elif self._preview_fill is not None:
             target = frame if frame is not None \
@@ -277,7 +380,7 @@ class StageView(QGraphicsView):
             painter.fillRect(target.intersected(rect), self._preview_fill)
 
     def drawForeground(self, painter, rect) -> None:  # noqa: N802
-        """The masking, then the canvas frame's edge, then the one
+        """The masking, then the frame's edge, then the one
         overlay that must never be masked (the onset ruler renders
         outside the system frame on purpose)."""
         super().drawForeground(painter, rect)
@@ -286,29 +389,39 @@ class StageView(QGraphicsView):
             self.overlay_painter(painter, self.scene())
 
     def _draw_mask(self, painter, rect) -> None:
-        """No canvas: letterbox over everything outside the visible band
-        (geometry in stage_frame.py). Canvas: letterbox only OUTSIDE
-        the frame; inside it, a neighbor system's ink is covered with
-        the frame's own fill — so the box is one still rectangle whose
-        content changes, never a box that reshapes per system."""
+        """Letterbox outside the frame; inside it, a neighbor system's
+        ink is covered with the frame's own fill — so the frame is one
+        still rectangle whose content changes, never a shape that moves
+        with the music (geometry in stage_frame.py). Paged with no
+        canvas there is no frame and nothing to mask: the page is the
+        picture.
+
+        The 1 px edge goes round whatever rectangle the stage frames:
+        the video canvas, system mode's own frame, or the bare page when
+        there is neither. It says where the picture stops, and in dark
+        mode it is the only thing that does — page and letterbox are
+        both dark, so with no line the frame has no visible edge.
+        (Before 2026-08-30 the edge was drawn for a video canvas alone,
+        because system mode's frame was not an export boundary. It is
+        one now — export frames what the stage frames — so the reason
+        for holding it back is gone.)"""
+        if self.scene() is None:
+            return
         framing = self._framing
-        if framing.canvas is None:
-            for strip in framing.mask_strips(rect):
+        if framing.frame is not None:
+            inside, outside = framing.frame_mask(rect)
+            fill = self._frame_fill()
+            for strip in inside:
+                painter.fillRect(strip, fill)
+            for strip in outside:
                 painter.fillRect(strip, _LETTERBOX)
-            return
-        if framing.frame is None:
-            return
-        inside, outside = framing.canvas_mask(rect)
-        fill = self._frame_fill()
-        for strip in inside:
-            painter.fillRect(strip, fill)
-        for strip in outside:
-            painter.fillRect(strip, _LETTERBOX)
+        edge = framing.frame if framing.frame is not None \
+            else self.scene().sceneRect()
         pen = QPen(_FRAME_EDGE)
         pen.setCosmetic(True)               # 1 device px at every zoom
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(framing.frame)
+        painter.drawRect(edge)
 
     # -- selection gesture -------------------------------------------------
 
@@ -324,6 +437,11 @@ class StageView(QGraphicsView):
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
+            # the scroll indicators get first refusal: a press on one is
+            # a scroll gesture, never a click on the score under it
+            if self._scrollbars.press(event.position()):
+                event.accept()
+                return
             self._press_pos = event.position().toPoint()
             scene_pos = self.mapToScene(self._press_pos)
             # a press on a nudgeable element turns this drag into a move
@@ -338,15 +456,23 @@ class StageView(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._scrollbars.drag(event.position()):
+            event.accept()
+            return
         if self._drag_origin is not None:
             delta = self.mapToScene(event.position().toPoint()) \
                 - self._drag_origin
             self.drag_moved.emit(delta)
             event.accept()
             return
+        # no button down: reaching for an edge brings its bar up
+        self._scrollbars.hover(event.position())
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self._scrollbars.release(event.position()):
+            event.accept()
+            return
         if self._drag_origin is not None:
             origin, self._drag_origin = self._drag_origin, None
             self._press_pos = None
@@ -440,6 +566,10 @@ class StageView(QGraphicsView):
         super().resizeEvent(event)
         if self._fit_mode:
             self._fit()
+        else:
+            # the transform did not move, but a fit would land somewhere
+            # else now, so the percentage of it did
+            self.zoom_changed.emit()
 
     # -- zoom and scroll ---------------------------------------------------
 
@@ -456,6 +586,7 @@ class StageView(QGraphicsView):
         self._fit_mode = False
         self.scale(factor, factor)
         self._scrollbars.poke()
+        self.zoom_changed.emit()
 
     def scroll_by(self, dx: float, dy: float) -> None:
         """Move the view by a delta in device pixels."""
@@ -498,11 +629,22 @@ class StageView(QGraphicsView):
         event.accept()
 
     def viewportEvent(self, event) -> bool:  # noqa: N802
-        """Pinch to zoom. macOS delivers it as a native gesture on the
-        viewport, with `value()` as the incremental scale change for that
-        step — positive when the fingers spread, so spreading zooms in.
+        """Pinch to zoom, and the pointer leaving the stage.
+
+        macOS delivers a pinch as a native gesture on the viewport, with
+        `value()` as the incremental scale change for that step —
+        positive when the fingers spread, so spreading zooms in.
         `spikes/stage_gestures.py` logs the raw stream if the feel ever
-        needs re-checking on other hardware."""
+        needs re-checking on other hardware.
+
+        Leave is watched here rather than in the view's own leaveEvent
+        because the two are not the same moment: the zoom controls are a
+        child of the VIEW sitting over the viewport, so moving onto them
+        leaves the viewport while the view still has the pointer. The
+        scroll indicators want the viewport's answer — that is the
+        surface they are drawn on."""
+        if event.type() == QEvent.Type.Leave:
+            self._scrollbars.leave()
         if event.type() == QEvent.Type.NativeGesture:
             if event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture:
                 self.zoom_by(1.0 + event.value())
@@ -517,5 +659,6 @@ class StageView(QGraphicsView):
         the system-band mask."""
         super().paintEvent(event)
         painter = QPainter(self.viewport())
+        self.crossfade.paint(painter)     # the outgoing system, fading
         self._scrollbars.paint(painter)
         painter.end()

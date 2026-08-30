@@ -14,9 +14,12 @@ from __future__ import annotations
 
 # -- the theme ------------------------------------------------------------
 
-WINDOW = "#1e1f22"      # the app's ground: main window, letterbox
+WINDOW = "#1e1f22"      # the app's ground: the main window
 PANEL = "#26272b"       # a raised surface: docks, toolbar, buttons
-INSET = "#17181b"       # a sunken surface: lanes, text fields, lists
+INSET = "#17181b"       # a sunken surface: lanes, text fields, lists,
+                        # and the stage letterbox — the ground the
+                        # frame sits on has to stay darker than a
+                        # dark-mode page, or the frame disappears
 BORDER = "#3a3b40"      # the line between two surfaces
 TEXT = "#d6d7db"        # normal text and icons
 DIM = "#8e909c"         # secondary text, hints, axis labels
@@ -33,6 +36,21 @@ ACCENT_PRESSED = "#e6b855"  # that button being clicked
 DISABLED = "#5a5c66"    # text of a control that cannot be used
 HIGHLIGHT = "#3f4652"   # selected row in a list or menu (quiet on
                         # purpose: the accent is reserved for "active")
+
+# The hover box (Marcus, 2026-08-30) is the one surface in the app that
+# runs the other way: light ground, near-black text. It is a note laid
+# ON the interface rather than part of it, and it has to be readable
+# over a dark panel and over the score page both.
+TIP = "#dcdde1"         # the hover box's ground
+TIP_TEXT = "#1b1c1f"    # its text: dark gray, not quite black
+TIP_BORDER = "#a9abb3"  # its edge, a muted gray of the same family
+
+# The floating stage controls (D2) are the only chrome that sits ON the
+# score, so they are see-through: the same surfaces as everywhere else
+# with an alpha in front (#AARRGGBB — Qt reads it, and so does QSS).
+OVERLAY = "#d626272b"          # the floating panel's ground: PANEL at 84%
+OVERLAY_BORDER = "#d63a3b40"   # its edge: BORDER, same alpha
+OVERLAY_HOVER = "#f0303138"    # a button in it under the pointer
 
 GRID = "#2e3037"        # lane grid lines and the waveform's midline
 WAVEFORM_SOFT = "#7fa8d4"   # the RMS body inside the peaks

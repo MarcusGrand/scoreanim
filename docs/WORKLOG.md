@@ -3,8 +3,9 @@
 **NOW:** the UI facelift is **merged to `main`, tagged
 `v0.2-beta.7`, pushed, and passed under Marcus's own eye in the running
 app** (2026-08-29) — phases A, B, C and D of `docs/UI_REDESIGN.md` less
-**D2** (stage overlay zoom controls), which is the next thing to build,
-followed by phase E (welcome pane, tooltip pass, identity). The
+**D2** (stage overlay zoom controls), which is **built on
+`ui-d2-stage-overlay` and waiting for Marcus's in-app check**; phase E
+(welcome pane, tooltip pass, identity) is next after it. The
 phases: A1 one dark theme, A2 icons, A3 the panel finish pass, B1 the File menu and recents, B2
 the toolbar with Export, B3 the Help menu, C1 the three inspector tabs,
 C2 Systems on the transport strip, C3 the Selection tab fronting on
@@ -55,16 +56,174 @@ Three of the standing split debts were paid on the canvas branch
 `serialize.py` 503 → 441 (`serialize_style.py` — still over, but what
 remains is mostly the version-history comment block, which belongs
 with the envelope), `main_window.py` 412 → 326 (`ui/score_install.py`).
-`ui/stage_view.py` is at **443** after the canvas framing and its
-stability fit — the real seam in it is the selection-gesture handlers,
-and it is now the most overdue split. `render/items.py` still wants
-its seam.
+`ui/stage_view.py` is at **659** after the systems-mode rework
+(2026-08-30) — the real seam in it is the selection-gesture handlers,
+and it is by a distance the most overdue split; the camera (fit,
+translate, zoom, scroll) is a second one. `render/scene.py` went 343 →
+385 with the item filter — under the ceiling, but it is next in line.
+`render/items.py` still wants its seam.
 
 One dated line per session, newest first. Every session reads this file
 at start and appends its line at close. Keep entries to one or two
 lines — history lives in git and `docs/history/`.
 
 ---
+
+- 2026-08-30 — `systems-fixed-frame` (SYSTEMS_MODE_REWORK.md stage 5,
+  the optional one, UNMERGED): **a system switch can dissolve**. 150 ms,
+  on the playback tick's own crossing and nothing else, OFF by default
+  behind View ▸ Fade System Switches (QSettings, never the document — no
+  schema bump, and it cannot reach a project or an exported frame).
+  Stage 2 is what makes it nearly free: the frame does not move on
+  screen across a switch, so a grab of the viewport taken just before
+  one lines up pixel for pixel with the viewport just after it, and the
+  whole transition is that frozen picture painted over the live view at
+  falling opacity (new `ui/stage_transition.py`, 130 lines) — no scene
+  touched, no item changed, the camera bit-for-bit what a hard cut
+  leaves, and export cannot see it. It has to know two things.
+  **Where the switch came from**: `PlaybackController.system_changed`
+  now carries whether the music REACHED the system (the tick loop) or
+  was PUT there (a seek, a scrub, pressing play), so a scrub cannot
+  smear and prev/next still jumps; the router arms the fade BEFORE the
+  item filter takes the departing system's ink off the page, which is
+  the picture being kept. **When the snapshot stops being true**: it is
+  glued to the SCREEN, so it holds only while the camera does. Watch
+  out for one thing — making that an invalidate-on-signal
+  (`zoom_changed`) kills every fade, because the switch itself refits
+  and reframes between the capture and the start, and a bare
+  `viewport().grab()` can fire a resize too, so even reading the pixels
+  cancelled it; the camera is READ at paint time instead and the
+  snapshot dropped if it moved (now in PATTERNS). Checked end to end in
+  the real window offscreen: mid-fade all 1087 differing sampled pixels
+  are the exact 50/50 blend, the fade lands on the new system to the
+  pixel, and with the toggle off the switch is bit-identical to the
+  hard cut. 19 new tests; full suite 2476 green, no schema bump, no
+  golden movement. `stage_view.py` grew 5 lines to **659** — the
+  gesture split stays owed, deliberately (Marcus's call). Unproven
+  under a human's eye — the thing to feel is whether 150 ms helps or
+  distracts; hard cuts are the standard in score videos, so this is its
+  own commit and can be dropped on its own.
+
+- 2026-08-30 — `systems-fixed-frame` (SYSTEMS_MODE_REWORK.md stage 3,
+  UNMERGED): **the video canvas reshapes the systems frame instead of
+  replacing it**. With a canvas set, systems mode used to fall back to
+  the pre-rework page window — page-tall, the system in a strip of it —
+  because the canvas branch came first and fitted the canvas around the
+  PAGE. Now the canvas gives stage 1's own frame its aspect ratio
+  (`SystemsFrame.for_canvas`, pure): the whole systems frame still fits,
+  nothing is cropped, and the slack lands on whichever axis the canvas
+  is long on — on testscore a 1920x1080 canvas is wider than the frame,
+  so the system fills the video frame with even air at the sides. Every
+  stage 1 and 2 promise survives it, because the canvas is a load-level
+  fact like the frame: one shape for every system, band centred,
+  switches translating (pinned zoomed, both canvas shapes and none).
+  Turning the canvas on or off reframes in place and re-fits, so the
+  swap lands on exactly the fit each state would have had. One new
+  branch, `StageFraming.systems_frame`, where the two frames meet.
+  10 new tests; full suite green, no schema bump, no golden movement.
+  This makes the STAGE disagree with export in systems mode — export
+  still frames with the page window — which is stage 4, next. Unproven
+  under a human's eye.
+
+- 2026-08-30 — `systems-fixed-frame` (SYSTEMS_MODE_REWORK.md stage 1
+  follow-up, UNMERGED): **systems mode hides the other systems' ITEMS**.
+  Marcus's report — small parts of neighbouring systems still showed
+  inside the frame. The mask was doing its job and could not win: a band
+  is the union of its elements' BBOXES, and **painted ink is bigger than
+  its bbox** (a text item's glyph box carries the font's ascent and
+  descent, a stroke is wider than its path, and the animation scales
+  both), so a neighbour's ink stands OUTSIDE its own band — measured at
+  1 page unit on testscore, 3 to 17 on grieg and condense — and lands in
+  the one strip the mask must leave alone, the current system's own.
+  There is no rectangle that removes it without erasing the music. So
+  the fix is a filter, not a region: `ScoreScenes.set_visible_system`
+  hides every system but the current one, called from
+  `ViewRouter.show_system` / `show_page` — the only two routes into the
+  stage, so a fresh load, a re-engrave, the mode toggle, prev/next and
+  follow are all one path. It is the GROUP's visibility flag (the
+  per-system parents the system pulse already built), so per-element
+  hiding composes with it untouched, ink with no system always shows
+  (the title), selection follows for free (Qt reports a hidden parent's
+  children invisible), and no transform moves — stage 2's camera is
+  bit-for-bit what it was. View-level state, never the document; export
+  builds its own scenes, so it cannot see it. One `unattributed-ink`
+  LoadWarning names any engraved ink no system owns — **zero on all
+  eleven loadable fixtures**, so it is silent until it matters. Watch
+  out for one thing: hidden ink is not clickable, which two break tests
+  were leaning on — they selected ink on system 4 while the stage showed
+  system 1. Through the real window that click was already refused by
+  `StageView.in_band`; the tests took a shortcut past it, and now show
+  the system first. Stage 4 grew a second half: export clips to a region
+  the way the stage used to, so it has the same leak. 16 new tests
+  (including the leak in pixels, before and after); full suite 2442
+  green, no schema bump, no golden movement. Unproven under a human's
+  eye.
+
+- 2026-08-30 — `systems-fixed-frame` (SYSTEMS_MODE_REWORK.md stage 2,
+  UNMERGED): **a system switch keeps the user's zoom and pan**. It used
+  to re-fit, so any zoom was thrown away on every switch. Now the view
+  reads where the frame is sitting ON SCREEN before the swap
+  (`stage_frame.frame_offset`, device pixels) and puts it back there
+  after — the glass does not move, which is the same thing as
+  translating the camera by the delta between the two band centres.
+  Fitted, nothing changed: the fit it would land on is the one it
+  already has. Manual prev/next and follow-driven switches are the one
+  path, and paged mode never enters it. The trap was
+  **`QGraphicsView.centerOn`, which rounds through the integer
+  scrollbars with a bias and crept exactly one pixel per switch** —
+  measured, and a mess after a minute of playback (now in PATTERNS).
+  The fix is stage 1's own snap, promoted to `stage_frame.snapped_frame`
+  and now used by both paths: two frames snapped to the same sub-pixel
+  phase are a WHOLE number of device pixels apart, so the step between
+  them is exact. `scroll_rect` came out of `fit_geometry` for the same
+  reason — a zoomed switch has to scroll in the same range the fitted
+  one does, or a system near a page edge is clamped short. Pinned by a
+  test that switches 60 times up and down the score and lands on
+  exactly five camera positions, one per system, returning to the first
+  bit-for-bit. 7 new tests; full suite 2426 green, no schema bump, no
+  golden movement. Stages 3 (canvas as the frame) and 4
+  (export parity) still to come. Unproven under a human's eye.
+
+- 2026-08-30 — `systems-fixed-frame` (off `ui-e2-tooltips`;
+  SYSTEMS_MODE_REWORK.md stage 1, UNMERGED): **the systems frame is a
+  fixed piece of glass**. It used to be the PAGE's frame slid to centre
+  the band, so the lit rectangle was the band — page-wide but as tall as
+  that system — and its edges jumped on every switch. Now ONE frame is
+  computed per load (`core/engraving/systems.py::systems_frame`, pure:
+  page width by tallest band + 6 % of that height each side, Marcus's
+  number — about the air the engraver leaves between two systems), every
+  system is centred in it with its horizontal position untouched, the
+  whole frame fills with the page's own background so no paper edge is
+  left, and Fit fits the frame (so system mode shows the music bigger
+  than paged mode). Most of it already existed: the video canvas had
+  solved the same problem for its own frame in 2026-08, so the change is
+  mostly generalising "is there a canvas" to "is there a frame" — the
+  solid fill, the two-colour mask and the wobble-free fit now serve
+  both. `_fit_canvas` became `_fit_frame` over a new pure
+  `stage_frame.fit_geometry`. The frame reaches the view once per load
+  (`ViewRouter.bind` → `set_systems_frame`); a switch only moves the
+  band. Checked end to end in the real window offscreen: across all five
+  testscore systems the lit frame lands on the same screen pixels and
+  the same zoom, and paged mode is untouched. Full suite green (2412),
+  no schema bump, no golden movement. **Split commit alongside**:
+  `clamped_factor` and the zoom limits moved to `stage_zoom.py`, which
+  puts `stage_view.py` back at 577 — still over the ceiling, the
+  gesture-handler seam still owed. Unproven under a human's eye — the
+  things to feel are whether 6 % is the right amount of air and whether
+  the bigger-at-Fit system reads well. Stages 2–4 (zoom/pan preserved on
+  a switch, the canvas as the frame, export parity) still to come.
+  **Follow-up the same day, Marcus's report — "it clips the title"**:
+  the title sits above the top staff (y 20–69) and system 1's band
+  starts at y 42, so masking to the BAND cut straight through the
+  capitals. It was doing that before the rework too; the white fill is
+  what made it read as a cut. The mask hides NEIGHBOURS now, not the
+  band — `neighbour_bounds` (pure) runs it to the previous system's
+  bottom and the next system's top and opens it to the frame where
+  there is no neighbour, which is above the first system on a page and
+  below the last. Between two systems nothing changed, so a neighbour
+  still cannot bleed in (pinned at both aspects). The frame is
+  untouched and still derives from the engraved bands only, so editing
+  a title cannot resize it. Suite 2418.
 
 - 2026-08-29 — `ui-redesign` (UI_REDESIGN.md phase C2, as amended):
   **Systems on the transport, and Follow is not an option**. Marcus's
@@ -1218,3 +1377,11 @@ lines — history lives in git and `docs/history/`.
 - 2026-08-29 — D3: the status bar becomes a hint bar. With something selected it says what it is and what can be done to it ("Dynamic · Sop. Alto Ten. 1 · m. 1 — drag to move it, drag its onset line to re-time it, Delete hides it"); with nothing selected it names the loaded recording. The wording is one pure module, `core/editing/hints.py`, sitting with the other status-tip modules: a plain name for every ElementKind, one phrase per gesture, three phrases at most on the line. `ui/hint_bar.py` only gathers, and gathers each answer from the controller that owns that gesture — the delete and flip policies' `current()`, the break policy's resolve, the onset cursor's "is my line drawn", the nudge kind test, the text editor's route — so the bar cannot promise a key the app would ignore. That is why a note reads "F flips the stem" and nothing about an onset line: a notehead is a reveal anchor and has none. Two Qt facts made it work: a temporary message hides the bar's normal widgets and puts them back when it EXPIRES, so every status message now goes through `HintBar.message` with a timeout (an untimed one would bury the hint forever, and a test pins that nobody adds a bare `showMessage` back); and the label elides its own text, so the window's minimum width does not depend on which note you clicked. 24 new tests (15 headless wording, 9 wiring); full suite 2281 green. Awaiting Marcus's in-app check with A1–A3, B1–B3, C1–C4, D1.
 - 2026-08-29 — **The UI facelift merged, tagged and pushed** on Marcus's call: `ui-d1-transport` merged `--no-ff` onto a `main` that had not moved, so the merged tree is byte-identical to the branch tip that tested green (full suite 2281 re-run on `main` before the tag). That is phases A, B, C and D of `docs/UI_REDESIGN.md` less D2. Tagged `v0.2-beta.7`; `main` and the tag are pushed, so the 16-commit backlog on `origin` is cleared too. Next: D2 (stage overlay zoom controls), then phase E.
 - 2026-08-29 — Marcus ran the facelift in the app: **every point passes** — A1–A3, B1–B3, C1–C4, D1 and D3. So `v0.2-beta.7` is a tag with a human check behind it, not just a green suite. Still unproven under an eye, and untouched by this run: the score page's light/dark mode, the glow with its envelope editor, and the stem pass (see the paragraph above).
+- 2026-08-29 — D2: floating zoom controls on the stage. The stage's bottom-right corner now carries zoom out · the percentage · zoom in · Fit, see-through and only there while the pointer is on the stage. **100 % means fitted**, because there is no other honest anchor — a page is 2095 x 2967 in tenths of a millimetre, so "actual size" would be a number about nothing, while Fit is a size one click gets back. The fit scale is worked out on every reading (`ui/stage_zoom.py`, pure) and never remembered, or a window resize under a zoomed-in view would leave the readout lying; a test pins the pure formula against a real `fitInView`, which is what keeps Qt's undocumented 2 px margin honest. The controls (`ui/zoom_overlay.py`) are a child of the view's viewport, take no keyboard focus (Esc, the arrows and Space stay where they were), and are hidden rather than transparent when the pointer leaves, so nothing of theirs is in the way of a click on the score. A button zoom anchors on the middle of the stage, not the pointer — the pointer is on a button in the corner at that moment. Fit is the View menu's own QAction. `transport.py`'s private monospace-font helper moved to `ui/theme/fonts.py`, since the readout wants the same face for the same reason. Lucide `zoom-in`/`zoom-out` vendored, three OVERLAY colour tokens added. 21 new tests; full suite 2302 green. Awaiting Marcus's in-app check.
+- 2026-08-29 — D2 fixed on Marcus's first look, two things. **The zoom controls scrolled away with the score**: they were a child of the view's viewport, and `QGraphicsView` scrolls by calling `viewport()->scroll(dx, dy)`, which moves that widget's children along with the pixels. They are a child of the view now, placed against `viewport().geometry()` — fixed wherever they are visible (now in PATTERNS, under the traps). **And the stage's scroll indicators are real scrollbars.** They were feedback only since M2, on the reasoning that they were gone before you could reach for one, which was the wrong way round: a thing that looks like a scrollbar has to behave like one. They now come up when the pointer reaches within 32 px of the edge they live on and hold while it is there — the fade refuses to start on a bar under the pointer or in the hand — and a press within 14 px of that edge scrolls: on the bar it drags, on the track it jumps the bar to the pointer and carries on. `StageView` offers every press, move and release to `TransientScrollbars` before its own selection and nudge gestures, so a grab is never a click on the score; a faded-out bar takes no press at all, the same rule the zoom controls follow; and both bands stay inside the zoom controls' 12 px margin, so the two never argue over a click. Leave is watched on the VIEWPORT (in `viewportEvent`, beside the pinch) rather than the view, because the zoom controls lying over the viewport take the pointer off it while the view still has it. 15 new tests, checked end to end through real `QTest` mouse events as well as headless; full suite 2317 green. Awaiting Marcus's in-app check.
+- 2026-08-29 — D2, third pass on Marcus's call: **a scroll indicator says whether it can be grabbed.** Resting it is thin (6 px) and dark; with the pointer close enough to take it, it widens to 11 px and goes more solid; in the hand it goes light — the theme's DIM grey, which reads on the white page and on the dark letterbox both, with a dark outline for the same reason the dark bar carries a pale one. The width is a promise, so the band `press` accepts is derived FROM the wide bar rather than picked separately, and a test walks the distances from the edge checking that wide and grabbable agree at every one — they cannot drift apart and start lying. The bar grows inward, so its outer edge holds still and it never fattens out from under the hand that made it. The zoom controls moved from 12 px to 20 px off the corner to clear the wide bar and its band: at 12 they covered a stretch of the horizontal bar and made it un-grabbable. 7 new tests; full suite 2324 green. Awaiting Marcus's in-app check.
+- 2026-08-29 — E1: the welcome pane and drag-and-drop. An empty launch now shows a front door on the stage — the app's name, Open Score and Open Project, the six newest recent files, and a line saying a file can simply be dropped — and it is gone the moment a score is in, because it reads `doc.score` from the document-changed pass like every other sync. It is a child of the stage VIEW sized to the viewport, the parenting D2 was fixed into; its layout is `SetNoConstraint`, or the card's 360 px would have become a floor under the window's width. Drops are the window's own `dragEnterEvent`/`dropEvent` over `ui/file_drop.py`. `StageView` had to have drops turned OFF — QGraphicsView turns them on in its own constructor, and a drag that stops at a widget which ignores it is never offered to the parent, so the whole middle of the window would have been a dead zone — and accepting the enter is enough, since Qt carries that answer to the moves. What counts as openable is one pure rule, `core/project/file_kinds.py`, which Open Recent dispatches through too. A drop onto a loaded score asks first (opening is not undoable), and says so louder when there are unsaved changes. Two Qt facts the tests are built around: a programmatic `sendEvent` of a drag never reaches the widget, and a drag event does not own its `QMimeData` (a segfault). 18 new tests; full suite 2342 green. Awaiting Marcus's in-app check with D2.
+- 2026-08-29 — E2: the tooltip and empty-state pass. Every interactive control in the app now says what it does, and every control that grays itself out says why instead. One module owns the mechanism (`ui/tips.py`): `describe` writes the sentence and parks it on the widget, `describe_action` appends the shortcut read off the QAction itself so a rebound key cannot leave a stale tooltip, and `gate` replaces `setEnabled` wherever the reason for graying is not already on screen. The gaps were mostly the disabled ones: Export and Texts, Undo and Redo, the pager, Reset, Restore all, Width and Height without a frame, the re-time steppers, a part scope on score-level ink, a colour on ink that is always the page's own — and the four different reasons the stage's Staves menu refuses a hide, now one pure function. The Animate tab's grayed knobs generate their own reason from the knob table, so a new dependency gets one without anybody writing it (rule 6 holds). Nothing was newly disabled: Offset and Swing still work with no audio and no score. The tempo lane was a blank rectangle on an empty launch and now says what it is missing, next to the waveform's long-standing "No audio" line; the two layout-zone lists say what would fill them. `tests/test_tooltips.py` is the guard and it is a sweep, not a spot-check: 83 controls and 33 actions on an empty window, then again with a score loaded and a note picked, failing on anything with nothing to say. It reads the property `describe` writes, not the tooltip, because Qt fills a bare action's tooltip in from its own label. 17 new tests; full suite 2359 green. Awaiting Marcus's in-app check with D2 and E1.
+- 2026-08-30 — E2 follow-up on Marcus's look, on the hover box itself. It is **light now** — a muted grey ground with near-black text (three `TIP` tokens, the `QToolTip` rule, and the two palette roles Qt would use without the sheet). It is the one surface in the app that runs the other way, because a tooltip is a note laid ON the interface rather than part of it and has to read over a dark panel and over the white score page both. And it **always reads rightward from the pointer**: the box starts at the cursor and runs right, and near the right edge it slides left only far enough to fit, so the pointer ends up somewhere along it rather than the text jumping to the other side. Qt does not do that — `QTipLabel::placeTip` moves the whole box past the cursor when it would overrun — so the horizontal placement is ours: `tip_left` is the rule, pure and headless, applied to Qt's own tooltip window by an application-wide event filter (`ui/tip_placement.py`, installed from `app.py` beside `apply_theme`). Only the x; Qt's vertical behaviour is already right. Three events have to be watched, not one: Qt places the box before showing it, places it AGAIN with no second show when the pointer travels to another control while a box is up (`reuseTip`), and applies the stylesheet's padding AFTER placing it, so a correction made before that resize lands two pixels out — measured, not guessed. 38 new tests, two of which drive Qt's real tooltip window, including one that pins the flip Qt does without the filter so nobody removes it thinking Qt would behave. Full suite 2397 green. Awaiting Marcus's in-app check with D2, E1 and E2.
+- 2026-08-30 — Systems rework stage 4: **export frames what the stage frames.** Export was still on the pre-rework page-sized window and still clipped to a REGION, so it had both the wrong shape and the neighbour leak the item filter fixed on the stage. Both are gone. `render/export.py::systems_export_frame` is the same composition `StageFraming.systems_frame` does — the pure `systems_frame` off the layout, reshaped by the canvas when there is one — and the render's source rect is `SystemsFrame.rect_for(band)`, the stage's own rect; a test holds the two side by side for every system, with and without a canvas, so they cannot drift apart again. Neighbours go out by `set_visible_system` on export's private scenes, the call the stage already makes. **The exported pixel size changes in systems mode with no canvas**: the height field is applied to the systems frame's shape, not the page's — 668 × 540 where it used to be 254 × 540 on testscore — which it has to be, since the old shape was the pre-rework window. The dialog's width readout and its two size tooltips read from the same function. With a canvas nothing moves: still exactly the canvas. One thing that reads as a difference and is not: above the first system on a page the frame shows the title block, in the export as on the stage. ARCHITECTURE's Phase-10R constancy paragraph amended to match. 5 export tests rewritten (they pinned the old page-shaped window), 3 added; full suite 2457 green. Awaiting Marcus's in-app check: export a short clip in systems mode, with and without the canvas overlay, and compare frame by frame against the stage at Fit.
+- 2026-08-30 — The stage ground goes dark, and the frame gets an edge. The letterbox was `palette.WINDOW` (#1e1f22) and a dark-mode page is #1d1f24, so in dark mode the two were the same colour and the frame had no visible boundary. The letterbox is now `palette.INSET` (#17181b) — the lanes' own dark, which is what Marcus asked for: the same ground as the bar-tick timeline. And the 1 px edge now goes round whatever rectangle the stage frames, not the video canvas alone: system mode's frame and the bare page get one too. The old rule held the edge back from system mode's frame because it was not an export boundary; stage 4 made it one (export frames what the stage frames), so the reason was gone. 1 new test that pins an edge on all three framings (it fails on the old behaviour, checked), plus the theme token test updated; full suite 2478 green. Awaiting Marcus's in-app check in both modes, light and dark.

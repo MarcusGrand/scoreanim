@@ -46,6 +46,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from scoreanim.core.editing.deletion import ENABLED_TIP, resolve
 from scoreanim.core.editing.segments import family_of
 from scoreanim.core.project import SetElementsHidden
+from scoreanim.ui import tips
 
 if TYPE_CHECKING:
     from scoreanim.render.scene import ScoreScenes
@@ -72,6 +73,7 @@ class DeleteActionController:
         self.action.setEnabled(False)
         self.action.triggered.connect(self.trigger)
         app_state.selection_changed.connect(self.sync)
+        self.sync()          # a reason on it from the first frame
 
     def bind_scenes(self, scenes: ScoreScenes | None) -> None:
         """Adopt one load's scenes — the registry the `:seg` fan-out is
@@ -90,7 +92,10 @@ class DeleteActionController:
         object is itself a document change that must disable the
         action."""
         resolved = self.current()
-        self.action.setEnabled(resolved.enabled)
+        # the same sentence on both surfaces: the status bar as you
+        # travel the menu, the tooltip where you hover (E2)
+        tips.describe_action(self.action, ENABLED_TIP)
+        tips.gate(self.action, resolved.enabled, resolved.reason or "")
         self.action.setStatusTip(ENABLED_TIP if resolved.enabled
                                  else (resolved.reason or ""))
 

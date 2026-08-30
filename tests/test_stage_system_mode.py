@@ -1,6 +1,13 @@
-"""System-at-a-time stage framing (Phase 7.4), offscreen: the letterbox
-mask hides same-page neighbour systems at any window aspect, and
-clear_band restores paged behavior."""
+"""System-at-a-time stage framing, offscreen.
+
+Phase 7.4 built it; the 2026-08-30 rework (docs/SYSTEMS_MODE_REWORK.md
+stage 1) replaced the per-system page window with ONE constant frame the
+systems are placed into. What these pin: the frame never changes size or
+position, the band is centred in it, there is no paper edge inside it, a
+neighbouring system never bleeds in, and clear_band restores paged
+behaviour. Stage 3 added the video canvas: with one set, that constant
+frame takes the canvas's shape, and everything above still holds.
+"""
 from __future__ import annotations
 
 import os
@@ -13,10 +20,13 @@ from PySide6.QtCore import QPoint, QPointF, QRectF  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from scoreanim.core.engraving.systems import system_bands  # noqa: E402
+from scoreanim.core.engraving.systems import (  # noqa: E402
+    neighbour_bounds, system_bands, systems_frame)
 from scoreanim.core.project.stage_config import (  # noqa: E402
-    default_stage_config, page_content_top)
+    VideoCanvas, default_stage_config, page_content_top)
 from scoreanim.render.scene import ScoreScenes  # noqa: E402
+from scoreanim.ui.stage_frame import (  # noqa: E402
+    fit_geometry, frame_offset, snapped_frame)
 from scoreanim.ui.stage_view import _LETTERBOX, StageView  # noqa: E402
 
 
@@ -32,6 +42,27 @@ def scenes(qapp, engraved) -> ScoreScenes:
     return ScoreScenes(engraved.layout, stage)
 
 
+@pytest.fixture(scope="module")
+def bands(engraved) -> dict:
+    return {b.system: b for b in system_bands(engraved.layout)}
+
+
+@pytest.fixture(scope="module")
+def frame(bands):
+    return systems_frame(tuple(bands.values()))
+
+
+@pytest.fixture(scope="module")
+def bounds(bands):
+    """How far each system may show — what ViewRouter.bind computes."""
+    return neighbour_bounds(tuple(bands.values()))
+
+
+# the page's own background, which is what a frame fills with while the
+# overlay preview is off — the stage's default light paper
+_FILL = "#ffffff"
+
+
 def _qrect(rect) -> QRectF:
     return QRectF(rect.x, rect.y, rect.w, rect.h)
 
@@ -45,16 +76,182 @@ def _pixel(view: StageView, scene_x: float, scene_y: float) -> QColor | None:
     return image.pixelColor(pt)
 
 
-@pytest.mark.parametrize("size", [(1920, 400), (400, 1000)])
-def test_neighbour_system_never_bleeds(qapp, engraved, scenes, size) -> None:
-    """Page 2 carries systems 2 and 3: with system 2 framed, any exposed
-    part of system 3 must read as letterbox, while system 2's own band
-    shows page (non-letterbox) pixels — at a wide AND a tall aspect."""
-    bands = {b.system: b for b in system_bands(engraved.layout)}
-    assert bands[2].page == bands[3].page == 2
+def _view(frame, size=(600, 850), canvas=None) -> StageView:
     view = StageView()
     view.resize(*size)
-    view.show_system_band(scenes.scene_for_page(2), _qrect(bands[2].rect))
+    view.viewport().grab()               # force offscreen layout/resize
+    view.set_systems_frame(frame)        # what ViewRouter.bind does
+    if canvas is not None:
+        view.set_canvas(canvas)          # what ViewRouter.sync_canvas does
+    return view
+
+
+def _show(view, scenes, band, bounds=None) -> None:
+    view.show_system_band(scenes.scene_for_page(band.page),
+                          _qrect(band.rect),
+                          (bounds or {}).get(band.system, (None, None)))
+
+
+# -- the constant frame ---------------------------------------------------
+
+def _lit_column(view: StageView) -> tuple[int, int]:
+    """Where the frame's top and bottom edges are ON SCREEN, read off
+    the rendered pixels: scan the middle column from each end for the
+    first pixel painted in the frame's fill. Measured the way the user
+    sees it, so nothing internal has to be trusted. The fill is safe to
+    scan for at both ends because the frame's padding is ink-free by
+    construction, and it ignores the transient scroll hint, which paints
+    a letterbox-dark pixel at the viewport edge."""
+    image = view.viewport().grab().toImage()
+    x = image.width() // 2
+    rows = range(image.height())
+    top = next(y for y in rows
+               if image.pixelColor(x, y).name() == _FILL)
+    bottom = next(y for y in reversed(rows)
+                  if image.pixelColor(x, y).name() == _FILL)
+    return top, bottom
+
+
+def test_the_frame_never_changes_size_or_position(qapp, scenes, bands,
+                                                  frame, bounds) -> None:
+    """Stage 1's whole point, and the headless form of Marcus's own
+    check: play across every system and the lit frame occupies exactly
+    the same screen pixels each time, however tall the system is.
+
+    Before the rework the lit area was the BAND, so its edges moved by
+    the difference in staff count on every switch."""
+    heights = {s: round(b.rect.h) for s, b in bands.items()}
+    assert len(set(heights.values())) > 1     # bands really differ
+    view = _view(frame)
+    seen = set()
+    for band in bands.values():
+        _show(view, scenes, band, bounds)
+        seen.add(_lit_column(view))
+    assert len(seen) == 1, f"the frame moved between systems: {seen}"
+    # and it is the FRAME that is lit, not the band: the lit span is the
+    # frame's height on screen even for the shortest system, which is
+    # 137 px shorter than that here. (+/-4 px for the antialiased edge
+    # and the quarter-pixel snap.)
+    top, bottom = seen.pop()
+    scale = view.transform().m11()
+    assert bottom - top == pytest.approx(frame.height * scale, abs=4)
+    shortest = min(b.rect.h for b in bands.values())
+    assert frame.height * scale - shortest * scale > 100
+
+
+def test_live_zoom_is_constant_across_systems(qapp, scenes, bands,
+                                              frame, bounds) -> None:
+    """One frame means one fit: the view zoom is IDENTICAL for every
+    system however its band height differs — the system is singled out
+    and centred, nothing resizes."""
+    view = _view(frame)
+    zooms = set()
+    for band in bands.values():
+        _show(view, scenes, band, bounds)
+        zooms.add(round(view.transform().m11(), 6))
+    assert len(zooms) == 1, f"zoom varied across systems: {zooms}"
+
+
+def test_band_is_centred_in_the_frame(qapp, scenes, bands, frame,
+                                      bounds) -> None:
+    """Each system sits in the middle of the frame vertically and keeps
+    the horizontal position it was engraved with — so at Fit the band's
+    centre is the viewport's centre."""
+    view = _view(frame)
+    page = scenes.scene_for_page(bands[2].page).sceneRect()
+    for band in bands.values():
+        _show(view, scenes, band, bounds)
+        centre = view.mapFromScene(QPointF(page.center().x(),
+                                           band.rect.center.y))
+        assert centre.x() == pytest.approx(view.viewport().width() / 2,
+                                           abs=2)
+        assert centre.y() == pytest.approx(view.viewport().height() / 2,
+                                           abs=2)
+
+
+def test_fit_targets_the_frame_not_the_page(qapp, scenes, bands,
+                                            frame, bounds) -> None:
+    """Fit fits the FRAME. The frame is shorter than the page (tallest
+    band plus padding, against a whole page), so system mode shows the
+    music bigger than paged mode does, and the two no longer share a
+    scale the way the Phase 10R page-sized window did."""
+    scene = scenes.scene_for_page(bands[2].page)
+    view = _view(frame)
+    view.show_scene(scene)
+    paged = view.transform().m11()
+    _show(view, scenes, bands[2], bounds)
+    assert view.transform().m11() > paged
+    # and it really is the frame that fits: the frame's height fills the
+    # viewport (this viewport is taller than the frame's aspect)
+    placed = view.mapFromScene(
+        _qrect(frame.rect_for(bands[2].rect))).boundingRect()
+    assert (placed.width() == pytest.approx(view.viewport().width(), abs=2)
+            or placed.height() == pytest.approx(view.viewport().height(),
+                                                abs=2))
+
+
+# -- no page context ------------------------------------------------------
+
+@pytest.mark.parametrize("system", [2, 4])
+def test_no_paper_edge_inside_the_frame(qapp, scenes, bands, frame,
+                                        bounds, system) -> None:
+    """Hide all page context: the whole frame is one uniform colour, so
+    a short system and a tall one look the same everywhere except where
+    the music is. Before the rework the lit area WAS the band, so its
+    top and bottom edges jumped on every switch."""
+    view = _view(frame)
+    band = bands[system]
+    _show(view, scenes, band, bounds)
+    placed = frame.rect_for(band.rect)
+    seen = set()
+    for x_frac in (0.005, 0.02):          # left margin: no ink at any y
+        for y_frac in (0.01, 0.05, 0.2, 0.5, 0.8, 0.95, 0.99):
+            color = _pixel(view, placed.x + x_frac * placed.w,
+                           placed.y + y_frac * placed.h)
+            assert color is not None      # the frame is fitted: all of
+            seen.add(color.name())        # it is on screen
+    assert seen == {_FILL}, f"the frame is not uniform: {seen}"
+
+
+def test_the_title_block_is_not_sliced(qapp, scenes, bands, frame,
+                                       bounds) -> None:
+    """Marcus, 2026-08-30: system mode cut the title in half.
+
+    The title sits above the top staff (scene y 20-69) and system 1's
+    band starts at y 42, so masking to the BAND painted over the top of
+    the capitals. The mask only has to hide the other systems sharing
+    the paper, and nothing shares the paper above the first system on a
+    page — so it opens to the frame there, and the title draws whole.
+    """
+    view = _view(frame)
+    _show(view, scenes, bands[1], bounds)
+    title = scenes.items["stage:title"].sceneBoundingRect()
+    band_top = bands[1].rect.y
+    assert title.top() < band_top < title.bottom()   # it really straddles
+
+    image = view.viewport().grab().toImage()
+    left = view.mapFromScene(QPointF(title.left(), 0.0)).x()
+    right = view.mapFromScene(QPointF(title.right(), 0.0)).x()
+    # ink drawn ABOVE where the band starts is ink the old mask ate
+    above = 0
+    for scene_y in range(int(title.top()), int(band_top)):
+        y = view.mapFromScene(QPointF(0.0, float(scene_y))).y()
+        above += sum(1 for x in range(left, right + 1)
+                     if image.pixelColor(x, y).name() != _FILL)
+    assert above > 0, "the title is still cut where the band starts"
+
+
+@pytest.mark.parametrize("size", [(1920, 400), (400, 1000)])
+def test_neighbour_system_never_bleeds(qapp, scenes, bands, frame,
+                                       bounds, size) -> None:
+    """Page 2 carries systems 2 and 3: with system 2 framed, system 3's
+    ink must never show — as letterbox where it falls outside the frame,
+    as the frame's own fill where it falls inside — at a wide AND a tall
+    aspect."""
+    assert bands[2].page == bands[3].page == 2
+    view = _view(frame, size=size)
+    _show(view, scenes, bands[2], bounds)
+    placed = frame.rect_for(bands[2].rect)
 
     own = bands[2].rect
     inside = _pixel(view, own.center.x, own.center.y)
@@ -65,12 +262,14 @@ def test_neighbour_system_never_bleeds(qapp, engraved, scenes, size) -> None:
     exposed_any = False
     # sample a horizontal run through the neighbour band's center line
     for frac in (0.2, 0.35, 0.5, 0.65, 0.8):
-        color = _pixel(view, neighbour.x + frac * neighbour.w,
-                       neighbour.center.y)
+        y = neighbour.center.y
+        color = _pixel(view, neighbour.x + frac * neighbour.w, y)
         if color is None:
             continue                     # not exposed at this aspect: fine
         exposed_any = True
-        assert color.name() == _LETTERBOX.name()
+        want = _FILL if placed.y <= y <= placed.y + placed.h \
+            else _LETTERBOX.name()
+        assert color.name() == want
     tall = size[1] > size[0]
     if tall:
         # the tall window definitely exposes the scene below the band —
@@ -78,59 +277,317 @@ def test_neighbour_system_never_bleeds(qapp, engraved, scenes, size) -> None:
         assert exposed_any
 
 
-def test_system_frame_is_page_sized_and_band_centered(qapp, engraved,
-                                                      scenes) -> None:
-    """Phase 10R framing: the fitted region is a PAGE-SIZED window
-    centered on the band — the view scale matches fitting the page
-    itself (the frame never changes shape between modes) and the band's
-    center maps to the viewport center."""
-    bands = {b.system: b for b in system_bands(engraved.layout)}
-    band = bands[2]
-    scene = scenes.scene_for_page(2)
-    page = scene.sceneRect()
-
-    view = StageView()
-    view.resize(600, 850)                # roughly page-shaped viewport
-    view.viewport().grab()               # force offscreen layout/resize
-    view.show_scene(scene)               # paged fit
-    paged_scale = view.transform().m11()
-    view.show_system_band(scene, _qrect(band.rect))
-    assert view.transform().m11() == pytest.approx(paged_scale, rel=1e-6)
-
-    # ±4 px: fitInView's internal 2 px margin + integer scroll positions
-    center = view.mapFromScene(QPointF(page.center().x(),
-                                       band.rect.y + band.rect.h / 2))
-    assert center.x() == pytest.approx(view.viewport().width() / 2, abs=4)
-    assert center.y() == pytest.approx(view.viewport().height() / 2, abs=4)
-
-
-def test_live_zoom_is_constant_across_systems(qapp, engraved, scenes) -> None:
-    """Phase 10R: the frame keeps the page's size, so the view zoom is
-    IDENTICAL for every system however its band height differs — the
-    system is just singled out and centered, the canvas never resizes
-    (the user's requirement, live side)."""
-    bands = {b.system: b for b in system_bands(engraved.layout)}
-    heights = {s: round(b.rect.h) for s, b in bands.items()}
-    assert len(set(heights.values())) > 1     # bands really differ in height
-    view = StageView()
-    view.resize(600, 850)
-    view.viewport().grab()
-    zooms = set()
-    for system, band in bands.items():
-        view.show_system_band(scenes.scene_for_page(band.page),
-                              _qrect(band.rect))
-        zooms.add(round(view.transform().m11(), 6))
-    assert len(zooms) == 1, f"zoom varied across systems: {zooms}"
-
-
-def test_clear_band_restores_paged_framing(qapp, engraved, scenes) -> None:
-    bands = {b.system: b for b in system_bands(engraved.layout)}
-    view = StageView()
-    view.resize(400, 1000)
-    view.show_system_band(scenes.scene_for_page(2), _qrect(bands[2].rect))
+def test_clear_band_restores_paged_framing(qapp, scenes, bands,
+                                           frame, bounds) -> None:
+    view = _view(frame, size=(400, 1000))
+    _show(view, scenes, bands[2], bounds)
     view.clear_band()
     # neighbour ink is visible again (white page, not letterbox)
     neighbour = bands[3].rect
     color = _pixel(view, neighbour.center.x, neighbour.center.y)
     assert color is not None
     assert color.name() != _LETTERBOX.name()
+
+
+# -- a switch keeps the user's zoom and pan (stage 2) ---------------------
+
+def _glass(view: StageView, frame, band) -> tuple[float, float]:
+    """Where the frame is sitting on screen, in device pixels — "where
+    the glass is". Measured through the view's public surface: the scene
+    point at the viewport's top-left corner, against where this system's
+    frame was placed."""
+    placed = frame.rect_for(band.rect)
+    return tuple(frame_offset(_qrect(placed), view.mapToScene(0, 0),
+                              view.transform().m11()).toTuple())
+
+
+def _zoomed_view(scenes, bands, frame, bounds) -> StageView:
+    """A view zoomed in on one side of system 1, the way Marcus's own
+    check starts."""
+    view = _view(frame)
+    _show(view, scenes, bands[1], bounds)
+    view.zoom_by(2.0)
+    view.scroll_by(300.0, 0.0)           # off to one side of the system
+    return view
+
+
+def test_a_switch_keeps_the_zoom(qapp, scenes, bands, frame,
+                                 bounds) -> None:
+    """Zoomed to 200 %, playback switching systems must not re-fit —
+    that is what threw the user's zoom away before stage 2."""
+    view = _zoomed_view(scenes, bands, frame, bounds)
+    zoom = view.transform().m11()
+    for system in list(bands) + [1]:
+        _show(view, scenes, bands[system], bounds)
+        assert view.transform().m11() == zoom
+
+
+def test_a_switch_keeps_the_place_in_the_system(qapp, scenes, bands,
+                                                frame, bounds) -> None:
+    """The switch is a pure translation by the delta between the old
+    band's centre and the new one's, so the frame does not move on
+    screen: whatever the user was looking at is in the same place at the
+    same size, showing the same part of the new system.
+
+    One device pixel is the whole tolerance, and it is the snap: this
+    reads the frame's UNSNAPPED placement, so each measurement carries
+    its own half-pixel nudge. The camera itself is exact — that is
+    `test_a_long_run_of_switches_does_not_drift` below."""
+    view = _zoomed_view(scenes, bands, frame, bounds)
+    want = _glass(view, frame, bands[1])
+    for system in list(bands) + [1]:
+        _show(view, scenes, bands[system], bounds)
+        at = _glass(view, frame, bands[system])
+        assert at[0] == pytest.approx(want[0], abs=1.0)
+        assert at[1] == pytest.approx(want[1], abs=1.0)
+
+
+def test_a_long_run_of_switches_does_not_drift(qapp, scenes, bands,
+                                               frame, bounds) -> None:
+    """The one that failed first: QGraphicsView.centerOn rounds through
+    the integer scrollbars with a bias, so the picture crept a pixel on
+    every switch — invisible for one switch and a mess after a minute of
+    playback. Snapped frames sit a WHOLE number of device pixels apart,
+    so the camera step between them is exact.
+
+    Play up and down the score many times over, and the camera comes
+    back to a system EXACTLY where it was, not nearly."""
+    view = _zoomed_view(scenes, bands, frame, bounds)
+    _show(view, scenes, bands[1], bounds)
+    first = view.mapToScene(0, 0)
+    order = list(bands) + list(reversed(list(bands)))
+    seen = set()
+    for system in order * 6:
+        _show(view, scenes, bands[system], bounds)
+        seen.add(view.mapToScene(0, 0).toTuple())
+    assert len(seen) == len(bands)       # the camera really does move,
+    _show(view, scenes, bands[1], bounds)   # once per system and no more
+    assert view.mapToScene(0, 0) == first
+
+
+def test_the_switched_system_is_in_view(qapp, scenes, bands, frame,
+                                        bounds) -> None:
+    """Whatever the translation does, the music has to be ON SCREEN:
+    after every switch the system fills most of the window, however tall
+    its band is."""
+    view = _zoomed_view(scenes, bands, frame, bounds)
+    for system in list(bands) + [1]:
+        band = bands[system]
+        _show(view, scenes, band, bounds)
+        shown = view.mapToScene(view.viewport().rect()).boundingRect()
+        on_screen = shown.intersected(_qrect(band.rect))
+        covered = ((on_screen.width() * on_screen.height())
+                   / (shown.width() * shown.height()))
+        assert covered > 0.5, f"system {system} covers {covered:.0%}"
+
+
+def test_fit_still_returns_to_the_whole_frame(qapp, scenes, bands,
+                                              frame, bounds) -> None:
+    """Ctrl+0 after a zoomed run of switches: back to the whole frame,
+    and back to the one fit scale every system shares."""
+    view = _view(frame)
+    _show(view, scenes, bands[1], bounds)
+    fitted = view.transform().m11()
+    view = _zoomed_view(scenes, bands, frame, bounds)
+    _show(view, scenes, bands[3], bounds)
+    view.fit()
+    assert view.transform().m11() == pytest.approx(fitted)
+    placed = view.mapFromScene(
+        _qrect(frame.rect_for(bands[3].rect))).boundingRect()
+    assert (placed.width() == pytest.approx(view.viewport().width(), abs=2)
+            or placed.height() == pytest.approx(view.viewport().height(),
+                                                abs=2))
+
+
+def test_paged_flips_are_untouched(qapp, scenes, bands, frame) -> None:
+    """Stage 2 is system mode only: a zoomed page flip behaves exactly
+    as it did — the scene swaps under an unchanged camera."""
+    view = _view(frame)
+    view.show_scene(scenes.scene_for_page(1))
+    view.zoom_by(2.0)
+    transform, center = view.transform(), view.mapToScene(
+        view.viewport().rect().center())
+    view.show_scene(scenes.scene_for_page(2))
+    assert view.transform() == transform
+    assert view.mapToScene(view.viewport().rect().center()) == center
+
+
+# -- the switch arithmetic, without a window ------------------------------
+
+def test_snapped_frames_are_a_whole_pixel_apart() -> None:
+    """Why a switch can translate exactly: wherever two bands put their
+    frames, the snapped frames are a whole number of device pixels
+    apart, so the camera step between them has no remainder to drift
+    on."""
+    scale = 0.5707458488845834          # the fixture's own fit scale
+    a = snapped_frame(QRectF(0, -175.3, 2095.5, 1694.7), scale)
+    b = snapped_frame(QRectF(0, 1194.9, 2095.5, 1694.7), scale)
+    step = (b.top() - a.top()) * scale
+    assert step == pytest.approx(round(step), abs=1e-9)
+    # and the snap moved each frame less than half a device pixel
+    assert abs(a.top() - -175.3) * scale < 0.5
+    assert abs(b.top() - 1194.9) * scale < 0.5
+
+
+def test_frame_offset_reads_where_the_glass_is() -> None:
+    """Device pixels from the viewport's top-left corner to the
+    frame's."""
+    frame = QRectF(100.0, 200.0, 900.0, 400.0)
+    origin = QPointF(50.0, 150.0)        # scene point at the corner
+    assert frame_offset(frame, origin, 2.0) == QPointF(100.0, 100.0)
+
+
+# -- the fit arithmetic, without a window ---------------------------------
+
+def test_fit_geometry_is_the_same_wherever_the_frame_sits() -> None:
+    """The reason a switch cannot make the frame wobble: the scale and
+    the scroll rect depend on the frame's SIZE only, never on where the
+    band put it. (fitInView, which rounds through integer scrollbars,
+    moved the canvas edge 1-4 px between systems in 2026-08.)"""
+    page = QRectF(0, 0, 2000.0, 3000.0)
+    a = fit_geometry(QRectF(0, -175.0, 2000.0, 1700.0), page, 900, 620)
+    b = fit_geometry(QRectF(0, 1194.0, 2000.0, 1700.0), page, 900, 620)
+    assert a is not None and b is not None
+    assert a[0] == b[0]                       # same scale
+    assert a[2] == b[2]                       # same scroll rect
+    assert a[1].size() == b[1].size()         # same frame size
+
+
+def test_fit_geometry_snaps_off_the_integer_grid() -> None:
+    """Every rounding downstream has to land the same side, so the
+    fitted frame's device-pixel corner is nudged a quarter pixel."""
+    page = QRectF(0, 0, 2000.0, 3000.0)
+    scale, snapped, _ = fit_geometry(QRectF(0, 100.0, 2000.0, 1000.0),
+                                     page, 1000, 500)
+    assert (snapped.left() * scale) % 1.0 == pytest.approx(0.25)
+    assert (snapped.top() * scale) % 1.0 == pytest.approx(0.25)
+
+
+def test_fit_geometry_has_nothing_to_fit() -> None:
+    page = QRectF(0, 0, 2000.0, 3000.0)
+    assert fit_geometry(QRectF(0, 0, 100.0, 100.0), page, 0, 500) is None
+    assert fit_geometry(QRectF(), page, 900, 620) is None
+
+
+# -- the video canvas as the frame (stage 3) ------------------------------
+
+_CANVAS = VideoCanvas(1920, 1080)        # the common overlay frame
+
+
+def test_the_canvas_gives_the_systems_frame_its_shape(qapp, scenes, bands,
+                                                      frame, bounds) -> None:
+    """Stage 3: with a video canvas set, the frame systems mode shows IS
+    the video frame. It takes the canvas's aspect ratio and still holds
+    the whole of stage 1's frame, so the system fills the frame the
+    export will carry instead of sitting in a page-tall strip of it."""
+    shaped = frame.for_canvas(_CANVAS.width, _CANVAS.height)
+    assert shaped.width / shaped.height == pytest.approx(
+        _CANVAS.width / _CANVAS.height)
+    view = _view(frame, canvas=_CANVAS)
+    band = bands[2]
+    _show(view, scenes, band, bounds)
+    placed = _qrect(shaped.rect_for(band.rect))
+    assert placed.contains(_qrect(frame.rect_for(band.rect)))
+    # not the pre-rework page window: the frame is still the system's,
+    # only reshaped
+    page = scenes.scene_for_page(band.page).sceneRect()
+    assert placed.height() < page.height()
+    # and it is that frame that fits: it fills the viewport on one axis
+    on_screen = view.mapFromScene(placed).boundingRect()
+    assert (on_screen.width() == pytest.approx(view.viewport().width(),
+                                               abs=2)
+            or on_screen.height() == pytest.approx(
+                view.viewport().height(), abs=2))
+
+
+def test_the_canvas_frame_never_moves_between_systems(qapp, scenes, bands,
+                                                      frame, bounds) -> None:
+    """The stage-1 promise holds with a canvas on: one frame for the
+    load, so every system is shown at the same size in the same place."""
+    view = _view(frame, canvas=_CANVAS)
+    seen = set()
+    for band in bands.values():
+        _show(view, scenes, band, bounds)
+        seen.add(_lit_column(view))
+    assert len(seen) == 1, f"the canvas frame moved: {seen}"
+    top, bottom = seen.pop()
+    shaped = frame.for_canvas(_CANVAS.width, _CANVAS.height)
+    assert bottom - top == pytest.approx(
+        shaped.height * view.transform().m11(), abs=4)
+
+
+def test_toggling_the_canvas_swaps_the_frame(qapp, scenes, bands, frame,
+                                             bounds) -> None:
+    """Marcus's check: the frame swaps between the canvas one and the
+    default one cleanly. Turning the canvas off lands on exactly the fit
+    of a view that never had one, and turning it back on lands on
+    exactly the canvas fit."""
+    plain = _view(frame)
+    _show(plain, scenes, bands[2], bounds)
+    canvassed = _view(frame, canvas=_CANVAS)
+    _show(canvassed, scenes, bands[2], bounds)
+    assert canvassed.transform().m11() != pytest.approx(
+        plain.transform().m11(), rel=1e-6)
+
+    view = _view(frame, canvas=_CANVAS)
+    _show(view, scenes, bands[2], bounds)
+    view.set_canvas(None)
+    assert view.transform().m11() == pytest.approx(plain.transform().m11())
+    assert view._framing.frame.size() == plain._framing.frame.size()
+    view.set_canvas(_CANVAS)
+    assert view.transform().m11() == pytest.approx(
+        canvassed.transform().m11())
+    assert view._framing.frame.size() == canvassed._framing.frame.size()
+
+
+@pytest.mark.parametrize("canvas", [_CANVAS, VideoCanvas(1080, 1920), None])
+def test_switches_still_translate_in_either_state(qapp, scenes, bands,
+                                                  frame, bounds,
+                                                  canvas) -> None:
+    """"No jump on subsequent switches in either state": whatever the
+    frame's shape, a zoomed switch keeps the glass where it is and a
+    long run of them comes back to the same camera, to the bit.
+
+    One device pixel is the tolerance, and it is the snap — the glass is
+    measured against each frame's UNSNAPPED placement. The camera itself
+    is exact, and that is the last assertion here."""
+    shaped = frame if canvas is None         else frame.for_canvas(canvas.width, canvas.height)
+    view = _view(frame, canvas=canvas)
+    _show(view, scenes, bands[1], bounds)
+    view.zoom_by(2.0)
+    view.scroll_by(300.0, 0.0)
+    _show(view, scenes, bands[1], bounds)   # settle on the snapped frame
+    want = _glass(view, shaped, bands[1])
+    zoom = view.transform().m11()
+    first = view.mapToScene(0, 0)
+    for system in list(bands) * 4:
+        _show(view, scenes, bands[system], bounds)
+        at = _glass(view, shaped, bands[system])
+        assert at[0] == pytest.approx(want[0], abs=1.0)
+        assert at[1] == pytest.approx(want[1], abs=1.0)
+        assert view.transform().m11() == zoom
+    _show(view, scenes, bands[1], bounds)
+    assert view.mapToScene(0, 0) == first
+
+
+def test_the_canvas_frame_has_no_page_edge_in_it(qapp, scenes, bands,
+                                                 frame, bounds) -> None:
+    """The extra room a canvas adds belongs to the frame, exactly as the
+    stage-1 padding does: it fills with the page's own background, so
+    the video frame reads as one solid rectangle and no paper edge
+    appears where the canvas is wider than the page."""
+    view = _view(frame, canvas=_CANVAS)
+    band = bands[2]
+    _show(view, scenes, band, bounds)
+    placed = frame.for_canvas(_CANVAS.width,
+                              _CANVAS.height).rect_for(band.rect)
+    page = scenes.scene_for_page(band.page).sceneRect()
+    assert placed.x < page.left()        # this canvas really is wider
+    seen = set()
+    for x in (placed.x + placed.w * 0.01, page.left() - 1.0,
+              page.left() + 1.0, page.right() + 1.0):
+        for y_frac in (0.02, 0.5, 0.98):
+            color = _pixel(view, x, placed.y + y_frac * placed.h)
+            assert color is not None
+            seen.add(color.name())
+    assert seen == {_FILL}, f"the canvas frame is not uniform: {seen}"

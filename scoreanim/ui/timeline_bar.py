@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (QDoubleSpinBox, QHBoxLayout, QLabel,
 
 from scoreanim.core.project import (Command, ProjectDoc, SetGlobalSwing,
                                     SetOffset)
-from scoreanim.ui import panel_style
+from scoreanim.ui import panel_style, tips
 from scoreanim.ui.app_state import AppState
 from scoreanim.ui.grid_options import LaneDisplay
 from scoreanim.ui.live_field import LiveField
@@ -53,7 +53,8 @@ class TimelineBar(QWidget):
         self._bpm_spin.setDecimals(1)
         self._bpm_spin.setSingleStep(1.0)
         self._bpm_spin.setRange(20.0, 400.0)
-        self._bpm_spin.setToolTip(
+        tips.describe(
+            self._bpm_spin,
             "Tempo in bpm. With a grid line selected in the lane it sets "
             "the tempo\nfrom that line to the end and releases the locks "
             "after it; with nothing\nselected it sets the initial tempo.")
@@ -63,6 +64,10 @@ class TimelineBar(QWidget):
         self._offset_spin.setDecimals(2)
         self._offset_spin.setSingleStep(0.05)
         self._offset_spin.setRange(-60.0, 3600.0)
+        tips.describe(
+            self._offset_spin,
+            "How far into the recording the score's first beat falls.\n"
+            "Raise it when the music starts after a count-in.")
 
         # global swing ratio (ruling 2026-07-11): 0.50 straight … 0.67
         # triplet, one value for the whole piece; regions later (BACKLOG 7)
@@ -70,6 +75,11 @@ class TimelineBar(QWidget):
         self._swing_spin.setDecimals(2)
         self._swing_spin.setSingleStep(0.01)
         self._swing_spin.setRange(0.50, 0.75)
+        tips.describe(
+            self._swing_spin,
+            "How long the first of each pair of eighths is held:\n"
+            "0.50 is straight, 0.67 is a triplet swing. One ratio for "
+            "the whole piece.")
 
         self._bpm = LiveField(self._bpm_spin, app_state, self._bpm_edit)
         self._offset = LiveField(self._offset_spin, app_state,
@@ -78,7 +88,9 @@ class TimelineBar(QWidget):
         # the tuple is what holds the fields alive, and the test scans it
         self.live_fields = (self._bpm, self._offset, self._swing)
 
-        self._bpm_label = QLabel("Tempo")
+        # the label retitles itself for the selected grid line
+        # ("Tempo from m3"), so it carries the field's own sentence
+        self._bpm_label = tips.label("Tempo", self._bpm_spin)
         # One field and its label are a group; the 12 px gaps below are
         # what keep "Swing" reading as the swing field's own label and
         # not as something that belongs to the field before it.
@@ -88,6 +100,8 @@ class TimelineBar(QWidget):
         row.setSpacing(panel_style.COLUMN_GAP)
         heading = QLabel("Timing")
         heading.setObjectName("ZoneHeading")
+        tips.describe(heading,
+                      "Where the score sits against the recording")
         row.addWidget(heading)
         row.addSpacing(panel_style.GROUP_GAP)
         row.addWidget(self._bpm_label)
@@ -95,7 +109,7 @@ class TimelineBar(QWidget):
         for text, spin in (("Offset", self._offset_spin),
                            ("Swing", self._swing_spin)):
             row.addSpacing(panel_style.GROUP_GAP)
-            row.addWidget(QLabel(text))
+            row.addWidget(tips.label(text, spin))
             row.addWidget(spin)
         row.addStretch(1)                # left-aligned: the gap goes right
         self._sync_from_grid()

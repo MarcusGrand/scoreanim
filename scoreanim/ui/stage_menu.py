@@ -32,6 +32,7 @@ from PySide6.QtWidgets import QMenu, QWidget
 
 from scoreanim.core.project import SetPartHidden, SetSystemStaffHidden
 from scoreanim.core.score.identity import PartId
+from scoreanim.ui import tips
 
 if TYPE_CHECKING:
     from scoreanim.ui.app_state import AppState
@@ -92,6 +93,25 @@ class StageMenu:
 
     # -- build -------------------------------------------------------------
 
+    @staticmethod
+    def hide_reason(mechanism_ok: bool, first_system: bool,
+                    hidden_everywhere: bool, has_notes: bool,
+                    last_showing: bool) -> str:
+        """Why this staff cannot be hidden in this system, in the order
+        the checks are made. Pure, so `tests/test_hidden_parts.py` can
+        pin the wording without building a menu (E2)."""
+        if not mechanism_ok:
+            return ("Turn on Hide Empty Staves first"
+                    + (" — and Hide Empty Staves on First System"
+                       if first_system else ""))
+        if hidden_everywhere:
+            return "This part is already hidden in the whole score"
+        if has_notes:
+            return "This staff has notes in this system"
+        if last_showing:
+            return "The last staff showing in a system cannot be hidden"
+        return ""
+
     def build(self, scene=None, scene_pos=None) -> QMenu | None:
         """The menu as the document stands right now, or None before
         any score is loaded. Split from popup so tests can walk it."""
@@ -112,9 +132,11 @@ class StageMenu:
             action = staves.addAction(info.name or str(pid))
             action.setCheckable(True)
             action.setChecked(pid not in doc.hidden_parts)
+            tips.describe(action, "Show this part in the whole score")
             # the command would refuse anyway; graying says so up front
             if visible == [pid]:
-                action.setEnabled(False)
+                tips.gate(action, False,
+                          "The last showing part cannot be hidden")
             # default-arg capture (the PartsMenu idiom); `checked` is the
             # action's NEW state, so unchecking asks to hide
             action.triggered.connect(
@@ -143,12 +165,12 @@ class StageMenu:
             action = submenu.addAction(info.name or str(pid))
             action.setCheckable(True)
             action.setChecked(not hidden_here)
+            tips.describe(action, "Show this part in this system")
             if not hidden_here:          # a hide can always be cleared
-                blocked = (not mechanism_ok
-                           or pid in doc.hidden_parts
-                           or str(pid) in noted
-                           or showable == [pid])
-                action.setEnabled(not blocked)
+                reason = self.hide_reason(
+                    mechanism_ok, system == 1, pid in doc.hidden_parts,
+                    str(pid) in noted, showable == [pid])
+                tips.gate(action, not reason, reason)
             action.triggered.connect(
                 lambda checked=False, p=pid, o=ordinal, order=roster:
                 self._app_state.execute(

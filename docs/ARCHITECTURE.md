@@ -1036,21 +1036,30 @@ re-touching. "Clear overrides on selection" must be cheap.
   live stage fits its view to that rect (`ui/stage_frame.py`) and
   export renders exactly it, so preview and frames agree by
   construction. Phase 10R's constancy survives in a narrower form: one
-  shape for BOTH presentation modes and every frame — a system band
-  centers vertically in the same user-chosen frame — and the canvas
+  shape for every frame of a RUN, whatever the systems under it are —
+  the mode says what that shape is fitted around (2026-08-30: the whole
+  page when paged, the systems frame in system mode) — and the canvas
   NEVER moves on screen during playback: it has its own fit
-  (`StageView._fit_canvas` — direct zoom, a constant overscan scroll
-  rect, a quarter-device-pixel snap) because fitInView's integer
-  scrollbar rounding wobbled the edge 1–4 px between systems. The box
+  (`StageView._fit_frame` over the pure `stage_frame.fit_geometry` —
+  direct zoom, a constant overscan scroll rect, a quarter-device-pixel
+  snap) because fitInView's integer scrollbar rounding wobbled the edge
+  1–4 px between systems. Since 2026-08-30 EVERY frame is fitted that
+  way, the systems frame included — the same arithmetic, one home. The box
   also reads as ONE SOLID rectangle: the frame fills whole with the
   overlay-preview color, or with the page's own background when the
   preview is off, and a neighbor system's in-frame ink masks with that
   same fill — letterbox exists only OUTSIDE the frame, so the lit area
   never reshapes per system (the round-3 report). Phase
-  10R's page-aspect-from-height rule is now the `canvas=None` default,
-  which every pre-v12 project keeps, and that legacy path runs
-  verbatim behind the guard (the whole pre-canvas export suite passes
-  unmodified). The dialog shows a document canvas READ-ONLY — the size
+  10R's height-gives-the-shape rule is now the `canvas=None` default,
+  which every pre-v12 project keeps; paged mode runs that legacy path
+  verbatim behind the guard (the whole pre-canvas paged export suite
+  passes unmodified), and since 2026-08-30 system mode applies the same
+  height to the SYSTEMS frame instead of the page, because export
+  frames with the rect the stage frames
+  (`render/export.py::systems_export_frame`, rework stage 4). Neighbours
+  are kept out of an exported frame the way the stage keeps them out,
+  by hiding the other systems' ink rather than clipping to a region.
+  The dialog shows a document canvas READ-ONLY — the size
   has one home, the inspector's Video canvas panel. The stage can also
   paint a preview color behind the overlay inside the frame
   ("Preview on video", black default + picker) — VIEW state in
@@ -1173,13 +1182,60 @@ selection + shared time-axis zoom/scroll):
   letterboxed in the window; shows animation state; click-to-select for
   overrides. System-at-a-time mode (Phase 7.4, document intent
   `stage.mode` + `SetPresentationMode` + a transport toggle): frames
-  the current system's band centered — a hard cut via the same
-  setScene page-flip mechanics — with a `drawForeground` override
-  painting letterbox color over everything outside the band, so a
-  same-page neighbour system never bleeds in at any window aspect.
-  View-level on purpose: export scenes structurally cannot see the
-  mask. Follow emits page AND system; the window routes by mode;
-  prev/next step the current presentation unit. Paged stays default.
+  the current system — a hard cut via the same setScene page-flip
+  mechanics — with a `drawForeground` override masking everything
+  outside it, so a same-page neighbour system never bleeds in at any
+  window aspect. View-level on purpose: export scenes structurally
+  cannot see the mask. Follow emits page AND system; the window routes
+  by mode; prev/next step the current presentation unit. Paged stays
+  default.
+
+  **The systems frame is a fixed piece of glass** (rework stage 1,
+  2026-08-30 — docs/SYSTEMS_MODE_REWORK.md). It used to be the PAGE's
+  own frame slid to centre the band, which meant the lit rectangle was
+  the band: page-wide but as tall as that system, so the paper edge
+  jumped on every switch. Now ONE frame is computed per load —
+  `core/engraving/systems.py::systems_frame`, pure: page width by
+  tallest band plus 6 % of that height above and below (Marcus's
+  number) — every system is placed into it centred vertically with its
+  horizontal position untouched, and the WHOLE frame fills with the
+  page's own background so no page context is left to move. Fit fits
+  the frame, so system mode shows the music bigger than paged mode
+  does. The frame reaches the view once per load, through
+  `ViewRouter.bind` → `StageView.set_systems_frame`; a switch only
+  moves the band inside it.
+
+  **The mask stops at a neighbour, not at the band.** Its one job is
+  hiding the OTHER systems sharing the paper, so it runs to the
+  previous system's bottom and the next system's top
+  (`systems.py::neighbour_bounds`, pure) and opens to the frame where
+  there is no neighbour — above the first system on a page, below the
+  last. Masking to the band itself sliced the page's title block
+  through the capitals, because the title sits above the first system's
+  ink (Marcus, 2026-08-30). Between two systems nothing changes: the
+  neighbour's own edge IS the boundary.
+
+  **A switch preserves the user's zoom and pan** (stage 2): the view
+  reads where the frame is sitting ON SCREEN before the swap
+  (`stage_frame.frame_offset`, device pixels) and puts it back there
+  after, which is the camera translating by the delta between the two
+  band centres. Only a fitted view re-fits, and it lands on the frame
+  it already had. **The video canvas reshapes that frame** rather than
+  replacing it (stage 3, `SystemsFrame.for_canvas`), and **export
+  frames with the same composition** (stage 4,
+  `render/export.py::systems_export_frame`), so the stage is a preview
+  of the file.
+
+  **The switch may dissolve** (stage 5, optional and off by default —
+  View ▸ Fade System Switches, QSettings). Because the frame does not
+  move on screen, a grab of the viewport taken just before a switch
+  lines up with the viewport just after it, so the whole transition is
+  that frozen picture painted over the live view at falling opacity
+  (`ui/stage_transition.py`, 150 ms). It runs on the playback tick's
+  own crossing only — `PlaybackController.system_changed` carries
+  whether the music reached the system or was put there — so a seek, a
+  scrub, prev/next and a load still cut. Paint only: no scene, no item
+  and no camera change, and export cannot see it.
 
   Navigation is the ordinary desktop set (ruling 2026-07-30, replacing
   M2's): **pinch zooms** (a macOS native gesture on the viewport, caught
@@ -1188,7 +1244,7 @@ selection + shared time-axis zoom/scroll):
   **nothing pans by dragging** — so the cursor over the page is the
   plain arrow, with no `setCursor` call anywhere. All three zoom paths
   go through `StageView.zoom_by`, which clamps with the pure
-  `clamped_factor` and leaves fit mode. Zoom is always a change to the
+  `clamped_factor` (`ui/stage_zoom.py`) and leaves fit mode. Zoom is always a change to the
   VIEW transform, never to items (see the reveal-cache trap below).
   Qt's own scrollbars are switched off: the macOS style here reports
   `SH_ScrollBar_Transient = False`, so showing them reserves space and

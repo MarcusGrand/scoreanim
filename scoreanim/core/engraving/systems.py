@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
+from scoreanim.core.engraving.canvas import canvas_view_rect
 from scoreanim.core.engraving.types import Layout, Rect
 
 
@@ -47,6 +48,133 @@ def system_bands(layout: Layout) -> tuple[SystemBand, ...]:
             system=system, page=pages[system],
             rect=Rect(0.0, hull.y, geo.width, hull.h)))
     return tuple(bands)
+
+
+def unattributed_elements(layout: Layout
+                          ) -> tuple[tuple[str, int, str], ...]:
+    """Engraved ink that no system owns: one row per kind, as (kind
+    name, how many, one example id), sorted by kind.
+
+    Systems mode hides every system but the current one by hiding whole
+    systems' ink (render/scene.py::set_visible_system). Ink with no
+    system cannot be hidden that way, so it shows in every system — and
+    this says what it is, instead of leaving it to be noticed.
+
+    Empty on every fixture today: `system` is nullable for the
+    engraver's own page furniture (pgHead/pgFoot), and
+    EngravingParams.suppress_header keeps those out, because the title
+    and composer are the app's own stage texts. Stage texts are not
+    layout elements and are not counted here — they are meant to show in
+    every system, which is what the mask was opened above the first
+    system for (2026-08-30)."""
+    counts: dict[str, int] = {}
+    examples: dict[str, str] = {}
+    for el in layout.elements:
+        if el.system is not None:
+            continue
+        kind = el.identity.kind.name
+        counts[kind] = counts.get(kind, 0) + 1
+        examples.setdefault(kind, str(el.identity.element_id))
+    return tuple((kind, counts[kind], examples[kind])
+                 for kind in sorted(counts))
+
+
+def neighbour_bounds(bands: tuple[SystemBand, ...],
+                     ) -> dict[int, tuple[float | None, float | None]]:
+    """How far each system may show before it would reveal a NEIGHBOUR
+    on the same page: (the previous system's bottom, the next system's
+    top), and None on a side with no neighbour there.
+
+    That is the whole job of the system mask — hiding the OTHER systems
+    sharing the paper. Above the first system on a page and below the
+    last one there is nothing to hide, so the frame opens all the way,
+    and the page's title block is shown whole instead of being sliced
+    where the first system's ink happens to start (Marcus, 2026-08-30).
+
+    Derived from the bands on demand, never stored (rule 5)."""
+    by_page: dict[int, list[SystemBand]] = {}
+    for band in bands:
+        by_page.setdefault(band.page, []).append(band)
+    bounds: dict[int, tuple[float | None, float | None]] = {}
+    for page_bands in by_page.values():
+        ordered = sorted(page_bands, key=lambda b: b.rect.y)
+        for i, band in enumerate(ordered):
+            above = ordered[i - 1].rect.y2 if i > 0 else None
+            below = ordered[i + 1].rect.y if i + 1 < len(ordered) else None
+            bounds[band.system] = (above, below)
+    return bounds
+
+
+# How much air the systems-mode frame leaves above and below the tallest
+# system, as a fraction of that system's own height. Marcus's call
+# (2026-08-30): 6 % is about 91 page units on testscore, which is the
+# same gap the engraver itself leaves between two systems, and being a
+# fraction it looks the same on a big orchestral page.
+SYSTEM_FRAME_PAD = 0.06
+
+
+@dataclass(frozen=True)
+class SystemsFrame:
+    """The one fixed window systems mode shows every system in.
+
+    Systems mode is a piece of glass the systems are placed into, not a
+    camera moving over the paper (docs/SYSTEMS_MODE_REWORK.md). So the
+    frame is computed once per load and never changes: page width, so
+    systems keep the page margins they were engraved with and stay
+    left-aligned with each other, and one height that the tallest system
+    fits in with room to spare. Every system is then centred in it, and
+    a system with fewer staves simply has more air around it.
+
+    A video canvas replaces its shape (`for_canvas`, 2026-08-30): with
+    one set, the frame the user is looking at is the video frame.
+
+    Derived from the Layout, re-computed on every load, never stored
+    (rule 5)."""
+
+    width: float
+    height: float
+    x: float = 0.0        # left edge; off the page only with a canvas
+
+    def rect_for(self, band: Rect) -> Rect:
+        """Where the frame sits, in page coordinates, so that `band` is
+        vertically centred in it. x is the page's own left edge, so the
+        system's horizontal position is exactly where it was engraved —
+        a canvas wider than the page moves it left by half the slack,
+        which keeps the page centred in the video frame."""
+        return Rect(self.x, band.center.y - self.height / 2,
+                    self.width, self.height)
+
+    def for_canvas(self, canvas_w: float, canvas_h: float
+                   ) -> "SystemsFrame":
+        """This frame reshaped to a video canvas (stage 3 of
+        docs/SYSTEMS_MODE_REWORK.md).
+
+        With a canvas set, the frame systems mode shows IS the video
+        frame — what is inside the glass is what the export will carry.
+        So the canvas gives the frame its aspect ratio, and it only ever
+        ADDS: the whole systems frame still fits, with the slack on
+        whichever axis the canvas is long on, and the same centre. That
+        is the paged rule too (`canvas.canvas_view_rect` holds the whole
+        page), with the system's frame in the page's place.
+
+        Still one frame for the load — the canvas is a load-level fact
+        as well — so every switch stays a translation."""
+        r = canvas_view_rect(self.width, self.height, canvas_w, canvas_h)
+        return SystemsFrame(width=r.w, height=r.h, x=self.x + r.x)
+
+
+def systems_frame(bands: tuple[SystemBand, ...],
+                  pad: float = SYSTEM_FRAME_PAD) -> SystemsFrame | None:
+    """The constant systems-mode frame for one load: page width by
+    tallest band plus `pad` of that height above and below.
+
+    None when there are no systems to frame — an empty layout, which the
+    view reads as "no frame, behave as before"."""
+    if not bands:
+        return None
+    tallest = max(b.rect.h for b in bands)
+    return SystemsFrame(width=max(b.rect.w for b in bands),
+                        height=tallest * (1.0 + 2.0 * pad))
 
 
 def page_of_measure(bands: tuple[SystemBand, ...],

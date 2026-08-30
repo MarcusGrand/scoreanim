@@ -27,9 +27,13 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QSizePolicy,
 
 from scoreanim.core.project import (PageBreak, ProjectDoc, SetPageBreak,
                                     SetSystemBreak, SystemBreak)
+from scoreanim.ui import tips
 from scoreanim.ui.app_state import AppState
 
-_EMPTY = "No break overrides"
+# The empty state says what would fill the list, not just that it is
+# empty (E2) — this dock is the first place a new user lands.
+_EMPTY = "No break overrides — select a barline and use the buttons "\
+         "above."
 
 # One phrase per (axis, mode). Says what the override ASKS FOR, in the
 # same words the action labels use, so a row and the button that wrote it
@@ -54,6 +58,7 @@ class BreakOverridesList(QWidget):
         self._column.setSpacing(2)
         self._empty = QLabel(_EMPTY)
         self._empty.setEnabled(False)
+        self._empty.setWordWrap(True)
         self._column.addWidget(self._empty)
         self._rows: list[QWidget] = []
         self.sync_from_document(app_state.doc)
@@ -108,13 +113,15 @@ class BreakOverridesList(QWidget):
         # wraps rather than clips: the dock is narrow, and a row that
         # cut its own text in half would be a readout you cannot read
         label.setWordWrap(True)
-        label.setToolTip(label.text())
+        tips.describe(label, "Where this override applies, and what it "
+                             "asks the engraver for")
         label.setSizePolicy(QSizePolicy.Policy.Expanding,
                             QSizePolicy.Policy.Preferred)
         line.addWidget(label)
         clear = QPushButton("✕")
         clear.setFixedWidth(24)
-        clear.setToolTip(f"Clear this override (measure {ordinal})")
+        tips.describe(clear,
+                      f"Clear this override (measure {ordinal})")
         clear.clicked.connect(lambda _=False, o=ordinal, p=is_page:
                               self._clear(o, p))
         line.addWidget(clear)

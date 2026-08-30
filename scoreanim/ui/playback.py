@@ -34,7 +34,11 @@ _STATS_EVERY_S = 5.0
 
 class PlaybackController(QObject):
     page_changed = Signal(int)
-    system_changed = Signal(int)             # Phase 7.4; window routes by mode
+    # Phase 7.4; the window routes by mode. The bool is whether the
+    # crossing came from the tick loop (2026-08-30, stage 5): playing
+    # music sliding into the next system, as against a seek, a scrub or
+    # pressing play, which land on a system rather than reaching it.
+    system_changed = Signal(int, bool)
     status_message = Signal(str)
     time_changed = Signal(float, float)      # audio seconds, duration seconds
     # The controller is the single bridge to the transport (docstring), so
@@ -225,10 +229,12 @@ class PlaybackController(QObject):
         t_audio = self._clock.now_seconds()
         if self._applier is not None:
             self._applier.refresh(self._score_time(t_audio))
-            self._follow_position()
+            # a one-shot refresh is a seek, a scrub, or an edit — the
+            # stage should land on the new system, not slide into it
+            self._follow_position(smooth=False)
         self.time_changed.emit(t_audio, self._duration())
 
-    def _follow_position(self) -> None:
+    def _follow_position(self, smooth: bool) -> None:
         """Emit page/system changes off the applier's cursor.
 
         Not optional (ruling 2026-08-29): playing music always shows
@@ -237,6 +243,12 @@ class PlaybackController(QObject):
         is that the cursor has not left the unit it was on. The
         controller stays document-agnostic: it reports both; the window
         routes by the document's presentation mode.
+
+        `smooth` is the one thing only this object knows: whether the
+        cursor REACHED the new system with the music playing (the tick
+        loop) or was PUT there (a seek, a scrub, pressing play). The
+        stage's system crossfade runs on the first and never on the
+        second, which is what keeps scrubbing from smearing.
         """
         assert self._applier is not None
         page = self._applier.current_page()
@@ -246,7 +258,7 @@ class PlaybackController(QObject):
         system = self._applier.current_system()
         if system != self._last_system:
             self._last_system = system
-            self.system_changed.emit(system)
+            self.system_changed.emit(system, smooth)
 
     def _set_playing(self, playing: bool) -> None:
         """Start/stop the tick loop and report the state. Driven by the
@@ -263,7 +275,7 @@ class PlaybackController(QObject):
             # sit on the page the user wandered to (ruling 2026-08-29).
             if self._applier is not None:
                 self._last_page = self._last_system = 0    # force the emit
-                self._follow_position()
+                self._follow_position(smooth=False)        # a jump, not a slide
             self._timer.start()
         else:
             self._timer.stop()
@@ -285,7 +297,8 @@ class PlaybackController(QObject):
         changed = 0
         if self._applier is not None:
             changed = self._applier.apply_at(self._score_time(t_audio))
-            self._follow_position()
+            # the one crossing the music itself makes
+            self._follow_position(smooth=True)
         self.time_changed.emit(t_audio, self._duration())
         self._tick_ms.append((time.perf_counter() - t0) * 1000.0)
         self._changed.append(changed)

@@ -30,10 +30,15 @@ from PySide6.QtWidgets import (QFormLayout, QHBoxLayout, QLabel, QPushButton,
 from scoreanim.core.animation import (TriggerSchedule, is_retimeable,
                                       step_from, stops_for_system)
 from scoreanim.core.project import ProjectDoc, SetTriggerBeat
-from scoreanim.ui import panel_style
+from scoreanim.ui import panel_style, tips
 from scoreanim.ui.app_state import AppState
 
 _EMPTY = "—"
+
+# Why the whole block is dead. A notehead is a reveal anchor and a
+# barline is scaffold, so neither has a fire time of its own to move.
+_NOT_RETIMEABLE = ("This object has no fire time of its own — pick a "
+                   "dynamic, a text or a hairpin")
 
 
 def bar_beat_label(beats: float, measures: Sequence) -> str:
@@ -66,7 +71,12 @@ class SelectionTriggerControls(QWidget):
         self._by_id: dict = {}
 
         self._fires = QLabel(_EMPTY)
+        tips.describe(self._fires,
+                      "The bar and beat this object's animation fires on")
         self._moved = QLabel("(moved)")
+        tips.describe(self._moved,
+                      "You moved this one — it is not on the automatic "
+                      "schedule any more")
         self._moved.setEnabled(False)        # the dimmed-caption idiom
         self._moved.setHidden(True)
         fires_row = QHBoxLayout()
@@ -80,11 +90,12 @@ class SelectionTriggerControls(QWidget):
         self._earlier = QPushButton("Earlier")
         self._later = QPushButton("Later")
         self._reset = QPushButton("Reset")
-        self._earlier.setToolTip(
-            "Fire this element at the previous event of its system")
-        self._later.setToolTip(
-            "Fire this element at the next event of its system")
-        self._reset.setToolTip("Back to the automatic fire time")
+        tips.describe(self._earlier,
+                      "Fire this element at the previous event of its "
+                      "system")
+        tips.describe(self._later,
+                      "Fire this element at the next event of its system")
+        tips.describe(self._reset, "Back to the automatic fire time")
         self._earlier.clicked.connect(lambda: self._step(-1))
         self._later.clicked.connect(lambda: self._step(+1))
         self._reset.clicked.connect(self._clear)
@@ -101,7 +112,7 @@ class SelectionTriggerControls(QWidget):
         form = QFormLayout(self)
         # the padding is paid at the Selection panel's own edge
         panel_style.style_form(form, padding=False)
-        form.addRow("Fires", fires_box)
+        form.addRow(tips.label("Fires", self._fires), fires_box)
         form.addRow("", buttons_box)
         panel_style.fix_label_column(form)
 
@@ -150,7 +161,7 @@ class SelectionTriggerControls(QWidget):
             self._fires.setText(_EMPTY)
             self._moved.setHidden(True)
             for button in (self._earlier, self._later, self._reset):
-                button.setEnabled(False)
+                tips.gate(button, False, _NOT_RETIMEABLE)
             return
         el, beat = ctx
         moved = (el.identity.element_id
@@ -158,9 +169,13 @@ class SelectionTriggerControls(QWidget):
         self._fires.setText(bar_beat_label(beat, self._measures))
         self._moved.setHidden(not moved)
         stops = stops_for_system(self._layout, el.system)
-        self._earlier.setEnabled(step_from(stops, beat, -1) is not None)
-        self._later.setEnabled(step_from(stops, beat, +1) is not None)
-        self._reset.setEnabled(moved)
+        # each step says which end of the system it has run into (E2)
+        tips.gate(self._earlier, step_from(stops, beat, -1) is not None,
+                  "Already on the first event of its system")
+        tips.gate(self._later, step_from(stops, beat, +1) is not None,
+                  "Already on the last event of its system")
+        tips.gate(self._reset, moved,
+                  "Already on its automatic fire time")
 
     # -- writes ------------------------------------------------------------
 

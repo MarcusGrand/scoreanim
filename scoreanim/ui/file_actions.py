@@ -20,9 +20,9 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from scoreanim.core.engraving.types import EngravingParams
-from scoreanim.core.project import (SUFFIX, FileRef, ImportTempoSetup,
-                                    ProjectDoc, check_ref, load_project,
-                                    sha256_of)
+from scoreanim.core.project import (SUFFIX, FileKind, FileRef,
+                                    ImportTempoSetup, ProjectDoc, check_ref,
+                                    kind_of, load_project, sha256_of)
 from scoreanim.core.project import save_project as write_project_file
 from scoreanim.core.timing import parse_tempo_file, resolve_seconds
 from scoreanim.ui.export_dialog import ExportDialog
@@ -63,19 +63,25 @@ class FileActions:
         if name:
             self.open_project(Path(name))
 
+    def open_file(self, path: Path) -> None:
+        """One path of either kind — the suffix says which opener it
+        wants (`core/project/file_kinds.py`). The one entry point for
+        anything that hands us a file rather than picking one in a
+        dialog: Open Recent, and a drop on the window (E1)."""
+        if kind_of(path) is FileKind.PROJECT:
+            self.open_project(path)
+        else:
+            self.open_score(path)
+
     def open_recent(self, path: Path) -> None:
-        """One Open Recent entry, either kind — the suffix says which
-        opener it wants. An entry whose file has gone says so once and
-        drops off the list."""
+        """One Open Recent entry. An entry whose file has gone says so
+        once and drops off the list."""
         if not path.exists():
             QMessageBox.warning(self._window, "Open Recent",
                                 f"{path.name}: file no longer there")
             self.recents.remove(path)
             return
-        if path.suffix == SUFFIX:
-            self.open_project(path)
-        else:
-            self.open_score(path)
+        self.open_file(path)
 
     def open_audio_dialog(self) -> None:
         name, _ = QFileDialog.getOpenFileName(

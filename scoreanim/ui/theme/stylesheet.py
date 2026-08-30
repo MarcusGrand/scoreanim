@@ -34,9 +34,9 @@ QMainWindow::separator {
     height: 1px;
 }
 QToolTip {
-    background: $PANEL;
-    color: $TEXT;
-    border: 1px solid $BORDER;
+    background: $TIP;
+    color: $TIP_TEXT;
+    border: 1px solid $TIP_BORDER;
     padding: 3px 6px;
 }
 
@@ -393,6 +393,67 @@ QSlider::handle:horizontal:hover {
 QLabel#Timecode {
     color: $TEXT;
     background: transparent;
+}
+
+/* The stage's floating zoom controls (D2): the one piece of chrome
+   that sits ON the score, so it is see-through and its buttons carry
+   no frame until the pointer is on one. */
+QWidget#ZoomOverlay {
+    background: $OVERLAY;
+    border: 1px solid $OVERLAY_BORDER;
+    border-radius: 5px;
+}
+QWidget#ZoomOverlay QToolButton {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    padding: 3px;
+}
+QWidget#ZoomOverlay QToolButton:hover {
+    background: $OVERLAY_HOVER;
+}
+QWidget#ZoomOverlay QToolButton:pressed {
+    background: $PRESSED;
+}
+QLabel#ZoomPercent {
+    color: $TEXT;
+    background: transparent;
+    padding: 0px 2px;
+}
+
+/* -- the welcome pane (E1) ---------------------------------------- */
+
+QWidget#WelcomePane {
+    background: $WINDOW;
+}
+QWidget#WelcomePane QLabel {
+    background: transparent;
+}
+QLabel#WelcomeTitle {
+    color: $TEXT;
+    font-size: 26px;
+    font-weight: 600;
+}
+QLabel#WelcomeTagline {
+    color: $DIM;
+}
+QLabel#WelcomeHeading {
+    color: $DIM;
+    font-weight: 600;
+}
+QLabel#WelcomeDim {
+    color: $DIM;
+}
+QListWidget#WelcomeRecents {
+    background: $INSET;
+    border: 1px solid $BORDER;
+}
+QListWidget#WelcomeRecents::item {
+    padding: 3px 6px;
+}
+QListWidget#WelcomeRecents::item:hover {
+    background: $HOVER;
+    color: $ACCENT;
 }
 
 QSlider::groove:vertical {

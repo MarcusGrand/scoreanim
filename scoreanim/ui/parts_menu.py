@@ -29,6 +29,7 @@ from PySide6.QtWidgets import QColorDialog, QMenu, QWidget
 from scoreanim.core.project import (SetHideEmptyStaves, SetHideFirstSystem,
                                     SetPartColor)
 from scoreanim.core.score.identity import PartId
+from scoreanim.ui import tips
 from scoreanim.ui.part_names_dialog import PartNamesDialog
 from scoreanim.ui.score_setup_dialog import ScoreSetupDialog
 from scoreanim.ui.staff_groups_dialog import StaffGroupsDialog
@@ -107,12 +108,19 @@ class PartsMenu:
         self._parts = tuple(parts)
         setup_action = QAction("Score Setup…", menu)
         setup_action.triggered.connect(self.open_score_setup)
+        tips.describe_action(setup_action,
+                             "Which parts are engraved, and in what order")
         menu.addAction(setup_action)
         groups_action = QAction("Staff Groups…", menu)
         groups_action.triggered.connect(self.open_staff_groups)
+        tips.describe_action(groups_action,
+                             "Braces and brackets, and which parts are "
+                             "condensed onto one staff")
         menu.addAction(groups_action)
         names_action = QAction("Part Names…", menu)
         names_action.triggered.connect(self.open_part_names)
+        tips.describe_action(names_action,
+                             "Rename a part as it is printed on the page")
         menu.addAction(names_action)
         # an engraving input like the two above (Phase 10R): toggling
         # re-engraves via the _applied_hide_empty diff, one undo step
@@ -123,6 +131,10 @@ class PartsMenu:
         self._hide_staves_action.toggled.connect(
             lambda checked: self._app_state.execute(
                 SetHideEmptyStaves(checked)))
+        tips.describe_action(
+            self._hide_staves_action,
+            "Leave a staff out of a system where that part has nothing "
+            "to play")
         menu.addAction(self._hide_staves_action)
         # the first-system extension (2026-07-24): meaningful only while
         # hiding is on, so it enables with the parent toggle
@@ -131,11 +143,16 @@ class PartsMenu:
         self._hide_first_action.setCheckable(True)
         self._hide_first_action.setChecked(
             self._app_state.doc.hide_first_system)
-        self._hide_first_action.setEnabled(
-            self._app_state.doc.hide_empty_staves)
         self._hide_first_action.toggled.connect(
             lambda checked: self._app_state.execute(
                 SetHideFirstSystem(checked)))
+        tips.describe_action(
+            self._hide_first_action,
+            "Hide there too — most publishers show the full roster on "
+            "the first system")
+        tips.gate(self._hide_first_action,
+                  self._app_state.doc.hide_empty_staves,
+                  "Turn on Hide Empty Staves first")
         menu.addAction(self._hide_first_action)
         # a layout-intent edit, so it belongs with the layout choices —
         # and, like them, an engraving input that re-engraves via the
@@ -154,6 +171,7 @@ class PartsMenu:
             for c in PART_COLORS:
                 action = QAction(c, submenu)
                 action.setCheckable(True)
+                tips.describe(action, f"Draw this part's ink in {c}")
                 pm = QPixmap(12, 12)
                 pm.fill(QColor(c))
                 action.setIcon(QIcon(pm))
@@ -165,6 +183,7 @@ class PartsMenu:
                 color_actions[c] = action
             custom = QAction("Custom…", submenu)
             custom.setCheckable(True)
+            tips.describe(custom, "Pick any colour for this part")
             custom.triggered.connect(
                 lambda _=False, p=pid: self._pick_part_color(p))
             color_group.addAction(custom)
@@ -172,6 +191,9 @@ class PartsMenu:
             color_actions["custom"] = custom
             no_color = QAction("No Color", submenu)
             no_color.setCheckable(True)
+            tips.describe(no_color,
+                          "Drop the part colour — back to the page's own "
+                          "ink")
             no_color.setChecked(True)
             no_color.triggered.connect(
                 lambda _=False, p=pid:
@@ -206,7 +228,8 @@ class PartsMenu:
         if self._hide_first_action is not None:
             self._hide_first_action.blockSignals(True)
             self._hide_first_action.setChecked(doc.hide_first_system)
-            self._hide_first_action.setEnabled(doc.hide_empty_staves)
+            tips.gate(self._hide_first_action, doc.hide_empty_staves,
+                      "Turn on Hide Empty Staves first")
             self._hide_first_action.blockSignals(False)
 
     def _pick_part_color(self, pid: PartId) -> None:

@@ -51,6 +51,27 @@ such a list is really the one switch is a scope change costing one
 frozenset: widening the glow from head-and-accidental to the whole note
 on 2026-08-06 cost that plus two test expectations, nothing else.
 
+**A control's tooltip, and the reason it is dead** — every interactive
+control goes through `ui/tips.py`. `describe(widget, text)` writes the
+sentence it shows while it is live and parks it on the widget itself;
+`describe_action(action, text)` adds the action's own shortcut in the
+platform's notation, read off the QAction so it cannot go stale;
+`gate(widget, enabled, reason)` replaces `setEnabled` wherever the
+reason for graying is not already on screen, and swaps the tooltip for
+that reason. `tips.label(text, field)` makes a form label say what its
+field says. A live number field goes through `LiveField.set_enabled`,
+which keeps the never-gray-a-field-being-typed-in guard in one place.
+Reasons that several panels give (no score, no selection, nothing to
+undo) are constants in `tips.py`; a reason belonging to one control is
+written where the control is. `tests/test_tooltips.py` walks a real
+window and fails on a control with nothing to say — so the pass cannot
+quietly rot. The box itself is two other files: the three `TIP` tokens
+and the `QToolTip` rule give it a light ground and near-black text (the
+one surface in the app that runs the other way), and
+`ui/tip_placement.py` takes its horizontal placement off Qt — the box
+starts at the pointer and runs right, sliding left only far enough to
+fit, where Qt would flip it to the other side of the pointer.
+
 **Spike-first, whole-pipeline** — uncertain Verovio/music21 behavior
 gets a script in `spikes/` before integration; spikes are kept as
 library documentation. Measure through the WHOLE pipeline (monkeypatch
@@ -337,6 +358,17 @@ measure/part). Do not merge the paths.
   `tests/test_hint_bar.py` pins that nobody adds a bare call back. The
   swap is also invisible on a window that was never shown: Qt only
   hides a widget it can see, so a test of it has to `show()` first.
+- **A widget parented to a scrolling viewport rides the scroll.**
+  `QGraphicsView.scrollContentsBy` calls `viewport()->scroll(dx, dy)`,
+  and `QWidget::scroll` moves that widget's CHILDREN along with the
+  pixels — so floating stage chrome parented there slides off the
+  screen the first time the user two-finger scrolls (D2, found in the
+  app). It goes on the VIEW instead, beside the viewport, placed
+  against `viewport().geometry()` and raised. Watch the viewport's own
+  Enter/Leave/Resize with an event filter from there — and note the
+  viewport's Leave and the view's are different moments: chrome lying
+  over the viewport takes the pointer off IT while the view still has
+  it.
 - **A stage key must not become a window shortcut** if another widget
   already handles that key. Qt matches shortcuts BEFORE the key reaches
   the focused widget, so a window-level Delete silently eats the tempo
@@ -366,3 +398,38 @@ measure/part). Do not merge the paths.
   minimum width taken after the first resync is the minimum of whatever
   happens to be showing. `EffectsPanel` takes its width before the
   first `sync_from_document`, when every row is still on screen.
+- **`QGraphicsView.centerOn` drifts.** It rounds the centre through the
+  integer scrollbars with a bias, so re-centring a stationary frame over
+  and over creeps — one device pixel per system switch, measured, which
+  is invisible for one switch and a mess after a minute of playback. Any
+  camera move that repeats (a system switch, a page flip) has to be a
+  step measured in whole device pixels against where the frame ACTUALLY
+  landed, not a centre handed to Qt. `stage_frame.snapped_frame` is the
+  other half: two frames snapped to the same sub-pixel phase are a whole
+  number of device pixels apart, so the step has no remainder to drift
+  on.
+- **A band is not the ink that is drawn in it, so a region mask cannot
+  hide a system.** `system_bands` unions each system's element BBOXES,
+  and painted ink is bigger than that — a text item's glyph box carries
+  the font's ascent and descent, a stroke is wider than its path, and
+  the animation scales both. Measured: a system's ink stands 1 page unit
+  outside its band on testscore and 3 to 17 on the grieg and condense
+  fixtures. That overhang lands in the one strip a neighbour mask must
+  leave alone — the current system's own region — so there is no
+  rectangle that removes it without erasing the music. Hide the ITEMS
+  instead (`ScoreScenes.set_visible_system`): a hidden item paints
+  nothing at any size, and the mask stays as the backstop for whatever
+  has no system. The same reasoning applies to any "cover it up" fix
+  over engraved geometry.
+- **A screen-space snapshot is only true of the camera it was taken
+  with, and the thing that starts it moves the camera.** The system
+  crossfade (`ui/stage_transition.py`) freezes the viewport and fades it
+  out over the live view, which works only while the view holds still.
+  The obvious invalidation — cancel on the view's `zoom_changed` — kills
+  every fade instead: the switch that starts it refits and reframes, so
+  the signal fires between the capture and the start. A bare
+  `viewport().grab()` can fire a resize too, so even reading the pixels
+  cancelled it. Read the camera at PAINT time (zoom, the scene point at
+  the viewport corner, the viewport size) and drop the snapshot when it
+  differs from where the fade started — no signal to time, and the
+  check is where the damage would show.

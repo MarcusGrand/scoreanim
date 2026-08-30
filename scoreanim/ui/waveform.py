@@ -22,6 +22,9 @@ _RMS = QColor(palette.WAVEFORM_SOFT)
 _MIDLINE = QColor(palette.GRID)
 _PLAYHEAD = QColor(palette.PLAYHEAD)
 _EMPTY_TEXT = QColor(palette.DIM)   # no-audio hint (FIX 2)
+# What the lane says with nothing loaded. Named, so the empty-state
+# sweep can read it without rendering (tests/test_tooltips.py).
+_EMPTY = "No audio — playback follows the tempo map"
 
 
 class WaveformView(QWidget):
@@ -92,8 +95,7 @@ class WaveformView(QWidget):
             # runs off the tempo map (FIX 2)
             painter.setPen(QPen(_EMPTY_TEXT, 1))
             painter.drawText(QRectF(0, 0, w, h),
-                             Qt.AlignmentFlag.AlignCenter,
-                             "No audio — playback follows the tempo map")
+                             Qt.AlignmentFlag.AlignCenter, _EMPTY)
         painter.end()
         return pixmap
 

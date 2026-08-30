@@ -62,7 +62,11 @@ def _spans(window) -> dict[int, tuple[int, int]]:
 
 def _select(window, predicate):
     """Select the first element matching `predicate`, through the real
-    click path."""
+    click path.
+
+    In system mode that means the element has to be on the system the
+    stage is showing: since 2026-08-30 the other systems' items are
+    hidden, and hidden ink cannot be clicked. Show the system first."""
     element = next(el for el in window.animation_inputs.layout.elements
                    if predicate(el))
     item = window._scenes.items[element.identity.element_id]
@@ -262,8 +266,8 @@ def test_the_view_re_anchors_to_the_edited_measure(window) -> None:
     from scoreanim.core.project import PresentationMode, SetPresentationMode
 
     window.app_state.execute(SetPresentationMode(PresentationMode.SYSTEM))
+    window.router.show_system(4)               # where the user is working
     _barline_in(window, 16)                    # last bar of system 4
-    window.router.show_system(4)
     window.break_action.trigger()              # m17's break is encoded
     # systems 4 and 5 merged, so the edited measure is in system 4 —
     # and the router is looking at it rather than at a clamped index
@@ -421,8 +425,8 @@ def test_move_up_re_anchors_the_view_to_the_moved_music(window) -> None:
     from scoreanim.core.project import PresentationMode, SetPresentationMode
 
     window.app_state.execute(SetPresentationMode(PresentationMode.SYSTEM))
+    window.router.show_system(2)               # where the user is working
     _notehead_in(window, 6)
-    window.router.show_system(2)
     window.break_action.trigger_move_up()
     assert window.router.system == \
         window.break_action._system_of_measure[6] == 1

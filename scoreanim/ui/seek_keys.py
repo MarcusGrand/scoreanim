@@ -35,6 +35,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, Qt
 from PySide6.QtGui import QAction, QKeySequence
 
+from scoreanim.ui import tips
 from scoreanim.ui.playback import PlaybackController
 
 # One arrow press, and one arrow press with Shift, in seconds.
@@ -74,4 +75,9 @@ class SeekKeys(QObject):
         action.setShortcut(QKeySequence(key))
         action.triggered.connect(
             lambda _checked=False, d=delta: self._playback.seek_by(d))
+        # These four live in a menu only so the shortcut sheet can find
+        # them, so the tooltip is what a hover there would show.
+        way = "back" if delta < 0 else "forward"
+        tips.describe_action(
+            action, f"Move the playhead {way} {abs(delta):g} seconds")
         return action

@@ -49,6 +49,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QDoubleSpinBox, QSpinBox
 
 from scoreanim.core.project import Command
+from scoreanim.ui import tips
 from scoreanim.ui.app_state import AppState
 
 SpinBox = QDoubleSpinBox | QSpinBox
@@ -113,13 +114,19 @@ class LiveField:
         self.spin.setValue(value)
         self.spin.blockSignals(False)
 
-    def set_enabled(self, enabled: bool) -> None:
+    def set_enabled(self, enabled: bool, reason: str = "") -> None:
         """Gray the field out — but never while it is being typed in.
         Disabling drops focus, and focus-out commits, so a resync that
         grayed a live field would commit from inside itself. The next
-        resync after the edit ends puts it right."""
+        resync after the edit ends puts it right.
+
+        `reason` is what the box says while it is grayed (E2); with none
+        it keeps saying what it does. The swap goes through `tips.gate`,
+        so the guard above stays the one place that decides WHETHER to
+        gray a field.
+        """
         if enabled or not self.previewing():
-            self.spin.setEnabled(enabled)
+            tips.gate(self.spin, enabled, reason)
 
     def drop(self) -> None:
         """Let go of a preview: the value is back where it started, or

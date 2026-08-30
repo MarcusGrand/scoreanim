@@ -382,6 +382,70 @@ stage claims the arrows while something nudgeable is selected.*
 > meant for the score (it sits outside the page area), Fit restores fit mode,
 > percent tracks pinch zoom.
 
+*Built 2026-08-29. **100 % means fitted** — the size the Fit button
+gives you. There is no other honest anchor: a page is about 2095 x 2967
+in the engraving's own units (tenths of a millimetre), so an
+"actual size" percentage would be a number about nothing, while Fit is
+a size the user can always get back to in one click. The fit scale is
+therefore worked out on every reading (`ui/stage_zoom.py`, pure) rather
+than remembered from the last fit, because resizing the window changes
+what fitted means — a view left at twice fit size is not twice fit size
+once the window grows. The pure part also pins Qt's undocumented 2 px
+fitInView margin against a real fit, so a Qt release that changes it
+fails a test instead of drifting the readout.
+
+The controls (`ui/zoom_overlay.py`) are a child of the view's viewport
+and the only chrome in the app that sits ON the score, so they are
+see-through (three OVERLAY tokens) and only there while the pointer is
+over the stage. Hidden means hidden, never transparent-but-present, so
+nothing of theirs is in the way of a click when they are not showing.
+They take no keyboard focus, so clicking one leaves Esc, the arrows and
+Space where they were, and a button zoom anchors on the middle of the
+stage rather than the pointer — the pointer is on a button in the
+corner at that moment, so the pinch's under-the-cursor anchor would
+throw the score away from it. Fit is the View menu's own QAction.
+
+One honest limit: while the controls ARE showing they cover their own
+corner, like every floating control does. Two things keep that cheap —
+the page is letterboxed in a wide window, so the corner is usually
+beside the page rather than on it, and the controls fade in before the
+click, not under it. Marcus's call if it ever gets in the way.*
+
+*Two fixes on Marcus's first look, same day. **The controls scrolled
+away with the score**: they were a child of the view's VIEWPORT, and
+`QGraphicsView` scrolls by calling `viewport()->scroll(dx, dy)`, which
+moves that widget's children along with the pixels. They are a child of
+the view now, placed against `viewport().geometry()`, so they hold
+still wherever they are visible. **And the scroll indicators are real
+scrollbars now.** They were feedback only, on the reasoning that they
+were gone before you could reach for one — which was the wrong way
+round: a thing that looks like a scrollbar has to behave like one. So
+they come up when the pointer reaches within 32 px of the edge they
+live on, they hold while it is there (the fade refuses to start on a
+bar under the pointer or in the hand), and a press within 14 px of that
+edge scrolls: on the bar it drags, on the track it jumps the bar to the
+pointer and drags on from there. The view offers every press, move and
+release to `TransientScrollbars` first, so a grab is never a click on
+the score, and a bar that has faded out takes no press at all — the
+same rule the zoom controls follow. Both bands stay inside the zoom
+controls' own margin, so the two never argue over a click.*
+
+*Third pass, same day, on Marcus's call: **a bar says whether it can be
+grabbed.** Resting it is thin (6 px) and dark. Once the pointer is
+close enough to take it, it widens to 11 px and goes more solid — and
+that width is a promise, so the band `press` accepts is worked out FROM
+the wide bar (`_GRAB = margin + wide + 2`) rather than picked
+separately; the two cannot drift apart and start lying to each other,
+and a test walks the distances from the edge to check that wide and
+grabbable agree at every one. It grows INWARD, so the outer edge holds
+still and a bar does not fatten out from under the hand that made it.
+In the hand it goes light instead of dark — the theme's DIM grey, which
+reads on the page and on the letterbox both, with a dark outline for
+the same reason the dark bar has a pale one. The zoom controls moved
+from 12 px to 20 px off the corner to clear the wide bar and its band:
+at 12 they covered a stretch of the horizontal bar and made it
+un-grabbable.*
+
 **D3 — hint bar.**
 > Turn the status bar into a hint bar: with a selection it shows what is
 > selected and the available gestures ("Note · Tpts · m. 19 — drag to move
@@ -415,12 +479,124 @@ window's minimum width does not depend on which note you clicked.*
 > drop a file → pane gone, score loads; drop while a score is loaded asks
 > before replacing.
 
+*Built 2026-08-29. The pane (`ui/welcome_pane.py`) is a child of the
+stage VIEW, sized to `viewport().geometry()` — the same parenting D2
+had to be fixed into, since a child of the viewport scrolls away with
+the picture. It shows exactly while `doc.score is None`, decided in the
+window's document-changed pass beside every other sync, so nothing has
+to be told about an open. The recent list is a second view of the store
+the File menu reads (B1), the newest six of the eight; with an empty
+store the heading and the box go and one line says "Nothing opened
+yet."
+
+One thing worth knowing about the layout: a Qt layout pushes its own
+minimum size onto the widget it is in, so the card's 360 px would have
+become a floor under the whole window's width. The outer layout is
+`SetNoConstraint` — the stage sizes the pane, never the other way
+round, and a stage too small for the card simply clips it.
+
+Drops are the window's own `dragEnterEvent`/`dropEvent`
+(`ui/file_drop.py` holds the policy). Two things had to be true for a
+drag to arrive at all. `StageView` has drops turned OFF, because
+QGraphicsView turns them on in its own constructor, and a drag that
+stops at a widget which ignores it is never offered to the parent —
+without that, the whole middle of the window would have been a dead
+zone. And accepting the ENTER is enough: Qt carries that answer to the
+moves that follow. What counts as openable is one pure rule
+(`core/project/file_kinds.py`), which Open Recent now dispatches
+through too, so the drag, the list and the dialogs cannot start
+disagreeing about what a `.xml` is.
+
+A drop onto a score that is already open asks first, and says so louder
+when there are unsaved changes: opening is not undoable (ruling
+2026-07-11), so a mis-aimed drag would otherwise throw the session
+away. 18 new tests. Two Qt facts they had to be built around: a
+programmatic `sendEvent` of a drag never reaches the widget — the
+application discards drag events with no real drag behind them, so the
+tests call the handlers the way Qt does — and a drag event does not own
+its `QMimeData`, so a temporary one is freed while the event still
+points at it (a segfault, found writing them).*
+
 **E2 — tooltip and empty-state pass.**
 > A finish pass over every interactive control: each gets a tooltip (what it
 > does, plus shortcut if it has one); every list/readout gets an empty state
 > (layout zone lists, selection tab); every disabled control's tooltip says
 > why it is disabled. Check: hover any control in every panel — no tooltip
 > gaps; fresh launch shows helpful empty states, not blank space.
+
+*Built 2026-08-29. One module owns the mechanism (`ui/tips.py`):
+`describe` writes a control's sentence and parks it on the widget,
+`describe_action` adds the shortcut read off the QAction itself, and
+`gate` replaces `setEnabled` wherever the reason for graying is not
+already on screen — the tooltip becomes that reason and goes back to
+the sentence when the control comes alive. `tips.label` came out of the
+five panels each writing the same three lines to make a form label say
+what its field says.
+
+The gaps this closed were mostly the disabled ones. Export and Texts,
+Undo and Redo, the pager, Reset, Restore all, Width and Height without
+a frame, the re-time steppers, a part scope on score-level ink, a
+colour on ink that is always the page's own — all of them grayed
+silently before. So did the four different reasons the stage's Staves
+menu refuses to hide a staff, which are now one pure function
+(`StageMenu.hide_reason`). The Animate tab's grayed knobs generate
+their own reason from the knob table (`knob_types.knob_name` plus three
+phrases), so a new dependency gets one without anybody writing it —
+effects stay data (rule 6).
+
+Two behavior notes. Nothing was newly disabled: the pass adds reasons
+to controls that already grayed themselves, and Offset and Swing keep
+working with no audio and no score, as they did. And the break, delete
+and flip actions now sync once at construction, so they carry their
+reason from the first frame rather than from the first selection
+change — which is what the layout zone's icon-only buttons show.
+
+Empty states: the tempo lane was a blank rectangle on a fresh launch
+next to a waveform that has said "No audio" since FIX 2, and now says
+what it is missing. The two layout-zone lists say what would fill them
+rather than only that they are empty.
+
+`tests/test_tooltips.py` is the guard, and it is a sweep, not a
+spot-check: it walks a real window and fails on an action with no
+sentence, a control with no tooltip, or a control that grayed itself
+out while still describing a gesture it will not run. 83 controls and
+33 actions on an empty window, then again with a score loaded and a
+note picked. It checks the dynamic property `describe` writes, not the
+tooltip — Qt fills a bare action's tooltip in from its own label, so a
+tooltip alone proves nothing. Two Qt facts it had to be built around: a
+scroll area parents its content under a `qt_scrollarea_viewport`, so
+skipping every widget with a `qt_`-named ANCESTOR would have quietly
+excused two of the three docks; and a control disabled only because
+its container is has its own enabled flag still set, which
+`isEnabledTo(parent)` is how you tell apart — a block switched off as a
+unit is covered by its panel's empty state and must not be asked to
+repeat the reason on every widget in it.*
+
+*Followed up 2026-08-30 on Marcus's look, on the box itself. It is
+**light now** — a muted grey ground with near-black text, the one
+surface in the app that runs the other way, because a tooltip is a note
+laid ON the interface rather than part of it and it has to read over a
+dark panel and over the white score page both. Three tokens (`TIP`,
+`TIP_TEXT`, `TIP_BORDER`), the `QToolTip` rule, and the two palette
+roles Qt would use without the sheet.
+
+And it **always reads rightward from the pointer**: the box starts at
+the cursor and runs right, and near the right edge it slides left only
+far enough to fit, so the pointer ends up somewhere along it. Qt does
+not do that — `QTipLabel::placeTip` moves the whole box to the OTHER
+side of the cursor when it would overrun, so the same gesture puts the
+text in two different places depending on where you were. So the
+horizontal placement is ours: `tip_left` is the rule, pure and
+headless, and an application-wide event filter applies it to Qt's own
+tooltip window (`ui/tip_placement.py`). Only the x — Qt's vertical
+behaviour is already right. Three events have to be watched, not one:
+Qt places the box before showing it, places it AGAIN with no second
+show when the pointer travels to another control while a box is up
+(`reuseTip`), and applies the stylesheet's padding AFTER placing it, so
+a correction made before that resize lands two pixels out — measured,
+not guessed. 12 new tests, two of which drive Qt's real tooltip window,
+including one that pins the flip Qt does without the filter so nobody
+removes it thinking Qt would behave.*
 
 **E3 — identity.**
 > App icon (matches the accent-on-dark look), window title unchanged, About
