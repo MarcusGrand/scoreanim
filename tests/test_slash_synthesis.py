@@ -69,3 +69,37 @@ def test_slashes_animate_like_notes(slashes) -> None:
         assert e.identity.onset is not None
         assert e.glyph.paths
         assert e.anchor == e.bbox.center
+
+
+def test_slashes_land_on_the_beat_columns_the_horns_stand_on(engraved,
+                                                             slashes) -> None:
+    """The bug (2026-08-31): slashes were spread evenly across the bar,
+    so they drifted up to 95 units off the beats — the clef/key/time
+    prefix at a system start holds no beats, and Verovio spaces by
+    duration, not evenly. Beat 2 in the slash staff must sit at the same
+    x as beat 2 everywhere else in the system.
+
+    Compared against the SMALLEST notehead left edge on the beat: a
+    chord second is displaced a notehead-width to the right, so the
+    minimum is the one on the alignment.
+    """
+    graces = {n.element_id for n in engraved.note_records if n.grace}
+    noteheads: dict[tuple[int, float], float] = {}
+    for e in engraved.layout.elements:
+        if (e.identity.kind is not ElementKind.NOTEHEAD
+                or e.identity.onset is None
+                or e.identity.element_id in graces):
+            continue                        # a grace is drawn off the beat
+        key = (e.page, round(e.identity.onset, 6))
+        noteheads[key] = min(noteheads.get(key, e.bbox.x), e.bbox.x)
+
+    checked = 0
+    for slash in slashes:
+        column = noteheads.get((slash.page, round(slash.identity.onset, 6)))
+        if column is None:
+            continue                        # no other staff plays this beat
+        assert abs(slash.bbox.x - column) <= 2.0, (
+            f"{slash.identity.element_id} at {slash.bbox.x:.1f} is off the "
+            f"beat column {column:.1f}")
+        checked += 1
+    assert checked >= 30, f"only {checked} slashes shared a beat with a note"

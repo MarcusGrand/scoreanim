@@ -25,10 +25,11 @@ from scoreanim.core.engraving.types import (TRANSPOSE_TO_SOUNDING_PITCH,
                                             EngravingParams, Layout,
                                             LoadWarning, MeasureTimeline,
                                             PageGeometry)
-from scoreanim.core.engraving.verovio import (attribution, decompose,
-                                              identity, kinds, label_parts,
-                                              mei_index, records, region_fill,
-                                              synthesis, system_hides)
+from scoreanim.core.engraving.verovio import (attribution, beat_columns,
+                                              decompose, identity, kinds,
+                                              label_parts, mei_index, records,
+                                              region_fill, synthesis,
+                                              system_hides)
 from scoreanim.core.score.identity import Beats, ElementKind
 from scoreanim.core.score.musicxml_prep import (PageBreak, PartCondenseSpec,
                                                 PartGroupSpec, PartTextSpec,
@@ -580,7 +581,12 @@ class VerovioEngravingProvider(EngravingProvider):
             # a region staff vanished that the user did NOT hide — the
             # rule-10 fallback (a deliberately hidden span is exempt)
             return None, first_measure   # caller retries flat (rule 10)
-        elements.extend(synthesis._synthesize_slashes(state, staff_geo))
+        # Slashes go on the beat columns the other staves already stand
+        # on, so they line up across the system (2026-08-31). Read from
+        # the accumulators, which are still in hand here.
+        columns = beat_columns.build_beat_columns(accumulators, state)
+        elements.extend(synthesis._synthesize_slashes(state, staff_geo,
+                                                      columns))
         elements.extend(synthesis._synthesize_repeats(state, staff_geo))
         layout = Layout(pages=pages, elements=tuple(elements))
         return records.EngravedScore(

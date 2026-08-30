@@ -1394,3 +1394,23 @@ lines — history lives in git and `docs/history/`.
   it before `effects_for`, and the Selection tab's effect picker grays
   out with a reason on a signature. On `fix/plain-signatures`, full
   suite 2543 green, waiting for Marcus's in-app check.
+- 2026-08-31: **The drum slashes stand on the beats now.** They were
+  spread evenly across the measure's staff bbox, which ignores two
+  things Verovio does — a measure at a system start opens with a
+  clef/key/time prefix that holds no beats, and beats inside a bar are
+  spaced by duration, not evenly — so they drifted up to 95 units off
+  the columns every other staff sits on (132 in triplet_error). New pure
+  module `core/engraving/verovio/beat_columns.py` reads the columns off
+  the noteheads and ordinary rests Verovio already laid out, on any
+  part or staff, by bbox left edge, plus the measure end at the staff's
+  right edge; the slash's LEFT edge goes on its column, interpolated
+  between columns where nothing plays that beat, with the old even
+  spacing kept as the fallback for a bar nothing anchors. Two exclusions
+  the spike measured and the tests pin: mRest (centred in the bar, not
+  on beat 1) and grace notes (they carry the main note's onset but are
+  drawn up to 53 units left of it). Bar repeats are untouched — a `%` is
+  still centred in its bar. 12 new tests; goldens re-captured with
+  Marcus's approval, and the diff is 108 lines across 4 files, one per
+  slash element, with nothing else moved, added, removed or reordered.
+  On `fix/slash-alignment`, full suite 2555 green, waiting for Marcus's
+  in-app check (bigband / testscore drum staff against the horns).

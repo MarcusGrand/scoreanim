@@ -1133,3 +1133,23 @@ override.
 - Two hard limits ride the mechanism and gray the menu entries:
   optimize must be on (hide_empty_staves), and system 1 only condenses
   under condenseFirstPage (hide_first_system).
+
+## Slash alignment (2026-08-31) — spikes/slash_columns.py
+
+Measured before putting the synthesized slashes on the beats the rest
+of the system stands on.
+
+- **The old even spacing was off by up to 95 units** in testscore, and
+  up to 132 in triplet_error. Two causes, both Verovio doing its job:
+  a measure at a system start opens with a clef/key/time prefix that
+  holds no beats, and beats inside a bar are spaced by duration, not
+  evenly.
+- **A notehead's bbox left edge IS the alignment x**, and an ordinary
+  rest agrees with it to 0.07 units across testscore — so notes and
+  rests can build one shared column table.
+- **Grace notes must be left out.** They carry the main note's onset
+  but are drawn up to 53 units to its left (complex1 m8/m9), so a
+  smallest-x rule would pull the column off the beat.
+- Chord seconds are displaced a notehead-width right (up to 21 units
+  spread at one onset), which is why the column is the SMALLEST left
+  edge on the beat, not the average.
