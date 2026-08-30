@@ -72,10 +72,11 @@ def test_view_menu_holds_dock_toggles(window) -> None:
     actions = window.menus.view_menu.actions()
     for dock in (window.layout_zone, window.inspector, window.lower_zone):
         assert dock.toggleViewAction() in actions
-    # left to right across the window, which is how the docks sit (M6.6)
+    # the navigation group, then the stage's own preference, then the
+    # docks left to right across the window, which is how they sit (M6.6)
     assert _texts(window.menus.view_menu) \
-        == ["Fit", "Previous", "Next", "Layout Zone", "Inspector",
-            "Lower Zone"]
+        == ["Fit", "Previous", "Next", "Fade System Switches",
+            "Layout Zone", "Inspector", "Lower Zone"]
 
 
 def test_playback_menu_shares_the_component_actions(window) -> None:

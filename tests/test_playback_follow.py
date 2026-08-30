@@ -64,7 +64,10 @@ def controller(qapp):
     c.set_timing_config(0.0, TempoMap([TempoEvent(0.0, 120.0)]))
     pages, systems = [], []
     c.page_changed.connect(pages.append)
-    c.system_changed.connect(systems.append)
+    # (system, smooth) since stage 5 — the bool is whether the music
+    # REACHED the system or was put there
+    c.system_changed.connect(lambda system, smooth:
+                             systems.append(system))
     return c, applier, pages, systems
 
 
@@ -99,3 +102,33 @@ def test_play_snaps_the_stage_back_to_the_music(controller) -> None:
         assert pages == [1] and systems == [1]
     finally:
         c.toggle_play()                           # stop the tick timer
+
+
+# -- how the crossing was made (stage 5) ---------------------------------
+
+def test_the_music_reaching_a_system_reads_as_smooth(controller) -> None:
+    """The one case the stage's crossfade runs on: the tick loop, with
+    the music playing, crossing into the next system."""
+    c, applier, _, _ = controller
+    reported = []
+    c.system_changed.connect(lambda system, smooth: reported.append(smooth))
+    applier.system = 2
+    c._tick()
+    assert reported == [True]
+
+
+def test_being_PUT_on_a_system_reads_as_a_cut(controller) -> None:
+    """A seek and a scrub both come through the one-shot refresh, and
+    pressing play snaps. None of them should dissolve — a fade on every
+    position of a drag would smear."""
+    c, applier, _, _ = controller
+    reported = []
+    c.system_changed.connect(lambda system, smooth: reported.append(smooth))
+    applier.system = 3
+    c._refresh()                                  # a seek or a scrub
+    applier.system = 1
+    c.toggle_play()
+    try:
+        assert reported == [False, False]
+    finally:
+        c.toggle_play()

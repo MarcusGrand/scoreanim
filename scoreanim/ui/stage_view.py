@@ -25,7 +25,8 @@ context in system mode: the whole frame is filled with the page's own
 background, so no paper edge is left to move. A switch never re-fits
 (stage 2): fitted, the fit it would land on is the one it already has,
 and zoomed in, the camera simply translates with the frame, so the user
-keeps their zoom and their place in the system.
+keeps their zoom and their place in the system. Stage 5 hangs one
+optional dissolve off that same fact — see ui/stage_transition.py.
 
 Masking is drawForeground — the view paints the frame's own fill over a
 neighbouring system's ink INSIDE the frame and letterbox OUTSIDE it, so
@@ -48,6 +49,7 @@ from scoreanim.ui.stage_frame import (StageFraming, fit_geometry,
                                       frame_offset, scroll_rect,
                                       snapped_frame)
 from scoreanim.ui.stage_scrollbars import TransientScrollbars
+from scoreanim.ui.stage_transition import SystemCrossfade
 from scoreanim.ui.stage_zoom import (FIT_MARGIN, clamped_factor,
                                      fit_scale, percent)
 from scoreanim.ui.theme import palette
@@ -130,6 +132,10 @@ class StageView(QGraphicsView):
         self.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scrollbars = TransientScrollbars(self)
+        # The dissolve over a playback-driven system switch (stage 5).
+        # Public, like nudge_probe: the window turns it on from the
+        # View menu's toggle, the router arms it, nothing else knows.
+        self.crossfade = SystemCrossfade(self)
         self._fit_mode = True
         self._framing = StageFraming()       # frame/band/mask geometry
         self._preview_fill: QColor | None = None   # overlay preview
@@ -205,12 +211,15 @@ class StageView(QGraphicsView):
 
     def show_system_band(self, scene: QGraphicsScene, band: QRectF,
                          bounds: tuple[float | None, float | None]
-                         = (None, None)) -> None:
+                         = (None, None), smooth: bool = False) -> None:
         """System flip (Phase 7.4; reworked 2026-08-30): swap to the
         band's page scene and place the band in the load's constant
         frame, centred vertically. The frame's size never changes and
         its content is uniform, so only the music moves. A hard cut,
-        exactly like a page flip (ruling R2).
+        exactly like a page flip (ruling R2) — unless `smooth` is set,
+        which dissolves out of the frame the router froze just before
+        the swap (stage 5, ui/stage_transition.py). Only the playback
+        tick's own crossing into the next system asks for that.
 
         Zoomed in, the switch is a pure camera TRANSLATION by the delta
         between the old frame's centre and the new one's (stage 2), so
@@ -230,6 +239,8 @@ class StageView(QGraphicsView):
             self._fit()
         else:
             self._translate(was)
+        if smooth:
+            self.crossfade.start()       # over the frame the router froze
         self.viewport().update()
 
     def _frame_offset(self) -> QPointF | None:
@@ -640,5 +651,6 @@ class StageView(QGraphicsView):
         the system-band mask."""
         super().paintEvent(event)
         painter = QPainter(self.viewport())
+        self.crossfade.paint(painter)     # the outgoing system, fading
         self._scrollbars.paint(painter)
         painter.end()

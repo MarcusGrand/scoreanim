@@ -56,7 +56,7 @@ Three of the standing split debts were paid on the canvas branch
 `serialize.py` 503 → 441 (`serialize_style.py` — still over, but what
 remains is mostly the version-history comment block, which belongs
 with the envelope), `main_window.py` 412 → 326 (`ui/score_install.py`).
-`ui/stage_view.py` is at **641** after the systems-mode rework
+`ui/stage_view.py` is at **659** after the systems-mode rework
 (2026-08-30) — the real seam in it is the selection-gesture handlers,
 and it is by a distance the most overdue split; the camera (fit,
 translate, zoom, scroll) is a second one. `render/scene.py` went 343 →
@@ -68,6 +68,41 @@ at start and appends its line at close. Keep entries to one or two
 lines — history lives in git and `docs/history/`.
 
 ---
+
+- 2026-08-30 — `systems-fixed-frame` (SYSTEMS_MODE_REWORK.md stage 5,
+  the optional one, UNMERGED): **a system switch can dissolve**. 150 ms,
+  on the playback tick's own crossing and nothing else, OFF by default
+  behind View ▸ Fade System Switches (QSettings, never the document — no
+  schema bump, and it cannot reach a project or an exported frame).
+  Stage 2 is what makes it nearly free: the frame does not move on
+  screen across a switch, so a grab of the viewport taken just before
+  one lines up pixel for pixel with the viewport just after it, and the
+  whole transition is that frozen picture painted over the live view at
+  falling opacity (new `ui/stage_transition.py`, 130 lines) — no scene
+  touched, no item changed, the camera bit-for-bit what a hard cut
+  leaves, and export cannot see it. It has to know two things.
+  **Where the switch came from**: `PlaybackController.system_changed`
+  now carries whether the music REACHED the system (the tick loop) or
+  was PUT there (a seek, a scrub, pressing play), so a scrub cannot
+  smear and prev/next still jumps; the router arms the fade BEFORE the
+  item filter takes the departing system's ink off the page, which is
+  the picture being kept. **When the snapshot stops being true**: it is
+  glued to the SCREEN, so it holds only while the camera does. Watch
+  out for one thing — making that an invalidate-on-signal
+  (`zoom_changed`) kills every fade, because the switch itself refits
+  and reframes between the capture and the start, and a bare
+  `viewport().grab()` can fire a resize too, so even reading the pixels
+  cancelled it; the camera is READ at paint time instead and the
+  snapshot dropped if it moved (now in PATTERNS). Checked end to end in
+  the real window offscreen: mid-fade all 1087 differing sampled pixels
+  are the exact 50/50 blend, the fade lands on the new system to the
+  pixel, and with the toggle off the switch is bit-identical to the
+  hard cut. 19 new tests; full suite 2476 green, no schema bump, no
+  golden movement. `stage_view.py` grew 5 lines to **659** — the
+  gesture split stays owed, deliberately (Marcus's call). Unproven
+  under a human's eye — the thing to feel is whether 150 ms helps or
+  distracts; hard cuts are the standard in score videos, so this is its
+  own commit and can be dropped on its own.
 
 - 2026-08-30 — `systems-fixed-frame` (SYSTEMS_MODE_REWORK.md stage 3,
   UNMERGED): **the video canvas reshapes the systems frame instead of

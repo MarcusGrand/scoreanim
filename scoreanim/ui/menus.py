@@ -157,6 +157,15 @@ class MainMenus:
         self.next_action.setShortcut(QKeySequence.StandardKey.MoveToNextPage)
         self.next_action.triggered.connect(lambda: window.router.step(+1))
         tips.describe_action(self.next_action, "Next page or system")
+        # Stage 5's dissolve between systems. View state, remembered in
+        # QSettings by the window — never the document, so it changes
+        # nothing about a project or an export.
+        self.fade_systems_action = QAction("Fade System Switches", window)
+        self.fade_systems_action.setCheckable(True)
+        tips.describe_action(
+            self.fade_systems_action,
+            "Dissolve into the next system while the music plays, "
+            "instead of cutting to it")
         # "–/–" until a score arrives: the readout is its own empty state
         self.page_label = QLabel("–/–")
         tips.describe(self.page_label,
@@ -217,6 +226,8 @@ class MainMenus:
         self.view_menu.addAction(self.fit_action)
         self.view_menu.addAction(self.prev_action)
         self.view_menu.addAction(self.next_action)
+        self.view_menu.addSeparator()
+        self.view_menu.addAction(self.fade_systems_action)
         self.view_menu.addSeparator()
         # Qt makes these three itself, so they arrive with no tooltip of
         # their own — one each, naming what the dock holds.

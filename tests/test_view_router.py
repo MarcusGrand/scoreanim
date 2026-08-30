@@ -19,8 +19,11 @@ from scoreanim.ui.view_router import ViewRouter
 
 
 class _Scenes:
-    def __init__(self, page_count: int) -> None:
+    def __init__(self, page_count: int, calls: list | None = None) -> None:
         self.page_count = page_count
+        # the view's own call log, when a test cares about the ORDER of
+        # the filter against what the view was told (stage 5)
+        self.calls = calls if calls is not None else []
         # which system's ink is on show — the router's other job since
         # 2026-08-30: systems mode hides the other systems' items
         self.visible_system: int | None = None
@@ -30,11 +33,25 @@ class _Scenes:
 
     def set_visible_system(self, system: int | None) -> None:
         self.visible_system = system
+        self.calls.append(("filter", system))
+
+
+class _Crossfade:
+    """Stands in for ui/stage_transition.SystemCrossfade — the router
+    only ever arms it (stage 5)."""
+
+    def __init__(self, view) -> None:
+        self._view = view
+
+    def capture(self) -> None:
+        self._view.calls.append(("capture",))
 
 
 class _View:
     def __init__(self) -> None:
         self.calls: list = []
+        self.crossfade = _Crossfade(self)
+        self.smooth = None
         # bind-time state, not a routing call — kept off `calls` so the
         # routing tests below still read as "what did the switch do"
         self.systems_frame = "unset"
@@ -42,9 +59,11 @@ class _View:
     def show_scene(self, scene) -> None:
         self.calls.append(("scene", scene))
 
-    def show_system_band(self, scene, band, bounds=(None, None)) -> None:
+    def show_system_band(self, scene, band, bounds=(None, None),
+                         smooth=False) -> None:
         self.calls.append(("band", scene, round(band.y())))
         self.bounds = bounds
+        self.smooth = smooth
 
     def clear_band(self) -> None:
         self.calls.append(("clear",))
@@ -222,10 +241,11 @@ def test_leaving_system_mode_clears_the_band_before_showing_the_page() -> None:
 
 def _with_scenes(applier=None) -> tuple:
     """A router whose scenes are reachable, for the item-filter pins."""
-    view, menus, scenes = _View(), _Menus(), _Scenes(2)
+    view, menus = _View(), _Menus()
+    scenes = _Scenes(2, view.calls)
     router = ViewRouter(view, menus)
     router.bind(scenes, dict(BANDS), applier or _Applier())
-    return router, scenes
+    return router, view, scenes
 
 
 def test_a_switch_shows_only_that_systems_ink() -> None:
@@ -233,14 +253,14 @@ def test_a_switch_shows_only_that_systems_ink() -> None:
     lies inside the current system's own strip, so the other systems'
     items are hidden instead. The router owns the call because
     show_system and show_page are the only two routes into the stage."""
-    router, scenes = _with_scenes()
+    router, _, scenes = _with_scenes()
     for system in (1, 2, 3, 1):
         router.show_system(system)
         assert scenes.visible_system == system
 
 
 def test_paged_puts_every_system_back() -> None:
-    router, scenes = _with_scenes()
+    router, _, scenes = _with_scenes()
     router.show_system(3)
     router.show_page(1)
     assert scenes.visible_system is None
@@ -249,7 +269,7 @@ def test_paged_puts_every_system_back() -> None:
 def test_leaving_system_mode_unhides_the_score() -> None:
     """The toggle goes through the same two routes, so the filter comes
     off with the band."""
-    router, scenes = _with_scenes(applier=_Applier(page=2, system=3))
+    router, _, scenes = _with_scenes(applier=_Applier(page=2, system=3))
     router.sync_presentation_mode(PresentationMode.SYSTEM)
     assert scenes.visible_system == 3
     router.sync_presentation_mode(PresentationMode.PAGED)
@@ -367,3 +387,45 @@ def test_sync_canvas_needs_no_scenes() -> None:
     view.set_canvas = applied.append
     ViewRouter(view, menus).sync_canvas(VideoCanvas(1920, 1080))
     assert applied == [VideoCanvas(1920, 1080)]
+
+
+# -- the crossfade (stage 5) ---------------------------------------------
+
+def test_a_followed_switch_freezes_the_frame_before_the_filter() -> None:
+    """Order is the whole of the router's part in the dissolve: the
+    outgoing frame has to be frozen while it is still on the page. One
+    line later the filter takes that system's ink away, and the
+    snapshot would be of a frame it had already left."""
+    router, view, _ = _with_scenes()
+    router.sync_presentation_mode(PresentationMode.SYSTEM)
+    view.calls.clear()
+    router.on_system_followed(2, smooth=True)
+    assert [call[0] for call in view.calls] == ["capture", "filter", "band"]
+    assert view.smooth is True
+
+
+def test_every_other_route_into_the_stage_is_a_hard_cut() -> None:
+    """Only the tick loop's own crossing dissolves. Prev/next, a seek's
+    follow, a re-show and the mode toggle all cut, so nothing the user
+    asked for looks soft and a scrub cannot smear."""
+    routes = (lambda r: r.show_system(2),
+              lambda r: r.step(+1),
+              lambda r: r.show_current(),
+              lambda r: r.on_system_followed(3))
+    for route in routes:
+        router, view, _ = _with_scenes()
+        router.sync_presentation_mode(PresentationMode.SYSTEM)
+        view.calls.clear()
+        view.smooth = None                 # so a stale False cannot pass
+        route(router)
+        assert ("capture",) not in view.calls
+        assert view.smooth is False
+
+
+def test_the_mode_toggle_is_a_hard_cut() -> None:
+    """Switching the document into system mode lands on a system; there
+    is nothing on screen to dissolve out of."""
+    router, view, _ = _with_scenes(applier=_Applier(page=2, system=3))
+    router.sync_presentation_mode(PresentationMode.SYSTEM)
+    assert ("capture",) not in view.calls
+    assert view.smooth is False

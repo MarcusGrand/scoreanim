@@ -1215,9 +1215,27 @@ selection + shared time-axis zoom/scroll):
   ink (Marcus, 2026-08-30). Between two systems nothing changes: the
   neighbour's own edge IS the boundary.
 
-  Stage 2 will make a switch preserve zoom
-  and pan, stage 3 will let the video canvas be the frame, stage 4
-  audits export against the same rule.
+  **A switch preserves the user's zoom and pan** (stage 2): the view
+  reads where the frame is sitting ON SCREEN before the swap
+  (`stage_frame.frame_offset`, device pixels) and puts it back there
+  after, which is the camera translating by the delta between the two
+  band centres. Only a fitted view re-fits, and it lands on the frame
+  it already had. **The video canvas reshapes that frame** rather than
+  replacing it (stage 3, `SystemsFrame.for_canvas`), and **export
+  frames with the same composition** (stage 4,
+  `render/export.py::systems_export_frame`), so the stage is a preview
+  of the file.
+
+  **The switch may dissolve** (stage 5, optional and off by default —
+  View ▸ Fade System Switches, QSettings). Because the frame does not
+  move on screen, a grab of the viewport taken just before a switch
+  lines up with the viewport just after it, so the whole transition is
+  that frozen picture painted over the live view at falling opacity
+  (`ui/stage_transition.py`, 150 ms). It runs on the playback tick's
+  own crossing only — `PlaybackController.system_changed` carries
+  whether the music reached the system or was put there — so a seek, a
+  scrub, prev/next and a load still cut. Paint only: no scene, no item
+  and no camera change, and export cannot see it.
 
   Navigation is the ordinary desktop set (ruling 2026-07-30, replacing
   M2's): **pinch zooms** (a macOS native gesture on the viewport, caught

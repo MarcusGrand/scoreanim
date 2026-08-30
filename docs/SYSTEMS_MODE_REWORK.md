@@ -169,9 +169,33 @@ and stage texts belong to no system, so both show it.
 > Check: export a short clip in systems mode; frame-by-frame, the framing
 > matches what the stage shows at Fit, including canvas-overlay runs.
 
-## Optional stage 5 — transition polish
+## Optional stage 5 — transition polish — BUILT 2026-08-30
 
-Only after living with stages 1–4: a short crossfade or vertical slide on
-system switches (~150 ms), disabled during scrubbing. Decide then whether
-it helps or distracts; hard cuts are the standard in score videos and may
-be fine.
+Built on `systems-fixed-frame`, as its own commit so it can be dropped
+on its own. A crossfade, not a slide: 150 ms, on the playback tick's own
+crossing into the next system and nothing else, off by default behind
+View ▸ Fade System Switches (QSettings, never the document).
+
+Stage 2 is what makes it cheap. The frame does not move on screen across
+a switch, so a grab of the viewport taken just before one lines up pixel
+for pixel with the viewport just after it — fitted or zoomed, canvas or
+not. The whole transition is that one frozen picture painted over the
+live view at falling opacity (`ui/stage_transition.py`): no scene is
+touched, no item changes, the camera is bit-for-bit what a hard cut
+leaves, and export never sees it.
+
+Two things it has to know. **Where the switch came from**: only the tick
+loop dissolves, so `PlaybackController.system_changed` now carries
+whether the music REACHED the system or was PUT there — a seek, a scrub,
+prev/next, the mode toggle and a load all still cut. **When the picture
+stops being true**: a snapshot is glued to the screen, so it is only
+true while the camera holds still. The trap was making that an
+invalidate-on-signal — the switch itself refits and reframes, so the
+fade cancelled itself every time, and a bare `viewport().grab()` can
+fire a resize too. The camera is READ at paint time instead and the
+snapshot dropped if it has moved.
+
+> Only after living with stages 1–4: a short crossfade or vertical slide on
+> system switches (~150 ms), disabled during scrubbing. Decide then whether
+> it helps or distracts; hard cuts are the standard in score videos and may
+> be fine.

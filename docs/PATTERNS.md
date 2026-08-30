@@ -421,3 +421,15 @@ measure/part). Do not merge the paths.
   nothing at any size, and the mask stays as the backstop for whatever
   has no system. The same reasoning applies to any "cover it up" fix
   over engraved geometry.
+- **A screen-space snapshot is only true of the camera it was taken
+  with, and the thing that starts it moves the camera.** The system
+  crossfade (`ui/stage_transition.py`) freezes the viewport and fades it
+  out over the live view, which works only while the view holds still.
+  The obvious invalidation — cancel on the view's `zoom_changed` — kills
+  every fade instead: the switch that starts it refits and reframes, so
+  the signal fires between the capture and the start. A bare
+  `viewport().grab()` can fire a resize too, so even reading the pixels
+  cancelled it. Read the camera at PAINT time (zoom, the scene point at
+  the viewport corner, the viewport size) and drop the snapshot when it
+  differs from where the fade started — no signal to time, and the
+  check is where the damage would show.

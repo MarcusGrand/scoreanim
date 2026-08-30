@@ -61,7 +61,8 @@ from scoreanim.ui.transport import LowerZone
 from scoreanim.ui.view_router import ViewRouter
 from scoreanim.ui.welcome_pane import WelcomePane
 from scoreanim.ui.zoom_overlay import ZoomOverlay
-from scoreanim.ui.window_state import (default_settings,
+from scoreanim.ui.window_state import (FADE_SYSTEM_SWITCHES,
+                                       default_settings,
                                        restore_window_state,
                                        save_window_state)
 
@@ -241,6 +242,16 @@ class MainWindow(QMainWindow):
             self._set_overlay_preview)
         self.inspector.video_canvas_panel.restore_preview()
 
+        # the system crossfade's toggle (stage 5): view state like the
+        # overlay preview, so it rides QSettings and never the document.
+        # Written as it is toggled rather than on close — it is one
+        # answer to "does this help or distract", and the answer should
+        # survive whatever happens to the session.
+        self.menus.fade_systems_action.toggled.connect(
+            self._set_fade_system_switches)
+        self.menus.fade_systems_action.setChecked(
+            self._settings.value(FADE_SYSTEM_SWITCHES, False, type=bool))
+
         # shell layout (M1.8): restore once docks + toolbar exist; a
         # fresh store yields the first-run default size. UI state only —
         # nothing document-derived lives in the settings (rule 5).
@@ -248,6 +259,12 @@ class MainWindow(QMainWindow):
 
         if score_path is not None:
             self.files.open_score(score_path)
+
+    def _set_fade_system_switches(self, on: bool) -> None:
+        """The View menu's toggle: the stage does it, the settings
+        remember it (stage 5)."""
+        self.view.crossfade.set_enabled(on)
+        self._settings.setValue(FADE_SYSTEM_SWITCHES, on)
 
     # -- playback feedback -----------------------------------------------------
 
