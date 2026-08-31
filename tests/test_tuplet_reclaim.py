@@ -52,10 +52,34 @@ def test_the_absorbers_keep_exactly_their_own_ink(by_id):
                 and len(el.glyph.paths) > 1]
 
 
-def test_exactly_four_reclaims_and_nothing_else(engraved_triplet_hidden):
+def test_the_default_load_has_nothing_left_to_reclaim(engraved_triplet_hidden):
+    """Since the slash fill went unconditional (2026-08-31) this score
+    no longer TRIGGERS the artifact: the fill notes change what Verovio
+    mints ids for, and the m28 decorations keep their own ink from the
+    start. The four tests above still pass, so the outcome is the same
+    — it is now reached without a reclaim rather than through one."""
     codes = [w.code for w in engraved_triplet_hidden.warnings]
+    assert codes.count("reclaimed-decoration-ink") == 0
+    assert "empty-decoration" not in codes
+
+
+def test_the_reclaim_still_works_on_the_load_that_provokes_it(
+        engraved_triplet_unfilled):
+    """The score is our only real-Verovio reproducer of stolen
+    decoration ink, and the pass that fixes it is still live code — so
+    the coverage is kept by loading the way that still provokes it,
+    with the region fill off. Same trick the rule-10 fallback tests use
+    (test_hide_empty_staves), and for the same reason: the path has to
+    stay reachable to stay tested. The synthetic half is in
+    test_decoration_reclaim.py."""
+    codes = [w.code for w in engraved_triplet_unfilled.warnings]
     assert codes.count("reclaimed-decoration-ink") == 4
     assert "empty-decoration" not in codes
+    by_id = {str(el.identity.element_id): el
+             for el in engraved_triplet_unfilled.layout.elements}
+    for eid in TUPLET_IDS:                       # and the ink lands right
+        assert by_id[eid].glyph.paths
+        assert by_id[eid].identity.onset == 108.0
 
 
 def test_hidden_onsets_match_the_flat_load(engraved_triplet_hidden):

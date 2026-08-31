@@ -190,7 +190,7 @@ def test_the_rule10_fallback_still_guards(engraved, monkeypatch):
     pre-fill behavior, kept reachable on purpose."""
     from scoreanim.core.engraving.verovio import region_fill
     monkeypatch.setattr(region_fill, "fill_region_measures",
-                        lambda xml, regions: xml)
+                        lambda xml, *regions: xml)
     hidden = VerovioEngravingProvider().load_detailed(
         TESTSCORE, EngravingParams(), hide_empty_staves=True)
     assert [w.code for w in hidden.warnings].count("hide-unavailable") == 1

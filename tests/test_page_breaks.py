@@ -336,7 +336,7 @@ def test_hide_unavailable_retry_carries_both_maps(monkeypatch) -> None:
     testscore at all, so this pin disables the fill to reach it."""
     from scoreanim.core.engraving.verovio import region_fill
     monkeypatch.setattr(region_fill, "fill_region_measures",
-                        lambda xml, regions: xml)
+                        lambda xml, *regions: xml)
     out = _load(hide_empty_staves=True, page_breaks={3: PageBreak.FORCE})
     codes = [w.code for w in out.warnings]
     assert codes.count("hide-unavailable") == 1

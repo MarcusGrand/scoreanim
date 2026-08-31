@@ -5,7 +5,7 @@ regions — mm 3–9, 11–15, 16–17 — with quarter-note slash units; meters
 inside the regions are 4/4 except m5 and m14 (2/4).
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 
 import pytest
 
@@ -71,35 +71,90 @@ def test_slashes_animate_like_notes(slashes) -> None:
         assert e.anchor == e.bbox.center
 
 
-def test_slashes_land_on_the_beat_columns_the_horns_stand_on(engraved,
-                                                             slashes) -> None:
-    """The bug (2026-08-31): slashes were spread evenly across the bar,
-    so they drifted up to 95 units off the beats — the clef/key/time
-    prefix at a system start holds no beats, and Verovio spaces by
-    duration, not evenly. Beat 2 in the slash staff must sit at the same
-    x as beat 2 everywhere else in the system.
+def test_a_slash_stands_exactly_where_verovio_put_its_note(engraved,
+                                                          slashes) -> None:
+    """Since 2026-08-31 we do not work out a slash's x at all: an
+    invisible note per slash unit goes into the score, Verovio spaces
+    it, and the slash stands on it. So the alignment against the other
+    staves is not "close" — it is EXACT, and the tolerance here is a
+    float epsilon rather than an engraving one.
 
-    Compared against the SMALLEST notehead left edge on the beat: a
-    chord second is displaced a notehead-width to the right, so the
-    minimum is the one on the alignment.
+    Compared against the notehead x MOST of the beat's noteheads share.
+    Neither the smallest nor the largest would do: an interval of a
+    second cannot be printed on one stem, so Verovio displaces one of
+    the two a notehead-width off the alignment (testscore m3 beat 4 has
+    a B4 sitting left of its own chord's C5). The alignment is where
+    the rest of them are.
     """
     graces = {n.element_id for n in engraved.note_records if n.grace}
-    noteheads: dict[tuple[int, float], float] = {}
+    columns: dict[tuple[int, float], Counter] = defaultdict(Counter)
     for e in engraved.layout.elements:
         if (e.identity.kind is not ElementKind.NOTEHEAD
                 or e.identity.onset is None
                 or e.identity.element_id in graces):
             continue                        # a grace is drawn off the beat
-        key = (e.page, round(e.identity.onset, 6))
-        noteheads[key] = min(noteheads.get(key, e.bbox.x), e.bbox.x)
+        columns[(e.page, round(e.identity.onset, 6))][e.bbox.x] += 1
+    noteheads = {key: c.most_common(1)[0][0] for key, c in columns.items()}
 
     checked = 0
     for slash in slashes:
         column = noteheads.get((slash.page, round(slash.identity.onset, 6)))
         if column is None:
             continue                        # no other staff plays this beat
-        assert abs(slash.bbox.x - column) <= 2.0, (
+        assert slash.bbox.x == pytest.approx(column, abs=1e-6), (
             f"{slash.identity.element_id} at {slash.bbox.x:.1f} is off the "
             f"beat column {column:.1f}")
         checked += 1
     assert checked >= 30, f"only {checked} slashes shared a beat with a note"
+
+
+def _sig_right_edge(engraved, part: str, measure: int) -> float | None:
+    """The right edge of a measure's opening clef/key/time prefix, for
+    one part — the run of signatures that holds no beats.
+
+    A courtesy signature at the end of a system carries this measure's
+    id but the NEXT measure's onset (the FINDING-4 retime), and it sits
+    past every beat, so onset is what tells the two apart."""
+    start = engraved.timeline.starts.get(measure)
+    edges = [e.bbox.x2 for e in engraved.layout.elements
+             if e.identity.part == part
+             and e.identity.kind in (ElementKind.CLEF, ElementKind.KEY_SIG,
+                                     ElementKind.METER_SIG)
+             and str(e.identity.element_id).split(":")[1] == f"m{measure}"
+             and e.identity.onset == start]
+    return max(edges) if edges else None
+
+
+@pytest.mark.parametrize("fixture", ["engraved", "engraved_video"])
+def test_no_slash_is_drawn_inside_the_signature_prefix(fixture, request) -> None:
+    """The Nidelven bug (2026-08-31): the first slash of bar 1 was drawn
+    between the key signature and the time signature. A measure that
+    opens a system carries a clef/key/time prefix holding no beats, and
+    nothing may sit in it."""
+    engraved = request.getfixturevalue(fixture)
+    checked = 0
+    for slash in (e for e in engraved.layout.elements
+                  if e.identity.kind is ElementKind.SLASH):
+        measure = int(str(slash.identity.element_id).split(":")[1][1:])
+        prefix_end = _sig_right_edge(engraved, slash.identity.part, measure)
+        if prefix_end is None:
+            continue                        # no prefix in this bar
+        assert slash.bbox.x >= prefix_end, (
+            f"{slash.identity.element_id} at {slash.bbox.x:.1f} is inside "
+            f"its own staff's signature prefix (ends {prefix_end:.1f})")
+        checked += 1
+    assert checked, "no slash measure carried a signature — test proves nothing"
+
+
+def test_the_reported_nidelven_bar_1(engraved_nidelven) -> None:
+    """The score and bar Marcus reported it on, pinned end to end."""
+    slashes = sorted((e for e in engraved_nidelven.layout.elements
+                      if e.identity.kind is ElementKind.SLASH
+                      and str(e.identity.element_id).startswith("P5:m1:")),
+                     key=lambda e: e.identity.onset)
+    assert len(slashes) == 4
+    prefix_end = _sig_right_edge(engraved_nidelven, "P5", 1)
+    assert prefix_end is not None
+    assert slashes[0].bbox.x >= prefix_end
+    # and they still run left to right across the bar
+    assert [s.bbox.x for s in slashes] == sorted(s.bbox.x for s in slashes)

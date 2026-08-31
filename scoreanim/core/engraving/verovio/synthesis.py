@@ -5,11 +5,20 @@ per beat, one % symbol per repeated bar — positioned from the staff-line
 geometry _build_elements collected, so they render and animate like
 notes.
 
+A slash is placed where Verovio placed it (2026-08-31). We do not work
+out the x ourselves: region_fill puts an invisible note in the score for
+every slash unit, so Verovio spaces them by its own rules — after the
+clef/key/time prefix, and by duration rather than evenly — and the
+decomposer keeps those notes' geometry in _LoadState.fill_geometry.
+Synthesis just stands a slash glyph on each one. The even spread is kept
+for the one case that has no fill note to stand on: a load with the fill
+turned off.
+
 Inputs: _LoadState + the staff-lines geometry map from _build_elements
 (so it runs after element construction; synthetic elements never enter
-the post-passes), plus the beat columns for the slashes. Outputs:
-RenderedElements. _LoadState READS: prep (slash_regions/repeat_regions/
-parts), measure_start, measure_duration. WRITES: nothing.
+the post-passes). Outputs: RenderedElements. _LoadState READS: prep
+(slash_regions/repeat_regions/parts), measure_start, measure_duration,
+fill_geometry. WRITES: nothing.
 """
 
 from __future__ import annotations
@@ -18,9 +27,8 @@ from scoreanim.core.engraving.svg_geom import path_bbox
 from scoreanim.core.engraving.types import (Affine, PathPrimitive, Rect,
                                             RenderedElement,
                                             RenderPrimitive)
-from scoreanim.core.engraving.verovio.beat_columns import (BeatColumns,
-                                                           x_for_onset)
 from scoreanim.core.engraving.verovio.records import _LoadState
+from scoreanim.core.engraving.verovio.region_fill import slash_fill_id
 from scoreanim.core.score.identity import (ElementId, ElementIdentity,
                                            ElementKind)
 
@@ -38,8 +46,7 @@ _SLASH_D = "M0.475 -1 L0.675 -1 L-0.475 1 L-0.675 1 Z"
 
 
 def _synthesize_slashes(st: _LoadState,
-                        staff_geo: dict[tuple, tuple[int, int | None, Rect]],
-                        columns: BeatColumns
+                        staff_geo: dict[tuple, tuple[int, int | None, Rect]]
                         ) -> list[RenderedElement]:
     out: list[RenderedElement] = []
     glyph_bbox = path_bbox(_SLASH_D)
@@ -63,16 +70,17 @@ def _synthesize_slashes(st: _LoadState,
             staff_space = staff_bbox.h / 4
             mid_y = staff_bbox.y + staff_bbox.h / 2
             slot_w = staff_bbox.w / count
-            measure_columns = columns.get((page, m), ())
             for k in range(count):
                 onset = start + k * region.slash_unit_quarters
                 # A slash stands in for a notehead, so it lines up like
-                # one: its LEFT edge goes on the beat column. Even
-                # spacing is only the fallback for a bar no other staff
-                # anchors.
-                even_left = (staff_bbox.x + (k + 0.5) * slot_w
-                             + glyph_bbox.x * staff_space)
-                left = x_for_onset(measure_columns, onset, even_left)
+                # one: its LEFT edge goes on the left edge of the note
+                # Verovio laid out for this beat. With no fill note to
+                # stand on, fall back to spreading the bar evenly.
+                fill = st.fill_geometry.get(
+                    slash_fill_id(region.part, m, k))
+                left = (fill[2].x if fill is not None else
+                        staff_bbox.x + (k + 0.5) * slot_w
+                        + glyph_bbox.x * staff_space)
                 tf = Affine(a=staff_space, d=staff_space,
                             e=left - glyph_bbox.x * staff_space, f=mid_y)
                 bbox = tf.apply_rect(glyph_bbox)

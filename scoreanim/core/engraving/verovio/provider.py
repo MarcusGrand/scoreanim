@@ -25,11 +25,10 @@ from scoreanim.core.engraving.types import (TRANSPOSE_TO_SOUNDING_PITCH,
                                             EngravingParams, Layout,
                                             LoadWarning, MeasureTimeline,
                                             PageGeometry)
-from scoreanim.core.engraving.verovio import (attribution, beat_columns,
-                                              decompose, identity, kinds,
-                                              label_parts, mei_index, records,
-                                              region_fill, synthesis,
-                                              system_hides)
+from scoreanim.core.engraving.verovio import (attribution, decompose,
+                                              identity, kinds, label_parts,
+                                              mei_index, records, region_fill,
+                                              synthesis, system_hides)
 from scoreanim.core.score.identity import Beats, ElementKind
 from scoreanim.core.score.musicxml_prep import (PageBreak, PartCondenseSpec,
                                                 PartGroupSpec, PartTextSpec,
@@ -267,8 +266,8 @@ class VerovioEngravingProvider(EngravingProvider):
         elif staff_hides:
             filled = region_fill.fill_region_measures(
                 engraved.prepared.canonical_xml,
-                (*engraved.prepared.slash_regions,
-                 *engraved.prepared.repeat_regions))
+                engraved.prepared.slash_regions,
+                engraved.prepared.repeat_regions)
             _, rep = system_hides.strip_hidden_staves(filled, staff_hides)
             if rep.inert:
                 extra.append(LoadWarning(
@@ -409,22 +408,33 @@ class VerovioEngravingProvider(EngravingProvider):
         optimize round-trip there is nothing to extend."""
         condense_first = hide_empty_staves and hide_first_system
         tk = self._make_toolkit(prep, params, scale, condense_first)
-        # Under hiding, region measures are filled with invisible notes
-        # so optimize cannot judge their staves empty (2026-08-09;
-        # spikes/region_fill.py). Verovio's input only — the canonical
-        # bytes music21 reads stay untouched, and the decomposer skips
-        # the fill ids, so nothing downstream ever sees them.
-        source = prep.canonical_xml
+        # Region measures are filled with invisible notes (2026-08-09,
+        # 2026-08-31; spikes/region_fill.py, spikes/slash_fill_notes.py).
+        # Two jobs: optimize cannot judge a filled staff empty, and
+        # Verovio spaces the slash notes, so synthesis reads their x
+        # instead of guessing one. Verovio's input only — the canonical
+        # bytes music21 reads stay untouched, and the fill notes become
+        # no element, no note record and no ink.
+        #
+        # The two region kinds part company on WHEN, because they are
+        # here for different jobs. A slash region is filled on EVERY
+        # load — one note per slash unit — since placement has nothing
+        # to do with hiding. A repeat region is filled only under
+        # hiding, where the keep-alive is its whole reason: a filled
+        # repeat measure is no longer empty, so Verovio starts drawing
+        # its own mRpt glyph (found by the bar_repeat fixture). Rule 10
+        # synthesizes the % precisely because Verovio drew nothing, so
+        # that is worth chasing on its own — see BACKLOG, not here.
+        source = region_fill.fill_region_measures(
+            prep.canonical_xml, prep.slash_regions,
+            prep.repeat_regions if hide_empty_staves else ())
         overridden: frozenset = frozenset()
-        if hide_empty_staves:
-            source = region_fill.fill_region_measures(
-                source, (*prep.slash_regions, *prep.repeat_regions))
-            if staff_hides:
-                # AFTER the fill, so a hidden system's fill notes are
-                # stripped back out and optimize hides the staff there
-                source, strip_report = system_hides.strip_hidden_staves(
-                    source, staff_hides)
-                overridden = frozenset(strip_report.stripped)
+        if hide_empty_staves and staff_hides:
+            # AFTER the fill, so a hidden system's fill notes are
+            # stripped back out and optimize hides the staff there
+            source, strip_report = system_hides.strip_hidden_staves(
+                source, staff_hides)
+            overridden = frozenset(strip_report.stripped)
         if not tk.loadData(source):
             raise ValueError(f"Verovio failed to load {score_path}")
         if hide_empty_staves:
@@ -581,12 +591,7 @@ class VerovioEngravingProvider(EngravingProvider):
             # a region staff vanished that the user did NOT hide — the
             # rule-10 fallback (a deliberately hidden span is exempt)
             return None, first_measure   # caller retries flat (rule 10)
-        # Slashes go on the beat columns the other staves already stand
-        # on, so they line up across the system (2026-08-31). Read from
-        # the accumulators, which are still in hand here.
-        columns = beat_columns.build_beat_columns(accumulators, state)
-        elements.extend(synthesis._synthesize_slashes(state, staff_geo,
-                                                      columns))
+        elements.extend(synthesis._synthesize_slashes(state, staff_geo))
         elements.extend(synthesis._synthesize_repeats(state, staff_geo))
         layout = Layout(pages=pages, elements=tuple(elements))
         return records.EngravedScore(

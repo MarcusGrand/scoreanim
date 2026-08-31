@@ -1153,3 +1153,33 @@ of the system stands on.
 - Chord seconds are displaced a notehead-width right (up to 21 units
   spread at one onset), which is why the column is the SMALLEST left
   edge on the beat, not the average.
+
+## Verovio can place the slashes itself (2026-08-31) — spikes/slash_fill_notes.py
+
+Measured after the even-spacing fix still put Nidelven's first slash
+between the key signature and the time signature. Marcus's call: a
+slash should follow the same rules as the quarter note it stands for.
+
+- **An invisible note per slash unit works.** region_fill already put
+  ONE whole-bar invisible note in a slash measure (to keep optimize
+  from hiding the staff); splitting it into one note per slash unit
+  makes Verovio space them as the quarter notes they are. All 68 of
+  Nidelven's fill notes survived to both the timemap and the SVG.
+- **A print-object="no" note still carries full geometry.** It renders
+  as `<g class="note" visibility="hidden">` holding a real notehead
+  `<use>` with its `transform="translate(x, y) scale(...)"` — the same
+  shape the decomposer already parses. Nothing is dropped, so the x is
+  simply readable.
+- **The alignment is then EXACT, not close.** Every slash that shares a
+  beat with a notehead in another staff now sits at 0.00 units from
+  it, against up to 95 with the old arithmetic.
+- The oracle for that has to be the notehead x that MOST of the beat's
+  noteheads share. An interval of a second cannot print on one stem, so
+  Verovio displaces one of the pair a notehead-width off the alignment
+  (testscore m3 beat 4: a B4 left of its own chord's C5) — so neither
+  the smallest nor the largest x is the column.
+- **Filling a bar-repeat measure makes Verovio draw its own mRpt.** The
+  measure is no longer empty, so the importer stops emitting a bare
+  <space>. Rule 10 synthesizes the % precisely because Verovio drew
+  nothing, so this is worth chasing on its own — for now the repeat
+  fill is left exactly as it was (whole-bar, hiding only).

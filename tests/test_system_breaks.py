@@ -253,7 +253,7 @@ def test_hide_unavailable_retry_carries_the_overrides(monkeypatch) -> None:
     testscore at all, so this pin disables the fill to reach it."""
     from scoreanim.core.engraving.verovio import region_fill
     monkeypatch.setattr(region_fill, "fill_region_measures",
-                        lambda xml, regions: xml)
+                        lambda xml, *regions: xml)
     out = _load(TESTSCORE, hide_empty_staves=True,
                 system_breaks={3: SystemBreak.FORCE})
     codes = [w.code for w in out.warnings]

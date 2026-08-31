@@ -292,6 +292,24 @@ double-click-to-edit has its own resolver that also reaches stage
 texts. Stage texts are editable but never selectable (they carry no
 measure/part). Do not merge the paths.
 
+**Ask the engraver where things go; do not compute it.** When we need
+a position Verovio never gave us, the move is to put something in the
+score for it to lay out and read the answer back — not to work the
+number out ourselves. Slashes were placed by our own arithmetic for a
+year, and it was wrong twice: spread evenly across the bar (so they
+drifted off the beats), then spread evenly with a beat-column
+correction (which still had nothing to stand on in a bar where no
+other staff plays, and put Nidelven's first slash between the key and
+time signatures). The fix was to stop computing: `region_fill` puts an
+invisible `print-object="no"` note in the score for every slash unit,
+Verovio spaces them as the quarter notes they are, and the decomposer
+keeps their geometry in `_LoadState.fill_geometry` for synthesis to
+stand a glyph on. The alignment went from "within 95 units" to exactly
+0.00. An invisible note keeps full geometry in the SVG (a `<g
+class="note" visibility="hidden">` with a real notehead `<use>`), so
+nothing is lost by hiding it. The same door is still open for bar
+repeats (BACKLOG).
+
 ## Traps (each of these has already cost a debugging session)
 
 - **The applier's pre-roll time is `-inf`.** `AnimationApplier._t`

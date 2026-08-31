@@ -1414,3 +1414,40 @@ lines — history lives in git and `docs/history/`.
   slash element, with nothing else moved, added, removed or reordered.
   On `fix/slash-alignment`, full suite 2555 green, waiting for Marcus's
   in-app check (bigband / testscore drum staff against the horns).
+- 2026-08-31: **The slashes are placed by Verovio now, not by us.** The
+  even-spacing fix earlier today was still our own arithmetic, and on
+  Nidelven it put bar 1's first slash between the key signature and the
+  time signature — nothing in that bar anchors a beat (every other part
+  has a whole-bar rest), so the fallback spread them across the staff
+  bbox, prefix and all. Marcus's call: a slash should follow the same
+  rules as the quarter note it stands for. So the special rules are
+  gone — `beat_columns.py` is deleted, and with it the interpolation and
+  the even spread. `region_fill` already put ONE invisible whole-bar
+  note in a slash measure to keep optimize from hiding the staff; it now
+  puts one per slash unit, Verovio spaces them as the quarter notes they
+  are, the decomposer keeps their geometry in `_LoadState.fill_geometry`
+  (it walks them into a throwaway accumulator, so no element, no note
+  record and no ink, and the drawables accounting still balances), and
+  synthesis stands a slash glyph on each. The alignment against the
+  other staves is now EXACT — 0.00 units, against up to 95 before. The
+  fill runs on every load, not only under hiding, because placement has
+  nothing to do with hiding. Two things it does NOT change: bar repeats
+  (still one whole-bar note, still a centred synthesized `%`) and a bar
+  whose duration does not divide by the slash unit (one whole-bar note,
+  and that measure falls back to the even spread — the one path that
+  keeps it reachable). Two findings out of it: filling a repeat measure
+  makes Verovio draw its own `mRpt`, so rule 10's `%` synthesis may be
+  replaceable the same way (BACKLOG); and triplet_error stops
+  triggering the stolen-decoration-ink artifact, because the fill notes
+  change which ids Verovio reuses — the outcome is unchanged and the
+  four outcome tests still pass, but the reclaim pass lost its only
+  real-Verovio exercise, so `test_tuplet_reclaim` now pins it on a
+  whole-bar-filled load (a live path — it is how repeats are filled).
+  12 new tests, `test_beat_columns.py` deleted. Goldens re-captured with
+  Marcus's approval: testscore moves 95% of its elements because a bar
+  with four slashes now gets the width four beats need, triplet_error
+  16%, the two video_test 3%, the other 9 byte-identical; nothing added
+  or removed but video_test_flat's Drums m23 dashed bracket, which
+  video_test_hidden already carried. On `fix/slash-alignment`, waiting
+  for Marcus's in-app check (Nidelven bar 1, and the drum staff against
+  the horns in bigband / testscore).

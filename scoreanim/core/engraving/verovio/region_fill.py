@@ -1,27 +1,33 @@
-"""Keep slash/repeat-region staves visible under optimize (2026-08-09).
+"""Invisible notes standing in for a slash or bar-repeat region.
 
-Verovio's empty-staff hiding (scoreDef@optimize) judges a staff by its
-notes, and a slash or bar-repeat region imports as empty <space> — so
-the moment a system holds only region measures of a staff, optimize
-hides it, the rule-10 guard fires, and the provider used to give up
-hiding for the WHOLE score ("hide-unavailable"). A user system break
-that isolated a region measure could flip a working score into that
-state after the fact.
+Verovio draws nothing for either region kind — both import as empty
+<space> (rule 10) — which used to cost us two different things.
 
-The fix, measured in spikes/region_fill.py: an INVISIBLE note keeps
-the staff alive under optimize where an invisible rest does not
-(optimize exists precisely to hide resting staves). Each whole-bar
-<forward> in a region measure is replaced by a pitched note carrying
-print-object="no" — Verovio turns that into MEI @visible="false" and
-draws the group visibility="hidden", so no ink appears.
+First, empty-staff hiding. scoreDef@optimize judges a staff by its
+notes, so the moment a system held only region measures of a staff,
+optimize hid it, the rule-10 guard fired, and the provider gave up
+hiding for the WHOLE score ("hide-unavailable"). Measured in
+spikes/region_fill.py: an INVISIBLE note keeps the staff alive where an
+invisible rest does not (optimize exists precisely to hide resting
+staves).
+
+Second, and why the fill now runs on every load rather than only under
+hiding (2026-08-31): WHERE the slashes go. We used to compute that
+ourselves, and our arithmetic put Nidelven's first slash between the
+key signature and the time signature. A slash follows the same rules as
+the quarter note it stands for, so we let Verovio place it: a slash
+region is filled with one invisible note PER SLASH UNIT, and synthesis
+reads each slash's x off the note Verovio laid out for it. A bar-repeat
+region is still filled whole-bar — a % is centred in its bar and needs
+the keep-alive only.
 
 This transform feeds VEROVIO ONLY. It never touches
 PreparedScore.canonical_xml: music21 reads those bytes too, and a fill
 note there would join as a phantom onset. The fill notes carry minted
 ids under FILL_ID_PREFIX (MusicXML @id survives to MEI xml:id and into
-the SVG — measured), and the decomposer skips that prefix wholesale,
-so no element, no note record and no stray ink ever reaches the
-pipeline. The rule-10 guard stays behind this as a safety net.
+the SVG — measured); the decomposer emits no element, no note record
+and no ink for them, and records their geometry alone. The rule-10
+guard stays behind this as a safety net.
 """
 from __future__ import annotations
 
@@ -30,36 +36,89 @@ import xml.etree.ElementTree as ET
 FILL_ID_PREFIX = "scoreanim-fill-"
 
 
-def fill_region_measures(xml: str, regions) -> str:
+def slash_fill_id(part, measure: int, index: int) -> str:
+    """The id of the note standing in for slash `index` of a measure.
+    Synthesis looks the geometry up under this name, so the two sides
+    have to spell it the same way — hence one function."""
+    return f"{FILL_ID_PREFIX}{part}-m{measure}-slash{index}"
+
+
+def fill_region_measures(xml: str, slash_regions=(),
+                         repeat_regions=()) -> str:
     """The canonical bytes with every region measure's whole-bar
-    <forward> replaced by an invisible note of the same duration (the
-    measure sum is untouched). Returns the input unchanged when there
-    is nothing to fill. Pure — deterministic ids, no state."""
-    if not regions:
+    <forward> replaced by invisible notes of the same total duration
+    (the measure sum is untouched). A slash region gets one note per
+    slash unit, named by `slash_fill_id`; a bar-repeat region gets one
+    for the whole bar. Returns the input unchanged when there is
+    nothing to fill. Pure — deterministic ids, no state."""
+    if not slash_regions and not repeat_regions:
         return xml
     root = ET.fromstring(xml)
     parts = {p.get("id", ""): p for p in root.findall("part")}
     filled = 0
-    for region in regions:
-        part = parts.get(str(region.part))
-        if part is None:
-            continue
-        measures = part.findall("measure")
-        pitches = _middle_line_pitches(measures)
-        for ordinal in range(region.start_measure,
-                             min(region.stop_measure, len(measures) + 1)):
-            measure = measures[ordinal - 1]
-            for k, fwd in enumerate(measure.findall("forward")):
-                duration = fwd.findtext("duration")
-                if duration is None:
-                    continue
-                index = list(measure).index(fwd)
-                measure.remove(fwd)
-                measure.insert(index, _invisible_note(
-                    f"{FILL_ID_PREFIX}{region.part}-m{ordinal}-{k}",
-                    duration, pitches[ordinal - 1]))
-                filled += 1
+    for region in slash_regions:
+        filled += _fill_region(parts, region, per_unit=True)
+    for region in repeat_regions:
+        filled += _fill_region(parts, region, per_unit=False)
     return ET.tostring(root, encoding="unicode") if filled else xml
+
+
+def _fill_region(parts, region, per_unit: bool) -> int:
+    part = parts.get(str(region.part))
+    if part is None:
+        return 0
+    measures = part.findall("measure")
+    pitches = _middle_line_pitches(measures)
+    divisions = _divisions_per_measure(measures)
+    filled = 0
+    for ordinal in range(region.start_measure,
+                         min(region.stop_measure, len(measures) + 1)):
+        measure = measures[ordinal - 1]
+        pitch = pitches[ordinal - 1]
+        unit = _unit_duration(region, divisions[ordinal - 1]) if per_unit else 0
+        slot = 0
+        for k, fwd in enumerate(measure.findall("forward")):
+            total = int(float(fwd.findtext("duration") or 0))
+            if total <= 0:
+                continue
+            index = list(measure).index(fwd)
+            measure.remove(fwd)
+            # One note per slash unit where the bar divides evenly. It
+            # does in every fixture; a bar that does not (an odd meter
+            # against the slash unit) keeps one whole-bar note under the
+            # plain name, which synthesis will not find — so that
+            # measure falls back to spreading its slashes evenly.
+            exact = bool(unit) and total % unit == 0
+            count = total // unit if exact else 1
+            duration = str(total // count)
+            for j in range(count):
+                name = (slash_fill_id(region.part, ordinal, slot + j)
+                        if per_unit and exact
+                        else f"{FILL_ID_PREFIX}{region.part}-m{ordinal}-{k}")
+                measure.insert(index + j,
+                               _invisible_note(name, duration, pitch))
+            slot += count
+            filled += 1
+    return filled
+
+
+def _unit_duration(region, divisions: int) -> int:
+    """The slash unit in MusicXML duration units, or 0 when it does not
+    land on a whole number of them."""
+    exact = divisions * region.slash_unit_quarters
+    return int(round(exact)) if abs(exact - round(exact)) < 1e-6 else 0
+
+
+def _divisions_per_measure(measures) -> list[int]:
+    """<divisions> in force in each measure. It is stated once and
+    carries forward, so a region measure usually does not restate it."""
+    divisions = 1
+    out: list[int] = []
+    for measure in measures:
+        for d in measure.iter("divisions"):
+            divisions = int(float(d.text or 1))
+        out.append(divisions)
+    return out
 
 
 # Diatonic scale for clef arithmetic (index = step within an octave).

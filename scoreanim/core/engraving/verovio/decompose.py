@@ -137,10 +137,27 @@ class _PageDecomposer:
                 cid = child.get(_XML_ID) or child.get("id")
                 if cid and cid.startswith(FILL_ID_PREFIX):
                     # region-fill scaffolding (2026-08-09): an invisible
-                    # note that exists only so optimize keeps a slash/
+                    # note that keeps optimize from hiding a slash/
                     # repeat staff — never an element, never a note
-                    # record, never counted ink. Skipping the subtree
-                    # keeps the drawables accounting balanced too.
+                    # record, never ink on the page. Its GEOMETRY is
+                    # kept, though (2026-08-31): it is where Verovio
+                    # placed the beat, and synthesis stands the slash
+                    # there. The walk goes through a throwaway
+                    # accumulator so the bbox is built the same way
+                    # every other element's is, and so the drawables
+                    # accounting stays balanced. A fill note is never a
+                    # container, so the walk's incoming context is
+                    # already its own.
+                    scaffold = _ElementAccumulator(
+                        verovio_id=cid, svg_class=cls,
+                        kind=ElementKind.OTHER, measure=measure,
+                        staff=staff, layer=layer, owner_onset=None,
+                        system=system)
+                    self._walk(child, child_ctm, scaffold, measure, staff,
+                               layer, owner_onset, system)
+                    if scaffold.bbox is not None:
+                        st.fill_geometry[cid] = (self.page, system,
+                                                 scaffold.bbox)
                     continue
                 new_measure, new_staff, new_layer = measure, staff, layer
                 new_owner, new_owner_onset = owner, owner_onset

@@ -90,6 +90,13 @@ class _LoadState:
     # which Verovio SUPPRESSES when an injected group overlaps them)
     staff_centers_by_system: dict[int, dict[int, float]] = \
         field(default_factory=dict)
+    # region-fill note id → (page, system, bbox): where Verovio laid out
+    # the invisible note standing in for a slash (2026-08-31). The fill
+    # notes never become elements, so this geometry is all that leaves
+    # them; synthesis reads it to place the slash Verovio drew nothing
+    # for. Written by the decomposer.
+    fill_geometry: dict[str, tuple[int, int | None, Rect]] = \
+        field(default_factory=dict)
     system_count: int = 0                    # score-wide, across pages
     system_of_measure: dict[int, int] = field(default_factory=dict)
     # FINDING-4 (2026-07-23): kind → part id → measure ordinals whose

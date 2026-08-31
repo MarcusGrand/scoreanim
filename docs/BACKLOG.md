@@ -694,6 +694,31 @@ scale-to-fit). Parked:
     per-element overrides, so it is a real design question rather than a
     predicate change. Left until a score actually shows the problem.
 
+## Bar repeats may not need synthesizing (2026-08-31)
+
+Rule 10 says Verovio draws nothing for a `<measure-repeat>` — it imports
+as an empty `<space>` — which is why the adapter synthesizes the `%`
+glyph itself. That turns out to be true only while the measure IS empty.
+Filling a repeat measure with an invisible note, the way the slash fill
+does, makes Verovio draw its own `mRpt`: the bar_repeat fixture started
+raising "unknown SVG class 'mRpt' with drawable content" the moment the
+fill ran on it.
+
+That is the same door the slashes just went through. Slash placement was
+our own arithmetic until 2026-08-31, when the fill let Verovio place
+them instead and the hand-rolled rules were deleted; the `%` looks like
+the next one. A real `mRpt` would be correctly sized, correctly centred
+and correctly spaced for free, and `_synthesize_repeats` plus the
+hand-drawn `_REPEAT_D` path would go with it.
+
+Not done here because it is a separate change with its own golden
+movement, and because it needs three answers first: what the element's
+identity and onset become when Verovio owns the glyph (today the id is
+minted `{part}:m{n}:barrepeat` and the onset is the downbeat), whether
+multi-bar repeats (`<measure-repeat>2`) draw too, and whether rule 10
+should be reworded or narrowed to slashes. The `mRpt` class also has to
+be added to the kinds table, or strict loads keep raising.
+
 ## Deferred (from docs/history/PHASES.md "Later")
 
 Continuous-scroll presentation; glow (needs perf spike); audio-to-score

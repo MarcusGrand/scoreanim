@@ -213,9 +213,14 @@ def test_layout_and_join_census(engraved_video, video_join_mapping):
     # 13 continuation segments (10R.3), plus the page-scoped elements
     # repagination re-scopes (re-derived below at 15 pages), minus the
     # drum staff's 15 key signatures — one per system, suppressed
-    # 2026-08-09.
+    # 2026-08-09 — plus ONE (2026-08-31): the Drums m23 dashed bracket.
+    # It is real encoded ink that Verovio could never anchor while that
+    # measure was empty; the slash fill gives it something to hang on,
+    # so it draws. The hidden fixture has had it since 2026-08-09 — the
+    # flat one only now, because the fill used to run under hiding
+    # alone.
     assert len(engraved_video.layout.pages) == 15
-    assert len(engraved_video.layout.elements) == 4620
+    assert len(engraved_video.layout.elements) == 4621
     assert len(engraved_video.note_records) == 1368
     # complete bijection: every ScoreNote joined to exactly one notehead
     assert len(video_join_mapping) == 1368

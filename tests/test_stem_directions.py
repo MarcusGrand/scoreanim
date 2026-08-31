@@ -396,7 +396,7 @@ def test_the_hide_unavailable_retry_carries_the_flips(monkeypatch):
     so this pin disables the fill to reach it."""
     from scoreanim.core.engraving.verovio import region_fill
     monkeypatch.setattr(region_fill, "fill_region_measures",
-                        lambda xml, regions: xml)
+                        lambda xml, *regions: xml)
     engraved = VerovioEngravingProvider().load_detailed(
         TESTSCORE, EngravingParams(), hide_empty_staves=True)
     assert "hide-unavailable" in {w.code for w in engraved.warnings}
