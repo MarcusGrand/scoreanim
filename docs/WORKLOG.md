@@ -1451,3 +1451,9 @@ lines — history lives in git and `docs/history/`.
   video_test_hidden already carried. On `fix/slash-alignment`, waiting
   for Marcus's in-app check (Nidelven bar 1, and the drum staff against
   the horns in bigband / testscore).
+- 2026-09-01: `testdata/Nidelven.musicxml` committed as a fixture, so
+  the bar-1 slash regression is checked everywhere instead of skipping
+  off Marcus's machine. It is the only fixture whose opening bar carries
+  a clef/key/time prefix AND anchors no beat in any part — the shape the
+  old arithmetic broke on. Loaded strict (rule 4); it decomposes clean.
+  Full suite 2554 green with it running for real.

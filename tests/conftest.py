@@ -60,8 +60,9 @@ BIGBAND_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
 COMPLEX3_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
     "complex3.musicxml"
 # Slash-placement regression (2026-08-31): bar 1 opens a system with a
-# clef/key/time prefix and no beat-anchoring ink anywhere in it. Marcus's
-# own working score, not a committed fixture, so skip-if-absent.
+# clef/key/time prefix and no beat-anchoring ink anywhere in it — every
+# part but the drums has a whole-bar rest, so nothing in that bar places
+# a beat. Skip-if-absent, like complex3: large production score.
 NIDELVEN_SCORE = Path(__file__).resolve().parent.parent / "testdata" / \
     "Nidelven.musicxml"
 # 3-bar "X0"-pickup unit fixture for the measure-identity invariant.
@@ -176,12 +177,13 @@ def engraved_nidelven() -> EngravedScore:
     # The score the slash-placement bug was reported on (2026-08-31):
     # bar 1 opens a system with clef, key and time, and every part but
     # the drums has a whole-bar rest — so nothing in that bar anchors a
-    # beat, which is what the old arithmetic tripped over. Marcus's own
-    # working score, not a committed fixture, so skip-if-absent.
+    # beat, which is what the old arithmetic tripped over. Strict (the
+    # pytest default, rule 4): it decomposes clean, so a new coverage
+    # gap here should fail rather than degrade quietly.
     if not NIDELVEN_SCORE.exists():
         pytest.skip("Nidelven.musicxml fixture not present")
     return VerovioEngravingProvider().load_detailed(
-        NIDELVEN_SCORE, EngravingParams(), strict=False)
+        NIDELVEN_SCORE, EngravingParams())
 
 
 @pytest.fixture(scope="session")
