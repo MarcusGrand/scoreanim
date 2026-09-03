@@ -96,3 +96,21 @@ def test_property_boundary_continuity() -> None:
             below = tm.seconds_at(ev.position - 1e-9)
             at = tm.seconds_at(ev.position)
             assert abs(at - below) < 1e-6
+
+
+def test_value_equality_over_events() -> None:
+    """A fresh map built from the same events is the same map — that is
+    what lets the applier skip re-timing on every document change."""
+    events = [TempoEvent(0.0, 120.0), TempoEvent(8.0, 60.0)]
+    assert TempoMap(events) == TempoMap(list(events))
+    # order in does not matter: the events are sorted at construction
+    assert TempoMap(events) == TempoMap(list(reversed(events)))
+    assert hash(TempoMap(events)) == hash(TempoMap(list(events)))
+
+
+def test_value_equality_sees_a_changed_map() -> None:
+    base = TempoMap([TempoEvent(0.0, 120.0), TempoEvent(8.0, 60.0)])
+    assert base != TempoMap([TempoEvent(0.0, 121.0), TempoEvent(8.0, 60.0)])
+    assert base != TempoMap([TempoEvent(0.0, 120.0), TempoEvent(9.0, 60.0)])
+    assert base != TempoMap([TempoEvent(0.0, 120.0)])
+    assert base != "not a tempo map"

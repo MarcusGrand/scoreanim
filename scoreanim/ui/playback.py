@@ -119,15 +119,26 @@ class PlaybackController(QObject):
         """Retime the animation from the document's timing intent (called
         on every document change — edits, previews, undo). The offset is
         the audio time of beat 0 (never TempoMap's business). The tempo
-        map + measures also give the no-audio timeline its length."""
+        map + measures also give the no-audio timeline its length.
+
+        The applier refreshes itself when the timing really moves, so
+        the refresh here is only for the case where it did NOT and the
+        offset alone changed — every element then sits at a new score
+        time. When nothing moved at all there is nothing to redraw
+        (code review 2026-09-03, D3: this was a second full refresh on
+        top of the applier's own, on every edit)."""
+        moved = (offset_seconds != self._offset_seconds
+                 or tempo_map != self._tempo_map
+                 or tuple(swing) != tuple(self._swing))
         self._offset_seconds = offset_seconds
         self._tempo_map = tempo_map
-        self._swing = swing
+        self._swing = tuple(swing)
         if self._applier is not None:
             self._applier.set_timing(tempo_map, swing)
         self._push_audio()               # the offset may have moved too
         self._emit_duration_if_no_audio()
-        self._refresh()
+        if moved:
+            self._refresh()
 
     def set_peaks(self, peaks: PeakCache | None) -> None:
         """The decoded recording, for the volume response. None is no

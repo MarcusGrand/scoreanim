@@ -56,6 +56,20 @@ class TempoMap:
     def events(self) -> tuple[TempoEvent, ...]:
         return self._events
 
+    # Two maps built from the same events ARE the same map. The UI
+    # rebuilds a fresh TempoMap on every document change, so without
+    # this the applier would re-time the whole score on every edit
+    # (code review 2026-09-03, D3). The events are sorted and
+    # de-duplicated at construction, so the tuple compares cleanly and
+    # everything else on the object is derived from it.
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TempoMap):
+            return NotImplemented
+        return self._events == other._events
+
+    def __hash__(self) -> int:
+        return hash(self._events)
+
     def seconds_at(self, beats: Beats) -> float:
         i = max(0, bisect_right(self._beats, beats) - 1)
         return self._secs[i] + (beats - self._beats[i]) * self._spb[i]

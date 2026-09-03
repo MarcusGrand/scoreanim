@@ -1457,3 +1457,12 @@ lines — history lives in git and `docs/history/`.
   a clef/key/time prefix AND anchors no beat in any part — the shape the
   old arithmetic broke on. Loaded strict (rule 4); it decomposes clean.
   Full suite 2554 green with it running for real.
+- 2026-09-03: `perf/timing-early-out` — a document change that does not
+  move the timing no longer re-times the animation (code review D3).
+  `TempoMap` got value equality (the window builds a fresh map on every
+  change, so identity was never going to match), `set_timing` returns
+  early when the map and swing are unchanged, and
+  `PlaybackController.set_timing_config` only refreshes when the offset,
+  map or swing actually moved. Measured on complex2 (1214 triggers):
+  a no-op `set_timing_config` was 200 ms (783 ms on one run), now 0.0 ms;
+  a real bpm change still costs its 144 ms. Full suite 2562 green.

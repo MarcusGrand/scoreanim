@@ -140,7 +140,19 @@ class AnimationApplier:
         upstream of the tempo map (core/timing/swing.py). Both stages are
         strictly monotone, so the sorted-trigger bisect logic is
         untouched. Note-value stretches re-time here too (M4.6): the
-        windows recompute from the new seconds axis."""
+        windows recompute from the new seconds axis.
+
+        Nothing to do when the timing has not moved: the window has
+        already rebuilt a fresh TempoMap for the same events, and
+        re-resolving every trigger on every keystroke was the ~470 ms
+        per edit on a big score (code review 2026-09-03, D3). The first
+        call always runs — no map is applied yet — and so does the one
+        after a schedule swap, which clears the map for exactly that
+        reason (see `set_schedule`)."""
+        if (self._tempo_map is not None
+                and tempo_map == self._tempo_map
+                and tuple(swing) == self._swing):
+            return
         self._tempo_map = tempo_map
         self._swing = tuple(swing)
         self._trigger_seconds = resolve_seconds(

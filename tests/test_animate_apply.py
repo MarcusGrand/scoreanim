@@ -3,6 +3,7 @@ statelessness under scrubbing, at-onset inclusivity, tie behavior, pages."""
 
 import os
 import random
+from dataclasses import replace
 
 import pytest
 
@@ -1633,3 +1634,45 @@ def test_a_key_signature_never_slides(scenes, schedule) -> None:
         assert scenes.items[sig].animated_offset == (0.0, 0.0), t
     applier.refresh(trig_s)
     assert scenes.items[head].animated_offset != (0.0, 0.0)
+
+
+# -- set_timing does nothing when the timing did not move (D3) --------------
+
+def test_set_timing_no_ops_on_an_equal_map(scenes, schedule) -> None:
+    """The window builds a FRESH TempoMap on every document change, so
+    the guard has to compare by value, not by identity. Same events in
+    means the resolved seconds are left exactly as they are."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, StyleRules())
+    resolved = applier._trigger_seconds
+    applier.set_timing(TempoMap([TempoEvent(0.0, 120.0)]))
+    assert applier._trigger_seconds is resolved
+
+
+def test_set_timing_re_resolves_when_the_bpm_moves(scenes, schedule) -> None:
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, StyleRules())
+    resolved = applier._trigger_seconds
+    applier.set_timing(TempoMap([TempoEvent(0.0, 60.0)]))
+    assert applier._trigger_seconds is not resolved
+    assert applier._trigger_seconds != resolved
+
+
+def test_set_timing_re_resolves_when_swing_moves(scenes, schedule) -> None:
+    from scoreanim.core.timing import SwingRegion
+
+    region = SwingRegion((0.0, 8.0), 0.667)
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, StyleRules())
+    applier.set_timing(TEMPO, (region,))
+    swung = applier._trigger_seconds
+    applier.set_timing(TEMPO, (region,))          # same swing: no-op
+    assert applier._trigger_seconds is swung
+    applier.set_timing(TEMPO)                      # swing removed: re-resolve
+    assert applier._trigger_seconds is not swung
+
+
+def test_a_schedule_swap_still_re_times(scenes, schedule) -> None:
+    """set_schedule clears the map before calling set_timing, so the
+    new rows always get resolved — the guard must not swallow that."""
+    applier = AnimationApplier(scenes.items, schedule, TEMPO, StyleRules())
+    trimmed = replace(schedule, triggers=schedule.triggers[:-1])
+    applier.set_schedule(trimmed)
+    assert len(applier._trigger_seconds) == len(trimmed.triggers)

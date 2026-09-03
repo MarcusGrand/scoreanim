@@ -10,7 +10,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from scoreanim.core.score.model import MeasureInfo
-from scoreanim.core.timing import TempoMap
+from scoreanim.core.timing import SwingRegion, TempoMap
 from scoreanim.core.timing.tempo_map import TempoEvent
 from scoreanim.ui.playback import PlaybackController
 from scoreanim.ui.wall_clock import WallClock
@@ -154,3 +154,46 @@ def test_a_freshly_loaded_score_gets_the_recording_it_already_has(
     applier = _FakeApplier()
     controller.set_animation(applier, _measures())
     assert applier.audio[-1][0] is cache
+
+
+# -- an edit that did not move the timing does not redraw (D3) -------------
+
+def test_unchanged_timing_config_does_not_refresh(qapp) -> None:
+    """The window rebuilds the timing config on EVERY document change —
+    a colour tint, a keystroke, each frame of a drag. When nothing about
+    the timing moved there is nothing to redraw."""
+    controller = PlaybackController()
+    applier = _FakeApplier()
+    controller.set_animation(applier, _measures())
+    controller.set_timing_config(0.0, TempoMap([TempoEvent(0.0, 120.0)]))
+    seen = []
+    controller.duration_changed.connect(seen.append)
+    applier.refreshed.clear()
+    applier.audio.clear()
+
+    # a FRESH map with the same events, as the window builds it
+    controller.set_timing_config(0.0, TempoMap([TempoEvent(0.0, 120.0)]))
+    assert applier.refreshed == []
+    # the recording pairing and the duration signal are unchanged
+    assert applier.audio == [(None, 0.0)]
+    assert seen == [pytest.approx(8.0)]
+
+
+def test_a_moved_offset_or_tempo_still_refreshes(qapp) -> None:
+    controller = PlaybackController()
+    applier = _FakeApplier()
+    controller.set_animation(applier, _measures())
+    controller.set_timing_config(0.0, TempoMap([TempoEvent(0.0, 120.0)]))
+
+    applier.refreshed.clear()
+    controller.set_timing_config(1.5, TempoMap([TempoEvent(0.0, 120.0)]))
+    assert len(applier.refreshed) == 1        # the offset moved
+
+    applier.refreshed.clear()
+    controller.set_timing_config(1.5, TempoMap([TempoEvent(0.0, 90.0)]))
+    assert len(applier.refreshed) == 1        # the tempo moved
+
+    applier.refreshed.clear()
+    controller.set_timing_config(1.5, TempoMap([TempoEvent(0.0, 90.0)]),
+                                 (SwingRegion((0.0, 8.0), 0.667),))
+    assert len(applier.refreshed) == 1        # the swing moved
